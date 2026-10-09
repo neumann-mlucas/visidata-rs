@@ -1,0 +1,9 @@
+[package]
+name = "visidata-rs"
+version = "0.0.0"
+edition = "2024"
+description = "Modal terminal data explorer. Polars + Ratatui + mlua. Pre-alpha."
+license = "GPL-3.0-or-later"
+rust-version = "1.85"
+
+[dependencies]
