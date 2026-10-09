@@ -8,9 +8,9 @@ File naming: `S-NN-slug.md`. None exist yet.
 |---|---|---|---|
 | S-00 | Direction & scope | — | approved → see `../direction.md` |
 | S-01 | Core data model: Sheet, Column, DataFrame binding | 0 | draft → [`S-01-core-data-model.md`](S-01-core-data-model.md) |
-| S-02 | Ratatui app loop & Model/Update/View shape | 0 | not-started |
-| S-03 | Reader interface (CSV / Parquet / Arrow in Phase 0) | 0 | not-started |
-| S-04 | Keybinding model & prefix maps | 0 | not-started |
+| S-02 | Ratatui app loop & Model/Update/View shape | 0 | draft → [`S-02-app-loop.md`](S-02-app-loop.md) |
+| S-03 | Reader interface (CSV / Parquet / Arrow in Phase 0) | 0 | draft → [`S-03-reader-interface.md`](S-03-reader-interface.md) |
+| S-04 | Keybinding model & prefix maps | 0 | draft → [`S-04-keybindings.md`](S-04-keybindings.md) |
 | S-05 | Type-system adapter over Polars dtypes | 1 | not-started |
 | S-06 | Ex-line grammar | 1 | not-started |
 | S-07 | Pivot / melt UX + LazyFrame construction | 2 | not-started |

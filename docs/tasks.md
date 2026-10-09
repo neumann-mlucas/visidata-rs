@@ -3,15 +3,25 @@
 Phase-ordered punchlist. `[spec?]` = a spec must land before starting (see `specs/`).
 
 ## Phase 0 — viewer parity (csvlens++)
-- [ ] [spec?] CSV/TSV reader via Polars `scan_csv`
-- [ ] [spec?] Parquet reader via Polars `scan_parquet`
-- [ ] [spec?] Arrow IPC reader
-- [ ] [spec?] Ratatui app loop (Model/Update/View, render-on-event)
-- [ ] Scrollable table widget over DataFrame
-- [ ] Column freeze
+- [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) → canonical TOML
+- [ ] CSV/TSV reader via Polars `scan_csv` (S-03)
+- [ ] Parquet reader via Polars `scan_parquet` (S-03)
+- [ ] Arrow IPC reader (S-03)
+- [ ] JSON Lines reader (S-03)
+- [ ] stdin reader with `SeekableFile` tempfile fallback (S-03)
+- [ ] Ratatui app loop with `tokio::select!` + crossterm `EventStream` (S-02)
+- [ ] `Action` enum with `affects_data()` + serde snake_case (S-02)
+- [ ] Materialize task: `plan.slice(offset, WINDOW).collect()` on tokio task; cancel-and-replace on window slide (S-02)
+- [ ] Panic hook: restore terminal, abort cleanly (S-02)
+- [ ] Sheet stack: `Vec<Sheet>` + `q` to pop; sheet-switcher sheet (S-02)
+- [ ] Keymap loader: parse TOML, build `Keymap` with per-layer chord vecs (S-04)
+- [ ] Chord resolver + which-key overlay with 1000 ms timeout (S-04)
+- [ ] Count prefix (`3j`) with digit-vs-command resolution rules + tests (S-04)
+- [ ] `.` repeat capturing resolved `Action` (S-04)
+- [ ] Scrollable table widget over `window` DataFrame
+- [ ] Column freeze (left-pinned)
 - [ ] Substring search `/` with next/prev
 - [ ] Row filter by regex on current column
-- [ ] crossterm input + keybind dispatcher w/ `g` / `z` prefix maps
 - [ ] Hardcoded color scheme (user-override comes with plugin system)
 
 ## Phase 1 — types, sort, freq, ex-line
