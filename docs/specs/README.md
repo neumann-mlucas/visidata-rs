@@ -7,7 +7,7 @@ File naming: `S-NN-slug.md`. None exist yet.
 | ID | Title | Phase | Status |
 |---|---|---|---|
 | S-00 | Direction & scope | — | approved → see `../direction.md` |
-| S-01 | Core data model: Sheet, Column, DataFrame binding | 0 | not-started |
+| S-01 | Core data model: Sheet, Column, DataFrame binding | 0 | draft → [`S-01-core-data-model.md`](S-01-core-data-model.md) |
 | S-02 | Ratatui app loop & Model/Update/View shape | 0 | not-started |
 | S-03 | Reader interface (CSV / Parquet / Arrow in Phase 0) | 0 | not-started |
 | S-04 | Keybinding model & prefix maps | 0 | not-started |

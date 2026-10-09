@@ -156,13 +156,18 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 
 ---
 
-## 9. Open questions — your call before anything builds
+## 9. Decisions (locked 2026-10-08)
 
-1. **Scope framing.** Direct VisiData successor (aim for feature parity, win the users), or "new product with VisiData's taste" (ship what matters, ignore the long tail)? These are different projects.
-2. **Audience.** Pitch to current VisiData users (migration path matters, keymap compat matters), or to new terminal-data users (freedom to pick better defaults)?
-3. **Engine commitment.** Polars-only through Phase 3, or dual-engine (Polars + DuckDB) from Phase 1? Dual costs us a backend-abstraction layer we don't need yet but gets us pivot-OOC earlier.
-4. **Config shape.** Pure `init.lua` (Neovim model, everything is code), or `init.lua` + a declarative TOML/KDL for simple settings (lower barrier, but two systems)?
-5. **Compat.** Any obligation to `.vdj` replay, `.visidatarc` import, or VisiData keymap defaults? "Zero compat" is the lazy answer; it also loses the existing user base.
-6. **Name + lane framing.** VisiData successor branding, or clean break? Determines positioning, marketing, docs tone.
+1. **Scope**: new product with VisiData's **shape**. Not feature-parity, not a blank-slate "what if a spreadsheet in a terminal?" — the modal flow, g/z prefixes, and command vocabulary are the taste we keep.
+2. **Audience**: primary user is a heavy VisiData user (the person commissioning this). Build-for-me first; broader terminal-data users are secondary. **Implication**: default keymap must feel like VisiData from keystroke 1 even without a compat layer — muscle memory is the UX contract, which is stricter than "generic vim-ish."
+3. **Engine**: Polars only, all phases. DuckDB backend dropped. Revisit only if we hit a Polars OOC wall we can't engineer around.
+4. **Config**: pure `init.lua`. No TOML/KDL layer.
+5. **Compat**: zero. No `.vdj`, no `.visidatarc` import, no reading VisiData state files. Data files are shared; everything else starts fresh.
+6. **Name**: codename `visidata-rs`; final name deferred. Decide before public release.
 
-Answer these and the next step is a Phase 0 spec + repo scaffold. Don't need to answer all six — 1, 3, 5 are load-bearing; 2, 4, 6 can slide.
+### Deltas these cause in earlier sections
+
+- §1 keymap row: not just "modal, g/z prefixes" — the specific VisiData default bindings become the baseline that S-04 (keybindings) must respect. Deviations need an explicit justification, not the other way around.
+- §5 bet #4 (ex-line) bumped in priority. A daily VisiData user doesn't leave the keyboard; ex-line + `.` repeat is leverage that compounds.
+- §1 and §5 DuckDB-related rows drop. Simpler Phase 2.
+- §8 Polars OOC risk no longer mitigated by "ship DuckDB" — mitigation now is "when a user hits it, add DuckDB then." Deferred, not pre-paid.
