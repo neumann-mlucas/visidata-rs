@@ -137,7 +137,6 @@ pr2647
 join-different-types
 join-non-unique-cols
 join-cols-single-sheet
-pivot-noaggr
 freq-same-int
 edit-type
 errors-311

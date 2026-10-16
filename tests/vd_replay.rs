@@ -301,6 +301,11 @@ impl Replay {
                 self.push_sheet(name, new);
                 Ok(())
             }
+            // VisiData `W` pivot with no keys = 1-row transposed count: distinct
+            // values of current col become headers, cell = count of that value.
+            // First-seen order (not sorted). With keys we'd use real pivot but
+            // the one upstream test using `pivot` has no keys.
+            "pivot" => self.pivot_no_keys_count(&r.col),
             // VisiData `M` melt: unpivot all non-key columns.
             "melt" => {
                 let id = self.next_id;
@@ -757,6 +762,62 @@ impl Replay {
                 slot.meta.hidden.insert(name);
             }
         }
+        Ok(())
+    }
+
+    /// VisiData `W` with no key columns: distinct values of `col_name` as headers,
+    /// counts as the single data row. First-seen order preserved.
+    fn pivot_no_keys_count(&mut self, col_name: &str) -> Result<(), StepErr> {
+        use polars::prelude::NamedFrom;
+        let (name, new_sheet) = {
+            let parent_slot = self.current_slot()?;
+            let df = parent_slot
+                .sheet
+                .plan
+                .clone()
+                .collect()
+                .map_err(|e| StepErr::Runtime(e.to_string()))?;
+            let col = df
+                .column(col_name)
+                .map_err(|e| StepErr::Runtime(e.to_string()))?;
+            let mut order: Vec<String> = Vec::new();
+            let mut counts: std::collections::HashMap<String, i64> =
+                std::collections::HashMap::new();
+            for i in 0..col.len() {
+                let v = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
+                counts
+                    .entry(v.clone())
+                    .and_modify(|c| *c += 1)
+                    .or_insert_with(|| {
+                        order.push(v.clone());
+                        1
+                    });
+            }
+            let series: Vec<Column> = order
+                .iter()
+                .map(|val| {
+                    Series::new(val.as_str().into(), &[counts[val]]).into_column()
+                })
+                .collect();
+            let out_df = DataFrame::new(series)
+                .map_err(|e| StepErr::Runtime(e.to_string()))?;
+            let id = self.next_id;
+            let name = format!("pivot({col_name})-{}", parent_slot.name);
+            let sheet = Sheet {
+                id,
+                name: name.clone(),
+                kind: parent_slot.sheet.kind,
+                source: parent_slot.sheet.source.clone(),
+                plan: out_df.lazy(),
+                view: Default::default(),
+                window: None,
+                revision: 0,
+                origin: Origin::File,
+            };
+            (name, sheet)
+        };
+        self.next_id += 1;
+        self.push_sheet(name, new_sheet);
         Ok(())
     }
 
