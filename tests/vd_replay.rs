@@ -598,6 +598,12 @@ impl Replay {
             }
             return Ok(());
         }
+        // columns-sheet meta mode: select-row targets a column (by name).
+        // We don't model that selection yet; treat as no-op so parent isn't
+        // polluted and the chain can continue.
+        if matches!(self.meta_mode, Some(MetaMode::ColumnsSheet)) {
+            return Ok(());
+        }
         let keys = self.current_slot()?.meta.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
@@ -921,11 +927,15 @@ fn find_by_key(df: &DataFrame, keys: &[String], target: &str) -> Result<usize, S
         )));
     }
     // Phase 1.5 scope: single-key lookup via string compare. Composite keys later.
-    let col = df
+    // Cast the lookup column to String so Date/Int/Float columns match their
+    // ISO/decimal cmdlog representation (`2018-07-03`, `42`, `3.14`).
+    let col_s = df
         .column(keys[0].as_str())
+        .map_err(|e| StepErr::Runtime(e.to_string()))?
+        .cast(&DataType::String)
         .map_err(|e| StepErr::Runtime(e.to_string()))?;
-    for i in 0..col.len() {
-        let v = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
+    for i in 0..col_s.len() {
+        let v = col_s.get(i).map(|v| av_display(&v)).unwrap_or_default();
         if v == target {
             return Ok(i);
         }
