@@ -13,6 +13,7 @@ pub enum SourceKind {
     Parquet,
     Arrow,
     Jsonl,
+    Xlsx,
     Stdin, // resolved to one of the above after sniffing
 }
 
@@ -26,6 +27,80 @@ pub enum OpenError {
     Polars(#[from] PolarsError),
     #[error("empty stdin")]
     EmptyStdin,
+    #[error("xlsx: {0}")]
+    Xlsx(String),
+}
+
+/// Read the first non-empty worksheet of an xlsx workbook into an eager
+/// DataFrame of all-String columns. VisiData-shaped behavior: open yields a
+/// *meta-sheet* listing all worksheets and dive-row enters one; we skip the
+/// meta-sheet and open the first worksheet directly. Multi-sheet workbooks
+/// need a `?sheet=name` URL param — not yet implemented (Phase 1.5 ceiling).
+///
+/// All cells come back as strings so downstream `type-*` operations do the
+/// casting. Matches VisiData's xlsx loader behavior.
+fn open_xlsx(path: &Path) -> Result<DataFrame, OpenError> {
+    use calamine::{Data, Reader, open_workbook_auto};
+    let mut wb = open_workbook_auto(path).map_err(|e| OpenError::Xlsx(e.to_string()))?;
+    let sheet_names = wb.sheet_names();
+    let name = sheet_names
+        .first()
+        .cloned()
+        .ok_or_else(|| OpenError::Xlsx("empty workbook".into()))?;
+    let range = wb
+        .worksheet_range(&name)
+        .map_err(|e| OpenError::Xlsx(e.to_string()))?;
+    let height = range.height();
+    let width = range.width();
+    if height == 0 || width == 0 {
+        return Ok(DataFrame::default());
+    }
+    // Row 0 = headers, rest = data.
+    let rows: Vec<Vec<Data>> = range.rows().map(|r| r.to_vec()).collect();
+    // Preserve empty header names as empty strings (matches VisiData); don't
+    // auto-generate col{i} — that pollutes diffs against xlsx goldens where
+    // merged cells legitimately produce blank headers.
+    let headers: Vec<String> = rows[0].iter().map(cell_string).collect();
+    // Column-major fill, all String.
+    let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::with_capacity(height - 1)).collect();
+    for row in rows.iter().skip(1) {
+        for (ci, cell) in row.iter().enumerate() {
+            if ci < width {
+                cols[ci].push(cell_string(cell));
+            }
+        }
+        // short rows → pad with empties
+        for col in cols.iter_mut().take(width).skip(row.len()) {
+            col.push(String::new());
+        }
+    }
+    let series: Vec<Column> = headers
+        .into_iter()
+        .zip(cols)
+        .map(|(name, data)| Column::new(name.into(), data))
+        .collect();
+    DataFrame::new(series).map_err(OpenError::from)
+}
+
+fn cell_string(c: &calamine::Data) -> String {
+    use calamine::Data;
+    match c {
+        Data::Empty => String::new(),
+        Data::String(s) => s.clone(),
+        Data::Float(f) => {
+            // Int-valued floats as "N", not "N.0" — matches VisiData's xlsx read.
+            if f.fract() == 0.0 && f.is_finite() && f.abs() < 1e18 {
+                format!("{}", *f as i64)
+            } else {
+                format!("{f}")
+            }
+        }
+        Data::Int(i) => i.to_string(),
+        Data::Bool(b) => b.to_string(),
+        Data::DateTime(dt) => dt.to_string(),
+        Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
+        Data::Error(e) => format!("#ERR {e:?}"),
+    }
 }
 
 pub struct LoadedSource {
@@ -67,42 +142,76 @@ pub fn open(
 }
 
 pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
-    match path
+    let ext = path
         .extension()
         .and_then(OsStr::to_str)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
+        .map(str::to_ascii_lowercase);
+    // `.gz` → look at the stem's extension. e.g. `foo.json.gz` → json.
+    if ext.as_deref() == Some("gz") {
+        if let Some(stem) = path.file_stem().map(Path::new) {
+            return detect(stem);
+        }
+    }
+    match ext.as_deref() {
         Some("csv") => Ok(SourceKind::Csv),
         Some("tsv" | "tab") => Ok(SourceKind::Tsv),
         Some("parquet" | "pq") => Ok(SourceKind::Parquet),
         Some("arrow" | "ipc" | "feather") => Ok(SourceKind::Arrow),
-        Some("jsonl" | "ndjson") => Ok(SourceKind::Jsonl),
+        Some("jsonl" | "ndjson" | "json") => Ok(SourceKind::Jsonl),
+        Some("xlsx" | "xls" | "xlsm" | "xlsb" | "ods") => Ok(SourceKind::Xlsx),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
     }
 }
 
+/// Decompress `path` (ending in .gz) to a tempfile and return (path, kind, tempfile).
+/// The returned kind is detected from the stem; the caller must open the tempfile.
+fn decompress_gz(path: &Path) -> Result<(PathBuf, SourceKind, tempfile::NamedTempFile), OpenError> {
+    use flate2::read::GzDecoder;
+    let kind = detect(path)?;
+    let stem = path.file_stem().unwrap_or_else(|| OsStr::new("tmp"));
+    let suffix = Path::new(stem)
+        .extension()
+        .and_then(OsStr::to_str)
+        .map_or(String::new(), |e| format!(".{e}"));
+    let mut tmp = tempfile::Builder::new().suffix(&suffix).tempfile()?;
+    let f = std::fs::File::open(path)?;
+    let mut gz = GzDecoder::new(f);
+    io::copy(&mut gz, &mut tmp)?;
+    tmp.flush()?;
+    Ok((tmp.path().to_owned(), kind, tmp))
+}
+
 fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
-    let lazy = match kind {
-        SourceKind::Csv => LazyCsvReader::new(path).with_has_header(true).finish()?,
-        SourceKind::Tsv => LazyCsvReader::new(path)
+    // `.gz` → decompress to a tempfile and open that. We keep the tempfile
+    // handle alive on the returned source so Polars' lazy scan sees a live file.
+    let gz = path.extension().and_then(OsStr::to_str) == Some("gz");
+    let (real_path, real_kind, tempfile) = if gz {
+        let (p, k, t) = decompress_gz(path)?;
+        (p, k, Some(t))
+    } else {
+        (path.to_owned(), kind, None)
+    };
+    let lazy = match real_kind {
+        SourceKind::Csv => LazyCsvReader::new(&real_path).with_has_header(true).finish()?,
+        SourceKind::Tsv => LazyCsvReader::new(&real_path)
             .with_has_header(true)
             .with_separator(b'\t')
             .finish()?,
-        SourceKind::Parquet => LazyFrame::scan_parquet(path, ScanArgsParquet::default())?,
-        SourceKind::Arrow => LazyFrame::scan_ipc(path, ScanArgsIpc::default())?,
-        SourceKind::Jsonl => LazyJsonLineReader::new(path).finish()?,
+        SourceKind::Parquet => LazyFrame::scan_parquet(&real_path, ScanArgsParquet::default())?,
+        SourceKind::Arrow => LazyFrame::scan_ipc(&real_path, ScanArgsIpc::default())?,
+        SourceKind::Jsonl => LazyJsonLineReader::new(&real_path).finish()?,
+        SourceKind::Xlsx => open_xlsx(&real_path)?.lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved separately"),
     };
     let display_name = path.display().to_string();
     Ok(LoadedSource {
-        kind,
+        kind: real_kind,
         display_name,
         path: Some(path.to_owned()),
         lazy,
-        _tempfile: None,
+        _tempfile: tempfile,
     })
 }
 
@@ -131,6 +240,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         SourceKind::Parquet => LazyFrame::scan_parquet(tmp.path(), ScanArgsParquet::default())?,
         SourceKind::Arrow => LazyFrame::scan_ipc(tmp.path(), ScanArgsIpc::default())?,
         SourceKind::Jsonl => LazyJsonLineReader::new(tmp.path()).finish()?,
+        SourceKind::Xlsx => open_xlsx(tmp.path())?.lazy(),
         SourceKind::Stdin => unreachable!("sniff_format never returns Stdin"),
     };
     Ok(LoadedSource {

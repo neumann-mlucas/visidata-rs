@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 polars = { version = "0.44", features = ["lazy", "csv", "parquet", "json", "ipc", "strings", "temporal", "dtype-full", "regex", "pivot"] }
 polars-ops = { version = "0.44", features = ["pivot"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "fs"] }
@@ -25,6 +26,11 @@ tempfile = "3"
 regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+flate2 = "1"
+calamine = "0.26"
+
+[dev-dependencies]
+serde_json = "1"
 
 [profile.release]
 lto = "thin"
