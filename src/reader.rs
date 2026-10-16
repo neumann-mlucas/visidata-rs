@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};

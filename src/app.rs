@@ -24,8 +24,7 @@ use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
 use crate::sheet::{
-    DEFAULT_WINDOW_ROWS, FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey,
-    SortOrder, View,
+    FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
 };
 use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
@@ -1256,5 +1255,3 @@ fn with_count(a: Action, count: Option<usize>) -> Action {
     }
 }
 
-#[allow(dead_code)]
-const _: u32 = DEFAULT_WINDOW_ROWS;

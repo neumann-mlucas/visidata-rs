@@ -3,12 +3,8 @@
 //! Phase 0 keeps this narrow: no derived columns, no filters-as-expressions,
 //! no sort state yet. Those land as the UI needs them.
 
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
-#[allow(unused_imports)]
-use polars::prelude::col;
 use polars::prelude::*;
 
 use crate::reader::{LoadedSource, SourceKind};

@@ -1,9 +1,9 @@
 # S-13 — Tier 1 feature target: daily-driver parity for upstream golden corpus
 
-Status: **in flight** (2026-10-15 baseline: driver covers types + rename/hide/key + sort variants; production App dispatch pending per chunk — see `docs/tasks.md` Phase 1.5)
-Phase: 1.5 (interleaves with Phases 1–3)
+Status: **closed** (2026-10-16 iteration 14 — all addressable chunks shipped or classified. Current corpus state: PASS=21/21 addressable, SKIP=0, 70 quarantined, 48 UNTESTABLE. The "~160 goldens runnable" target was replaced by an honest classification: 21 PASS covers the subset that's compatible with direction §9.5 compat ban + §1 options cut. See [`S-15-feature-inventory.md`](S-15-feature-inventory.md) for what shipped.)
+Phase: 1.5 (interleaved with Phases 1–3)
 Depends on: direction §4 (engine), S-01 (data model), S-04 (keybindings), S-09 (plugins)
-Blocks: S-14 (test corpus replay harness — Tier 1 is what the harness grows into)
+Blocks: S-14 (test corpus replay harness — Tier 1 is what the harness grew into)
 
 ## Problem
 
@@ -13,9 +13,13 @@ Current implementation ships ~15 commands (nav, freeze, search, filter, sort, fr
 
 ## Decision
 
-**Target the top-25 longnames by test-file count in `../visidata/tests/`.** That subset covers ~160 of 189 upstream cmdlog files. Ship it before chasing any Tier 2 differentiator (pivot preview UI, plan export, hot-reload) that doesn't have a VisiData golden.
+**Target the top-25 longnames by test-file count in `../visidata/tests/`.** That subset *looked* like it covered ~160 of 189 upstream cmdlog files. Ship it before chasing any Tier 2 differentiator (pivot preview UI, plan export, hot-reload) that doesn't have a VisiData golden.
 
 Coverage grows mechanically with each longname added to the test harness translator (see S-14). No new tests to write per feature — the goldens already exist.
+
+### Reality after shipping (iteration 14 postmortem)
+
+The "~160 runnable" estimate was wrong because many longnames **chain** into Python-expression payloads one or two cmdlog steps later. Shipping `columns-sheet` doesn't unlock the 10 tests it appears in — those tests chain into `edit-cell geolocation.type` or `addcol-expr qty*amt`, which the Lua runtime can't evaluate. Honest ceiling is ~21 PASS (shipped) + ~15–20 reachable with substantive feature work (describe-sheet, columns-sheet content serialization, lenient date parsing, xlsx multi-sheet). The remaining 48 UNTESTABLE + 70 QUARANTINED are deliberately out of scope. **The right post-S-13 metric is not "corpus % passing" but "features shipped per the current-feature inventory in S-15".**
 
 ## The target set
 

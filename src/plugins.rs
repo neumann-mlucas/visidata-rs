@@ -3,8 +3,6 @@
 //! Phase 3 minimum: Lua VM + `vd.bind(layer, keys, action, desc)` keymap patches.
 //! Hot-reload, loader/aggregator/renderer shapes land in follow-up iterations.
 
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::path::PathBuf;
 

@@ -41,13 +41,13 @@ const CORPUS: &str = "../visidata/tests";
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
-    #[allow(dead_code)]
     sheet: String,
     col: String,
-    #[allow(dead_code)]
     row: String,
     longname: String,
     input: String,
+    /// VisiData's cmdlog keystrokes column. Parsed for completeness; the harness
+    /// routes on `longname` and never dispatches by keystroke.
     #[allow(dead_code)]
     keystrokes: String,
 }

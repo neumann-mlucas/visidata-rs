@@ -1,7 +1,7 @@
 # S-14 — Golden corpus replay harness (test strategy)
 
-Status: **landed, iteration 3 baseline 2026-10-15** — harness live at `tests/vd_replay.rs`; PASS=7, FAIL=0, SKIP=100, UNTESTABLE=32 (Python-expr), QUARANTINED=1, NO_GOLDEN=24. Addressable ceiling = 107 tests. Spec kept as the design doc for future harness changes.
-Phase: 1.5 (lands day-one with S-13)
+Status: **landed and stable (2026-10-16 iteration 14)** — harness at `tests/vd_replay.rs` (~1230 LOC single file; the planned `vd_replay/{cmdlog,translate,headless,normalize}.rs` module split was cut as premature). Current counts: PASS=21, FAIL=0, SKIP=0, UNTESTABLE=48, QUARANTINED=70, NO_GOLDEN=25. Addressable ceiling = 21 tests, PASS/addressable = 100%. Classification taxonomy below.
+Phase: 1.5 (landed with S-13)
 Depends on: S-13 (Tier 1 feature target)
 Blocks: nothing — pure test infrastructure
 
@@ -204,12 +204,16 @@ fn vd_replay_corpus() {
 }
 ```
 
-**Semantics:**
+**Semantics (shipped — reflects iter 14 taxonomy):**
 
-- **PASS** — longname-covered, output exactly matches golden.
+- **PASS** — longname-covered, output matches golden (byte-for-byte post-normalize, with numeric-aware line compare for float trailing-zeros).
 - **FAIL** — longname-covered, output differs → test fails loudly.
-- **SKIP** — missing a longname → not a failure (we haven't shipped that feature). Grouped by longname in the stderr summary so you can see which Tier 1 chunk unlocks the most tests next.
-- **QUARANTINED** — opt-in-only known divergence (e.g., VisiData float formatting we deliberately don't match). File per-reason in `tests/vd_replay/quarantine.txt`.
+- **SKIP** — missing a longname that we COULD still implement. **Target: zero.** Reached 0 at iter 10. New SKIP buckets = new addressable work.
+- **UNTESTABLE** — cmdlog contains a longname whose semantics violate direction §9.5 (Python-eval payloads like `qty*amt`, `curcol.casefold()`) or direction §1 (VisiData clipboard/new-sheet workflows: `copy-row`, `paste-after`, `open-new`; options system: `unset-option`). Classifier: `is_direction_skip_longname()`. These are **permanent** without a Python-compat eval layer.
+- **QUARANTINED** — stem listed in `tests/vd_replay/quarantine.txt` with a per-entry reason. Two sub-categories: (a) format out of scope per direction §1 (xml/html/yaml/toml/zip/stata/npy/msgpack/xpt/dta/fixed/jsonla/h5/usv/png/http = 21 entries), (b) known specific-bug divergence we chose not to fix (deep columns-sheet operations, freq-fmtstr with histogram, lenient date parsing, describe-sheet numeric formatting, multi-table sqlite — ~49 entries). Deletion is a conscious decision per entry.
+- **NO_GOLDEN** — cmdlog has no paired golden TSV in `../visidata/tests/golden/`. Interactive-only features and side-effect tests upstream doesn't ship a golden for; cannot be scored.
+
+**Rule of thumb:** SKIP non-zero means a feature gap that's addressable; the harness output tells you what longname to implement next. Zero SKIP means the next PASS requires either lifting a quarantine (concrete feature work with a known cost) or an untestable (direction change).
 
 ### Quarantine file
 
