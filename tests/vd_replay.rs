@@ -164,7 +164,7 @@ enum StepErr {
 ///       paste-after, open-new, add-row, unfurl-col, expand-*. These are
 ///       VisiData's shell-REPL feel; we're a non-mutable projection engine.
 ///   (3) Options system (set-option/unset-option) — direction §1.
-fn is_python_expr_longname(ln: &str) -> bool {
+fn is_direction_skip_longname(ln: &str) -> bool {
     matches!(
         ln,
         // (1) Python expression payloads
@@ -259,7 +259,7 @@ impl Replay {
 
     fn step(&mut self, r: &CmdlogRow) -> Result<(), StepErr> {
         use StepErr::*;
-        if is_python_expr_longname(&r.longname) {
+        if is_direction_skip_longname(&r.longname) {
             return Err(PythonExpr(r.longname.clone()));
         }
         // Honor cmdlog's `sheet` field: switch current to the named sheet so

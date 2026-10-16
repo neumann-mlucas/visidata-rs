@@ -308,6 +308,32 @@ fn dtype_badge(dt: &DataType) -> String {
     }
 }
 
+/// Clamp cursor + scroll after a window-size or data-size change.
+pub fn clamp_view(view: &mut View, rows: usize, cols: usize, viewport_rows: usize) {
+    if rows == 0 {
+        view.row_cursor = 0;
+        view.row_offset = 0;
+    } else {
+        view.row_cursor = view.row_cursor.min(rows - 1);
+        if view.row_cursor < view.row_offset {
+            view.row_offset = view.row_cursor;
+        } else if view.row_cursor >= view.row_offset + viewport_rows.max(1) {
+            view.row_offset = view.row_cursor + 1 - viewport_rows.max(1);
+        }
+    }
+    if cols == 0 {
+        view.col_cursor = 0;
+        view.col_offset = 0;
+    } else {
+        view.col_cursor = view.col_cursor.min(cols - 1);
+        if view.col_cursor < view.frozen_left + view.col_offset
+            && view.col_cursor >= view.frozen_left
+        {
+            view.col_offset = view.col_cursor - view.frozen_left;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,31 +385,5 @@ mod tests {
         // dtype badge rendered
         assert!(dump.contains("str"), "str badge absent: {dump}");
         assert!(dump.contains("i"), "int badge absent: {dump}");
-    }
-}
-
-/// Clamp cursor + scroll after a window-size or data-size change.
-pub fn clamp_view(view: &mut View, rows: usize, cols: usize, viewport_rows: usize) {
-    if rows == 0 {
-        view.row_cursor = 0;
-        view.row_offset = 0;
-    } else {
-        view.row_cursor = view.row_cursor.min(rows - 1);
-        if view.row_cursor < view.row_offset {
-            view.row_offset = view.row_cursor;
-        } else if view.row_cursor >= view.row_offset + viewport_rows.max(1) {
-            view.row_offset = view.row_cursor + 1 - viewport_rows.max(1);
-        }
-    }
-    if cols == 0 {
-        view.col_cursor = 0;
-        view.col_offset = 0;
-    } else {
-        view.col_cursor = view.col_cursor.min(cols - 1);
-        if view.col_cursor < view.frozen_left + view.col_offset
-            && view.col_cursor >= view.frozen_left
-        {
-            view.col_offset = view.col_cursor - view.frozen_left;
-        }
     }
 }

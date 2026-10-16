@@ -217,6 +217,7 @@ impl History {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn prev(&mut self) -> Option<&str> {
         if self.lines.is_empty() {
             return None;
@@ -230,6 +231,7 @@ impl History {
         Some(&self.lines[next])
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&str> {
         let i = self.cursor?;
         if i + 1 >= self.lines.len() {
