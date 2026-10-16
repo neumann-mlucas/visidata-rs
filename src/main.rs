@@ -3,17 +3,9 @@ use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
 
-mod action;
-mod app;
-mod exline;
-mod key;
-mod keymap;
-mod reader;
-mod sheet;
-mod widget;
-
+use visidata_rs::{app, reader};
 use reader::{OpenError, SourceKind};
-use sheet::Sheet;
+use visidata_rs::sheet::Sheet;
 
 /// Modal terminal data explorer. Pre-alpha.
 #[derive(Parser, Debug)]
