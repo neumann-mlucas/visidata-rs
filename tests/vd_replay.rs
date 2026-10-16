@@ -861,7 +861,7 @@ impl Replay {
                 let how = match jt {
                     "inner" => JoinType::Inner,
                     "outer" | "left" | "extend" => JoinType::Left,
-                    "full" => JoinType::Full,
+                    "full" | "merge" => JoinType::Full,
                     other => {
                         return Err(StepErr::Runtime(format!(
                             "join-sheets: unsupported jointype '{other}'"
@@ -892,6 +892,40 @@ impl Replay {
                         JoinArgs::new(how.clone())
                             .with_coalesce(JoinCoalesce::CoalesceColumns),
                     );
+                    // VisiData `merge`: for each non-key col colliding with the
+                    // right side (suffixed `_right` by Polars), prefer the right
+                    // value, fall back to left when right is null. Then drop the
+                    // `_right` variant. Keys already coalesced above.
+                    if jt == "merge" {
+                        let schema = acc
+                            .clone()
+                            .collect_schema()
+                            .map_err(|e| StepErr::Runtime(e.to_string()))?;
+                        let names: Vec<String> =
+                            schema.iter_names().map(|n| n.to_string()).collect();
+                        let right_dups: Vec<String> = names
+                            .iter()
+                            .filter_map(|n| n.strip_suffix("_right").map(String::from))
+                            .filter(|base| names.iter().any(|n| n == base))
+                            .collect();
+                        if !right_dups.is_empty() {
+                            let coalesce_exprs: Vec<Expr> = right_dups
+                                .iter()
+                                .map(|base| {
+                                    let right_name = format!("{base}_right");
+                                    when(col(right_name.as_str()).is_null())
+                                        .then(col(base.as_str()))
+                                        .otherwise(col(right_name.as_str()))
+                                        .alias(base.as_str())
+                                })
+                                .collect();
+                            let drop_cols: Vec<String> = right_dups
+                                .iter()
+                                .map(|b| format!("{b}_right"))
+                                .collect();
+                            acc = acc.with_columns(coalesce_exprs).drop(drop_cols);
+                        }
+                    }
                 }
                 acc
             }

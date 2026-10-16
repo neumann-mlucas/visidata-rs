@@ -134,7 +134,6 @@ diff-join
 outer-join-1
 join-concat
 pr2647
-join-merge
 join-different-types
 join-non-unique-cols
 join-cols-single-sheet
