@@ -15,9 +15,11 @@ File naming: `S-NN-slug.md`. None exist yet.
 | S-06 | Ex-line grammar | 1 | not-started |
 | S-07 | Pivot / melt UX + LazyFrame construction | 2 | not-started |
 | S-08 | Plan panel: display, optimize, export | 2 | not-started |
-| S-09 | mlua plugin system: shapes, sandbox, errors | 3 | not-started |
-| S-10 | Lua API surface + versioning (`since` / `deprecate`) | 3 | not-started |
+| S-09 | mlua plugin system: shapes, sandbox, errors | 3 | draft → [`S-09-plugin-system.md`](S-09-plugin-system.md) |
+| S-10 | Lua API surface + versioning (`since` / `deprecate`) | 3 | draft → [`S-10-lua-api.md`](S-10-lua-api.md) |
 | S-11 | Streaming source abstraction | 4 | not-started |
 | S-12 | Frame diff | 5 | not-started |
+| S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | in flight → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
+| S-14 | Golden corpus replay harness | 1.5 | landed (PASS=6, SKIP=134 baseline) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
 
-Writing order constraint: don't draft S-05+ until Phase 0 ships. Reality will edit them for free.
+Writing order constraint: don't draft S-05+ until Phase 0 ships. Reality will edit them for free. S-13/S-14 drafted post-Phase 0 to pin the Tier 1 scope + the test strategy that drives it.
