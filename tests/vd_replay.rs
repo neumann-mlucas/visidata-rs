@@ -119,6 +119,8 @@ struct SheetSlot {
 struct Replay {
     loaded: Vec<SheetSlot>,
     current: Option<usize>,
+    /// The previous `current` (for VisiData `vd.sheets[:2]` MRU semantics).
+    prev_current: Option<usize>,
     meta_mode: Option<MetaMode>,
     /// Resolution root for `open-file` paths. VisiData runs tests from the repo
     /// root, so inputs like `tests/sort-levels.tsv` resolve relative to there.
@@ -130,6 +132,10 @@ enum MetaMode {
     /// VisiData `S` key — the "sheets stack" meta view listing all open sheets.
     /// `selected` holds names of sheets picked for a follow-up `join-sheets`.
     SheetsStack { selected: Vec<String> },
+    /// VisiData `C` — meta view listing current sheet's columns. We don't model
+    /// its contents; commands target it as a no-op surface so parent sheet
+    /// isn't mutated. `quit-sheet` returns to parent.
+    ColumnsSheet,
 }
 
 enum StepErr {
@@ -170,9 +176,17 @@ impl Replay {
         Self {
             loaded: Vec::new(),
             current: None,
+            prev_current: None,
             meta_mode: None,
             root,
             next_id: 0,
+        }
+    }
+
+    fn set_current(&mut self, new: usize) {
+        if self.current != Some(new) {
+            self.prev_current = self.current;
+            self.current = Some(new);
         }
     }
 
@@ -194,7 +208,7 @@ impl Replay {
             sheet,
             meta: ColMeta::default(),
         });
-        self.current = Some(self.loaded.len() - 1);
+        self.set_current(self.loaded.len() - 1);
         self.meta_mode = None;
     }
 
@@ -212,7 +226,7 @@ impl Replay {
         // is the meta-view's own name — don't switch to it.
         if !r.sheet.is_empty() && r.sheet != "sheets" {
             if let Some(i) = self.find_sheet_by_name(&r.sheet) {
-                self.current = Some(i);
+                self.set_current(i);
             }
         }
         match r.longname.as_str() {
@@ -244,6 +258,59 @@ impl Replay {
                 let name = format!("freq({})-{}", r.col, parent_slot.name);
                 let new = Sheet::freq_from(&parent_slot.sheet, id, &r.col);
                 self.push_sheet(name, new);
+                Ok(())
+            }
+            // VisiData `M` melt: unpivot all non-key columns.
+            "melt" => {
+                let id = self.next_id;
+                self.next_id += 1;
+                let (name, new) = {
+                    let parent_slot = self.current_slot()?;
+                    let keys = parent_slot.meta.keys.clone();
+                    if keys.is_empty() {
+                        return Err(Runtime("melt: no key columns on parent".into()));
+                    }
+                    // non-key cols = all cols minus keys
+                    let schema = parent_slot
+                        .sheet
+                        .plan
+                        .clone()
+                        .collect_schema()
+                        .map_err(|e| Runtime(e.to_string()))?;
+                    let on: Vec<String> = schema
+                        .iter_names()
+                        .map(|n| n.to_string())
+                        .filter(|n| !keys.contains(n))
+                        .collect();
+                    let new = Sheet::unpivot_from(&parent_slot.sheet, id, &on, &keys);
+                    (format!("{}_melted", parent_slot.name), new)
+                };
+                self.push_sheet(name, new);
+                Ok(())
+            }
+            // VisiData `g"` dup-rows: new sheet copy with all rows. In replay
+            // this is equivalent to pushing a sheet with the same plan.
+            "dup-rows" => {
+                let id = self.next_id;
+                self.next_id += 1;
+                let (name, new_sheet) = {
+                    let parent_slot = self.current_slot()?;
+                    let name = format!("{}_copy", parent_slot.name);
+                    let plan = parent_slot.sheet.plan.clone();
+                    let sheet = Sheet {
+                        id,
+                        name: name.clone(),
+                        kind: parent_slot.sheet.kind,
+                        source: parent_slot.sheet.source.clone(),
+                        plan,
+                        view: Default::default(),
+                        window: None,
+                        revision: 0,
+                        origin: Origin::File,
+                    };
+                    (name, sheet)
+                };
+                self.push_sheet(name, new_sheet);
                 Ok(())
             }
             "rename-col" => {
@@ -309,9 +376,29 @@ impl Replay {
                 });
                 Ok(())
             }
+            // columns-sheet: enter a meta view listing parent sheet's columns.
+            // ponytail: no-op mode; parent sheet is unchanged. edit-cell /
+            // select-row / etc. while active become no-ops. quit-sheet exits.
+            "columns-sheet" => {
+                self.meta_mode = Some(MetaMode::ColumnsSheet);
+                Ok(())
+            }
+            // quit-sheet: clear meta mode if any; otherwise no-op (we don't
+            // model the parent sheet stack).
+            "quit-sheet" => {
+                self.meta_mode = None;
+                Ok(())
+            }
+            // edit-cell / set-cell-input while in a meta view: no-op (we don't
+            // model meta contents). Outside meta, edit-cell is a data edit.
+            "edit-cell" if self.meta_mode.is_some() => Ok(()),
+            "edit-cell" => self.setcol_input(&r.col, &r.row, &r.input),
             // join-sheets: consumes sheets-stack selection, builds a joined sheet
             // and makes it current. Input = jointype (append/inner/outer/full).
             "join-sheets" => self.join_sheets(&r.input),
+            // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
+            // the current sheet with the previously-active one (`vd.sheets[:2]`).
+            "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" => Ok(()),
             // dive-row/open-row: VisiData pushes a sub-sheet. For xlsx/sqlite
             // loaded as first-sheet-directly, no sub-sheet to enter — noop.
@@ -322,7 +409,8 @@ impl Replay {
             // our serializer uses key-col ordering + schema order, not slide pos.
             "slide-left" | "slide-right" | "slide-up" | "slide-down" => Ok(()),
             "slide-leftmost" | "slide-rightmost" | "slide-top" | "slide-bottom" => Ok(()),
-            "quit-sheet" => Ok(()),
+            // reload-sheet / reload-selected: data on disk is unchanged in replay.
+            "reload-sheet" | "reload-selected" => Ok(()),
             other => Err(MissingLongname(other.to_string())),
         }
     }
@@ -569,10 +657,24 @@ impl Replay {
         Ok(())
     }
 
+    /// VisiData `&` on a data sheet: join current + previous via same core as join-sheets.
+    fn join_top2(&mut self, jointype: &str) -> Result<(), StepErr> {
+        let cur = self.current.ok_or_else(|| StepErr::Runtime("no current".into()))?;
+        let prev = self
+            .prev_current
+            .ok_or_else(|| StepErr::Runtime("join-sheets-top2: no previous sheet".into()))?;
+        let selected = vec![self.loaded[cur].name.clone(), self.loaded[prev].name.clone()];
+        self.meta_mode = Some(MetaMode::SheetsStack { selected });
+        self.join_sheets(jointype)
+    }
+
     /// VisiData `&` join-sheets: consumes the sheets-stack selection and builds
-    /// a joined sheet. Jointype (`input` field):
+    /// a joined sheet.
+    ///
+    /// Jointype (`input` field):
     ///   - "append" / "" → vertical concat (diagonal if schemas differ)
     ///   - "inner" / "outer" / "full" / "left" → key-based join on current keys
+    ///
     /// Not in sheets-stack mode → error.
     fn join_sheets(&mut self, jointype: &str) -> Result<(), StepErr> {
         let selected = match self.meta_mode.take() {
@@ -615,24 +717,20 @@ impl Replay {
                 )
                 .map_err(|e| StepErr::Runtime(e.to_string()))?
             }
-            // Any key-based join: take VisiData's "visible-cols on all" semantic
-            // literally by inner-joining pairwise on first slot's key columns.
+            // VisiData joins each sheet on its *own* key columns, pairing the
+            // ith key of sheet N with the ith key of sheet N+1. Allows joining
+            // sheets whose key columns have different names.
             _ => {
                 let first = &self.loaded[slot_idxs[0]];
-                let keys: Vec<String> = first.meta.keys.clone();
-                if keys.is_empty() {
+                let left_keys = first.meta.keys.clone();
+                if left_keys.is_empty() {
                     return Err(StepErr::Runtime(format!(
                         "join-sheets {jt}: first sheet has no key columns"
                     )));
                 }
-                // VisiData jointype map:
-                //   "inner" → only matching rows
-                //   "outer" → keep LEFT (first-selected) rows + attach right
-                //   "full"  → keep both sides' rows (symmetric)
-                //   "left"  → same as outer in VisiData for 2-sheet case
                 let how = match jt {
                     "inner" => JoinType::Inner,
-                    "outer" | "left" => JoinType::Left,
+                    "outer" | "left" | "extend" => JoinType::Left,
                     "full" => JoinType::Full,
                     other => {
                         return Err(StepErr::Runtime(format!(
@@ -640,13 +738,27 @@ impl Replay {
                         )));
                     }
                 };
-                let key_exprs: Vec<_> = keys.iter().map(|k| col(k.as_str())).collect();
+                let left_exprs: Vec<_> = left_keys.iter().map(|k| col(k.as_str())).collect();
                 let mut acc = first.sheet.plan.clone();
                 for &i in slot_idxs.iter().skip(1) {
+                    let right_keys = &self.loaded[i].meta.keys;
+                    if right_keys.len() < left_keys.len() {
+                        return Err(StepErr::Runtime(format!(
+                            "join-sheets {jt}: sheet '{}' has {} key(s), need ≥{}",
+                            self.loaded[i].name,
+                            right_keys.len(),
+                            left_keys.len()
+                        )));
+                    }
+                    let right_exprs: Vec<_> = right_keys
+                        .iter()
+                        .take(left_keys.len())
+                        .map(|k| col(k.as_str()))
+                        .collect();
                     acc = acc.join(
                         self.loaded[i].sheet.plan.clone(),
-                        key_exprs.clone(),
-                        key_exprs.clone(),
+                        left_exprs.clone(),
+                        right_exprs,
                         JoinArgs::new(how.clone())
                             .with_coalesce(JoinCoalesce::CoalesceColumns),
                     );
@@ -990,10 +1102,10 @@ fn vd_replay_corpus() {
             eprintln!("  {ln:40}  {n} files");
         }
     }
-    eprintln!("skip buckets (top 20 by count):");
+    eprintln!("skip buckets:");
     let mut buckets: Vec<_> = skip.iter().collect();
     buckets.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
-    for (ln, files) in buckets.iter().take(20) {
+    for (ln, files) in buckets.iter() {
         eprintln!("  {ln:40}  {} files", files.len());
     }
     if !fail.is_empty() {
