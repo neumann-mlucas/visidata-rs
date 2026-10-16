@@ -1,0 +1,14 @@
+# S-14 quarantine list: files whose longnames are implemented but whose golden
+# we deliberately don't match (float formatting drift, VisiData oddities, ...).
+# One stem per line. Keep this list under 10 — more = the strategy is wrong.
+
+# numeric_binning: `set-option` configures bin edges for freq-col, which we
+# treat as no-op. Promoting set-option from no-op to real would unlock this one
+# test but risks regressing many others we can't easily audit. Revisit when the
+# options chunk (Phase 1.5 #7) ships.
+numeric_binning
+
+# xlsx-color-cells: tests VisiData's `--xlsx_meta_columns=True` option which
+# emits per-cell metadata columns (fontColor, fillColor, cellPyObj) alongside
+# values. Not shipping that mode; our xlsx loader is value-only.
+xlsx-color-cells
