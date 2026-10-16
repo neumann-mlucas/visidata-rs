@@ -105,6 +105,21 @@ impl Keymap {
                 "freeze current column",
             ),
             ch(vec![k("z"), k("c")], vec![UnfreezeAll], "unfreeze all"),
+            // column meta
+            ch(vec![k("-")], vec![HideCol], "hide current column"),
+            ch(vec![k("g"), k("-")], vec![UnhideAll], "unhide all"),
+            ch(vec![k("!")], vec![KeyCol], "toggle current column as key"),
+            ch(vec![k("z"), k("!")], vec![UnkeyAll], "unset all keys"),
+            ch(
+                vec![k("^")],
+                vec![StartRenameColInput],
+                "rename current column",
+            ),
+            // type coercion
+            ch(vec![k("#")], vec![TypeCastInt], "type: int"),
+            ch(vec![k("%")], vec![TypeCastFloat], "type: float"),
+            ch(vec![k("~")], vec![TypeCastString], "type: string"),
+            ch(vec![k("@")], vec![TypeCastDate], "type: date"),
             // search / filter
             ch(vec![k("/")], vec![StartSearchInput], "search forward"),
             ch(vec![k("n")], vec![SearchNext], "next match"),

@@ -143,6 +143,12 @@ pub struct View {
     pub sort: Vec<SortKey>,
     /// Selected absolute row offsets (VisiData-style). Cleared on plan mutations.
     pub selected: std::collections::BTreeSet<u64>,
+    /// Hidden columns — projected out at window_plan time.
+    pub hidden: std::collections::BTreeSet<String>,
+    /// Key columns (VisiData `!`). Reordered to the front of the visible output.
+    pub keys: Vec<String>,
+    /// Pending type casts, applied before serialize. Last-write-wins per column.
+    pub type_casts: Vec<(String, DataType)>,
 }
 
 impl Default for View {
@@ -159,6 +165,9 @@ impl Default for View {
             filter: None,
             sort: Vec::new(),
             selected: std::collections::BTreeSet::new(),
+            hidden: std::collections::BTreeSet::new(),
+            keys: Vec::new(),
+            type_casts: Vec::new(),
         }
     }
 }
@@ -575,9 +584,20 @@ impl Sheet {
         }
     }
 
-    /// Build the lazy query for the current `window`. Applies filter + sort.
+    /// Build the lazy query for the current `window`. Applies, in order:
+    /// type_casts → filter → sort → visible-column projection → slice.
     pub fn window_plan(&self) -> LazyFrame {
         let mut lf = self.plan.clone();
+        // Type casts first so downstream filter/sort see the typed values.
+        if !self.view.type_casts.is_empty() {
+            let exprs: Vec<Expr> = self
+                .view
+                .type_casts
+                .iter()
+                .map(|(name, dt)| col(name.as_str()).cast(dt.clone()).alias(name.as_str()))
+                .collect();
+            lf = lf.with_columns(exprs);
+        }
         if let Some(f) = &self.view.filter {
             if regex::Regex::new(&f.regex).is_ok() {
                 lf = lf.filter(
@@ -595,8 +615,31 @@ impl Sheet {
                 .iter()
                 .map(|k| k.order == SortOrder::Desc)
                 .collect();
-            let opts = SortMultipleOptions::default().with_order_descending_multi(desc);
+            let opts = SortMultipleOptions::default()
+                .with_order_descending_multi(desc)
+                .with_maintain_order(true);
             lf = lf.sort(by, opts);
+        }
+        // Visible-column projection: keys first (in key-col order), then schema
+        // order for the rest; drop hidden. Skipped when nothing to project.
+        if !self.view.hidden.is_empty() || !self.view.keys.is_empty() {
+            if let Ok(schema) = lf.clone().collect_schema() {
+                let all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
+                let mut order: Vec<String> = Vec::with_capacity(all.len());
+                for k in &self.view.keys {
+                    if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) {
+                        order.push(k.clone());
+                    }
+                }
+                for n in &all {
+                    if !order.contains(n) && !self.view.hidden.contains(n) {
+                        order.push(n.clone());
+                    }
+                }
+                if order != all {
+                    lf = lf.select(order.into_iter().map(|s| col(s.as_str())).collect::<Vec<_>>());
+                }
+            }
         }
         lf.slice(self.view.window_offset as i64, self.view.window_rows)
     }
@@ -631,6 +674,29 @@ mod tests {
         tmp.flush().unwrap();
         let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
         (Sheet::from_source(0, loaded), tmp)
+    }
+
+    #[test]
+    fn window_plan_hide_key_reorders() {
+        let (mut s, _tmp) = make_sheet();
+        s.view.keys.push("n".into());
+        s.view.hidden.insert("name".into());
+        let df = s.window_plan().collect().unwrap();
+        let names: Vec<&str> = df.get_column_names().into_iter().map(|s| s.as_ref()).collect();
+        assert_eq!(names, vec!["n"]);
+    }
+
+    #[test]
+    fn window_plan_type_cast_int() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, "n\n42\n17\n5").unwrap();
+        tmp.flush().unwrap();
+        let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
+        let mut s = Sheet::from_source(0, loaded);
+        // Even though CSV already inferred Int64, type-cast to Int64 should be a no-op pass.
+        s.view.type_casts.push(("n".into(), DataType::Int64));
+        let df = s.window_plan().collect().unwrap();
+        assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
     }
 
     #[test]

@@ -76,6 +76,7 @@ enum InputBuf {
     Filter(String),
     Ex(String),
     Select(String),
+    Rename(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -345,16 +346,22 @@ impl App {
 
     fn input_push_char(&mut self, c: char) {
         match &mut self.input {
-            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) | InputBuf::Select(s) => {
-                s.push(c)
-            }
+            InputBuf::Search(s)
+            | InputBuf::Filter(s)
+            | InputBuf::Ex(s)
+            | InputBuf::Select(s)
+            | InputBuf::Rename(s) => s.push(c),
             InputBuf::None => {}
         }
     }
 
     fn input_push_backspace(&mut self) {
         match &mut self.input {
-            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) | InputBuf::Select(s) => {
+            InputBuf::Search(s)
+            | InputBuf::Filter(s)
+            | InputBuf::Ex(s)
+            | InputBuf::Select(s)
+            | InputBuf::Rename(s) => {
                 s.pop();
             }
             InputBuf::None => {}
@@ -391,6 +398,9 @@ impl App {
             }
             InputBuf::Select(regex) if !regex.is_empty() => {
                 self.dispatch(Action::SelectByRegex { regex });
+            }
+            InputBuf::Rename(name) if !name.is_empty() => {
+                self.dispatch(Action::RenameCol { new_name: name });
             }
             _ => {}
         }
@@ -475,6 +485,64 @@ impl App {
                 }
             }
             Action::UnfreezeAll => self.sheets.active_mut().view.frozen_left = 0,
+            Action::HideCol => {
+                if let Some(c) = self.current_column_name() {
+                    self.sheets.active_mut().view.hidden.insert(c);
+                    self.spawn_materialize();
+                }
+            }
+            Action::UnhideAll => {
+                let s = self.sheets.active_mut();
+                if !s.view.hidden.is_empty() {
+                    s.view.hidden.clear();
+                    self.spawn_materialize();
+                }
+            }
+            Action::KeyCol => {
+                if let Some(c) = self.current_column_name() {
+                    let keys = &mut self.sheets.active_mut().view.keys;
+                    if let Some(i) = keys.iter().position(|k| k == &c) {
+                        keys.remove(i);
+                    } else {
+                        keys.push(c);
+                    }
+                    self.spawn_materialize();
+                }
+            }
+            Action::UnkeyAll => {
+                let s = self.sheets.active_mut();
+                if !s.view.keys.is_empty() {
+                    s.view.keys.clear();
+                    self.spawn_materialize();
+                }
+            }
+            Action::StartRenameColInput => {
+                self.input = InputBuf::Rename(String::new());
+            }
+            Action::RenameCol { new_name } => {
+                let Some(old) = self.current_column_name() else { return };
+                let s = self.sheets.active_mut();
+                s.plan = s.plan.clone().rename([old.as_str()], [new_name.as_str()], true);
+                if s.view.hidden.remove(&old) {
+                    s.view.hidden.insert(new_name.clone());
+                }
+                for k in s.view.keys.iter_mut() {
+                    if k == &old {
+                        *k = new_name.clone();
+                    }
+                }
+                for (c, _) in s.view.type_casts.iter_mut() {
+                    if c == &old {
+                        *c = new_name.clone();
+                    }
+                }
+                self.spawn_materialize();
+            }
+            Action::TypeCastInt => self.push_type_cast(DataType::Int64),
+            Action::TypeCastFloat => self.push_type_cast(DataType::Float64),
+            Action::TypeCastString => self.push_type_cast(DataType::String),
+            Action::TypeCastDate => self.push_type_cast(DataType::Date),
+            Action::TypeCastCurrency => self.push_currency_cast(),
             Action::StartSearchInput => self.input = InputBuf::Search(String::new()),
             Action::StartFilterInput => self.input = InputBuf::Filter(String::new()),
             Action::StartExInput => self.input = InputBuf::Ex(String::new()),
@@ -630,6 +698,37 @@ impl App {
             s.view.window_offset = (offset + step as i64) as u64;
             self.spawn_materialize();
         }
+    }
+
+    fn push_type_cast(&mut self, dt: DataType) {
+        let Some(name) = self.current_column_name() else {
+            self.toast = Some("no column to type-cast".into());
+            return;
+        };
+        let s = self.sheets.active_mut();
+        if let Some(entry) = s.view.type_casts.iter_mut().find(|(c, _)| c == &name) {
+            entry.1 = dt;
+        } else {
+            s.view.type_casts.push((name, dt));
+        }
+        self.spawn_materialize();
+    }
+
+    /// VisiData `$` currency cast: strip `[^0-9.\-]` then cast to float.
+    /// Done as a `with_columns` on the base plan so filter/sort see the clean float.
+    fn push_currency_cast(&mut self) {
+        let Some(name) = self.current_column_name() else {
+            self.toast = Some("no column to type-cast".into());
+            return;
+        };
+        let s = self.sheets.active_mut();
+        s.plan = s.plan.clone().with_columns([col(name.as_str())
+            .cast(DataType::String)
+            .str()
+            .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
+            .cast(DataType::Float64)
+            .alias(name.as_str())]);
+        self.spawn_materialize();
     }
 
     fn sort_current_column(&mut self, order: SortOrder) {

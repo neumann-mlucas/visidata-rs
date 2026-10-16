@@ -26,6 +26,19 @@ pub enum Action {
     GotoRightmost,
     FreezeColumn,
     UnfreezeAll,
+    HideCol,
+    UnhideAll,
+    KeyCol, // toggle on current column
+    UnkeyAll,
+    StartRenameColInput,
+    RenameCol {
+        new_name: String,
+    },
+    TypeCastInt,
+    TypeCastFloat,
+    TypeCastString,
+    TypeCastDate,
+    TypeCastCurrency,
 
     // search / filter / sort
     SearchNext,
@@ -140,6 +153,7 @@ impl Action {
                 | Action::InputChar(_)
                 | Action::InputBackspace
                 | Action::OpenSheetSwitcher
+                | Action::StartRenameColInput
         )
     }
 }

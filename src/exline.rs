@@ -141,6 +141,29 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }
             Ok(vec![Action::Unpivot { on, index }])
         }
+        "hide" => Ok(vec![Action::HideCol]),
+        "unhide" | "unhide-cols" => Ok(vec![Action::UnhideAll]),
+        "key" => Ok(vec![Action::KeyCol]),
+        "unkey" => Ok(vec![Action::UnkeyAll]),
+        "rename" => {
+            if rest.is_empty() {
+                return Err(ExError::Usage(":rename <new-name> (operates on current column)"));
+            }
+            Ok(vec![Action::RenameCol {
+                new_name: rest.trim().to_string(),
+            }])
+        }
+        "type" => {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            match parts.as_slice() {
+                ["int"] => Ok(vec![Action::TypeCastInt]),
+                ["float"] => Ok(vec![Action::TypeCastFloat]),
+                ["string" | "str"] => Ok(vec![Action::TypeCastString]),
+                ["date"] => Ok(vec![Action::TypeCastDate]),
+                ["currency"] => Ok(vec![Action::TypeCastCurrency]),
+                _ => Err(ExError::Usage(":type int|float|string|date|currency")),
+            }
+        }
         other => Err(ExError::Unknown(other.to_string())),
     }
 }

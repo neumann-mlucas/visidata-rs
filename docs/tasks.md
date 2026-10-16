@@ -68,10 +68,10 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **Harness bootstrap** — `tests/vd_replay.rs` + cmdlog parser (`.vd`/`.vdj`) + translator + sheet-level `Replay` driver + numeric-aware diff + quote-style-never serialize + stable sort. `src/lib.rs` added so integration tests see internals. Fixed pre-existing `paint_text` compile error in `widget.rs` that was masked by bin-only build.
 - [ ] **Save** (#9) — `save-sheet` / `save-all` via `.sink_csv/parquet/ipc` by extension. _Harness compares the in-memory active sheet to the golden; actual file-write save is for the production App._
 - [ ] **Column meta** (#2) — `hide-col` (`-`), `rename-col`, `key-col` (`!`), `freeze-col` (`z=`), `columns-sheet` (`C` meta), `slide-left/right` (`H`/`L`). ~120 tests.
-  - [x] `rename-col` [driver only] — rename via `LazyFrame::rename`
-  - [x] `hide-col` [driver only] — projection drops column on serialize
-  - [x] `key-col` / `unkey-col` [driver only] — serialize puts keys first
-  - [ ] Production: `Action::RenameCol/HideCol/KeyCol` + `View.hidden`/`.keys` + exline (`:rename old new`, `:hide col`, `:key col`)
+  - [x] `rename-col` [driver + production] — iteration 9: `Action::RenameCol { new_name }` + `StartRenameColInput` prompt (`^` key) + `:rename NEW`
+  - [x] `hide-col` [driver + production] — iteration 9: `Action::HideCol`/`UnhideAll` + `View.hidden: BTreeSet<String>` + keybindings `-`/`g-` + exline `:hide`/`:unhide`
+  - [x] `key-col` / `unkey-col` [driver + production] — iteration 9: `Action::KeyCol` toggle + `View.keys: Vec<String>` + keybindings `!`/`z!` + exline `:key`/`:unkey`
+  - [x] `window_plan` applies type_casts → filter → sort (stable) → visible-column projection (keys first, drop hidden) → slice
   - [ ] `freeze-col`, `columns-sheet`, `slide-left/right` — not started
 - [ ] **Selection system** (#1) — `select-row/-s/-cols/-regex/-equal-cell`, `unselect-rows`, `toggle-row`, `dup-selected`, `columns-selected`. New `row_mask: Option<BooleanChunked>` on `Sheet`. ~80 tests.
   - [x] `select-rows`, `unselect-rows`, `select-row`, `unselect-row`, `stoggle-row` [driver only] — populates `view.selected` via row-key resolution with `キ` prefix handling
@@ -82,7 +82,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
   - [ ] Production: `Action::SelectRegex { col, pattern }` + `Action::SelectEqualCell` + `Action::SetCellInput { col, row, value }` with cursor-based row targeting + keybindings
 - [ ] **Type coercion** (#3) — `type-int/float/date/currency/string` via `cast()` + currency-strip pre-cast regex. ~71 tests. _Supersedes the deferred Phase 1 "type-inference adapter" line._
   - [x] `type-int/float/string/date/currency` [driver only] — `with_columns([col(name).cast(T).alias(name)])`; currency pre-strips `[^0-9.\-]` via `str.replace_all`
-  - [ ] Production: `Action::TypeCast { col, ty }` + keybindings (`#`, `%`, `@`, `$`, `~`) + exline (`:type col int`)
+  - [x] Production: `Action::TypeCast{Int,Float,String,Date,Currency}` + keybindings (`#`, `%`, `~`, `@`) + exline (`:type int|float|string|date|currency`). Stored as `View.type_casts: Vec<(String, DataType)>` applied in window_plan before filter/sort. Currency variant mutates `plan` directly (regex strip + cast) because it combines a String op with a cast — unlike simple-cast variants that go via view state. `$` keybind not wired yet (`$` is already `GotoRightmost`; needs leader resolution or `z$` chord).
 - [ ] Sort variants [driver only]: `sort-asc-add`, `sort-desc-add`, `sort-asc-change`, `sort-desc-change`, `sort-keys-asc`, `sort-keys-desc`. Production currently only has replace-mode `SortAsc`/`SortDesc`.
 - [ ] **Describe** (#8) — `describe-sheet` via `LazyFrame::describe(None)`. ~5 tests. _2 pending in skip bucket._
 - [ ] **Options** (#7) — flat `HashMap<String, OptionValue>` + per-sheet override. `set-option` + `g set-option`. **33 tests pending (biggest single bucket)** — but most tests pair `set-option` with features we haven't shipped, so coverage per LOC is lower than the raw count. No 4-level fallback (direction §1).
@@ -111,16 +111,17 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
   - **`append` origin_sheet**: `with_column(lit(name).alias("origin_sheet"))` per plan before concat. Added `ColMeta::col_order` hint for the "non-key cols in reverse-selection order" rule VisiData uses. Unquarantined `append`.
   - **sqlite reader via `rusqlite`** (bundled): opens first user table ordered by `rowid` as all-String columns. UTF-8-lossy decode via `ValueRef::Text(&[u8])` instead of `Value::Text(String)` (prevents panic on invalid-unicode fixtures). Unlocked `load-sqlite` + `invalid_unicode_sqlite`. One quarantined (`load-sqlite-view` — needs multi-table dive-row model, deferred).
 - [x] **Iteration 8** — diminishing-returns iteration (+0 PASS, exploration + small cleanup). `select-row` in `ColumnsSheet` meta-mode now safely no-ops (previously fell through to data-row lookup, polluting attempts). `find_by_key` casts lookup column to String so Date/numeric keys match their ISO cmdlog form. Investigated: `pivot-noaggr` (VisiData's no-key single-row count-pivot, incompatible with Polars pivot_stable), `freq-same-int` (needs lenient `type-date` parsing like `dateutil` — Polars `cast(Date)` fails on `7/3/2018 1:47p`), `xlsx-header` (needs `set-option override_header=0`). All real feature gaps, documented not implemented.
+- [x] **Iteration 9** — production migration of Tier 1 driver chunks (+0 PASS, user-facing surface). The `vdrs` binary now supports hide/unhide/key/unkey/rename/type-cast via keybindings and exline. Added `View.{hidden, keys, type_casts}` + 11 new Action variants + `InputBuf::Rename` prompt mode + 2 lib tests covering projection and type-cast. `window_plan` chain: type_casts → filter → sort (stable, with_maintain_order=true) → key/hide projection → slice. Lua API (`vd.bind`) now exposes all new actions by snake_case name per S-10. 33 lib tests, 2 pre-existing clippy warnings.
 
 **Iteration 4 learnings:**
 - Xlsx test chains work out of the box once the reader lands + `dive-row`/`open-row` no-ops. VisiData's xlsx opens into a meta-sheet-of-worksheets; we skip that layer by loading first sheet directly, so the subsequent "enter the sheet" step is a semantic no-op for single-sheet workbooks.
 - **Multi-sheet replay is a new blocker**: `append.vd` and friends load two files, use `sheets-stack` + `select-row` on `キ<sheet-name>` to pick which sheets to join, then run `join-sheets`. Our single-sheet `Replay::sheet: Option<Sheet>` can't model this. 8 tests gated on this.
 - Clippy drift: xlsx impl introduced one `needless_range_loop` warning (`for ci in row.len()..width`); fixed to `cols.iter_mut().take(width).skip(row.len())`.
 
-**Next-iteration priorities (ranked by PASS-count leverage, iteration 8 updated):**
-1. **Production migration of Tier 1 driver chunks** — `Action::{HideCol,RenameCol,KeyCol,TypeCast}` + exline + keybindings. 0 PASS lift but closes the driver/production gap users feel. Promoted since corpus leverage is drying up.
-2. **columns-sheet content serialization** — unlocks `sortorder` quarantine + partially the 4 `columns-selected` + 2 `columns-all` skips. Non-trivial: model meta-sheet rows as parent's columns with `name`/`width`/`type`/`fmtstr`/`value`/`aggregators`/`sortorder` cols. 2–4 PASS lift realistically.
-3. **Lenient date parsing** — strptime fallback with `%m/%d/%Y %I:%M%p`-style patterns. Unlocks `freq-same-int` and the latent benchmark.csv chains. 1–3 PASS lift.
+**Next-iteration priorities (ranked by PASS-count leverage, iteration 9 updated):**
+1. **columns-sheet content serialization** — biggest addressable bucket. Model meta-sheet rows as parent's columns with `name`/`width`/`type`/`fmtstr`/`value`/`aggregators`/`sortorder` cols. 2–4 PASS lift. Also unlocks the `sortorder` quarantine.
+2. **Lenient date parsing** — strptime fallback with `%m/%d/%Y %I:%M%p`-style patterns via `str.strptime`. Unlocks `freq-same-int` and latent benchmark.csv chains. 1–3 PASS lift.
+3. **Visual verification pass** — now that the vdrs binary has real hide/key/type-cast surface, run it manually on a CSV to confirm the new keybindings don't break interactively. Nothing in the test suite covers interactive UX.
 4. **CSV string-only reading option** — unlocks `issue964-inner-join` (leading-zero loss). Risky: may regress currently-passing numeric tests. 1 PASS, maybe ‑N regressions.
 5. **Phase 3 non-expression work** (loader/aggregator/renderer plugin shapes, hot-reload) — DOESN'T lift PASS. Ship when a user needs them.
 6. **Python-expr compat layer**: pragmatic subset parser could unlock ~5–10 UNTESTABLE. Direction §9.5 defers.
