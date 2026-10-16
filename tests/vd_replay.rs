@@ -1350,6 +1350,9 @@ fn vd_replay_corpus() {
 
         if tsv_eq(&want, &got) {
             pass += 1;
+            if std::env::var("VDRS_REPLAY_VERBOSE").is_ok() {
+                eprintln!("PASS: {stem}");
+            }
         } else {
             fail.push((stem, short_diff(&want, &got)));
         }

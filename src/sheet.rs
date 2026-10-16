@@ -242,12 +242,21 @@ impl Sheet {
     }
 
     /// Build a frequency-table sheet grouping by `col_name` with counts, desc.
+    /// `percent` column added alongside `count` to match VisiData's freq output
+    /// (count / total * 100, 2-decimal). No `histogram` column — users who need
+    /// one can hide-col the extras.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
         let plan = parent
             .plan
             .clone()
             .group_by([col(col_name)])
             .agg([len().alias("count")])
+            .with_columns([
+                (col("count").cast(DataType::Float64) * lit(100.0f64)
+                    / col("count").cast(DataType::Float64).sum())
+                .round(2)
+                .alias("percent"),
+            ])
             .sort(
                 ["count"],
                 SortMultipleOptions::default().with_order_descending(true),
@@ -734,11 +743,14 @@ mod tests {
         let parent = Sheet::from_source(0, loaded);
         let freq = Sheet::freq_from(&parent, 1, "color");
         let df = freq.plan.clone().collect().unwrap();
-        assert_eq!(df.width(), 2); // color + count
+        assert_eq!(df.width(), 3); // color + count + percent
         assert_eq!(df.height(), 3); // red/blue/green
         let counts = df.column("count").unwrap();
         let first: i64 = counts.get(0).unwrap().try_extract().unwrap();
         assert_eq!(first, 3); // red leads
+        let pct = df.column("percent").unwrap();
+        let first_pct: f64 = pct.get(0).unwrap().try_extract().unwrap();
+        assert!((first_pct - 50.0).abs() < 0.01); // 3/6 = 50%
     }
 
     #[test]
