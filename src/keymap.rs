@@ -34,6 +34,15 @@ pub struct Keymap {
 }
 
 impl Keymap {
+    /// Append a chord to a layer. Plugins call this via `vd.bind`; last-declaration-wins
+    /// resolution means the appended chord shadows an identical default.
+    pub fn append(&mut self, layer: Layer, chord: Chord) {
+        match layer {
+            Layer::Sheet => self.sheet.push(chord),
+            Layer::Input => self.input.push(chord),
+        }
+    }
+
     /// Resolve a key sequence against a layer. `pending` is what the user typed
     /// so far (empty on a fresh chord); `next` is the latest key.
     pub fn resolve(&self, layer: Layer, pending: &[Key], next: Key) -> Dispatch {
@@ -101,11 +110,31 @@ impl Keymap {
             ch(vec![k("n")], vec![SearchNext], "next match"),
             ch(vec![k("N")], vec![SearchPrev], "prev match"),
             ch(
-                vec![k("|")],
+                vec![k("z"), k("|")],
                 vec![StartFilterInput],
                 "filter current column by regex",
             ),
             ch(vec![k("z"), k("f")], vec![ClearFilter], "clear filter"),
+            // selection (VisiData)
+            ch(vec![k("s")], vec![ToggleSelectRow], "toggle select row"),
+            ch(
+                vec![k("t")],
+                vec![ToggleSelectRow],
+                "toggle select row (alias)",
+            ),
+            ch(vec![k("u")], vec![UnselectRow], "unselect row"),
+            ch(vec![k("g"), k("s")], vec![SelectAll], "select all"),
+            ch(vec![k("g"), k("u")], vec![UnselectAll], "unselect all"),
+            ch(
+                vec![k("|")],
+                vec![StartSelectInput],
+                "select by regex on current column",
+            ),
+            ch(
+                vec![k("\"")],
+                vec![DupSelected],
+                "new sheet from selected rows",
+            ),
             // sort
             ch(
                 vec![k("[")],

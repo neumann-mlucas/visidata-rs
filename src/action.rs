@@ -63,11 +63,27 @@ pub enum Action {
         path: String,
         keys: Vec<String>,
     },
+    Tail {
+        path: String,
+        follow: bool,
+    },
     SwitchToSheet(u32),
     SubmitRow,
 
     // plan panel
     TogglePlanPanel,
+
+    // selection (VisiData style)
+    ToggleSelectRow,
+    SelectRow,
+    UnselectRow,
+    SelectAll,
+    UnselectAll,
+    SelectByRegex {
+        regex: String,
+    },
+    StartSelectInput, // `|` → prompt for regex
+    DupSelected,      // `"` → new sheet with selected rows only
 
     // ex-line
     StartExInput,

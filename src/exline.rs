@@ -85,6 +85,16 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 agg,
             }])
         }
+        "tail" => {
+            // :tail <path> [--follow]
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.is_empty() {
+                return Err(ExError::Usage(":tail <path> [--follow]"));
+            }
+            let path = parts[0].to_string();
+            let follow = parts.iter().any(|p| *p == "--follow" || *p == "-f");
+            Ok(vec![Action::Tail { path, follow }])
+        }
         "diff" => {
             // :diff <path> [key1,key2,...]
             let parts: Vec<&str> = rest.split_whitespace().collect();

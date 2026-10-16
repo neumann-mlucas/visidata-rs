@@ -27,6 +27,7 @@ use crate::sheet::{
     DEFAULT_WINDOW_ROWS, FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey,
     SortOrder, View,
 };
+use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
 
 /// Entry point from main.
@@ -74,6 +75,7 @@ enum InputBuf {
     Search(String),
     Filter(String),
     Ex(String),
+    Select(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,6 +96,8 @@ pub struct App {
     input: InputBuf,
     ex_history: crate::exline::History,
     plan_mode: PlanMode,
+    follow_jump_bottom: bool,
+    theme: Theme,
     quit: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
     materialize_rx: mpsc::Receiver<MaterializeResult>,
@@ -104,17 +108,27 @@ pub struct App {
 impl App {
     pub fn new(sheet: Sheet) -> Self {
         let (tx, rx) = mpsc::channel(8);
+        let mut keymap = Keymap::defaults();
+        let toast = match crate::plugins::Plugins::load() {
+            Ok(p) => {
+                p.apply_keymap(&mut keymap);
+                None
+            }
+            Err(e) => Some(format!("init.lua: {e}")),
+        };
         Self {
             sheets: Sheets::new(sheet),
-            keymap: Keymap::defaults(),
+            keymap,
             pending: Vec::new(),
             pending_candidates: Vec::new(),
             pending_count: None,
             last_action: None,
-            toast: None,
+            toast,
             input: InputBuf::None,
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
+            follow_jump_bottom: false,
+            theme: Theme::dark(),
             quit: false,
             materialize_tx: tx,
             materialize_rx: rx,
@@ -127,6 +141,10 @@ impl App {
         let mut events = EventStream::new();
         let mut tick = tokio::time::interval(Duration::from_millis(16));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut tail_tick = tokio::time::interval(Duration::from_secs(2));
+        tail_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // first tick fires immediately — burn it so refresh doesn't race the initial materialize
+        tail_tick.tick().await;
         self.draw(term)?;
 
         loop {
@@ -146,6 +164,9 @@ impl App {
                 Some(res) = self.materialize_rx.recv() => {
                     self.on_materialize(res);
                     self.draw(term)?;
+                }
+                _ = tail_tick.tick() => {
+                    self.on_tail_tick();
                 }
                 _ = tick.tick() => {}
             }
@@ -199,13 +220,19 @@ impl App {
                 revision,
                 df,
             } => {
+                let follow_jump = self.follow_jump_bottom;
                 let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
                     return;
                 };
                 if revision != s.revision {
                     return;
                 }
+                let h = df.height();
                 s.window = Some(df);
+                if follow_jump && h > 0 {
+                    s.view.row_cursor = h - 1;
+                }
+                self.follow_jump_bottom = false;
                 self.toast = None;
             }
             MaterializeResult::Err {
@@ -318,14 +345,16 @@ impl App {
 
     fn input_push_char(&mut self, c: char) {
         match &mut self.input {
-            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) => s.push(c),
+            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) | InputBuf::Select(s) => {
+                s.push(c)
+            }
             InputBuf::None => {}
         }
     }
 
     fn input_push_backspace(&mut self) {
         match &mut self.input {
-            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) => {
+            InputBuf::Search(s) | InputBuf::Filter(s) | InputBuf::Ex(s) | InputBuf::Select(s) => {
                 s.pop();
             }
             InputBuf::None => {}
@@ -359,6 +388,9 @@ impl App {
                     Ok(actions) => self.dispatch_sequence(actions),
                     Err(e) => self.toast = Some(format!("{e}")),
                 }
+            }
+            InputBuf::Select(regex) if !regex.is_empty() => {
+                self.dispatch(Action::SelectByRegex { regex });
             }
             _ => {}
         }
@@ -505,12 +537,23 @@ impl App {
             } => self.open_pivot(&index, &on, &values, &agg),
             Action::Unpivot { on, index } => self.open_unpivot(&on, &index),
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
+            Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::SwitchToSheet(id) => {
                 if !self.sheets.switch_to(id) {
                     self.toast = Some(format!("no sheet with id {id}"));
                 }
             }
             Action::SubmitRow => self.submit_row(),
+            Action::ToggleSelectRow => self.toggle_select_current(),
+            Action::SelectRow => self.set_select_current(true),
+            Action::UnselectRow => self.set_select_current(false),
+            Action::SelectAll => self.select_all_in_window(true),
+            Action::UnselectAll => {
+                self.sheets.active_mut().view.selected.clear();
+            }
+            Action::StartSelectInput => self.input = InputBuf::Select(String::new()),
+            Action::SelectByRegex { regex } => self.select_by_regex(&regex),
+            Action::DupSelected => self.open_dup_selected(),
             Action::TogglePlanPanel => {
                 self.plan_mode = match self.plan_mode {
                     PlanMode::Off => PlanMode::Normal,
@@ -673,6 +716,51 @@ impl App {
         }
     }
 
+    fn open_tail(&mut self, path: &str, follow: bool) {
+        use std::ffi::OsString;
+        let loaded = match crate::reader::open(&OsString::from(path), None) {
+            Ok(l) => l,
+            Err(e) => {
+                self.toast = Some(format!("tail load: {e}"));
+                return;
+            }
+        };
+        let id = self.sheets.alloc_id();
+        match Sheet::tail_from(id, loaded, follow) {
+            Ok(s) => {
+                self.sheets.push(s);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("tail: {e}")),
+        }
+    }
+
+    fn on_tail_tick(&mut self) {
+        // Only refresh the active sheet's tail if any. Dormant tail sheets are reactivated
+        // via sheet-switcher; refreshing all of them per tick would be wasteful.
+        let active = self.sheets.active_mut();
+        let is_tail = matches!(active.origin, Origin::Tail { .. });
+        if !is_tail {
+            return;
+        }
+        let follow = matches!(active.origin, Origin::Tail { follow: true, .. });
+        let was_at_bottom = active
+            .window
+            .as_ref()
+            .map(|df| df.height() > 0 && active.view.row_cursor + 1 == df.height())
+            .unwrap_or(true);
+        if let Err(e) = active.refresh_tail() {
+            self.toast = Some(format!("tail refresh: {e}"));
+            return;
+        }
+        self.spawn_materialize();
+        if follow && was_at_bottom {
+            // GotoBottom lands after the next materialize completes; we signal intent now.
+            // Simpler path: set a flag; on_materialize jumps cursor to df.height()-1 if set.
+            self.follow_jump_bottom = true;
+        }
+    }
+
     fn open_diff(&mut self, path: &str, keys: &[String]) {
         use std::ffi::OsString;
         let loaded = match crate::reader::open(&OsString::from(path), None) {
@@ -730,6 +818,93 @@ impl App {
         self.sheets.pop();
         if !self.sheets.switch_to(id) {
             self.toast = Some(format!("no sheet with id {id}"));
+        }
+    }
+
+    fn abs_row_at_cursor(&self) -> Option<u64> {
+        let s = self.sheets.active();
+        s.window.as_ref()?;
+        Some(s.view.window_offset + s.view.row_cursor as u64)
+    }
+
+    fn toggle_select_current(&mut self) {
+        let Some(abs) = self.abs_row_at_cursor() else {
+            return;
+        };
+        let v = &mut self.sheets.active_mut().view;
+        if !v.selected.remove(&abs) {
+            v.selected.insert(abs);
+        }
+    }
+
+    fn set_select_current(&mut self, select: bool) {
+        let Some(abs) = self.abs_row_at_cursor() else {
+            return;
+        };
+        let v = &mut self.sheets.active_mut().view;
+        if select {
+            v.selected.insert(abs);
+        } else {
+            v.selected.remove(&abs);
+        }
+    }
+
+    fn select_all_in_window(&mut self, select: bool) {
+        let s = self.sheets.active_mut();
+        let Some(df) = &s.window else { return };
+        let base = s.view.window_offset;
+        if select {
+            for i in 0..df.height() as u64 {
+                s.view.selected.insert(base + i);
+            }
+        } else {
+            s.view.selected.clear();
+        }
+    }
+
+    fn select_by_regex(&mut self, pat: &str) {
+        let re = match regex::Regex::new(pat) {
+            Ok(r) => r,
+            Err(e) => {
+                self.toast = Some(format!("bad regex: {e}"));
+                return;
+            }
+        };
+        let s = self.sheets.active_mut();
+        let Some(df) = &s.window else { return };
+        let ci = s.view.col_cursor;
+        let Some(col) = df.get_columns().get(ci) else {
+            return;
+        };
+        let base = s.view.window_offset;
+        let mut matched = 0usize;
+        for ri in 0..df.height() {
+            let av = col.get(ri).unwrap_or(polars::prelude::AnyValue::Null);
+            let cell = match av {
+                polars::prelude::AnyValue::String(s) => s.to_string(),
+                polars::prelude::AnyValue::StringOwned(s) => s.as_str().to_string(),
+                other => other.to_string(),
+            };
+            if re.is_match(&cell) {
+                s.view.selected.insert(base + ri as u64);
+                matched += 1;
+            }
+        }
+        self.toast = Some(format!("selected {matched} rows matching /{pat}"));
+    }
+
+    fn open_dup_selected(&mut self) {
+        let id = self.sheets.alloc_id();
+        let built = {
+            let parent = self.sheets.active();
+            Sheet::dup_selected_from(parent, id)
+        };
+        match built {
+            Ok(s) => {
+                self.sheets.push(s);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("dup: {e}")),
         }
     }
 
@@ -793,6 +968,7 @@ impl App {
             f.render_widget(
                 SheetWidget {
                     sheet: self.sheets.active(),
+                    theme: &self.theme,
                 },
                 main_area,
             );
@@ -804,6 +980,7 @@ impl App {
             f.render_widget(
                 SheetWidget {
                     sheet: self.sheets.active(),
+                    theme: &self.theme,
                 },
                 halves[0],
             );
@@ -894,20 +1071,23 @@ impl App {
             .unwrap_or((0, 0));
         let abs_row = window_offset as usize + row_cursor;
         let stack_pos = self.sheets.len();
-        let title = format!(
-            " {name} [{kind:?}] | {abs_row}/{rows}·{col_cursor}/{cols} | win+{window_offset} | sheets:{stack_pos} ",
-            name = s.name,
-            kind = s.kind
-        );
-        f.render_widget(
-            Paragraph::new(title).style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            area,
-        );
+        let sel = s.view.selected.len();
+        let col_name = s
+            .window
+            .as_ref()
+            .and_then(|df| df.get_column_names().get(col_cursor).map(|n| n.to_string()))
+            .unwrap_or_default();
+        let left = format!(" {name} ", name = s.name);
+        let center =
+            format!(" row {abs_row}/{rows} · col {col_cursor}/{cols} ({col_name}) · sel {sel} ",);
+        let right = format!(" {kind:?} · sheets {stack_pos} ", kind = s.kind);
+        let th = &self.theme;
+        let line = Line::from(vec![
+            Span::styled(left, th.titlebar_left()),
+            Span::styled(center, th.titlebar_mid()),
+            Span::styled(right, th.titlebar_right()),
+        ]);
+        f.render_widget(Paragraph::new(line), area);
     }
 
     fn render_statusbar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
@@ -929,6 +1109,10 @@ impl App {
                 Span::styled(":", Style::default().fg(Color::Yellow)),
                 Span::raw(s.clone()),
             ]),
+            (InputBuf::Select(s), _, _, _) => Line::from(vec![
+                Span::styled("| ", Style::default().fg(Color::Magenta)),
+                Span::raw(s.clone()),
+            ]),
             (_, Some(t), _, _) => {
                 Line::from(Span::styled(t.clone(), Style::default().fg(Color::Red)))
             }
@@ -942,7 +1126,7 @@ impl App {
                     .join(" ")
             )),
             _ => Line::from(
-                " j/k/h/l · gg/G · 0/$ · /n|zf · [/]zo sort · zs/zc freeze · F freq · S sheets · : ex · . repeat · q pop/quit ",
+                " hjkl · gg/G · s/u sel · gs/gu · | sel-re · \" dup · F freq · [/] sort · zs freeze · P plan · : ex · . · q ",
             ),
         };
         f.render_widget(

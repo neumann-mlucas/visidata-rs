@@ -30,11 +30,30 @@ pub struct Sheet {
 #[derive(Debug, Clone)]
 pub enum Origin {
     File,
-    Freq { parent: SheetId, column: String },
-    Pivot { parent: SheetId },
-    Unpivot { parent: SheetId },
+    Freq {
+        parent: SheetId,
+        column: String,
+    },
+    Pivot {
+        parent: SheetId,
+    },
+    Unpivot {
+        parent: SheetId,
+    },
     SheetSwitcher,
-    Diff { left: SheetId, right_name: String },
+    Diff {
+        left: SheetId,
+        right_name: String,
+    },
+    /// Tail of a growing file. On each tail tick the plan is rebuilt via `scan_*`.
+    Tail {
+        path: std::path::PathBuf,
+        follow: bool,
+    },
+    /// Rows selected in parent (VisiData `"`).
+    Selected {
+        parent: SheetId,
+    },
 }
 
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.
@@ -64,6 +83,10 @@ impl Sheets {
     }
     pub fn len(&self) -> usize {
         self.stack.len()
+    }
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn is_empty(&self) -> bool {
+        self.stack.is_empty()
     }
     pub fn alloc_id(&mut self) -> SheetId {
         let id = self.next_id;
@@ -118,6 +141,8 @@ pub struct View {
     pub search: Option<SearchState>,
     pub filter: Option<FilterState>,
     pub sort: Vec<SortKey>,
+    /// Selected absolute row offsets (VisiData-style). Cleared on plan mutations.
+    pub selected: std::collections::BTreeSet<u64>,
 }
 
 impl Default for View {
@@ -133,6 +158,7 @@ impl Default for View {
             search: None,
             filter: None,
             sort: Vec::new(),
+            selected: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -278,6 +304,75 @@ impl Sheet {
             revision: 0,
             origin: Origin::Pivot { parent: parent.id },
         })
+    }
+
+    /// Build a sheet containing only the parent's selected rows.
+    /// Eager: collects parent, filters by row index. VisiData `"` semantic.
+    pub fn dup_selected_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
+        if parent.view.selected.is_empty() {
+            return Err("no rows selected".into());
+        }
+        let df = parent.plan.clone().collect().map_err(|e| e.to_string())?;
+        let height = df.height() as u64;
+        let mask: Vec<bool> = (0..height)
+            .map(|i| parent.view.selected.contains(&i))
+            .collect();
+        let bc: BooleanChunked = mask.into_iter().collect();
+        let out = df.filter(&bc).map_err(|e| e.to_string())?;
+        let plan = out.clone().lazy();
+        Ok(Sheet {
+            id,
+            name: format!(
+                "selected ({} rows): {}",
+                parent.view.selected.len(),
+                parent.name
+            ),
+            kind: parent.kind,
+            source: parent.source.clone(),
+            plan,
+            view: View::default(),
+            window: Some(out),
+            revision: 0,
+            origin: Origin::Selected { parent: parent.id },
+        })
+    }
+
+    /// Open a tail-mode sheet. The path is re-scanned on each tail tick to pick up appended rows.
+    /// Phase 4 minimum: full re-read each tick (ok for small/medium files; incremental read later).
+    pub fn tail_from(
+        id: SheetId,
+        loaded: LoadedSource,
+        follow: bool,
+    ) -> Result<Self, crate::reader::OpenError> {
+        let Some(path) = loaded.path.clone() else {
+            return Err(crate::reader::OpenError::UnknownFormat {
+                path: std::path::PathBuf::from(&loaded.display_name),
+            });
+        };
+        let kind = loaded.kind;
+        let plan = loaded.lazy.clone();
+        let display = loaded.display_name.clone();
+        Ok(Sheet {
+            id,
+            name: format!("tail: {display}"),
+            kind,
+            source: Arc::new(loaded),
+            plan,
+            view: View::default(),
+            window: None,
+            revision: 0,
+            origin: Origin::Tail { path, follow },
+        })
+    }
+
+    /// Rebuild `plan` from the tail path. Called by the app loop each tail tick.
+    pub fn refresh_tail(&mut self) -> Result<(), crate::reader::OpenError> {
+        let Origin::Tail { path, .. } = &self.origin else {
+            return Ok(());
+        };
+        let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
+        self.plan = loaded.lazy;
+        Ok(())
     }
 
     /// Build a schema-diff sheet comparing `parent` with `other`.
@@ -657,6 +752,32 @@ mod tests {
         let df = d.plan.clone().collect().unwrap();
         // Expect 3 rows (1 unchanged suppressed): id=2 changed, id=3 only_a, id=4 only_b
         assert_eq!(df.height(), 3);
+    }
+
+    #[test]
+    fn tail_refresh_picks_up_appended_rows() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, r#"{{"a":1}}"#).unwrap();
+        writeln!(tmp, r#"{{"a":2}}"#).unwrap();
+        tmp.flush().unwrap();
+        // Re-open to force the JSONL kind
+        let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Jsonl)).unwrap();
+        let mut s = Sheet::tail_from(42, loaded, false).unwrap();
+        let before = s.plan.clone().collect().unwrap();
+        assert_eq!(before.height(), 2);
+        // append more rows
+        use std::io::Write as _;
+        let mut handle = std::fs::OpenOptions::new()
+            .append(true)
+            .open(tmp.path())
+            .unwrap();
+        writeln!(handle, r#"{{"a":3}}"#).unwrap();
+        writeln!(handle, r#"{{"a":4}}"#).unwrap();
+        handle.flush().unwrap();
+        drop(handle);
+        s.refresh_tail().unwrap();
+        let after = s.plan.clone().collect().unwrap();
+        assert_eq!(after.height(), 4);
     }
 
     #[test]
