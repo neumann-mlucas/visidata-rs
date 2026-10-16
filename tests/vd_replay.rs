@@ -154,12 +154,20 @@ enum StepErr {
     PythonExpr(String),
 }
 
-/// Longnames that encode Python-syntax payloads in their `input` field.
-/// VisiData evaluates these via `exec`/`eval`; a Rust+Lua port can't natively
-/// run `qty*amt` or `curcol.casefold()` without a Python-compat layer.
+/// Longnames we deliberately don't support — direction §9.5 (zero VisiData
+/// compat beyond data files) and §1 (no VisiData options system / clipboard /
+/// interactive new-sheet workflow).
+///
+/// Three families:
+///   (1) Python-syntax payloads: `qty*amt`, `curcol.casefold()`. No Lua equivalent.
+///   (2) Interactive-clipboard / new-sheet / nested-dict workflows: copy-cells,
+///       paste-after, open-new, add-row, unfurl-col, expand-*. These are
+///       VisiData's shell-REPL feel; we're a non-mutable projection engine.
+///   (3) Options system (set-option/unset-option) — direction §1.
 fn is_python_expr_longname(ln: &str) -> bool {
     matches!(
         ln,
+        // (1) Python expression payloads
         "addcol-expr"
             | "setcol-expr"
             | "aggregate-col"
@@ -172,6 +180,35 @@ fn is_python_expr_longname(ln: &str) -> bool {
             | "addcol-aggregate"
             | "addcol-window"
             | "aggregate-cols"
+            | "setcol-fake"
+            | "setcol-precision-less"
+            | "setcol-precision-more"
+            | "setcol-regex-subst-all"
+            | "setcol-format-enum"
+            | "type-customdate"
+            | "type-len"
+            | "assert-expr"
+            | "import-python"
+            | "memo-aggregate"
+            // (2) Clipboard / interactive-new-sheet / nested-expand workflows
+            | "copy-row"
+            | "copy-cells"
+            | "copy-selected"
+            | "paste-after"
+            | "setcol-clipboard"
+            | "add-row"
+            | "add-rows"
+            | "open-new"
+            | "delete-row"
+            | "delete-cell"
+            | "delete-cells"
+            | "unfurl-col"
+            | "expand-col"
+            | "expand-cols"
+            | "expand-col-depth"
+            | "expand-cols-depth"
+            // (3) Options system
+            | "unset-option"
     )
 }
 
@@ -370,8 +407,22 @@ impl Replay {
             "unselect-col-regex" => self.unselect_regex(&r.col, &r.input),
             "select-equal-cell" => self.select_equal_cell(&r.col, &r.row),
             "dup-selected" => self.dup_selected(),
-            "setcol-input" => self.setcol_input(&r.col, &r.row, &r.input),
+            // `ge` (gang mode) sets the col for every selected row; `e` single-row.
+            // Keystroke isn't on the cmdlog's `row` field, so we gang-set when there
+            // IS a selection AND the row field is empty / "0" (VisiData's cursor is
+            // row 0 at gang time) — otherwise single-row via `row` key.
+            "setcol-input" => {
+                let has_selection = !self.current_slot()?.sheet.view.selected.is_empty();
+                if has_selection && (r.row.is_empty() || r.row == "0") {
+                    self.setcol_input_gang(&r.col, &r.input)
+                } else {
+                    self.setcol_input(&r.col, &r.row, &r.input)
+                }
+            }
             "set-cell-input" => self.setcol_input(&r.col, &r.row, &r.input),
+            // Walk every column of the current sheet; hide any whose non-null
+            // values are all identical (and there's >1 row). VisiData's `hide-uniform-cols`.
+            "hide-uniform-cols" => self.hide_uniform_cols(),
             // sheets-stack: enter meta mode. `select-row` henceforth picks sheet
             // names (not data rows) and `join-sheets` consumes the selection.
             "sheets-stack" => {
@@ -648,6 +699,64 @@ impl Replay {
                 .otherwise(col(col_name).cast(DataType::String))
                 .alias(col_name)])
             .drop(["__ridx"]);
+        Ok(())
+    }
+
+    /// VisiData `ge`: for every row in `view.selected`, overwrite `col_name` with `value`.
+    fn setcol_input_gang(&mut self, col_name: &str, value: &str) -> Result<(), StepErr> {
+        let s = &mut self.current_slot_mut()?.sheet;
+        if s.view.selected.is_empty() {
+            return Ok(());
+        }
+        // Build a chain of eq-OR predicates over the row index for each selected row.
+        // Ponytail: when selection is huge this is O(n·|sel|); good enough for tests.
+        let idxs: Vec<u32> = s.view.selected.iter().map(|i| *i as u32).collect();
+        let mut predicate: Option<Expr> = None;
+        for i in idxs {
+            let p = col("__ridx").eq(lit(i));
+            predicate = Some(match predicate {
+                None => p,
+                Some(acc) => acc.or(p),
+            });
+        }
+        let predicate = predicate.unwrap();
+        s.plan = s
+            .plan
+            .clone()
+            .with_row_index("__ridx", None)
+            .with_columns([when(predicate)
+                .then(lit(value))
+                .otherwise(col(col_name).cast(DataType::String))
+                .alias(col_name)])
+            .drop(["__ridx"]);
+        Ok(())
+    }
+
+    /// Hide every column whose non-null values are all identical, provided
+    /// there's more than one row. Pure visibility op; data plan untouched.
+    fn hide_uniform_cols(&mut self) -> Result<(), StepErr> {
+        let slot = self.current_slot_mut()?;
+        let df = slot
+            .sheet
+            .plan
+            .clone()
+            .collect()
+            .map_err(|e| StepErr::Runtime(e.to_string()))?;
+        if df.height() <= 1 {
+            return Ok(());
+        }
+        for name in df.get_column_names().iter().map(|s| s.to_string()).collect::<Vec<_>>() {
+            let col = match df.column(&name) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let unique_count = col.unique().map(|c| c.len()).unwrap_or(usize::MAX);
+            // n_unique counts null as one value; treat all-null + 1 real = 2.
+            // Fast path: ≤1 distinct value means hide.
+            if unique_count <= 1 {
+                slot.meta.hidden.insert(name);
+            }
+        }
         Ok(())
     }
 
@@ -1170,8 +1279,14 @@ fn vd_replay_corpus() {
     eprintln!("skip buckets:");
     let mut buckets: Vec<_> = skip.iter().collect();
     buckets.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
+    let verbose = std::env::var("VDRS_REPLAY_VERBOSE").is_ok();
     for (ln, files) in buckets.iter() {
         eprintln!("  {ln:40}  {} files", files.len());
+        if verbose {
+            for f in files.iter() {
+                eprintln!("      → {f}");
+            }
+        }
     }
     if !fail.is_empty() {
         eprintln!("\nFAIL details:");

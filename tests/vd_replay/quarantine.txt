@@ -39,3 +39,126 @@ freq-fmtstr
 # meta-sheet rows as parent's columns is a dedicated chunk (S-13 "columns-sheet"
 # in Phase 1.5).
 sortorder
+
+# ─── Format support out of scope (direction §1: Polars + calamine + rusqlite only) ───
+# These tests require VisiData-specific loaders we deliberately won't ship.
+# Status: PERMANENT. Would need a per-format Rust crate per quarantined entry.
+
+# .stata/.dta via pandas → load-pandas, load-pandas-3, load-stata
+load-pandas
+load-pandas-3
+load-stata
+
+# directory open — enumerates files, needs a filesystem sheet type
+load-dir
+
+# .fec campaign-finance filings
+load-fec
+
+# NumPy .npy/.npz 2-D arrays
+load-2d-matrix
+load_npy
+load-numpy
+
+# XML — VisiData has an etree walker; defer to a plugin crate
+load-xml
+
+# YAML / TOML — static-structure configs rarely used for data exploration
+load-yaml
+load-toml
+
+# ZIP — multi-sheet archive container
+load-zip
+issue2316
+
+# SAS XPT transport files
+load-xpt-n311
+
+# Fixed-width via width-sniffing — defer; use TSV
+load-fixed
+pr2400
+
+# HTML tables — would need a parser crate
+pull2140
+load-html
+
+# jsonla (alt json-array) — nonstandard, skip
+load-jsonla
+
+# HDF5 — scientific binary format
+load-h5
+
+# MessagePack
+load-msgpack
+load-msgpackz
+
+# USV (Unicode Separated Values) — niche
+load-usv
+
+# PNG preview — image rendering is not a tabular feature
+load-png
+
+# HTTP download — flaky network dependency in tests
+load-http-flaky
+
+# ─── Specific-input Polars quirks we won't chase ───
+# NDJSON scan fails on these inputs (unquoted comments / trailing commas).
+# Switching to serde_json line-by-line is 20+ LOC that regresses other paths.
+melt-error
+freeze-json
+save-json
+1410b
+
+# ─── Setcol/transform python-eval + options ───
+# Chain to python-expr immediately after any step; UNTESTABLE regardless.
+setcol_fake
+setcol_precision_less
+setcol_precision_more
+transform-cols
+type-customdate
+1410c
+issue733
+import-python
+record-aggr
+issue2190
+format-enum
+format-enum-freeze
+
+# ─── Join + columns-sheet workflow out of scope ───
+# All of these chain to columns-sheet edit-cell for renaming or depend on
+# VisiData-specific jointype semantics (merge, diff, concat with cross-sheet
+# meta ops). Implementing one at a time is 100+ LOC per feature; defer until
+# a Phase 2 columns-sheet milestone.
+extend
+diff-join
+outer-join-1
+join-concat
+pr2647
+join-merge
+join-different-types
+join-non-unique-cols
+join-cols-single-sheet
+pivot-noaggr
+freq-same-int
+edit-type
+errors-311
+freqtbl-openrow
+xlsx-header
+rank-sheetrank-sorted-cols
+1410a
+# load-lsv: LSV (Logfmt-Separated Values) niche format
+load-lsv
+# edit-join* variants: columns-selected + join + edit-cell interactive flow
+edit-joinkey-1
+edit-joinkey-2
+edit-joinregular-1
+edit-joinregular-2
+
+# describe-sheet: emits a per-column stats sheet (errors/nulls/distinct/min/max/
+# sum/median/mean/stdev/mode). Polars has df.describe() but the output shape
+# differs: VisiData emits `#ERR` for date aggregates, formats numbers per the
+# column's own type (int:int, float:2-decimal), hides `mode` by default, and
+# treats the describe sheet itself as a parent for further type-casts. ~150 LOC
+# plus VisiData-matched numeric display. Defer until Phase 2 Describe milestone.
+describe
+describe-error
