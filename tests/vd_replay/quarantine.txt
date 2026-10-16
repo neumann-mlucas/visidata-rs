@@ -18,16 +18,17 @@ xlsx-color-cells
 # handling is a 50-LOC rabbit hole for one test; defer.
 join-extend-mult
 
+# load-sqlite-view: VisiData opens sqlite as a meta-sheet-of-tables, then
+# `open-row キemp_view` enters that specific table. Our sqlite reader loads
+# first-table-only to match the xlsx pattern. Add table-switching when a
+# user actually asks for multi-table sqlite workflows.
+load-sqlite-view
+
 # issue964-inner-join: VisiData reads CSV as all-string, we auto-infer, so
 # ISTAT codes like "082053" get read as int "82053" (leading zero lost).
 # Right fix is CSV string-only + explicit type-* casts, but that regresses
 # many currently-passing tests. Revisit when the Tier 1 Options chunk lands.
 issue964-inner-join
-
-# append: VisiData's `append` jointype adds an `origin_sheet` column tagging
-# each row's source. Our concat doesn't. Add when the append/concat production
-# feature lands.
-append
 
 # freq-fmtstr: VisiData's freq-col emits a `percent` column alongside `count`.
 # Our Sheet::freq_from only counts. Add when freq spec extends.

@@ -45,9 +45,9 @@ Phase-ordered punchlist. `[spec?]` = a spec must land before starting (see `spec
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current baseline (2026-10-16 iteration 6): PASS=15, FAIL=0, SKIP=85, UNTESTABLE=33, QUARANTINED=7, NO_GOLDEN=24.**
+**Current baseline (2026-10-16 iteration 7): PASS=18, FAIL=0, SKIP=81, UNTESTABLE=33, QUARANTINED=7, NO_GOLDEN=25.**
 
-**Addressable ceiling: 100 tests** (dropped via 5 more quarantines: `join-extend-mult`, `issue964-inner-join`, `append`, `freq-fmtstr`, `sortorder`). 15/100 = 15% of realistic ceiling. The 32 UNTESTABLE are tests whose cmdlog contains Python-syntax expression payloads (`qty*amt`, `curcol.casefold()`, `date.isocalendar()[2]`, etc.) that VisiData `exec`/`eval`s. A Rust+Lua port cannot natively run these without a Python-compat layer — out of scope per direction §9.5. The harness classifies them separately so skip buckets reflect only addressable work.
+**Addressable ceiling: 99 tests.** 18/99 ≈ 18% of realistic ceiling. The 32 UNTESTABLE are tests whose cmdlog contains Python-syntax expression payloads (`qty*amt`, `curcol.casefold()`, `date.isocalendar()[2]`, etc.) that VisiData `exec`/`eval`s. A Rust+Lua port cannot natively run these without a Python-compat layer — out of scope per direction §9.5. The harness classifies them separately so skip buckets reflect only addressable work.
 
 Driver semantics for several chunks exist test-side only; production `App::dispatch` still needs them. Each `[driver only]` item below means the harness proves Polars-level correctness but there's no keybinding/exline entry in `vdrs` the binary.
 
@@ -90,9 +90,10 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [ ] **Row ops** (#5) — `edit-cell` (`e`), `delete-row` (`d`), `open-row` (dive, `<CR>`), `open-cell`. ~45 tests. `edit-cell` alone is 18.
 - [ ] **Expression column** (#4) — `addcol-expr` (`=`), `aggregate-col` (`+`), `setcol-input`, `set-cell-input`. Lua one-liner eval via already-in-tree mlua. **Requires Phase 3 Lua bootstrap landed first.** ~45 tests. Defer S-06 DSL unless Lua eval proves too slow or too foreign.
 - [ ] **CI**: add `../visidata` checkout step pinned to `v3.4`; run `cargo test --test vd_replay`. S-14 §CI integration.
-- [ ] **Readers for golden coverage**: `.sqlite` via `rusqlite` (3 pending), `.stata` (2 pending — probably cut, direction §7). Per S-09 extension ADR: all in-tree Cargo features.
+- [ ] **Readers for golden coverage**: `.stata` (2 pending — probably cut, direction §7). Per S-09 extension ADR: all in-tree Cargo features.
   - [x] `.json.gz` / `.<fmt>.gz` auto-decompress to tempfile via `flate2` (iteration 3). Covers csv/tsv/parquet/arrow/json.gz; strips one layer only.
   - [x] `.xlsx` / `.xls` / `.xlsm` / `.xlsb` / `.ods` via `calamine` (iteration 4). First worksheet loaded as all-String columns; downstream `type-*` operations cast. Empty header names preserved (not auto-named to `col{i}` — matches VisiData for merged-cell cases). Multi-worksheet workbooks need `?sheet=` URL param — not yet implemented. Doesn't match `xlsx_meta_columns=True` mode (one quarantined test).
+  - [x] `.sqlite` / `.sqlite3` / `.db` via `rusqlite` with `bundled` feature (iteration 7). Loads first user table ordered by `rowid` as all-String columns. UTF-8-lossy decode handles non-UTF8 TEXT (invalid_unicode_sqlite fixture). Multi-table databases need table-select — `load-sqlite-view` quarantined.
 - [x] **Cleanup iteration 2** — fixed pre-existing clippy warnings: `widget.rs` collapsible `if`, `Sheets` missing `is_empty`. Remaining 2 warnings pre-existed and are benign (`fn next` in keymap chord resolver, items-after-test-module in plugins). Not touched.
 - [x] **Iteration 3** — honest ceiling reclassification + .json.gz reader. See learnings above.
 - [x] **Iteration 4** — xlsx reader via `calamine` (+4 PASS, 7 → 11). Nav longnames (`dive-row`, `open-row`, `slide-*`) safely no-op in the single-sheet driver. One quarantine added (`xlsx-color-cells` for VisiData's meta-columns option mode). Clippy warnings reduced to 2 pre-existing. Discovered multi-sheet gap: 8 join tests (`data2` row-not-found) are blocked on multi-sheet replay state, not on the `join-sheets` API itself.
@@ -106,21 +107,23 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
   - **`columns-sheet` content serialization** — our no-op produces parent data, not column metadata rows (sortorder test).
   - **CSV string-only reading** — Polars auto-infer drops leading zeros like `082053 → 82053`.
   - **Multi-stage join with per-source col prefixing** (`data2_C`, `data3_E`).
+- [x] **Iteration 7** — append.origin_sheet + sqlite reader (+3 PASS, 15 → 18). Two surgical wins:
+  - **`append` origin_sheet**: `with_column(lit(name).alias("origin_sheet"))` per plan before concat. Added `ColMeta::col_order` hint for the "non-key cols in reverse-selection order" rule VisiData uses. Unquarantined `append`.
+  - **sqlite reader via `rusqlite`** (bundled): opens first user table ordered by `rowid` as all-String columns. UTF-8-lossy decode via `ValueRef::Text(&[u8])` instead of `Value::Text(String)` (prevents panic on invalid-unicode fixtures). Unlocked `load-sqlite` + `invalid_unicode_sqlite`. One quarantined (`load-sqlite-view` — needs multi-table dive-row model, deferred).
 
 **Iteration 4 learnings:**
 - Xlsx test chains work out of the box once the reader lands + `dive-row`/`open-row` no-ops. VisiData's xlsx opens into a meta-sheet-of-worksheets; we skip that layer by loading first sheet directly, so the subsequent "enter the sheet" step is a semantic no-op for single-sheet workbooks.
 - **Multi-sheet replay is a new blocker**: `append.vd` and friends load two files, use `sheets-stack` + `select-row` on `キ<sheet-name>` to pick which sheets to join, then run `join-sheets`. Our single-sheet `Replay::sheet: Option<Sheet>` can't model this. 8 tests gated on this.
 - Clippy drift: xlsx impl introduced one `needless_range_loop` warning (`for ci in row.len()..width`); fixed to `cols.iter_mut().take(width).skip(row.len())`.
 
-**Next-iteration priorities (ranked by PASS-count leverage, iteration 6 updated):**
-1. **columns-sheet content serialization** — the biggest remaining bucket, 4+ quarantined. Model the meta-sheet rows as parent's columns with `name`/`width`/`type`/`fmtstr`/`value`/`aggregators`/`sortorder` cols. 2–5 PASS lift.
-2. **sqlite reader** via `rusqlite` (3 potential tests). Load first table; dive-row no-op pattern as xlsx.
-3. **CSV string-only reading option** — unlocks `issue964-inner-join` and probably several string-identity tests we silently miscompare. Risky: may regress currently-passing numeric tests.
-4. **`append` origin_sheet column** — single quarantined test but low-effort.
-5. **Production migration of Tier 1 driver chunks** — `Action::{HideCol,RenameCol,KeyCol,TypeCast}` + exline + keybindings. 0 PASS lift but closes the driver/production gap users feel.
-6. **columns-selected / columns-all** (4+2 skip) — meta views across multiple sheets, hard.
-7. **Phase 3 non-expression work** (loader/aggregator/renderer plugin shapes, hot-reload) — DOESN'T lift PASS.
-8. **Python-expr compat layer**: pragmatic subset parser could unlock ~5–10 UNTESTABLE. Direction §9.5 defers.
+**Next-iteration priorities (ranked by PASS-count leverage, iteration 7 updated):**
+1. **columns-sheet content serialization** — biggest addressable bucket. Model the meta-sheet rows as parent's columns with `name`/`width`/`type`/`fmtstr`/`value`/`aggregators`/`sortorder` cols. 2–5 PASS lift.
+2. **CSV string-only reading option** — unlocks `issue964-inner-join` and probably several silent-miscompares. Risky: may regress currently-passing numeric tests.
+3. **Multi-table sqlite** — table-select via URL param or re-open on `open-row`. Unlocks `load-sqlite-view`. Low-effort if we add `?table=` URL param parsing.
+4. **Production migration of Tier 1 driver chunks** — `Action::{HideCol,RenameCol,KeyCol,TypeCast}` + exline + keybindings. 0 PASS lift but closes the driver/production gap users feel.
+5. **columns-selected / columns-all** (4+2 skip) — meta views across multiple sheets, hard.
+6. **Phase 3 non-expression work** (loader/aggregator/renderer plugin shapes, hot-reload) — DOESN'T lift PASS.
+7. **Python-expr compat layer**: pragmatic subset parser could unlock ~5–10 UNTESTABLE. Direction §9.5 defers.
 
 Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` runtime support, `unfurl-col`, `set-option` precedence tests, `issue*`/`pr*` regressions, loaders not in core (conllu/h5/stata/xpt/png/mbtiles/msgpack/usv/lsv/pcap/zip/numpy/ods/html/xml/yaml/toml/geojson). Those are Lua plugin territory per S-09 extension ADR.
 

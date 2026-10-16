@@ -31,6 +31,10 @@ use visidata_rs::sheet::{Origin, Sheet, SheetId, SortKey, SortOrder};
 struct ColMeta {
     hidden: HashSet<String>,
     keys: Vec<String>, // VisiData key-col order, preserved
+    /// Non-key column order hint. Overrides schema order in serialize when set.
+    /// Used after multi-sheet appends to match VisiData's enumerate-reverse-selection
+    /// convention. Empty = fall back to schema order.
+    col_order: Vec<String>,
 }
 
 const CORPUS: &str = "../visidata/tests";
@@ -701,9 +705,19 @@ impl Replay {
         let jt = if jointype.is_empty() { "inner" } else { jointype };
         let result = match jt {
             "append" => {
+                // VisiData tags each row with origin_sheet. Prepend an
+                // `origin_sheet` lit() column before concat so each slice
+                // keeps its source name.
                 let plans: Vec<LazyFrame> = slot_idxs
                     .iter()
-                    .map(|&i| self.loaded[i].sheet.plan.clone())
+                    .map(|&i| {
+                        let name = self.loaded[i].name.clone();
+                        self.loaded[i]
+                            .sheet
+                            .plan
+                            .clone()
+                            .with_column(lit(name).alias("origin_sheet"))
+                    })
                     .collect();
                 concat(
                     &plans,
@@ -716,6 +730,7 @@ impl Replay {
                     },
                 )
                 .map_err(|e| StepErr::Runtime(e.to_string()))?
+                // ponytail: col_order hint set after push below; see outer scope
             }
             // VisiData joins each sheet on its *own* key columns, pairing the
             // ith key of sheet N with the ith key of sheet N+1. Allows joining
@@ -790,6 +805,29 @@ impl Replay {
         if let Some(slot) = self.loaded.last_mut() {
             slot.meta.keys = inherited_keys;
         }
+        // For append: enumerate non-key cols in REVERSE selection order to
+        // match VisiData output (data1's cols appear before data2's when
+        // selected=[data2, data1]).
+        if jt == "append" {
+            let mut col_order: Vec<String> = Vec::new();
+            let keys: HashSet<&str> =
+                self.loaded.last().unwrap().meta.keys.iter().map(String::as_str).collect();
+            for &i in slot_idxs.iter().rev() {
+                let schema = match self.loaded[i].sheet.plan.clone().collect_schema() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                for name in schema.iter_names() {
+                    let n = name.to_string();
+                    if !keys.contains(n.as_str()) && n != "origin_sheet" && !col_order.contains(&n) {
+                        col_order.push(n);
+                    }
+                }
+            }
+            if let Some(slot) = self.loaded.last_mut() {
+                slot.meta.col_order = col_order;
+            }
+        }
         Ok(())
     }
 
@@ -828,6 +866,23 @@ impl Replay {
         for k in &slot.meta.keys {
             if all_names.iter().any(|n| n == k) && !slot.meta.hidden.contains(k) {
                 order.push(k.clone());
+            }
+        }
+        // VisiData convention: `origin_sheet` (added by `append` jointype)
+        // sorts right after the key columns.
+        if all_names.iter().any(|n| n == "origin_sheet")
+            && !order.iter().any(|n| n == "origin_sheet")
+            && !slot.meta.hidden.contains("origin_sheet")
+        {
+            order.push("origin_sheet".into());
+        }
+        // Apply col_order hint before schema order (used by append).
+        for n in &slot.meta.col_order {
+            if all_names.iter().any(|x| x == n)
+                && !order.contains(n)
+                && !slot.meta.hidden.contains(n)
+            {
+                order.push(n.clone());
             }
         }
         for n in &all_names {

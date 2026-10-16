@@ -14,6 +14,7 @@ pub enum SourceKind {
     Arrow,
     Jsonl,
     Xlsx,
+    Sqlite,
     Stdin, // resolved to one of the above after sniffing
 }
 
@@ -29,6 +30,70 @@ pub enum OpenError {
     EmptyStdin,
     #[error("xlsx: {0}")]
     Xlsx(String),
+    #[error("sqlite: {0}")]
+    Sqlite(String),
+}
+
+/// Load first user table from a sqlite file as a DataFrame of all-String
+/// columns. VisiData opens sqlite into a meta-sheet listing tables and
+/// dive-row enters one; we skip that layer by loading the first table
+/// directly. Multi-table databases need `?table=` URL param (not yet).
+fn open_sqlite_first_table(path: &Path) -> Result<DataFrame, OpenError> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    // Pick first user table in sqlite's own insertion order (rowid-ordered).
+    let table: String = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    let mut stmt = conn
+        .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))
+        .map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    let headers: Vec<String> = stmt
+        .column_names()
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
+    let width = headers.len();
+    let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::new()).collect();
+    let mut rows = stmt.query([]).map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    while let Some(row) = rows.next().map_err(|e| OpenError::Sqlite(e.to_string()))? {
+        for (i, c) in cols.iter_mut().enumerate().take(width) {
+            // Use ValueRef to tolerate non-UTF8 TEXT (lossy convert) instead of
+            // the Value path's hard UTF-8 panic.
+            let s = match row.get_ref(i) {
+                Ok(rusqlite::types::ValueRef::Null) => String::new(),
+                Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
+                Ok(rusqlite::types::ValueRef::Real(f)) => float_cell_string(f),
+                Ok(rusqlite::types::ValueRef::Text(b)) => {
+                    String::from_utf8_lossy(b).into_owned()
+                }
+                Ok(rusqlite::types::ValueRef::Blob(b)) => format!("<blob:{} bytes>", b.len()),
+                Err(_) => String::new(),
+            };
+            c.push(s);
+        }
+    }
+    let series: Vec<Column> = headers
+        .into_iter()
+        .zip(cols)
+        .map(|(name, data)| Column::new(name.into(), data))
+        .collect();
+    DataFrame::new(series).map_err(OpenError::from)
+}
+
+fn float_cell_string(f: f64) -> String {
+    if f.fract() == 0.0 && f.is_finite() && f.abs() < 1e18 {
+        format!("{}", f as i64)
+    } else {
+        format!("{f}")
+    }
 }
 
 /// Read the first non-empty worksheet of an xlsx workbook into an eager
@@ -159,6 +224,7 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("arrow" | "ipc" | "feather") => Ok(SourceKind::Arrow),
         Some("jsonl" | "ndjson" | "json") => Ok(SourceKind::Jsonl),
         Some("xlsx" | "xls" | "xlsm" | "xlsb" | "ods") => Ok(SourceKind::Xlsx),
+        Some("sqlite" | "sqlite3" | "db") => Ok(SourceKind::Sqlite),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
@@ -203,6 +269,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         SourceKind::Arrow => LazyFrame::scan_ipc(&real_path, ScanArgsIpc::default())?,
         SourceKind::Jsonl => LazyJsonLineReader::new(&real_path).finish()?,
         SourceKind::Xlsx => open_xlsx(&real_path)?.lazy(),
+        SourceKind::Sqlite => open_sqlite_first_table(&real_path)?.lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved separately"),
     };
     let display_name = path.display().to_string();
@@ -241,6 +308,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         SourceKind::Arrow => LazyFrame::scan_ipc(tmp.path(), ScanArgsIpc::default())?,
         SourceKind::Jsonl => LazyJsonLineReader::new(tmp.path()).finish()?,
         SourceKind::Xlsx => open_xlsx(tmp.path())?.lazy(),
+        SourceKind::Sqlite => open_sqlite_first_table(tmp.path())?.lazy(),
         SourceKind::Stdin => unreachable!("sniff_format never returns Stdin"),
     };
     Ok(LoadedSource {
