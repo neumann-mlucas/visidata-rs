@@ -667,6 +667,39 @@ impl Sheet {
     }
 }
 
+/// Write a DataFrame to disk, picking the writer by file extension.
+/// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
+/// Overwrites existing files via `File::create`.
+pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
+    let file = std::fs::File::create(path)?;
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("csv") | None => CsvWriter::new(file).finish(df).map(|_| ()),
+        Some("tsv") | Some("tab") => CsvWriter::new(file)
+            .with_separator(b'\t')
+            .finish(df)
+            .map(|_| ()),
+        Some("parquet") | Some("pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
+        Some("ipc") | Some("arrow") | Some("feather") => {
+            IpcWriter::new(file).finish(df).map(|_| ())
+        }
+        Some("jsonl") | Some("ndjson") => JsonWriter::new(file)
+            .with_json_format(JsonFormat::JsonLines)
+            .finish(df)
+            .map(|_| ()),
+        Some("json") => JsonWriter::new(file)
+            .with_json_format(JsonFormat::Json)
+            .finish(df)
+            .map(|_| ()),
+        Some(other) => Err(PolarsError::ComputeError(
+            format!("save: unknown extension '.{other}'").into(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -852,6 +885,40 @@ mod tests {
         s.refresh_tail().unwrap();
         let after = s.plan.clone().collect().unwrap();
         assert_eq!(after.height(), 4);
+    }
+
+    #[test]
+    fn write_df_roundtrip_csv_parquet_tsv() {
+        let mut df = df!(
+            "a" => [1i64, 2, 3],
+            "b" => ["x", "y", "z"],
+        )
+        .unwrap();
+        for (ext, want_sep) in [("csv", b','), ("tsv", b'\t'), ("parquet", 0u8)] {
+            let path = tempfile::NamedTempFile::new()
+                .unwrap()
+                .path()
+                .with_extension(ext);
+            write_df_by_extension(&mut df, &path).unwrap();
+            let loaded = reader::open(path.as_os_str(), None).unwrap();
+            let back = loaded.lazy.collect().unwrap();
+            assert_eq!(back.height(), 3, "ext={ext}");
+            assert_eq!(back.width(), 2, "ext={ext}");
+            // Separator sanity for text formats
+            if want_sep != 0 {
+                let bytes = std::fs::read(&path).unwrap();
+                assert!(bytes.contains(&want_sep), "ext={ext} missing separator");
+            }
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn write_df_unknown_extension_errors() {
+        let mut df = df!("a" => [1i64]).unwrap();
+        let path = std::path::PathBuf::from("/tmp/vdrs_save_test.xyz");
+        let err = write_df_by_extension(&mut df, &path).unwrap_err();
+        assert!(err.to_string().contains("unknown extension"));
     }
 
     #[test]

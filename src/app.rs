@@ -605,6 +605,7 @@ impl App {
             Action::Unpivot { on, index } => self.open_unpivot(&on, &index),
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
+            Action::Save { path } => self.save_active(&path),
             Action::SwitchToSheet(id) => {
                 if !self.sheets.switch_to(id) {
                     self.toast = Some(format!("no sheet with id {id}"));
@@ -811,6 +812,25 @@ impl App {
                 self.spawn_materialize();
             }
             Err(e) => self.toast = Some(format!("pivot: {e}")),
+        }
+    }
+
+    /// Persist the active sheet to disk. Writer picked by extension; applies
+    /// the sheet's `window_plan` (type-casts + filter + sort + visible projection)
+    /// so the saved file matches what the user sees — not raw source data.
+    /// Overwrites existing files.
+    fn save_active(&mut self, path: &str) {
+        let plan = self.sheets.active().window_plan();
+        let mut df = match plan.collect() {
+            Ok(d) => d,
+            Err(e) => {
+                self.toast = Some(format!("save: collect: {e}"));
+                return;
+            }
+        };
+        match crate::sheet::write_df_by_extension(&mut df, std::path::Path::new(path)) {
+            Ok(()) => self.toast = Some(format!("saved {} rows → {path}", df.height())),
+            Err(e) => self.toast = Some(format!("save: {e}")),
         }
     }
 

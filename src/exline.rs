@@ -164,6 +164,16 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 _ => Err(ExError::Usage(":type int|float|string|date|currency")),
             }
         }
+        // Persist current sheet. Writer picked by extension; `.csv/.tsv/.parquet/
+        // .ipc/.arrow/.jsonl/.ndjson` supported. Overwrites existing files.
+        "save" | "w" | "write" => {
+            if rest.is_empty() {
+                return Err(ExError::Usage(":save <path.{csv|tsv|parquet|ipc|jsonl}>"));
+            }
+            Ok(vec![Action::Save {
+                path: rest.to_string(),
+            }])
+        }
         other => Err(ExError::Unknown(other.to_string())),
     }
 }
@@ -301,6 +311,15 @@ mod tests {
     #[test]
     fn rejects_unknown() {
         assert!(matches!(parse("blargh"), Err(ExError::Unknown(_))));
+    }
+
+    #[test]
+    fn parses_save() {
+        let a = parse("save out.parquet").unwrap();
+        assert!(matches!(&a[0], Action::Save { path } if path == "out.parquet"));
+        let b = parse(":w /tmp/x.tsv").unwrap();
+        assert!(matches!(&b[0], Action::Save { path } if path == "/tmp/x.tsv"));
+        assert!(matches!(parse("save"), Err(ExError::Usage(_))));
     }
 
     #[test]

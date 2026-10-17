@@ -102,6 +102,11 @@ pub enum Action {
     StartExInput,
     ExCommand(String), // raw command text, parsed at dispatch
 
+    // persist current sheet to disk; extension decides writer
+    Save {
+        path: String,
+    },
+
     // input modes
     StartSearchInput,
     StartFilterInput,
@@ -154,6 +159,7 @@ impl Action {
                 | Action::InputBackspace
                 | Action::OpenSheetSwitcher
                 | Action::StartRenameColInput
+                | Action::Save { .. }
         )
     }
 }
