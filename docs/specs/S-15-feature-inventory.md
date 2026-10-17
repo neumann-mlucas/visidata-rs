@@ -113,6 +113,7 @@ Full enum: `src/action.rs`. Grouped by category:
 | Action | Key | Semantics |
 |---|---|---|
 | `StartExInput` → `ExCommand(str)` | `:` | — |
+| `Save { path }` | — | `:save path.ext` — writes active sheet's `window_plan()` output; writer by extension (csv/tsv/parquet/ipc/jsonl/json); `:w` and `:write` aliases |
 | `Quit` | `gq` | hard exit |
 | `RepeatLast` | `.` | capture of resolved Action (not keystrokes) |
 | `Redraw` | `^L` | force repaint |
@@ -151,6 +152,9 @@ Full grammar: `src/exline.rs:parse()`. Commands:
 :key / :unkey                        toggle key on current col / clear all
 :rename <new-name>                   rename current col
 :type int|float|string|str|date|currency
+:save / :w / :write <path.ext>       persist active sheet; writer by extension
+                                     (csv|tsv|parquet|pq|ipc|arrow|feather|
+                                     jsonl|ndjson|json)
 ```
 
 History: file-persisted, `<Up>`/`<Down>` cycle, dedup against last entry.
@@ -171,7 +175,9 @@ Each derived sheet is a first-class entry on the stack; `q` pops back.
 
 ## 7. Lua plugin surface
 
-VM: mlua Lua 5.4, vendored. Loaded from `$XDG_CONFIG_HOME/vdrs/init.lua` (missing file is not an error). API:
+VM: mlua Lua 5.4, vendored. Loaded from `$XDG_CONFIG_HOME/vdrs/init.lua` (missing file is not an error).
+
+### 7.1 Keymap patches
 
 ```lua
 vd.bind(layer, keys, action, desc)   -- layer: "sheet" | "input"
@@ -182,9 +188,33 @@ vd.unbind(layer, keys)               -- no-op patch (last-wins, doesn't remove f
 
 Last-write wins semantics via `Keymap::append()` + reverse resolve.
 
-**Known action names** (from `action_from_name()` in `src/plugins.rs`): all 3.1–3.9 Actions that take no args / default-arg form. Composite Actions (`Pivot`, `SetFilter`, etc.) are not yet exposed to Lua.
+**Known action names** (from `action_from_name()` in `src/plugins.rs`): all 3.1–3.9 Actions that take no args / default-arg form. Composite Actions (`Pivot`, `SetFilter`, `Save`, etc.) are not yet exposed to Lua.
 
-Not shipped: loader plugin shape, aggregator plugin shape, renderer plugin shape, hot-reload. See Phase 3 todos in `tasks.md`.
+### 7.2 Loader registration
+
+```lua
+vd.register_loader {
+  name = "mylog",                        -- optional
+  extensions = { "mylog", "ml" },        -- string or array of strings; case-insensitive
+  open = function(path)
+    -- Parse `path`, write a tempfile in a format vdrs scans natively
+    -- (CSV/TSV/Parquet/Arrow/Jsonl). Return the tempfile path.
+    local out = os.tmpname() .. ".csv"
+    -- ... convert ...
+    return out
+  end,
+}
+```
+
+Resolution order: main.rs consults `Plugins::resolve_loader(path)` BEFORE `reader::open()`. First rule whose extensions list contains the path's extension (case-insensitive) wins; its `open(path)` is called and its string return is handed to the native reader.
+
+**By design NOT supported**: returning a Polars DataFrame directly from Lua. Marshalling Lua tables → `Series` with per-value dtype inference is a plumbing swamp. Formats that can't convert to CSV/TSV/Parquet/Arrow/Jsonl in Lua belong in a `vdrs-ext-<fmt>` Rust crate per S-09 extension ADR.
+
+**Scope**: initial file open from the CLI (`vdrs mylog.foo`). Loader rules do **not** currently intercept `:tail` or `:diff` targets; those still go through `reader::open` directly.
+
+### 7.3 Not yet shipped
+
+Aggregator plugin shape (`vd.register_aggregator`), renderer plugin shape (`vd.register_renderer`), hot-reload via `notify`. See Phase 3 todos in `tasks.md`.
 
 ## 8. Theme
 

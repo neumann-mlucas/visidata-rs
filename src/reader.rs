@@ -30,6 +30,8 @@ pub enum OpenError {
     Xlsx(String),
     #[error("sqlite: {0}")]
     Sqlite(String),
+    #[error("plugin loader: {0}")]
+    Plugin(String),
 }
 
 /// Load first user table from a sqlite file as a DataFrame of all-String

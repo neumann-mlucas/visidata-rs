@@ -30,7 +30,11 @@ use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
 
 /// Entry point from main.
-pub async fn run(initial: Sheet) -> Result<()> {
+pub async fn run(
+    initial: Sheet,
+    plugins: Option<crate::plugins::Plugins>,
+    plugin_warning: Option<String>,
+) -> Result<()> {
     install_panic_hook();
 
     enable_raw_mode()?;
@@ -39,7 +43,9 @@ pub async fn run(initial: Sheet) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = App::new(initial).run(&mut terminal).await;
+    let result = App::new(initial, plugins, plugin_warning)
+        .run(&mut terminal)
+        .await;
 
     disable_raw_mode().ok();
     crossterm::execute!(io::stdout(), LeaveAlternateScreen).ok();
@@ -86,6 +92,10 @@ enum PlanMode {
 }
 
 pub struct App {
+    /// Held so the Lua VM lives for the session (even without an active caller).
+    /// Loader rules are consulted from main.rs; keymap patches applied in `new`.
+    /// Not yet accessed at runtime for aggregator/renderer shapes.
+    _plugins: Option<crate::plugins::Plugins>,
     sheets: Sheets,
     keymap: Keymap,
     pending: Vec<Key>,
@@ -106,17 +116,23 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(sheet: Sheet) -> Self {
+    pub fn new(
+        sheet: Sheet,
+        plugins: Option<crate::plugins::Plugins>,
+        plugin_warning: Option<String>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel(8);
         let mut keymap = Keymap::defaults();
-        let toast = match crate::plugins::Plugins::load() {
-            Ok(p) => {
+        let toast = match (plugins.as_ref(), plugin_warning) {
+            (Some(p), _) => {
                 p.apply_keymap(&mut keymap);
                 None
             }
-            Err(e) => Some(format!("init.lua: {e}")),
+            (None, Some(w)) => Some(w),
+            (None, None) => None,
         };
         Self {
+            _plugins: plugins,
             sheets: Sheets::new(sheet),
             keymap,
             pending: Vec::new(),

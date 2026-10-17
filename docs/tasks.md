@@ -136,12 +136,13 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] S-10 Lua API surface + versioning spec drafted — [`docs/specs/S-10-lua-api.md`](specs/S-10-lua-api.md)
 - [x] Plugin loader bootstrap: `$XDG_CONFIG_HOME/vdrs/init.lua`, Lua 5.4 VM, missing-file is not an error
 - [x] Keymap plugin shape: `vd.bind(layer, keys, action, desc?)` + `vd.unbind(layer, keys)`
+- [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
+- [ ] Loader plugin covers `:tail` and `:diff` paths too (currently main.rs only — `app.rs` reader calls bypass plugins)
 - [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — per S-10
-- [ ] Loader plugin shape — per S-09 §Lifecycle; needs `LuaSource` variant in reader
 - [ ] Aggregator plugin shape — per S-09; `:derive` consumer waits on S-06
 - [ ] Renderer plugin shape — per S-09 §4
 - [ ] Hot-reload on save via `notify` — per S-09 §Hot-reload
-- [ ] Extract `trait Source` from the current enum when `LuaSource` lands (same PR)
+- [ ] Extract `trait Source` from the current enum — deferred; current enum + loader-returns-path pattern covers the user-facing extension story. Add only when a `LuaSource` wants in-memory streaming.
 
 ## Phase 4 — streaming / tail-sheet
 - [x] Tail sheet (JSONL today, CSV/Parquet by passing format): `:tail <path> [--follow|-f]`; 2s tick re-reads file
