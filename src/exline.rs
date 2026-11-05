@@ -91,6 +91,11 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             if parts.is_empty() {
                 return Err(ExError::Usage(":tail <path> [--follow]"));
             }
+            if parts[0] == "-" {
+                return Err(ExError::Usage(
+                    ":tail needs a file; stdin can't be reopened in the TUI",
+                ));
+            }
             let path = parts[0].to_string();
             let follow = parts.iter().any(|p| *p == "--follow" || *p == "-f");
             Ok(vec![Action::Tail { path, follow }])
@@ -100,6 +105,11 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.is_empty() {
                 return Err(ExError::Usage(":diff <path> [key1,key2,...]"));
+            }
+            if parts[0] == "-" {
+                return Err(ExError::Usage(
+                    ":diff needs a file; stdin can't be reopened in the TUI",
+                ));
             }
             let path = parts[0].to_string();
             let keys = parts
@@ -334,6 +344,13 @@ mod tests {
         let b = parse(":w /tmp/x.tsv").unwrap();
         assert!(matches!(&b[0], Action::Save { path } if path == "/tmp/x.tsv"));
         assert!(matches!(parse("save"), Err(ExError::Usage(_))));
+    }
+
+    #[test]
+    fn tail_and_diff_refuse_stdin() {
+        // reading stdin inside the TUI would block on the terminal forever
+        assert!(matches!(parse("tail -"), Err(ExError::Usage(_))));
+        assert!(matches!(parse("diff - id"), Err(ExError::Usage(_))));
     }
 
     #[test]

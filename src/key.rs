@@ -15,7 +15,10 @@ pub struct Key {
 
 impl From<KeyEvent> for Key {
     fn from(e: KeyEvent) -> Self {
-        let shift = e.modifiers.contains(KeyModifiers::SHIFT);
+        // A symbol already encodes its shift ("!" not "<S-1>"), but some terminals
+        // (Windows, kitty protocol) still flag SHIFT; drop it so "!" binds match.
+        let shift = e.modifiers.contains(KeyModifiers::SHIFT)
+            && !matches!(e.code, KeyCode::Char(c) if !c.is_alphabetic());
         let ctrl = e.modifiers.contains(KeyModifiers::CONTROL);
         let alt = e.modifiers.contains(KeyModifiers::ALT);
         // Normalise shifted uppercase chars: "A" and "<S-a>" collapse to the same Key.
@@ -157,6 +160,17 @@ impl FromStr for Key {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn shifted_symbol_matches_its_binding() {
+        use crossterm::event::{KeyEvent, KeyModifiers};
+        for c in ['!', '$', '^', '#', '|', '"', ':', '@', '%', '~'] {
+            let pressed = Key::from(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
+            assert_eq!(pressed, c.to_string().parse::<Key>().unwrap(), "{c}");
+        }
+        let upper = Key::from(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
+        assert_eq!(upper, "G".parse::<Key>().unwrap());
+    }
     use super::*;
 
     #[test]
