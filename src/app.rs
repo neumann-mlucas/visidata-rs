@@ -103,10 +103,9 @@ enum PlanMode {
 }
 
 pub struct App {
-    /// Held so the Lua VM lives for the session (even without an active caller).
-    /// Loader rules are consulted from main.rs; keymap patches applied in `new`.
-    /// Not yet accessed at runtime for aggregator/renderer shapes.
-    _plugins: Option<crate::plugins::Plugins>,
+    /// Lua VM for the session: keymap patches applied in `new`; loader rules
+    /// consulted when `:diff` opens a file.
+    plugins: Option<crate::plugins::Plugins>,
     sheets: Sheets,
     keymap: Keymap,
     pending: Vec<Key>,
@@ -144,7 +143,7 @@ impl App {
             (None, None) => None,
         };
         Self {
-            _plugins: plugins,
+            plugins,
             sheets: Sheets::new(sheet),
             keymap,
             pending: Vec::new(),
@@ -968,6 +967,15 @@ impl App {
 
     fn open_tail(&mut self, path: &str, follow: bool) {
         use std::ffi::OsString;
+        // A loader converts once; refreshes would re-scan that stale snapshot.
+        if let Some(p) = &self.plugins {
+            if p.resolve_loader(std::path::Path::new(path)).is_some() {
+                self.toast = Some(format!(
+                    "tail: {path} needs a plugin loader; can't follow it"
+                ));
+                return;
+            }
+        }
         let loaded = match crate::reader::open(&OsString::from(path), None) {
             Ok(l) => l,
             Err(e) => {
@@ -1012,7 +1020,8 @@ impl App {
 
     fn open_diff(&mut self, path: &str, keys: &[String]) {
         use std::ffi::OsString;
-        let loaded = match crate::reader::open(&OsString::from(path), None) {
+        let loaded = match crate::plugins::open(self.plugins.as_ref(), &OsString::from(path), None)
+        {
             Ok(l) => l,
             Err(e) => {
                 self.toast = Some(format!("diff load: {e}"));
@@ -1870,6 +1879,33 @@ mod scenario {
             t.contains("…") && t.contains("data.csv") && t.contains("row 1/3"),
             "{t}"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn diff_uses_plugin_loader_and_tail_refuses_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let ml = dir.path().join("other.ml");
+        std::fs::write(&ml, "opaque").unwrap();
+        std::fs::write(
+            dir.path().join("other.csv"),
+            "id,name,grp,amt\n1,name_1,1,1.5\n",
+        )
+        .unwrap();
+        // loader "converts" x.ml by pointing at its sibling x.csv
+        let lua = r#"vd.register_loader { extensions = "ml",
+            open = function(p) return (p:gsub("%.ml$", ".csv")) end }"#;
+        let mut h = Harness::new(2).await;
+        h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+        h.keys(":").await;
+        h.type_(&format!("diff {} id", ml.display())).await;
+        assert!(
+            title(&h).contains("other.ml") && title(&h).contains("sheets 2"),
+            "{}",
+            h.screen()
+        );
+        h.keys("q :").await;
+        h.type_(&format!("tail {}", ml.display())).await;
+        assert!(status(&h).contains("can't follow"), "{}", status(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]

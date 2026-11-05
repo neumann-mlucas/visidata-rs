@@ -1,5 +1,4 @@
-use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
@@ -60,7 +59,7 @@ fn main() -> ExitCode {
         Err(e) => (None, Some(format!("init.lua: {e}"))),
     };
 
-    let loaded = match open_via_loader_or_native(&cli.path, fmt, plugins.as_ref()) {
+    let loaded = match plugins::open(plugins.as_ref(), &cli.path, fmt) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("vdrs: {e}");
@@ -94,25 +93,6 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-/// Consult registered Lua loaders by extension; if a rule matches, run the
-/// Lua `open(path)` to produce a converted file, then scan that natively.
-/// Falls through to `reader::open` when no plugin claims the extension.
-fn open_via_loader_or_native(
-    path: &OsStr,
-    fmt: Option<SourceKind>,
-    plugins: Option<&plugins::Plugins>,
-) -> Result<reader::LoadedSource, OpenError> {
-    if let Some(p) = plugins {
-        if let Some(rule) = p.resolve_loader(Path::new(path)) {
-            let converted = p
-                .call_loader(&rule, Path::new(path))
-                .map_err(|e| OpenError::Plugin(e.to_string()))?;
-            return reader::open(converted.as_os_str(), fmt);
-        }
-    }
-    reader::open(path, fmt)
 }
 
 fn print_headless(src: &reader::LoadedSource, head: usize) -> Result<(), AppError> {

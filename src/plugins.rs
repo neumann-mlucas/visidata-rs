@@ -11,6 +11,7 @@ use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value as LuaValue};
 use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Keymap, Layer};
+use crate::reader::{LoadedSource, OpenError, SourceKind};
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
@@ -112,6 +113,24 @@ impl Plugins {
         let out: String = rule.open.call(s)?;
         Ok(PathBuf::from(out))
     }
+}
+
+/// Open `path` through a registered Lua loader when one claims its extension
+/// (the loader converts to a native format, which is then scanned), else natively.
+pub fn open(
+    plugins: Option<&Plugins>,
+    path: &std::ffi::OsStr,
+    fmt: Option<SourceKind>,
+) -> Result<LoadedSource, OpenError> {
+    if let Some((p, rule)) = plugins.and_then(|p| Some((p, p.resolve_loader(Path::new(path))?))) {
+        let converted = p
+            .call_loader(&rule, Path::new(path))
+            .map_err(|e| OpenError::Plugin(e.to_string()))?;
+        let mut loaded = crate::reader::open(converted.as_os_str(), fmt)?;
+        loaded.display_name = path.to_string_lossy().into_owned(); // what the user opened
+        return Ok(loaded);
+    }
+    crate::reader::open(path, fmt)
 }
 
 fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
