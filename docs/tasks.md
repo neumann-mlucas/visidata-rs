@@ -157,7 +157,7 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.
 - [x] Melt/unpivot sheet: `:unpivot <on1,on2,...> -- <idx1,idx2,...>` — lazy via `LazyFrame::unpivot`
 - [x] `W` pivot: key columns × current column (counts); custom aggregates via `:pivot … <agg>`
-- [ ] Live preview panel (shape + first N rows before materialize) — _basic form already works: stale window renders until new materialize lands_
+- [x] Live preview panel — `:pivot` prompt previews hints, then the pivot of the first 10k rows (2026-11-05); other ops keep the stale window until the new materialize lands
 - [x] Plan side-panel: `P` cycles Off → Normal → Optimized (`describe_optimized_plan`)
 - [x] Plan export — `:export view.py` (Polars) / `view.sql` (DuckDB), replaying the view from the source file
 - [ ] DuckDB backend switch for OOC pivots (optional feature) — _dropped from direction §9.3; revisit only if Polars OOC wall hit_
@@ -169,7 +169,7 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] Keymap plugin shape: `vd.bind(layer, keys, action, desc?)` + `vd.unbind(layer, keys)`
 - [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
 - [x] Loader plugin covers `:diff` too (shared `plugins::open`); `:tail` refuses loader formats since refresh would re-scan the stale converted file
-- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — per S-10
+- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — part of the S-10 rest, deferred until a Lua user asks (see Still open)
 - [x] Aggregator plugin shape — `vd.register_aggregator(name, fn)`, used by `:pivot`; `:derive` takes SQL expressions (Polars `sql_expr`)
 - [x] Renderer plugin shape — `vd.register_renderer { column | dtype, render }`
 - [x] Hot-reload on save — mtime poll on the 2 s tick (no `notify` dependency)
