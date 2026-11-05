@@ -1293,10 +1293,7 @@ impl App {
         };
         let id = self.sheets.alloc_id();
         match Sheet::join_from(self.sheets.active(), id, right, &right_name, keys, how) {
-            Ok(s) => {
-                self.sheets.push(s);
-                self.spawn_materialize();
-            }
+            Ok(s) => self.push_collected("join", s),
             Err(e) => self.toast = Some(format!("join: {e}")),
         }
     }
@@ -1412,12 +1409,25 @@ impl App {
             .collect();
         let id = self.sheets.alloc_id();
         match Sheet::sql_from(self.sheets.active(), id, query, others) {
-            Ok(s) => {
-                self.sheets.push(s);
-                self.spawn_materialize();
-            }
+            Ok(s) => self.push_collected("sql", s),
             Err(e) => self.toast = Some(format!("sql: {e}")),
         }
+    }
+
+    /// Push `sheet` with its plan collected once, in the background. For
+    /// results whose row order Polars doesn't fix (joins, GROUP BY): row ids
+    /// are positions, so a re-collect in another order would move selections.
+    // ponytail: holds the whole result in memory; fine for joins/aggregates.
+    fn push_collected(&mut self, label: &'static str, mut sheet: Sheet) {
+        self.spawn_job(label, move || {
+            sheet.plan = sheet
+                .plan
+                .clone()
+                .collect()
+                .map_err(|e| e.to_string())?
+                .lazy();
+            Ok(JobDone::PushSheet(Box::new(sheet)))
+        });
     }
 
     fn export(&mut self, path: &str) {
@@ -2544,6 +2554,9 @@ mod scenario {
             title(&h)
         );
         assert!(title(&h).contains("row 1/7"), "{}", title(&h));
+        // GROUP BY order isn't fixed by Polars: collected once so row ids hold
+        let plan = h.app.sheets.active().plan.describe_plan().unwrap();
+        assert!(plan.starts_with("DF "), "{plan}");
         h.keys("q I").await;
         assert!(
             title(&h).contains("describe") && title(&h).contains("row 1/4"),

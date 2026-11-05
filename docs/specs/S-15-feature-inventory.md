@@ -140,9 +140,9 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
 | Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet snapshots of (plan, view, steps), depth 100 |
-| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | lazy; same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet` |
+| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | lazy; same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
-| SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets |
+| SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
 | Set column | `:setcol <value>` | current col on selected rows; value must cast strictly to the column type |
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
 | Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection (file sheets only) |
