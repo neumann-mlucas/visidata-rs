@@ -388,7 +388,6 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 <h2 id="limits">Limitations</h2>
 <ul>
 <li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
-<li>Lua aggregators run in the interface thread; a slow aggregator pauses the display while <code>:pivot</code> runs.</li>
 <li><code>:join</code> and <code>:sql</code> results are computed once and held in memory, so their row order (and your selections) stay fixed.</li>
 <li><code>:export</code> can't rebuild describe (<kbd>I</kbd>), diff, <kbd>W</kbd> pivots, pivots with a Lua aggregator, or stdin; SQL can't read Excel/Arrow and Python can't read SQLite. Joins may come out in a different row order, and <code>:sql</code> queries run as written by the other engine.</li>
 <li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>

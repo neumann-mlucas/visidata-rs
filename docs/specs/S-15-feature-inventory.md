@@ -136,7 +136,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null) |
 | Describe | `I`, `:describe` | per column: type, count, nulls, distinct, min, max, mean, median (background job) |
 | Pivot | `W` | key cols × current col, counts; no keys → one row of counts |
-| Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background; Lua aggs inline); Enter runs the full pivot |
+| Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background, Lua aggs too); Enter runs the full pivot |
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
@@ -296,7 +296,6 @@ Enumerated here so no one re-asks:
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 - **Rest of S-10**: `vd.frame`, `Series` methods, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet` and function bindings shipped.
-- **Lua aggregators off the UI thread**: the Lua VM is not `Send`; `:pivot` with a Lua aggregator runs synchronously. (Renderers are memoized per distinct value.)
 - **Export**: describe / diff / `W` sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 

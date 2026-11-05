@@ -1,7 +1,6 @@
 //! mlua plugin system. See `docs/specs/S-09-plugin-system.md`.
 //!
-//! Shipped shapes: keymap (`vd.bind`/`vd.unbind`), loader (`vd.register_loader`).
-//! Pending: aggregator, renderer, hot-reload.
+//! Shapes: keymap (`vd.bind`/`vd.unbind`), loader, aggregator, renderer; hot reload.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -61,6 +60,30 @@ pub enum AggValue {
     Num(f64),
     Text(String),
     Null,
+}
+
+/// A Lua aggregator, callable from any thread.
+#[derive(Clone)]
+pub struct Aggregator {
+    lua: Lua,
+    f: LuaFunction,
+}
+
+impl Aggregator {
+    /// Reduce one group's values (a Lua array; nulls are nil).
+    pub fn call(&self, values: &Series) -> Result<AggValue, PluginError> {
+        let t = self.lua.create_table()?;
+        for (i, v) in values.iter().enumerate() {
+            t.raw_set(i + 1, to_lua(&self.lua, &v)?)?;
+        }
+        Ok(match self.f.call::<LuaValue>(t)? {
+            LuaValue::Integer(n) => AggValue::Num(n as f64),
+            LuaValue::Number(n) => AggValue::Num(n),
+            LuaValue::String(s) => AggValue::Text(s.to_str()?.to_string()),
+            LuaValue::Nil => AggValue::Null,
+            other => AggValue::Text(format!("{other:?}")),
+        })
+    }
 }
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
@@ -157,35 +180,20 @@ impl Plugins {
         (now != *loaded).then(|| Self::load_from(Some(path.clone())))
     }
 
-    /// Whether `vd.register_aggregator` defined `name`.
-    pub fn has_aggregator(&self, name: &str) -> bool {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
-            .is_some_and(|r| r.borrow().aggregators.iter().any(|(n, _)| n == name))
-    }
-
-    /// Run aggregator `name` over one group's values (a Lua array; nulls are nil).
-    pub fn aggregate(&self, name: &str, values: &Series) -> Result<AggValue, PluginError> {
-        let f = {
-            let reg = registry(&self.lua)?;
-            let reg = reg.borrow();
-            let found = reg
-                .aggregators
-                .iter()
-                .find(|(n, _)| n == name)
-                .map(|(_, f)| f.clone());
-            found.ok_or_else(|| mlua::Error::RuntimeError(format!("no aggregator {name}")))?
-        };
-        let t = self.lua.create_table()?;
-        for (i, v) in values.iter().enumerate() {
-            t.raw_set(i + 1, to_lua(&self.lua, &v)?)?;
-        }
-        Ok(match f.call::<LuaValue>(t)? {
-            LuaValue::Integer(n) => AggValue::Num(n as f64),
-            LuaValue::Number(n) => AggValue::Num(n),
-            LuaValue::String(s) => AggValue::Text(s.to_str()?.to_string()),
-            LuaValue::Nil => AggValue::Null,
-            other => AggValue::Text(format!("{other:?}")),
+    /// The aggregator `vd.register_aggregator` defined as `name`. `Send`: pivots
+    /// run it on a background job; each call holds the VM lock only for one cell.
+    pub fn aggregator(&self, name: &str) -> Option<Aggregator> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let f = reg
+            .borrow()
+            .aggregators
+            .iter()
+            .find(|(n, _)| n == name)?
+            .1
+            .clone();
+        Some(Aggregator {
+            lua: self.lua.clone(),
+            f,
         })
     }
 
@@ -730,10 +738,12 @@ mod tests {
                vd.register_renderer { dtype = "bool", render = function(v) return v and "yes" or "no" end }"#,
         )
         .unwrap();
-        assert!(p.has_aggregator("span") && !p.has_aggregator("sum"));
+        assert!(p.aggregator("sum").is_none());
         use polars::prelude::NamedFrom;
         let vals = Series::new("v".into(), [3i64, 9, 4]);
-        assert_eq!(p.aggregate("span", &vals).unwrap(), AggValue::Num(6.0));
+        let span = p.aggregator("span").unwrap();
+        let on_job = std::thread::spawn(move || span.call(&vals).unwrap());
+        assert_eq!(on_job.join().unwrap(), AggValue::Num(6.0));
         assert_eq!(
             p.render("price", &DataType::Float64, &AnyValue::Float64(2.5)),
             Some("$2.5".into())

@@ -662,26 +662,24 @@ impl App {
                 let mut sample = s.clone();
                 sample.plan = s.view_plan().slice(0, PIVOT_PREVIEW_ROWS);
                 sample.view = Default::default();
-                let lua = self.plugins.as_ref().filter(|p| p.has_aggregator(&agg));
-                if let Some(p) = lua {
-                    // Lua can't leave this thread; the sample keeps it quick.
-                    lua_pivot(p, &sample, &index, &on, &values, &agg)
-                        .map(|df| Box::new(preview_sheet(&sample, df)))
-                        .map_err(|e| format!("{e}\n\n{PIVOT_USAGE}"))
-                } else {
-                    let previous = self.pivot_preview.take().map(|p| p.body);
-                    let job_text = text.clone();
-                    self.spawn_job("preview", move || {
-                        let result =
-                            Sheet::pivot_from(&sample, 0, &index, &on, &values, &agg).map(Box::new);
-                        Ok(JobDone::PivotPreview {
-                            text: job_text,
-                            result,
-                        })
-                    });
-                    // Keep showing the last preview until this one lands.
-                    previous.unwrap_or_else(|| Err("computing…".into()))
-                }
+                let lua = self.plugins.as_ref().and_then(|p| p.aggregator(&agg));
+                let previous = self.pivot_preview.take().map(|p| p.body);
+                let job_text = text.clone();
+                self.spawn_job("preview", move || {
+                    let result = match &lua {
+                        Some(a) => lua_pivot(a, &sample, &index, &on, &values)
+                            .map(|df| Box::new(preview_sheet(&sample, df))),
+                        None => {
+                            Sheet::pivot_from(&sample, 0, &index, &on, &values, &agg).map(Box::new)
+                        }
+                    };
+                    Ok(JobDone::PivotPreview {
+                        text: job_text,
+                        result,
+                    })
+                });
+                // Keep showing the last preview until this one lands.
+                previous.unwrap_or_else(|| Err("computing…".into()))
             }
         };
         self.pivot_preview = Some(PivotPreview { text, body });
@@ -1270,21 +1268,6 @@ impl App {
     }
 
     fn open_pivot(&mut self, index: &str, on: &str, values: &str, agg: &str) {
-        if let Some(p) = self.plugins.as_ref().filter(|p| p.has_aggregator(agg)) {
-            match lua_pivot(p, self.sheets.active(), index, on, values, agg) {
-                Ok(df) => {
-                    let id = self.sheets.alloc_id();
-                    let parent = self.sheets.active();
-                    let name = format!("pivot({index}×{on}→{agg}({values})): {}", parent.name);
-                    let origin = Origin::Pivot { parent: parent.id };
-                    let child = Sheet::child(parent, id, name, df.lazy(), origin);
-                    self.sheets.push(child);
-                    self.spawn_materialize();
-                }
-                Err(e) => self.toast = Some(format!("pivot: {e}")),
-            }
-            return;
-        }
         let id = self.sheets.alloc_id();
         let parent = self.sheets.active().clone();
         let (index, on, values, agg) = (
@@ -1293,8 +1276,17 @@ impl App {
             values.to_string(),
             agg.to_string(),
         );
+        let lua = self.plugins.as_ref().and_then(|p| p.aggregator(&agg));
         self.spawn_job("pivot", move || {
-            let child = Sheet::pivot_from(&parent, id, &index, &on, &values, &agg)?;
+            let child = match &lua {
+                Some(a) => {
+                    let df = lua_pivot(a, &parent, &index, &on, &values)?;
+                    let name = format!("pivot({index}×{on}→{agg}({values})): {}", parent.name);
+                    let origin = Origin::Pivot { parent: parent.id };
+                    Sheet::child(&parent, id, name, df.lazy(), origin)
+                }
+                None => Sheet::pivot_from(&parent, id, &index, &on, &values, &agg)?,
+            };
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
@@ -1924,15 +1916,15 @@ impl App {
 }
 
 /// `:pivot` with a Lua aggregator: Polars builds each cell's value list, Lua
-/// reduces it. Runs on the UI thread (the Lua VM stays here).
+/// reduces it. Runs on a background job; the VM lock is held per cell, so
+/// renderers on the UI thread interleave.
 /// ponytail: per-cell Lua calls; fine for pivot-sized outputs, slow for millions of cells.
 fn lua_pivot(
-    p: &crate::plugins::Plugins,
+    a: &crate::plugins::Aggregator,
     parent: &Sheet,
     index: &str,
     on: &str,
     values: &str,
-    agg: &str,
 ) -> Result<DataFrame, String> {
     use crate::plugins::AggValue;
     use polars_ops::pivot::{PivotAgg, pivot_stable};
@@ -1949,7 +1941,7 @@ fn lua_pivot(
     let mut out = Vec::with_capacity(lists.len());
     for cell in lists.into_iter() {
         let cell = cell.unwrap_or_else(|| Series::new_empty("v".into(), &DataType::Null));
-        out.push(p.aggregate(agg, &cell).map_err(|e| e.to_string())?);
+        out.push(a.call(&cell).map_err(|e| e.to_string())?);
     }
     let agg_col = if out.iter().all(|v| !matches!(v, AggValue::Text(_))) {
         let nums: Vec<Option<f64>> = out
@@ -1959,7 +1951,7 @@ fn lua_pivot(
                 _ => None,
             })
             .collect();
-        Column::new(agg.into(), nums)
+        Column::new(values.into(), nums)
     } else {
         let texts: Vec<Option<String>> = out
             .iter()
@@ -1969,7 +1961,7 @@ fn lua_pivot(
                 AggValue::Null => None,
             })
             .collect();
-        Column::new(agg.into(), texts)
+        Column::new(values.into(), texts)
     };
     let long = DataFrame::new(vec![
         groups.column(index).map_err(|e| e.to_string())?.clone(),
@@ -1981,7 +1973,7 @@ fn lua_pivot(
         &long,
         [on],
         Some([index]),
-        Some([agg]),
+        Some([values]),
         false,
         Some(PivotAgg::First),
         None,
