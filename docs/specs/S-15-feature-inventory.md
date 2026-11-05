@@ -305,7 +305,8 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 |---|---|
 | Sheet / View / LazyFrame plan | `src/sheet.rs` |
 | Reader (CSV/TSV/Parquet/Arrow/Jsonl/Json/Xlsx/Sqlite/stdin + gzip) | `src/reader.rs` |
-| App loop, dispatch, rendering + `scenario` end-to-end tests | `src/app.rs` |
+| App loop, jobs, prompts, rendering + `scenario` end-to-end tests | `src/app.rs` |
+| Action dispatch + handlers | `src/app/actions.rs` |
 | Keymap / chord resolution | `src/keymap.rs` |
 | Key parsing | `src/key.rs` |
 | Action enum + `affects_data()` + `repeatable()` | `src/action.rs` |

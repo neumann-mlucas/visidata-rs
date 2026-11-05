@@ -202,5 +202,5 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — needs TTY-less TUI driver; defer
 - [ ] `rust-toolchain.toml` only when a nightly is needed
 - [ ] Release path (cargo-dist or similar)
-- [ ] Refactor: extract `sheet_actions.rs` from `app.rs` dispatch match when it next grows (`app.rs` is ~1950 lines, ~half of it `tests`/`scenario`)
+- [x] Refactor: dispatch + action handlers moved to `src/app/actions.rs` (`app.rs` keeps loop, jobs, prompts, render, tests)
 - [ ] CI: run the replay corpus (`../visidata` checkout pinned to v3.4) — harness skips cleanly without it
