@@ -354,6 +354,7 @@ impl Replay {
                         view: Default::default(),
                         window: None,
                         revision: 0,
+                        state: Default::default(),
                         origin: Origin::File,
                     };
                     (name, sheet)
@@ -820,6 +821,7 @@ impl Replay {
                 view: Default::default(),
                 window: None,
                 revision: 0,
+                state: Default::default(),
                 origin: Origin::File,
             };
             (name, sheet)
@@ -1024,6 +1026,7 @@ impl Replay {
             view: Default::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::File,
         };
         self.push_sheet(joined_name, joined);

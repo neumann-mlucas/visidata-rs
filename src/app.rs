@@ -25,6 +25,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
+use crate::lineedit::LineEdit;
 use crate::sheet::{
     FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
 };
@@ -86,13 +87,28 @@ enum MaterializeResult {
     },
 }
 
-enum InputBuf {
-    None,
-    Search(String),
-    Filter(String),
-    Ex(String),
-    Select(String),
-    Rename(String),
+/// Which prompt the input line belongs to; decides what `<CR>` does with the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Prompt {
+    Search,
+    Filter,
+    Ex,
+    Select,
+    Rename,
+    Diff,
+}
+
+impl Prompt {
+    fn label(self) -> &'static str {
+        match self {
+            Prompt::Search => "/",
+            Prompt::Filter => "filter: ",
+            Prompt::Ex => ":",
+            Prompt::Select => "select: ",
+            Prompt::Rename => "rename: ",
+            Prompt::Diff => "diff with: ",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -113,7 +129,7 @@ pub struct App {
     pending_count: Option<usize>,
     last_action: Option<Vec<Action>>,
     toast: Option<String>,
-    input: InputBuf,
+    input: Option<(Prompt, LineEdit)>,
     ex_history: crate::exline::History,
     plan_mode: PlanMode,
     theme: Theme,
@@ -151,7 +167,7 @@ impl App {
             pending_count: None,
             last_action: None,
             toast,
-            input: InputBuf::None,
+            input: None,
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
             theme: Theme::dark(),
@@ -204,6 +220,13 @@ impl App {
         Ok(())
     }
 
+    /// No background work outstanding for the active sheet (tests wait on this).
+    #[cfg(test)]
+    fn settled(&self) -> bool {
+        let s = self.sheets.active();
+        s.state.loaded_rev == s.revision && !s.state.counting
+    }
+
     fn spawn_materialize(&mut self) {
         let s = self.sheets.active_mut();
         s.revision = s.revision.wrapping_add(1);
@@ -251,6 +274,7 @@ impl App {
         }
         s.view.count_key = Some(key.clone());
         s.view.total_rows = None;
+        s.state.counting = true;
         let (sheet_id, plan) = (s.id, s.count_plan());
         let tx = self.materialize_tx.clone();
         tokio::spawn(async move {
@@ -309,6 +333,7 @@ impl App {
                 if revision != s.revision {
                     return;
                 }
+                s.state.loaded_rev = revision;
                 s.window = Some(df);
                 if sheet_id == self.sheets.active().id {
                     self.settle_jump_bottom();
@@ -325,6 +350,7 @@ impl App {
                 if s.view.count_key.as_ref() != Some(&key) {
                     return;
                 }
+                s.state.counting = false;
                 match total {
                     Ok(n) => s.view.total_rows = Some(n),
                     Err(e) => {
@@ -348,6 +374,7 @@ impl App {
                 if revision != s.revision {
                     return;
                 }
+                s.state.loaded_rev = revision;
                 self.toast = Some(format!("materialize: {err}"));
             }
         }
@@ -356,7 +383,7 @@ impl App {
     fn on_key(&mut self, key: Key) {
         // Toast lives until the next key — "clear on next action" without a timer.
         self.toast = None;
-        if !matches!(self.input, InputBuf::None) {
+        if self.input.is_some() {
             self.on_input_key(key);
             return;
         }
@@ -404,27 +431,25 @@ impl App {
     }
 
     fn on_input_key(&mut self, key: Key) {
+        let Some((prompt, line)) = self.input.as_mut() else {
+            return;
+        };
         // Ex-mode history navigation: Up/Down walk history, not bound in keymap to keep layer clean.
-        if matches!(self.input, InputBuf::Ex(_)) {
-            match key.code {
-                KeyCode::Up => {
-                    if let Some(line) = self.ex_history.prev() {
-                        if let InputBuf::Ex(buf) = &mut self.input {
-                            *buf = line.to_string();
-                        }
-                    }
-                    return;
+        if *prompt == Prompt::Ex {
+            let recalled = match key.code {
+                KeyCode::Up => Some(self.ex_history.prev()),
+                KeyCode::Down => Some(self.ex_history.next()),
+                _ => None,
+            };
+            if let Some(r) = recalled {
+                if let Some(text) = r {
+                    line.set(text);
                 }
-                KeyCode::Down => {
-                    if let Some(line) = self.ex_history.next() {
-                        if let InputBuf::Ex(buf) = &mut self.input {
-                            *buf = line.to_string();
-                        }
-                    }
-                    return;
-                }
-                _ => {}
+                return;
             }
+        }
+        if line.edit(key) {
+            return;
         }
         match self.keymap.resolve(Layer::Input, &[], key) {
             Dispatch::Fire(actions) => {
@@ -432,75 +457,68 @@ impl App {
                     match a {
                         Action::SubmitInput => self.submit_input(),
                         Action::CancelInput => self.cancel_input(),
-                        Action::InputBackspace => self.input_push_backspace(),
+                        Action::InputBackspace => {
+                            if let Some((_, l)) = self.input.as_mut() {
+                                l.backspace();
+                            }
+                        }
                         _ => {}
                     }
                 }
             }
             _ => {
-                if let KeyCode::Char(c) = key.code {
-                    self.input_push_char(c);
+                if let (KeyCode::Char(c), false) = (key.code, key.ctrl) {
+                    line.insert(c);
                 }
             }
         }
     }
 
-    fn input_push_char(&mut self, c: char) {
-        match &mut self.input {
-            InputBuf::Search(s)
-            | InputBuf::Filter(s)
-            | InputBuf::Ex(s)
-            | InputBuf::Select(s)
-            | InputBuf::Rename(s) => s.push(c),
-            InputBuf::None => {}
-        }
-    }
-
-    fn input_push_backspace(&mut self) {
-        match &mut self.input {
-            InputBuf::Search(s)
-            | InputBuf::Filter(s)
-            | InputBuf::Ex(s)
-            | InputBuf::Select(s)
-            | InputBuf::Rename(s) => {
-                s.pop();
-            }
-            InputBuf::None => {}
-        }
+    fn start_input(&mut self, prompt: Prompt) {
+        self.input = Some((prompt, LineEdit::default()));
     }
 
     fn submit_input(&mut self) {
-        match std::mem::replace(&mut self.input, InputBuf::None) {
-            InputBuf::Search(needle) if !needle.is_empty() => {
-                self.sheets.active_mut().view.search = Some(SearchState { needle });
+        let Some((prompt, line)) = self.input.take() else {
+            return;
+        };
+        let text = line.text().to_string();
+        if text.is_empty() && prompt != Prompt::Ex {
+            return;
+        }
+        match prompt {
+            Prompt::Search => {
+                self.sheets.active_mut().view.search = Some(SearchState { needle: text });
                 self.dispatch(Action::SearchNext);
             }
-            InputBuf::Filter(regex) if !regex.is_empty() => {
+            Prompt::Filter => {
                 if let Some(column) = self.current_column_name() {
-                    self.dispatch(Action::SetFilter { column, regex });
+                    self.dispatch(Action::SetFilter {
+                        column,
+                        regex: text,
+                    });
                 } else {
                     self.toast = Some("no column to filter".into());
                 }
             }
-            InputBuf::Ex(text) => {
+            Prompt::Ex => {
                 self.ex_history.push(&text);
                 match crate::exline::parse(&text) {
                     Ok(actions) => self.dispatch_sequence(actions),
                     Err(e) => self.toast = Some(format!("{e}")),
                 }
             }
-            InputBuf::Select(regex) if !regex.is_empty() => {
-                self.dispatch(Action::SelectByRegex { regex });
+            Prompt::Select => self.dispatch(Action::SelectByRegex { regex: text }),
+            Prompt::Rename => self.dispatch(Action::RenameCol { new_name: text }),
+            Prompt::Diff => {
+                let keys = self.sheets.active().view.keys.clone();
+                self.dispatch(Action::Diff { path: text, keys });
             }
-            InputBuf::Rename(name) if !name.is_empty() => {
-                self.dispatch(Action::RenameCol { new_name: name });
-            }
-            _ => {}
         }
     }
 
     fn cancel_input(&mut self) {
-        self.input = InputBuf::None;
+        self.input = None;
         self.ex_history.reset_cursor();
     }
 
@@ -649,7 +667,7 @@ impl App {
                 }
             }
             Action::StartRenameColInput => {
-                self.input = InputBuf::Rename(String::new());
+                self.start_input(Prompt::Rename);
             }
             Action::RenameCol { new_name } => {
                 let Some(old) = self.current_column_name() else {
@@ -690,9 +708,9 @@ impl App {
             Action::TypeCastString => self.push_type_cast(DataType::String),
             Action::TypeCastDate => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
-            Action::StartSearchInput => self.input = InputBuf::Search(String::new()),
-            Action::StartFilterInput => self.input = InputBuf::Filter(String::new()),
-            Action::StartExInput => self.input = InputBuf::Ex(String::new()),
+            Action::StartSearchInput => self.start_input(Prompt::Search),
+            Action::StartFilterInput => self.start_input(Prompt::Filter),
+            Action::StartExInput => self.start_input(Prompt::Ex),
             Action::ExCommand(text) => match crate::exline::parse(&text) {
                 Ok(actions) => self.dispatch_sequence(actions),
                 Err(e) => self.toast = Some(format!("{e}")),
@@ -766,7 +784,7 @@ impl App {
             Action::UnselectAll => {
                 self.sheets.active_mut().view.selected.clear();
             }
-            Action::StartSelectInput => self.input = InputBuf::Select(String::new()),
+            Action::StartSelectInput => self.start_input(Prompt::Select),
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
             Action::DupSelected => self.open_dup_selected(),
             Action::TogglePlanPanel => {
@@ -776,6 +794,18 @@ impl App {
                     PlanMode::Optimized => PlanMode::Off,
                 };
             }
+            Action::Join { .. }
+            | Action::Derive { .. }
+            | Action::Sql { .. }
+            | Action::SetCol { .. }
+            | Action::Export { .. }
+            | Action::HideUniform
+            | Action::DupSheet
+            | Action::Describe
+            | Action::PivotCurrent
+            | Action::Undo
+            | Action::Redo => self.toast = Some("not implemented yet".into()),
+            Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SubmitInput
             | Action::CancelInput
             | Action::InputChar(_)
@@ -1341,26 +1371,18 @@ impl App {
             self.pending_count,
             !self.pending.is_empty(),
         ) {
-            (InputBuf::Search(s), _, _, _) => Line::from(vec![
-                Span::styled("/", Style::default().fg(Color::Yellow)),
-                Span::raw(s.clone()),
-            ]),
-            (InputBuf::Filter(s), _, _, _) => Line::from(vec![
-                Span::styled("|", Style::default().fg(Color::Yellow)),
-                Span::raw(s.clone()),
-            ]),
-            (InputBuf::Ex(s), _, _, _) => Line::from(vec![
-                Span::styled(":", Style::default().fg(Color::Yellow)),
-                Span::raw(s.clone()),
-            ]),
-            (InputBuf::Select(s), _, _, _) => Line::from(vec![
-                Span::styled("| ", Style::default().fg(Color::Magenta)),
-                Span::raw(s.clone()),
-            ]),
-            (InputBuf::Rename(s), _, _, _) => Line::from(vec![
-                Span::styled("rename: ", Style::default().fg(Color::Yellow)),
-                Span::raw(s.clone()),
-            ]),
+            (Some((prompt, line)), _, _, _) => {
+                // Cursor = reversed cell (a space at the end of the line).
+                let (before, after) = line.split();
+                let mut rest = after.chars();
+                let at = rest.next().map_or(" ".to_string(), String::from);
+                Line::from(vec![
+                    Span::styled(prompt.label(), Style::default().fg(Color::Yellow)),
+                    Span::raw(before.to_string()),
+                    Span::styled(at, Style::default().add_modifier(Modifier::REVERSED)),
+                    Span::raw(rest.as_str().to_string()),
+                ])
+            }
             // Polars errors span lines (plan dumps); the bar shows the first.
             (_, Some(t), _, _) => Line::from(Span::styled(
                 t.lines().next().unwrap_or_default().to_string(),
@@ -1557,7 +1579,9 @@ mod tests {
     #[tokio::test]
     async fn rename_prompt_is_rendered() {
         let (mut app, _tmp) = test_app();
-        app.input = InputBuf::Rename("foo".into());
+        let mut line = LineEdit::default();
+        line.set("foo");
+        app.input = Some((Prompt::Rename, line));
         let mut term = Terminal::new(ratatui::backend::TestBackend::new(40, 6)).unwrap();
         term.draw(|f| app.render(f)).unwrap();
         let buf = term.backend().buffer();
@@ -1651,12 +1675,18 @@ mod scenario {
             h
         }
 
-        /// Apply background results until none arrive for a while, then draw.
+        /// Apply background results until the app is idle, then draw.
         pub async fn pump(&mut self) {
-            while let Ok(Some(res)) =
-                tokio::time::timeout(Duration::from_millis(500), self.app.materialize_rx.recv())
-                    .await
-            {
+            // Generous timeout: parallel tests share CPUs; settled() ends it early.
+            while !self.app.settled() {
+                let next = self.app.materialize_rx.recv();
+                match tokio::time::timeout(Duration::from_secs(20), next).await {
+                    Ok(Some(res)) => self.app.on_materialize(res),
+                    _ => break,
+                }
+            }
+            // stale results (superseded counts) may still be queued; apply them too
+            while let Ok(res) = self.app.materialize_rx.try_recv() {
                 self.app.on_materialize(res);
             }
             self.app.draw(&mut self.term).unwrap();
@@ -1923,6 +1953,25 @@ mod scenario {
         }
         h.keys("\"").await;
         assert_eq!(status(&h), "dup: no rows selected");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn prompt_line_editing_and_quoted_args() {
+        let mut h = Harness::new(5).await;
+        // type "ort -id", jump home, fix the typo, submit
+        h.keys(":").await;
+        for c in "ort -id".chars() {
+            h.app
+                .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
+                    c,
+                ))));
+        }
+        h.keys("<Home>").await;
+        h.type_("s").await;
+        assert_eq!(first_cell(&h), "5");
+        h.keys(":").await;
+        h.type_(r#"filter "name" ^name_[12]$"#).await;
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]

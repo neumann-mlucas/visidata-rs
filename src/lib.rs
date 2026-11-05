@@ -7,6 +7,7 @@ pub mod app;
 pub mod exline;
 pub mod key;
 pub mod keymap;
+pub mod lineedit;
 pub mod plugins;
 pub mod reader;
 pub mod sheet;

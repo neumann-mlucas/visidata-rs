@@ -53,6 +53,7 @@ impl fmt::Display for Key {
             KeyCode::Down => "<Down>".to_string(),
             KeyCode::Home => "<Home>".to_string(),
             KeyCode::End => "<End>".to_string(),
+            KeyCode::Delete => "<Del>".to_string(),
             KeyCode::PageUp => "<PgUp>".to_string(),
             KeyCode::PageDown => "<PgDn>".to_string(),
             KeyCode::F(n) => format!("<F{n}>"),
@@ -132,6 +133,7 @@ impl FromStr for Key {
             "Down" => KeyCode::Down,
             "Home" => KeyCode::Home,
             "End" => KeyCode::End,
+            "Del" | "Delete" => KeyCode::Delete,
             "PgUp" => KeyCode::PageUp,
             "PgDn" => KeyCode::PageDown,
             other if other.starts_with('F') => {

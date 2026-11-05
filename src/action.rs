@@ -106,6 +106,34 @@ pub enum Action {
     Save {
         path: String,
     },
+    /// View as a reproducible Polars (.py) or DuckDB SQL (.sql) script.
+    Export {
+        path: String,
+    },
+
+    // data shaping
+    Join {
+        source: String,
+        keys: Vec<String>,
+        how: String,
+    },
+    Derive {
+        name: String,
+        expr: String,
+    },
+    Sql {
+        query: String,
+    },
+    SetCol {
+        value: String,
+    },
+    HideUniform,
+    DupSheet,
+    Describe,
+    PivotCurrent,
+    StartDiffInput,
+    Undo,
+    Redo,
 
     // input modes
     StartSearchInput,

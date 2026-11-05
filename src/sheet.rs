@@ -21,6 +21,17 @@ pub struct Sheet {
     pub window: Option<DataFrame>, // None until first materialize lands
     pub revision: u64,
     pub origin: Origin,
+    /// Bookkeeping that isn't part of what the sheet shows.
+    pub state: SheetState,
+}
+
+/// Per-sheet bookkeeping. `Default` so derived-sheet constructors stay short.
+#[derive(Default)]
+pub struct SheetState {
+    /// `revision` of the last materialize result applied (Ok or Err).
+    pub loaded_rev: u64,
+    /// A row count for the current `count_key` is in flight.
+    pub counting: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +228,7 @@ impl Sheet {
             view: View::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::File,
         }
     }
@@ -242,6 +254,7 @@ impl Sheet {
             view: View::default(),
             window: Some(df),
             revision: 0,
+            state: Default::default(),
             origin: Origin::SheetSwitcher,
         }
     }
@@ -272,6 +285,7 @@ impl Sheet {
             view: View::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::Freq {
                 parent: parent.id,
                 column: col_name.to_string(),
@@ -322,6 +336,7 @@ impl Sheet {
             view: View::default(),
             window: Some(out),
             revision: 0,
+            state: Default::default(),
             origin: Origin::Pivot { parent: parent.id },
         })
     }
@@ -353,6 +368,7 @@ impl Sheet {
             view: View::default(),
             window: Some(out),
             revision: 0,
+            state: Default::default(),
             origin: Origin::Selected { parent: parent.id },
         })
     }
@@ -381,6 +397,7 @@ impl Sheet {
             view: View::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::Tail { path, follow },
         })
     }
@@ -459,6 +476,7 @@ impl Sheet {
             view: View::default(),
             window: Some(df),
             revision: 0,
+            state: Default::default(),
             origin: Origin::Diff {
                 left: parent.id,
                 right_name: other_name,
@@ -558,6 +576,7 @@ impl Sheet {
             view: View::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::Diff {
                 left: parent.id,
                 right_name: other_name,
@@ -590,6 +609,7 @@ impl Sheet {
             view: View::default(),
             window: None,
             revision: 0,
+            state: Default::default(),
             origin: Origin::Unpivot { parent: parent.id },
         }
     }
