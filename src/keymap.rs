@@ -183,6 +183,11 @@ impl Keymap {
             ch(vec![k("g"), k("\"")], vec![DupSheet], "copy of this sheet"),
             ch(vec![k("I")], vec![Describe], "describe columns"),
             ch(
+                vec![k(",")],
+                vec![SelectEqualCell],
+                "select rows equal to this cell",
+            ),
+            ch(
                 vec![k("W")],
                 vec![PivotCurrent],
                 "pivot: key cols × current col",

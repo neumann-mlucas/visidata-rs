@@ -12,6 +12,7 @@ use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Keymap, Layer};
 use crate::reader::{LoadedSource, OpenError, SourceKind};
+use polars::prelude::{AnyValue, DataType, Series};
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
@@ -26,6 +27,24 @@ struct Registry {
     patches: Vec<KeymapPatch>,
     loaders: Vec<LoaderRule>,
     theme: Option<String>,
+    aggregators: Vec<(String, LuaFunction)>,
+    renderers: Vec<RendererRule>,
+}
+
+/// `vd.register_renderer { column = "price" | dtype = "f64", render = fn(v) }`.
+#[derive(Clone)]
+struct RendererRule {
+    column: Option<String>,
+    dtype: Option<String>,
+    render: LuaFunction,
+}
+
+/// Lua aggregator result, ready to become a Polars value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AggValue {
+    Num(f64),
+    Text(String),
+    Null,
 }
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
@@ -115,6 +134,61 @@ impl Plugins {
         (now != *loaded).then(|| Self::load_from(Some(path.clone())))
     }
 
+    /// Whether `vd.register_aggregator` defined `name`.
+    pub fn has_aggregator(&self, name: &str) -> bool {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .is_some_and(|r| r.borrow().aggregators.iter().any(|(n, _)| n == name))
+    }
+
+    /// Run aggregator `name` over one group's values (a Lua array; nulls are nil).
+    pub fn aggregate(&self, name: &str, values: &Series) -> Result<AggValue, PluginError> {
+        let f = {
+            let reg = registry(&self.lua)?;
+            let reg = reg.borrow();
+            let found = reg
+                .aggregators
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, f)| f.clone());
+            found.ok_or_else(|| mlua::Error::RuntimeError(format!("no aggregator {name}")))?
+        };
+        let t = self.lua.create_table()?;
+        for (i, v) in values.iter().enumerate() {
+            t.raw_set(i + 1, to_lua(&self.lua, &v)?)?;
+        }
+        Ok(match f.call::<LuaValue>(t)? {
+            LuaValue::Integer(n) => AggValue::Num(n as f64),
+            LuaValue::Number(n) => AggValue::Num(n),
+            LuaValue::String(s) => AggValue::Text(s.to_str()?.to_string()),
+            LuaValue::Nil => AggValue::Null,
+            other => AggValue::Text(format!("{other:?}")),
+        })
+    }
+
+    pub fn has_renderers(&self) -> bool {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .is_some_and(|r| !r.borrow().renderers.is_empty())
+    }
+
+    /// Display text from the first renderer matching the cell's column name or
+    /// dtype (`i64`, `f64`, `str`, `date`, … as shown in headers). Lua errors
+    /// fall back to the default display.
+    pub fn render(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<String> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let f = {
+            let reg = reg.borrow();
+            let dt = crate::widget::dtype_badge(dtype);
+            let rule = reg.renderers.iter().find(|r| {
+                r.column.as_deref() == Some(column) || r.dtype.as_deref() == Some(dt.as_str())
+            })?;
+            rule.render.clone()
+        };
+        let v = to_lua(&self.lua, value).ok()?;
+        f.call::<Option<String>>(v).ok().flatten()
+    }
+
     /// Theme picked by `vd.set_theme`, if any.
     pub fn theme(&self) -> Option<crate::theme::Theme> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
@@ -187,6 +261,30 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set("unbind", unbind)?;
     vd.set("register_loader", register_loader)?;
     vd.set("api_version", API_VERSION)?;
+    vd.set(
+        "register_aggregator",
+        lua.create_function(|lua, (name, f): (String, LuaFunction)| {
+            registry(lua)?.borrow_mut().aggregators.push((name, f));
+            Ok(())
+        })?,
+    )?;
+    vd.set(
+        "register_renderer",
+        lua.create_function(|lua, spec: LuaTable| {
+            let rule = RendererRule {
+                column: spec.get("column")?,
+                dtype: spec.get("dtype")?,
+                render: spec.get("render")?,
+            };
+            if rule.column.is_none() && rule.dtype.is_none() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.register_renderer: give column or dtype".into(),
+                ));
+            }
+            registry(lua)?.borrow_mut().renderers.push(rule);
+            Ok(())
+        })?,
+    )?;
     vd.set(
         "set_theme",
         lua.create_function(|lua, name: String| {
@@ -298,6 +396,26 @@ fn register_loader_fn(lua: &Lua, spec: LuaTable) -> mlua::Result<()> {
     Ok(())
 }
 
+/// Polars value → Lua: numbers stay numbers, null is nil, the rest is text.
+fn to_lua(lua: &Lua, v: &AnyValue) -> mlua::Result<LuaValue> {
+    Ok(match v {
+        AnyValue::Null => LuaValue::Nil,
+        AnyValue::Boolean(b) => LuaValue::Boolean(*b),
+        AnyValue::Int8(_)
+        | AnyValue::Int16(_)
+        | AnyValue::Int32(_)
+        | AnyValue::Int64(_)
+        | AnyValue::UInt8(_)
+        | AnyValue::UInt16(_)
+        | AnyValue::UInt32(_) => LuaValue::Integer(v.extract::<i64>().unwrap_or_default()),
+        AnyValue::UInt64(_) | AnyValue::Float32(_) | AnyValue::Float64(_) => {
+            LuaValue::Number(v.extract::<f64>().unwrap_or_default())
+        }
+        AnyValue::String(s) => LuaValue::String(lua.create_string(s)?),
+        other => LuaValue::String(lua.create_string(other.to_string())?),
+    })
+}
+
 fn registry(lua: &Lua) -> mlua::Result<mlua::AppDataRef<'_, RefCell<Registry>>> {
     lua.app_data_ref::<RefCell<Registry>>()
         .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))
@@ -388,6 +506,7 @@ fn action_from_name(s: &str) -> Option<Action> {
         "start_select_input" => StartSelectInput,
         "dup_selected" => DupSelected,
         "dup_sheet" => DupSheet,
+        "select_equal_cell" => SelectEqualCell,
         "hide_uniform" => HideUniform,
         "describe" => Describe,
         "pivot_current" => PivotCurrent,
@@ -468,6 +587,36 @@ mod tests {
         std::fs::remove_file(&init).unwrap(); // deleting counts as a change
         let (fresh, warn) = p.reload_if_changed().unwrap();
         assert!(warn.is_none() && fresh.theme().is_none());
+    }
+
+    #[test]
+    fn aggregator_and_renderer_run_lua() {
+        let p = Plugins::load_from_source(
+            r#"vd.register_aggregator("span", function(vs)
+                 local lo, hi = math.huge, -math.huge
+                 for _, v in ipairs(vs) do lo = math.min(lo, v); hi = math.max(hi, v) end
+                 return hi - lo end)
+               vd.register_renderer { column = "price", render = function(v) return "$" .. v end }
+               vd.register_renderer { dtype = "bool", render = function(v) return v and "yes" or "no" end }"#,
+        )
+        .unwrap();
+        assert!(p.has_aggregator("span") && !p.has_aggregator("sum"));
+        use polars::prelude::NamedFrom;
+        let vals = Series::new("v".into(), [3i64, 9, 4]);
+        assert_eq!(p.aggregate("span", &vals).unwrap(), AggValue::Num(6.0));
+        assert_eq!(
+            p.render("price", &DataType::Float64, &AnyValue::Float64(2.5)),
+            Some("$2.5".into())
+        );
+        assert_eq!(
+            p.render("ok", &DataType::Boolean, &AnyValue::Boolean(false)),
+            Some("no".into())
+        );
+        assert_eq!(
+            p.render("other", &DataType::Int64, &AnyValue::Int64(1)),
+            None
+        );
+        assert!(Plugins::load_from_source("vd.register_renderer { render = print }").is_err());
     }
 
     #[test]

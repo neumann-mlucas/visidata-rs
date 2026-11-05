@@ -768,7 +768,13 @@ impl Sheet {
     }
 
     /// A sheet derived from `parent` with a fresh view.
-    fn child(parent: &Sheet, id: SheetId, name: String, plan: LazyFrame, origin: Origin) -> Self {
+    pub fn child(
+        parent: &Sheet,
+        id: SheetId,
+        name: String,
+        plan: LazyFrame,
+        origin: Origin,
+    ) -> Self {
         Sheet {
             id,
             name,
@@ -791,18 +797,7 @@ impl Sheet {
         column: &str,
         values: &[AnyValue],
     ) -> Self {
-        let text: Vec<String> = values
-            .iter()
-            .filter(|v| !v.is_null())
-            .map(|v| v.get_str().map_or_else(|| v.to_string(), String::from))
-            .collect();
-        let c = || col(column);
-        let mut pred = c()
-            .cast(DataType::String)
-            .is_in(lit(Series::new("v".into(), &text)));
-        if values.iter().any(AnyValue::is_null) {
-            pred = pred.or(c().is_null());
-        }
+        let pred = values_predicate(column, values);
         let label = match values {
             [one] => format!(
                 "{column}={}",
@@ -1368,6 +1363,16 @@ impl Sheet {
         rid_values(&df)
     }
 
+    /// Row ids of view rows whose `column` equals one of `values` (`,`).
+    pub fn rids_with_values(&self, column: &str, values: &[AnyValue]) -> PolarsResult<Vec<u64>> {
+        let df = self
+            .filtered_plan(true)
+            .filter(values_predicate(column, values))
+            .select([col(ROW_ID)])
+            .collect()?;
+        rid_values(&df)
+    }
+
     /// Row ids of every row in the (filtered) view.
     pub fn view_rids(&self) -> PolarsResult<Vec<u64>> {
         rid_values(&self.filtered_plan(true).select([col(ROW_ID)]).collect()?)
@@ -1463,6 +1468,23 @@ fn lenient_date(name: &str) -> Expr {
         })
         .collect();
     coalesce(&tries).alias(name)
+}
+
+/// `column` equals one of `values`, compared as text (how freq groups print);
+/// a null value matches nulls.
+fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
+    let text: Vec<String> = values
+        .iter()
+        .filter(|v| !v.is_null())
+        .map(|v| v.get_str().map_or_else(|| v.to_string(), String::from))
+        .collect();
+    let mut pred = col(column)
+        .cast(DataType::String)
+        .is_in(lit(Series::new("v".into(), &text)));
+    if values.iter().any(AnyValue::is_null) {
+        pred = pred.or(col(column).is_null());
+    }
+    pred
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.

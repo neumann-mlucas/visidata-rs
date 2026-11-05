@@ -98,6 +98,7 @@ pub enum Action {
         regex: String,
     },
     StartSelectInput, // `|` → prompt for regex
+    SelectEqualCell,  // `,` → rows whose current column equals the cursor cell
     DupSelected,      // `"` → new sheet with selected rows only
 
     // ex-line
@@ -200,6 +201,7 @@ impl Action {
                 | Action::SelectAll
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
+                | Action::SelectEqualCell
                 | Action::HideUniform
         )
     }

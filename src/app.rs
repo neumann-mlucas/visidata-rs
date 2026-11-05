@@ -949,6 +949,28 @@ impl App {
                 }
             }
             Action::SubmitSelected => self.dive_freq(true),
+            Action::SelectEqualCell => {
+                let s = self.sheets.active();
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let Some(value) = s
+                    .window
+                    .as_ref()
+                    .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok())
+                    .map(|v| v.into_static())
+                else {
+                    return;
+                };
+                let sheet = s.clone();
+                self.spawn_job("select", move || {
+                    let rids = sheet
+                        .rids_with_values(&column, std::slice::from_ref(&value))
+                        .map_err(|e| e.to_string())?;
+                    let note = format!("selected {} rows where {column} = {value}", rids.len());
+                    Ok(JobDone::Select { rids, note })
+                });
+            }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SubmitInput
             | Action::CancelInput
@@ -1102,6 +1124,21 @@ impl App {
     }
 
     fn open_pivot(&mut self, index: &str, on: &str, values: &str, agg: &str) {
+        if let Some(p) = self.plugins.as_ref().filter(|p| p.has_aggregator(agg)) {
+            match lua_pivot(p, self.sheets.active(), index, on, values, agg) {
+                Ok(df) => {
+                    let id = self.sheets.alloc_id();
+                    let parent = self.sheets.active();
+                    let name = format!("pivot({index}×{on}→{agg}({values})): {}", parent.name);
+                    let origin = Origin::Pivot { parent: parent.id };
+                    let child = Sheet::child(parent, id, name, df.lazy(), origin);
+                    self.sheets.push(child);
+                    self.spawn_materialize();
+                }
+                Err(e) => self.toast = Some(format!("pivot: {e}")),
+            }
+            return;
+        }
         let id = self.sheets.alloc_id();
         let parent = self.sheets.active().clone();
         let (index, on, values, agg) = (
@@ -1527,10 +1564,14 @@ impl App {
         }
 
         self.render_titlebar(f, chunks[0]);
+        let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
+        let render_cell =
+            |c: &str, d: &DataType, v: &AnyValue| lua_render.and_then(|p| p.render(c, d, v));
         f.render_widget(
             SheetWidget {
                 sheet: self.sheets.active(),
                 theme: &self.theme,
+                render: lua_render.map(|_| &render_cell as crate::widget::CellRenderer),
             },
             sheet_area,
         );
@@ -1688,6 +1729,72 @@ impl App {
         };
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
     }
+}
+
+/// `:pivot` with a Lua aggregator: Polars builds each cell's value list, Lua
+/// reduces it. Runs on the UI thread (the Lua VM stays here).
+/// ponytail: per-cell Lua calls; fine for pivot-sized outputs, slow for millions of cells.
+fn lua_pivot(
+    p: &crate::plugins::Plugins,
+    parent: &Sheet,
+    index: &str,
+    on: &str,
+    values: &str,
+    agg: &str,
+) -> Result<DataFrame, String> {
+    use crate::plugins::AggValue;
+    use polars_ops::pivot::{PivotAgg, pivot_stable};
+    let groups = parent
+        .view_plan()
+        .group_by_stable([col(index), col(on)])
+        .agg([col(values)])
+        .collect()
+        .map_err(|e| e.to_string())?;
+    let lists = groups
+        .column(values)
+        .and_then(|c| c.list().cloned())
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::with_capacity(lists.len());
+    for cell in lists.into_iter() {
+        let cell = cell.unwrap_or_else(|| Series::new_empty("v".into(), &DataType::Null));
+        out.push(p.aggregate(agg, &cell).map_err(|e| e.to_string())?);
+    }
+    let agg_col = if out.iter().all(|v| !matches!(v, AggValue::Text(_))) {
+        let nums: Vec<Option<f64>> = out
+            .iter()
+            .map(|v| match v {
+                AggValue::Num(n) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        Column::new(agg.into(), nums)
+    } else {
+        let texts: Vec<Option<String>> = out
+            .iter()
+            .map(|v| match v {
+                AggValue::Num(n) => Some(n.to_string()),
+                AggValue::Text(t) => Some(t.clone()),
+                AggValue::Null => None,
+            })
+            .collect();
+        Column::new(agg.into(), texts)
+    };
+    let long = DataFrame::new(vec![
+        groups.column(index).map_err(|e| e.to_string())?.clone(),
+        groups.column(on).map_err(|e| e.to_string())?.clone(),
+        agg_col,
+    ])
+    .map_err(|e| e.to_string())?;
+    pivot_stable(
+        &long,
+        [on],
+        Some([index]),
+        Some([agg]),
+        false,
+        Some(PivotAgg::First),
+        None,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Default keymap plus Lua patches, and the theme `init.lua` picked.
@@ -2533,6 +2640,31 @@ mod scenario {
         h.app.on_tail_tick();
         h.pump().await;
         assert!(title(&h).contains("/4 "), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lua_aggregator_renderer_and_select_equal() {
+        let mut h = Harness::new(20).await;
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"vd.register_aggregator("n", function(vs) return #vs end)
+                   vd.register_renderer { column = "name", render = function(v) return string.upper(v) end }"#,
+            )
+            .unwrap(),
+        );
+        h.pump().await;
+        assert!(h.screen().contains("NAME_1 "), "{}", h.screen()); // renderer applied
+        h.keys(":").await;
+        h.type_("pivot grp name id n").await; // custom aggregator: rows per cell
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.shape(), (7, 21)); // grp + one column per name
+        let total: f64 = df.get_columns()[1..]
+            .iter()
+            .map(|c| c.f64().unwrap().sum().unwrap_or(0.0))
+            .sum();
+        assert_eq!(total, 20.0);
+        h.keys("q l l ,").await; // grp of row 1 is 1 → ids 1, 8, 15
+        assert!(title(&h).contains("sel 3"), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -14,9 +14,13 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::sheet::{Sheet, View};
 use crate::theme::Theme;
 
+/// Custom cell text (Lua renderers): `(column, dtype, value) -> text`.
+pub type CellRenderer<'a> = &'a dyn Fn(&str, &DataType, &AnyValue) -> Option<String>;
+
 pub struct SheetWidget<'a> {
     pub sheet: &'a Sheet,
     pub theme: &'a Theme,
+    pub render: Option<CellRenderer<'a>>,
 }
 
 impl<'a> SheetWidget<'a> {
@@ -180,7 +184,13 @@ impl<'a> Widget for SheetWidget<'a> {
                 let x = col_x[slot];
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
-                let (text, dtype_hint) = display_av_with_hint(&av);
+                let (mut text, dtype_hint) = display_av_with_hint(&av);
+                if let Some(custom) = self
+                    .render
+                    .and_then(|r| r(cols[ci].name(), cols[ci].dtype(), &av))
+                {
+                    text = printable(&custom);
+                }
                 let col_hi = ci == view.col_cursor;
                 let style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
                 paint_cell(buf, x, y, w, &text, style);
@@ -321,7 +331,7 @@ fn printable(s: &str) -> String {
 }
 
 /// Short dtype label for the column header badge.
-fn dtype_badge(dt: &DataType) -> String {
+pub fn dtype_badge(dt: &DataType) -> String {
     match dt {
         DataType::Boolean => "bool".into(),
         DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "i".into(),
@@ -409,6 +419,7 @@ mod tests {
                 SheetWidget {
                     sheet: &sheet,
                     theme: &theme,
+                    render: None,
                 },
                 f.area(),
             )
