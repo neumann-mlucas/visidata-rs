@@ -64,6 +64,11 @@ pub enum Origin {
     Selected {
         parent: SheetId,
     },
+    /// `:join` of `left`'s view with another sheet or file.
+    Join {
+        left: SheetId,
+        right_name: String,
+    },
 }
 
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.
@@ -594,6 +599,80 @@ impl Sheet {
             origin: Origin::Diff {
                 left: parent.id,
                 right_name: other_name,
+            },
+        })
+    }
+
+    /// `:join`: `left`'s view joined with `right` on same-named `keys`.
+    /// `how`: inner | left | full | merge (full, right's non-null values win) |
+    /// append (stack rows, union columns, tag each with `origin_sheet`).
+    pub fn join_from(
+        left: &Sheet,
+        id: SheetId,
+        right: LazyFrame,
+        right_name: &str,
+        keys: &[String],
+        how: &str,
+    ) -> Result<Self, String> {
+        let l = left.view_plan();
+        let plan = if how == "append" {
+            let tag = |p: LazyFrame, name: &str| {
+                p.with_column(lit(name.to_string()).alias("origin_sheet"))
+            };
+            let args = UnionArgs {
+                to_supertypes: true,
+                diagonal: true,
+                ..Default::default()
+            };
+            concat([tag(l, &left.name), tag(right, right_name)], args).map_err(|e| e.to_string())?
+        } else {
+            let jt = match how {
+                "inner" => JoinType::Inner,
+                "left" => JoinType::Left,
+                "full" | "merge" => JoinType::Full,
+                other => return Err(format!("unknown join type: {other}")),
+            };
+            let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
+            let args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
+            let mut joined = l.join(right, on.clone(), on, args);
+            if how == "merge" {
+                // Polars suffixes colliding right columns `_right`; fold them in.
+                let names: Vec<String> = joined
+                    .collect_schema()
+                    .map_err(|e| e.to_string())?
+                    .iter_names()
+                    .map(|n| n.to_string())
+                    .collect();
+                let dups: Vec<&str> = names
+                    .iter()
+                    .filter_map(|n| n.strip_suffix("_right"))
+                    .filter(|base| names.iter().any(|n| n == base))
+                    .collect();
+                let merged: Vec<Expr> = dups
+                    .iter()
+                    .map(|b| {
+                        let r = format!("{b}_right");
+                        col(r.as_str()).fill_null(col(*b)).alias(*b)
+                    })
+                    .collect();
+                let drop: Vec<String> = dups.iter().map(|b| format!("{b}_right")).collect();
+                joined = joined.with_columns(merged).drop(drop);
+            }
+            joined
+        };
+        Ok(Sheet {
+            id,
+            name: format!("{}&{} ({how})", left.name, right_name),
+            kind: left.kind,
+            source: left.source.clone(),
+            plan,
+            view: View::default(),
+            window: None,
+            revision: 0,
+            state: Default::default(),
+            origin: Origin::Join {
+                left: left.id,
+                right_name: right_name.to_string(),
             },
         })
     }

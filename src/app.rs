@@ -864,8 +864,8 @@ impl App {
                     PlanMode::Optimized => PlanMode::Off,
                 };
             }
-            Action::Join { .. }
-            | Action::Derive { .. }
+            Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
+            Action::Derive { .. }
             | Action::Sql { .. }
             | Action::SetCol { .. }
             | Action::Export { .. }
@@ -1146,6 +1146,40 @@ impl App {
                 self.spawn_materialize();
             }
             Err(e) => self.toast = Some(format!("diff: {e}")),
+        }
+    }
+
+    /// `:join` source: `#<id>` or the exact name of an open sheet, else a file.
+    fn open_join(&mut self, source: &str, keys: &[String], how: &str) {
+        let active = self.sheets.active().id;
+        let open_sheet = self
+            .sheets
+            .summaries()
+            .find(|(id, name, _)| {
+                *id != active
+                    && (*name == source || source.strip_prefix('#') == Some(&id.to_string()))
+            })
+            .map(|(id, _, _)| id);
+        let (right, right_name) = match open_sheet {
+            Some(id) => {
+                let s = self.sheets.find_by_id_mut(id).expect("id from summaries");
+                (s.view_plan(), s.name.clone())
+            }
+            None => match crate::plugins::open(self.plugins.as_ref(), source.as_ref(), None) {
+                Ok(l) => (l.lazy.clone(), l.display_name.clone()),
+                Err(e) => {
+                    self.toast = Some(format!("join: {e}"));
+                    return;
+                }
+            },
+        };
+        let id = self.sheets.alloc_id();
+        match Sheet::join_from(self.sheets.active(), id, right, &right_name, keys, how) {
+            Ok(s) => {
+                self.sheets.push(s);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("join: {e}")),
         }
     }
 
@@ -2092,6 +2126,54 @@ mod scenario {
         );
         h.pump().await;
         assert!(title(&h).contains("sel 3000"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn join_types_against_file_and_open_sheet() {
+        let mut h = Harness::new(5).await; // id 1..5
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("o.csv");
+        std::fs::write(&other, "id,name,extra\n2,TWO,x\n3,,y\n9,NINE,z\n").unwrap();
+        let o = other.display();
+        for (how, rows) in [("inner", 2), ("left", 5), ("full", 6), ("append", 8)] {
+            h.keys(":").await;
+            h.type_(&format!("join {o} id {how}")).await;
+            assert!(
+                title(&h).contains(&format!("row 1/{rows}")),
+                "{how}: {}",
+                h.screen()
+            );
+            h.keys("q").await;
+        }
+        // merge: right's non-null name wins, left kept where right is null
+        h.keys(":").await;
+        h.type_(&format!("join {o} id merge")).await;
+        let s = h
+            .app
+            .sheets
+            .active()
+            .view_plan()
+            .sort(["id"], Default::default());
+        let df = s.collect().unwrap();
+        let names: Vec<_> = df
+            .column("name")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(names[1..3], [Some("TWO"), Some("name_3")]);
+        assert!(df.column("name_right").is_err());
+        // an open sheet as the right side, by #id: freq(name) joined back on name
+        h.keys("q l F").await; // freq sheet on `name`
+        let freq_id = h.app.sheets.active().id;
+        h.keys("S <CR>").await; // switcher row 1 = base sheet → back on top
+        assert!(title(&h).contains("row 1/5"), "{}", title(&h));
+        h.keys(":").await;
+        h.type_(&format!("join #{freq_id} name")).await;
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.height(), 5);
+        assert!(df.column("count").is_ok(), "{:?}", df.get_column_names());
     }
 
     #[tokio::test(flavor = "multi_thread")]
