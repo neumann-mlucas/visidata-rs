@@ -393,13 +393,8 @@ impl App {
                 self.dispatch(Action::SearchNext);
             }
             InputBuf::Filter(regex) if !regex.is_empty() => {
-                if let Some(col) = self.current_column_name() {
-                    let s = self.sheets.active_mut();
-                    s.view.filter = Some(FilterState { column: col, regex });
-                    s.view.window_offset = 0;
-                    s.view.row_cursor = 0;
-                    s.view.row_offset = 0;
-                    self.spawn_materialize();
+                if let Some(column) = self.current_column_name() {
+                    self.dispatch(Action::SetFilter { column, regex });
                 } else {
                     self.toast = Some("no column to filter".into());
                 }
@@ -447,6 +442,22 @@ impl App {
     fn dispatch(&mut self, action: Action) {
         let before_rev = self.sheets.active().revision;
         let affects = action.affects_data();
+        // Selection is positional (row offsets into the view), so any change to
+        // row order/membership would silently re-point it at other rows.
+        // ponytail: clear instead of tracking row identity; add a row-index
+        // column to the base plan if users want selections to survive re-sorts.
+        if matches!(
+            action,
+            Action::FilterCurrentColumn { .. }
+                | Action::SetFilter { .. }
+                | Action::ClearFilter
+                | Action::SortAsc
+                | Action::SortDesc
+                | Action::SetSort { .. }
+                | Action::ClearSort
+        ) {
+            self.sheets.active_mut().view.selected.clear();
+        }
         match action {
             Action::Quit => self.quit = true,
             Action::PopSheet => {
@@ -1291,3 +1302,32 @@ fn with_count(a: Action, count: Option<usize>) -> Action {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[tokio::test]
+    async fn sort_and_filter_clear_positional_selection() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, "name,n\nalice,3\nbob,1").unwrap();
+        tmp.flush().unwrap();
+        let csv = Some(crate::reader::SourceKind::Csv);
+        let loaded = crate::reader::open(tmp.path().as_os_str(), csv).unwrap();
+        let mut app = App::new(Sheet::from_source(0, loaded), None, None);
+        for action in [
+            Action::SetSort {
+                column: "n".into(),
+                descending: false,
+            },
+            Action::SetFilter {
+                column: "name".into(),
+                regex: "a".into(),
+            },
+        ] {
+            app.sheets.active_mut().view.selected.insert(0);
+            app.dispatch(action);
+            assert!(app.sheets.active().view.selected.is_empty());
+        }
+    }
+}

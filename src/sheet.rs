@@ -243,8 +243,7 @@ impl Sheet {
     /// one can hide-col the extras.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
         let plan = parent
-            .plan
-            .clone()
+            .view_plan()
             .group_by([col(col_name)])
             .agg([len().alias("count")])
             .with_columns([
@@ -295,7 +294,7 @@ impl Sheet {
             "last" => PivotAgg::Last,
             other => return Err(format!("unknown agg: {other}")),
         };
-        let df = parent.plan.clone().collect().map_err(|e| e.to_string())?;
+        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
         let out = pivot_stable(
             &df,
             [on],
@@ -326,7 +325,7 @@ impl Sheet {
         if parent.view.selected.is_empty() {
             return Err("no rows selected".into());
         }
-        let df = parent.plan.clone().collect().map_err(|e| e.to_string())?;
+        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
         let height = df.height() as u64;
         let mask: Vec<bool> = (0..height)
             .map(|i| parent.view.selected.contains(&i))
@@ -399,8 +398,7 @@ impl Sheet {
         other: &LoadedSource,
     ) -> Result<Self, String> {
         let schema_a = parent
-            .plan
-            .clone()
+            .view_plan()
             .collect_schema()
             .map_err(|e| e.to_string())?;
         let schema_b = other
@@ -472,7 +470,7 @@ impl Sheet {
             return Err("row_diff needs at least one key column".into());
         }
         let key_exprs: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-        let a = parent.plan.clone();
+        let a = parent.view_plan();
         let b = other.lazy.clone();
         let joined = a.join(
             b,
@@ -483,8 +481,7 @@ impl Sheet {
         // Pick a non-key column from each side to detect side presence. If none, the whole
         // row is key-only; we treat that as always-matching.
         let schema_a = parent
-            .plan
-            .clone()
+            .view_plan()
             .collect_schema()
             .map_err(|e| e.to_string())?;
         let schema_b = other
@@ -575,7 +572,7 @@ impl Sheet {
             variable_name: None,
             value_name: None,
         };
-        let plan = parent.plan.clone().unpivot(args);
+        let plan = parent.view_plan().unpivot(args);
         Sheet {
             id,
             name: format!("unpivot({}): {}", on.join(","), parent.name),
@@ -929,6 +926,27 @@ mod tests {
         let err = write_df_by_extension(&mut df, &path).unwrap_err();
         assert!(err.to_string().contains("unknown extension"));
         assert_eq!(std::fs::read(&path).unwrap(), b"keep me"); // not truncated
+    }
+
+    #[test]
+    fn derived_sheets_follow_view() {
+        let (mut s, _tmp) = make_sheet(); // alice,3 bob,1 carol,2
+        s.view.sort.push(SortKey {
+            column: "n".into(),
+            order: SortOrder::Asc,
+        });
+        s.view.selected.insert(0); // row 0 of the sorted view = bob
+        let dup = Sheet::dup_selected_from(&s, 1).unwrap();
+        let df = dup.plan.collect().unwrap();
+        let name = df.column("name").unwrap().get(0).unwrap();
+        assert_eq!(name.get_str(), Some("bob"));
+
+        s.view.filter = Some(FilterState {
+            column: "name".into(),
+            regex: "^a".into(),
+        });
+        let freq = Sheet::freq_from(&s, 2, "name").plan.collect().unwrap();
+        assert_eq!(freq.height(), 1); // only alice survives the filter
     }
 
     #[test]
