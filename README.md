@@ -1,18 +1,29 @@
 # visidata-rs
 
-Modal terminal data explorer. Polars + Ratatui + mlua. Lua-extensible like Neovim.
-Pre-alpha, no code shipped yet.
+Modal terminal data explorer with VisiData's taste: Polars + Ratatui + mlua,
+Lua-extensible like Neovim. Pre-alpha.
 
-**Direction & scope**: [`docs/direction.md`](docs/direction.md). Read §9 first — six open
-questions gate Phase 0.
+```
+cargo run --release -- data.parquet          # TUI
+cargo run --release -- --headless data.csv   # schema + first rows, no TUI
+cat data.csv | cargo run --release -- -      # stdin, format sniffed
+```
 
-**Working defaults** (change in `docs/direction.md` §9 if any are wrong):
+Reads CSV, TSV, Parquet, Arrow IPC, JSON Lines, JSON arrays, xlsx/ods (first
+sheet), SQLite (first table), and any of these gzipped. Files are scanned
+lazily; only a 1024-row window is materialized, and the row count is computed
+in the background.
 
-- New product with VisiData's taste, not a feature-parity port
-- Polars-only engine through Phase 2; DuckDB behind an optional backend from Phase 2 onward
-- Zero back-compat with `.vdj` / `.visidatarc`
-- Pure `init.lua` config (Neovim model); no TOML/KDL layer
-- Lua 5.4 via mlua
-- Phase 0 scope: viewer parity with csvlens, plus Parquet + Arrow
+Basics: `hjkl` move, `gg`/`G` top/bottom, `/` search, `[`/`]` sort, `z|` filter,
+`F` frequency table, `s`/`gs`/`|` select, `"` sheet of selected rows, `-` hide,
+`!` key column, `#%~@` type casts, `P` plan panel, `S` sheet list, `:` ex
+commands (`:save out.parquet`, `:pivot`, `:unpivot`, `:diff`, `:tail -f`),
+`q` back/quit.
 
-Not vendored: a VisiData clone lives at `../visidata` as read-only reference.
+- What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
+- Direction & scope: [`docs/direction.md`](docs/direction.md)
+- Punchlist: [`docs/tasks.md`](docs/tasks.md)
+- Config: `$XDG_CONFIG_HOME/vdrs/init.lua` (`vd.bind`, `vd.register_loader`)
+
+Not vendored: a VisiData clone lives at `../visidata` as read-only reference
+(the golden-corpus replay test skips cleanly without it).

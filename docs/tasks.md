@@ -137,7 +137,7 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] Plugin loader bootstrap: `$XDG_CONFIG_HOME/vdrs/init.lua`, Lua 5.4 VM, missing-file is not an error
 - [x] Keymap plugin shape: `vd.bind(layer, keys, action, desc?)` + `vd.unbind(layer, keys)`
 - [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
-- [ ] Loader plugin covers `:tail` and `:diff` paths too (currently main.rs only — `app.rs` reader calls bypass plugins)
+- [x] Loader plugin covers `:diff` too (shared `plugins::open`); `:tail` refuses loader formats since refresh would re-scan the stale converted file
 - [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — per S-10
 - [ ] Aggregator plugin shape — per S-09; `:derive` consumer waits on S-06
 - [ ] Renderer plugin shape — per S-09 §4
@@ -153,6 +153,17 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 ## Phase 5 — modal frame diff
 - [x] Diff sheet via `:diff <path>` (schema diff) or `:diff <path> <keys>` (full outer join; `__diff` flags only_a/only_b/changed; same rows suppressed)
 - [ ] Dedicated UI (`D` key, visual key picker) — current flow is ex-only
+
+## Correctness pass (2026-11-05, branch `fix/save-full-plan`)
+- [x] `:save` writes every view row (was: 1024-row window); unknown extension no longer truncates the target
+- [x] Derived sheets (freq/pivot/unpivot/diff/`"`) built from the parent's view (casts/filter/sort/visible cols)
+- [x] Background row count → `G` reaches the true last row, title shows `row N/total`
+- [x] One `goto_row` path for j/k/paging/gg/G; PageDown = one screen; never walks past EOF
+- [x] Search, `gs`, `|` cover the whole view, not just the loaded window
+- [x] Cursor row/column always on screen (width-aware column scroll); wide chars and embedded newlines/tabs render on one line
+- [x] Input validation: bad regex, unknown sort/filter column, rename onto existing name → toast, sheet stays healthy
+- [x] `.json` arrays read; `.gz` honours `--format`; missing file fails fast with path; no-terminal error suggests `--headless`
+- [x] End-to-end `app::scenario` tests (keymap → dispatch → Polars tasks → render)
 
 ## Cross-cutting — do when it hurts, not before
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
