@@ -615,11 +615,21 @@ impl App {
             }
             Action::KeyCol => {
                 if let Some(c) = self.current_column_name() {
-                    let keys = &mut self.sheets.active_mut().view.keys;
+                    let s = self.sheets.active_mut();
+                    let keys = &mut s.view.keys;
                     if let Some(i) = keys.iter().position(|k| k == &c) {
                         keys.remove(i);
                     } else {
-                        keys.push(c);
+                        keys.push(c.clone());
+                    }
+                    // Keying reorders columns; keep the cursor on the same column.
+                    if let Some(i) = s
+                        .view_plan()
+                        .collect_schema()
+                        .ok()
+                        .and_then(|sc| sc.index_of(&c))
+                    {
+                        s.view.col_cursor = i;
                     }
                     self.spawn_materialize();
                 }
@@ -741,7 +751,7 @@ impl App {
             Action::ToggleSelectRow => self.toggle_select_current(),
             Action::SelectRow => self.set_select_current(true),
             Action::UnselectRow => self.set_select_current(false),
-            Action::SelectAll => self.select_all_in_window(true),
+            Action::SelectAll => self.select_all(),
             Action::UnselectAll => {
                 self.sheets.active_mut().view.selected.clear();
             }
@@ -1076,48 +1086,35 @@ impl App {
         }
     }
 
-    fn select_all_in_window(&mut self, select: bool) {
-        let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return };
-        let base = s.view.window_offset;
-        if select {
-            for i in 0..df.height() as u64 {
-                s.view.selected.insert(base + i);
-            }
-        } else {
-            s.view.selected.clear();
+    /// Select every row of the view (not just the loaded window).
+    fn select_all(&mut self) {
+        let v = &mut self.sheets.active_mut().view;
+        match v.total_rows {
+            // ponytail: one set entry per row; swap BTreeSet for a bitmap if
+            // multi-million-row selections eat too much memory.
+            Some(total) => v.selected = (0..total).collect(),
+            None => self.toast = Some("still counting rows; try again".into()),
         }
     }
 
+    /// Select view rows whose current-column text matches `pat` (whole view).
     fn select_by_regex(&mut self, pat: &str) {
-        let re = match regex::Regex::new(pat) {
-            Ok(r) => r,
-            Err(e) => {
-                self.toast = Some(format!("bad regex: {e}"));
-                return;
-            }
-        };
-        let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return };
-        let ci = s.view.col_cursor;
-        let Some(col) = df.get_columns().get(ci) else {
+        if let Err(e) = regex::Regex::new(pat) {
+            self.toast = Some(format!("bad regex: {e}"));
+            return;
+        }
+        let Some(column) = self.current_column_name() else {
             return;
         };
-        let base = s.view.window_offset;
-        let mut matched = 0usize;
-        for ri in 0..df.height() {
-            let av = col.get(ri).unwrap_or(polars::prelude::AnyValue::Null);
-            let cell = match av {
-                polars::prelude::AnyValue::String(s) => s.to_string(),
-                polars::prelude::AnyValue::StringOwned(s) => s.as_str().to_string(),
-                other => other.to_string(),
-            };
-            if re.is_match(&cell) {
-                s.view.selected.insert(base + ri as u64);
-                matched += 1;
+        let s = self.sheets.active_mut();
+        match s.rows_matching(&column, pat) {
+            Ok(rows) => {
+                let matched = rows.len();
+                s.view.selected.extend(rows);
+                self.toast = Some(format!("selected {matched} rows matching /{pat}"));
             }
+            Err(e) => self.toast = Some(format!("select: {e}")),
         }
-        self.toast = Some(format!("selected {matched} rows matching /{pat}"));
     }
 
     fn open_dup_selected(&mut self) {
@@ -1215,8 +1212,8 @@ impl App {
     fn render_plan_panel(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
         let s = self.sheets.active();
         let (title, body) = match self.plan_mode {
-            PlanMode::Normal => ("plan", s.plan.describe_plan()),
-            PlanMode::Optimized => ("plan (opt)", s.plan.describe_optimized_plan()),
+            PlanMode::Normal => ("plan", s.window_plan().describe_plan()),
+            PlanMode::Optimized => ("plan (opt)", s.window_plan().describe_optimized_plan()),
             PlanMode::Off => return,
         };
         let text = body.unwrap_or_else(|e| format!("<error>: {e}"));
@@ -1709,6 +1706,27 @@ mod scenario {
             "{}",
             title(&h)
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn selection_covers_whole_view() {
+        let mut h = Harness::new(5000).await;
+        h.keys("g s").await;
+        assert!(title(&h).contains("sel 5000"), "{}", title(&h));
+        h.keys("g u l |").await;
+        h.type_("^name_49").await; // 49, 490-499, 4900-4999
+        assert!(title(&h).contains("sel 111"), "{}", title(&h));
+        h.keys("\"").await;
+        assert!(title(&h).contains("row 1/111"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn key_col_keeps_cursor_on_column() {
+        let mut h = Harness::new(10).await;
+        h.keys("l l !").await; // key grp → moves to the front
+        assert!(title(&h).contains("col 1/4 (grp)"), "{}", title(&h));
+        h.keys("!").await; // unkey → back to its place
+        assert!(title(&h).contains("col 3/4 (grp)"), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]

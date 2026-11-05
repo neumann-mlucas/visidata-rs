@@ -684,6 +684,26 @@ impl Sheet {
         format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
     }
 
+    /// View rows whose `column` (as text) matches regex `pattern`, in view order.
+    pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
+        let df = self
+            .view_plan()
+            .with_row_index("__vdrs_row", None)
+            .filter(
+                col(column)
+                    .cast(DataType::String)
+                    .str()
+                    .contains(lit(pattern), true),
+            )
+            .select([col("__vdrs_row").cast(DataType::UInt64)])
+            .collect()?;
+        Ok(df
+            .column("__vdrs_row")?
+            .u64()?
+            .into_no_null_iter()
+            .collect())
+    }
+
     /// Rows of the full view holding `needle` (case-insensitive, literal) in any
     /// column, as `(view row, first matching column)`, in view order.
     pub fn search_hits(&self, needle: &str) -> PolarsResult<Vec<(u64, usize)>> {
