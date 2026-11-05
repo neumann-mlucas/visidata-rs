@@ -145,6 +145,13 @@ pub struct View {
     pub keys: Vec<String>,
     /// Pending type casts, applied before serialize. Last-write-wins per column.
     pub type_casts: Vec<(String, DataType)>,
+    /// Row count of the filtered view; `None` while counting or after a failed count.
+    pub total_rows: Option<u64>,
+    /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
+    /// `None` forces a recount on the next materialize.
+    pub count_key: Option<String>,
+    /// `G` pending: put the cursor on the last data row once window + count land.
+    pub jump_bottom: bool,
 }
 
 impl Default for View {
@@ -164,6 +171,9 @@ impl Default for View {
             hidden: std::collections::BTreeSet::new(),
             keys: Vec::new(),
             type_casts: Vec::new(),
+            total_rows: None,
+            count_key: None,
+            jump_bottom: false,
         }
     }
 }
@@ -385,6 +395,7 @@ impl Sheet {
         };
         let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
         self.plan = loaded.lazy;
+        self.view.count_key = None; // file grew: recount
         Ok(())
     }
 
@@ -595,27 +606,7 @@ impl Sheet {
     /// Full (unsliced) query for what the user sees. Applies, in order:
     /// type_casts → filter → sort → visible-column projection.
     pub fn view_plan(&self) -> LazyFrame {
-        let mut lf = self.plan.clone();
-        // Type casts first so downstream filter/sort see the typed values.
-        if !self.view.type_casts.is_empty() {
-            let exprs: Vec<Expr> = self
-                .view
-                .type_casts
-                .iter()
-                .map(|(name, dt)| col(name.as_str()).cast(dt.clone()).alias(name.as_str()))
-                .collect();
-            lf = lf.with_columns(exprs);
-        }
-        if let Some(f) = &self.view.filter {
-            // Cast so numeric/date columns filter on their display text. Strict:
-            // a bad regex errors loudly instead of filtering every row out.
-            lf = lf.filter(
-                col(f.column.as_str())
-                    .cast(DataType::String)
-                    .str()
-                    .contains(lit(f.regex.as_str()), true),
-            );
-        }
+        let mut lf = self.filtered_plan();
         if !self.view.sort.is_empty() {
             let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
             let desc: Vec<bool> = self
@@ -651,6 +642,44 @@ impl Sheet {
             }
         }
         lf
+    }
+
+    /// Base plan + type_casts + filter: decides which rows exist, not their order.
+    fn filtered_plan(&self) -> LazyFrame {
+        let mut lf = self.plan.clone();
+        // Type casts first so downstream filter/sort see the typed values.
+        if !self.view.type_casts.is_empty() {
+            let exprs: Vec<Expr> = self
+                .view
+                .type_casts
+                .iter()
+                .map(|(name, dt)| col(name.as_str()).cast(dt.clone()).alias(name.as_str()))
+                .collect();
+            lf = lf.with_columns(exprs);
+        }
+        if let Some(f) = &self.view.filter {
+            // Cast so numeric/date columns filter on their display text. Strict:
+            // a bad regex errors loudly instead of filtering every row out.
+            lf = lf.filter(
+                col(f.column.as_str())
+                    .cast(DataType::String)
+                    .str()
+                    .contains(lit(f.regex.as_str()), true),
+            );
+        }
+        lf
+    }
+
+    /// One-row `len` query over `filtered_plan`. Sort/projection don't change
+    /// the row count, so they're skipped to keep the count cheap.
+    pub fn count_plan(&self) -> LazyFrame {
+        self.filtered_plan().select([len()])
+    }
+
+    /// Identifies the row count `count_plan` yields; when it changes, recount.
+    /// Plan replacements (tail refresh, currency cast) reset `view.count_key` instead.
+    pub fn count_key(&self) -> String {
+        format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
     }
 
     pub fn visible_columns(&self) -> Vec<String> {
@@ -964,6 +993,23 @@ mod tests {
         });
         let freq = Sheet::freq_from(&s, 2, "name").plan.collect().unwrap();
         assert_eq!(freq.height(), 1); // only alice survives the filter
+    }
+
+    #[test]
+    fn count_plan_counts_filtered_rows() {
+        let (mut s, _tmp) = make_sheet();
+        let count = |s: &Sheet| {
+            let df = s.count_plan().collect().unwrap();
+            df.get_columns()[0].get(0).unwrap().try_extract::<u64>().unwrap()
+        };
+        assert_eq!(count(&s), 3);
+        let before = s.count_key();
+        s.view.filter = Some(FilterState {
+            column: "name".into(),
+            regex: "^(alice|bob)$".into(),
+        });
+        assert_ne!(s.count_key(), before);
+        assert_eq!(count(&s), 2);
     }
 
     #[test]

@@ -73,6 +73,12 @@ enum MaterializeResult {
         revision: u64,
         err: String,
     },
+    /// Row count of the filtered view, tagged with the `count_key` it was computed for.
+    Count {
+        sheet_id: SheetId,
+        key: String,
+        total: Result<u64, String>,
+    },
 }
 
 enum InputBuf {
@@ -106,7 +112,6 @@ pub struct App {
     input: InputBuf,
     ex_history: crate::exline::History,
     plan_mode: PlanMode,
-    follow_jump_bottom: bool,
     theme: Theme,
     quit: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
@@ -143,7 +148,6 @@ impl App {
             input: InputBuf::None,
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
-            follow_jump_bottom: false,
             theme: Theme::dark(),
             quit: false,
             materialize_tx: tx,
@@ -227,6 +231,55 @@ impl App {
                 let _ = tx.send(msg).await;
             }),
         );
+        self.spawn_count_if_stale();
+    }
+
+    /// Recount the active sheet's rows when its `count_key` changed. Not aborted on
+    /// supersede (blocking work can't be); stale results are dropped by key.
+    fn spawn_count_if_stale(&mut self) {
+        let s = self.sheets.active_mut();
+        let key = s.count_key();
+        if s.view.count_key.as_ref() == Some(&key) {
+            return;
+        }
+        s.view.count_key = Some(key.clone());
+        s.view.total_rows = None;
+        let (sheet_id, plan) = (s.id, s.count_plan());
+        let tx = self.materialize_tx.clone();
+        tokio::spawn(async move {
+            let total = match tokio::task::spawn_blocking(move || plan.collect()).await {
+                Ok(Ok(df)) => df.get_columns()[0]
+                    .get(0)
+                    .and_then(|v| v.try_extract::<u64>())
+                    .map_err(|e| e.to_string()),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(e) => Err(format!("count task crashed: {e}")),
+            };
+            let _ = tx.send(MaterializeResult::Count { sheet_id, key, total }).await;
+        });
+    }
+
+    /// Drive a pending `G` as far as the current window/count allow: slide the
+    /// window to the last page once the total is known, then park the cursor on
+    /// the last row. Without a total the cursor parks provisionally on the
+    /// window's last row and moves again when the count lands.
+    fn settle_jump_bottom(&mut self) {
+        let s = self.sheets.active_mut();
+        if !s.view.jump_bottom {
+            return;
+        }
+        if let Some(total) = s.view.total_rows {
+            let last_page = total.saturating_sub(s.view.window_rows as u64);
+            if s.view.window_offset != last_page {
+                s.view.window_offset = last_page;
+                self.spawn_materialize(); // settles again when that window lands
+                return;
+            }
+            s.view.jump_bottom = false;
+        }
+        if let Some(h) = s.window.as_ref().map(|df| df.height()).filter(|h| *h > 0) {
+            s.view.row_cursor = h - 1;
+        }
     }
 
     fn on_materialize(&mut self, res: MaterializeResult) {
@@ -236,20 +289,39 @@ impl App {
                 revision,
                 df,
             } => {
-                let follow_jump = self.follow_jump_bottom;
                 let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
                     return;
                 };
                 if revision != s.revision {
                     return;
                 }
-                let h = df.height();
                 s.window = Some(df);
-                if follow_jump && h > 0 {
-                    s.view.row_cursor = h - 1;
+                if sheet_id == self.sheets.active().id {
+                    self.settle_jump_bottom();
                 }
-                self.follow_jump_bottom = false;
-                self.toast = None;
+            }
+            MaterializeResult::Count {
+                sheet_id,
+                key,
+                total,
+            } => {
+                let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
+                    return;
+                };
+                if s.view.count_key.as_ref() != Some(&key) {
+                    return;
+                }
+                match total {
+                    Ok(n) => s.view.total_rows = Some(n),
+                    Err(e) => {
+                        s.view.jump_bottom = false; // nothing to settle on
+                        self.toast = Some(format!("row count: {e}"));
+                        return;
+                    }
+                }
+                if sheet_id == self.sheets.active().id {
+                    self.settle_jump_bottom();
+                }
             }
             MaterializeResult::Err {
                 sheet_id,
@@ -442,6 +514,9 @@ impl App {
     fn dispatch(&mut self, action: Action) {
         let before_rev = self.sheets.active().revision;
         let affects = action.affects_data();
+        if !matches!(action, Action::GotoBottom) {
+            self.sheets.active_mut().view.jump_bottom = false;
+        }
         if let Action::SetFilter { regex, .. } | Action::FilterCurrentColumn { regex } = &action {
             if let Err(e) = regex::Regex::new(regex) {
                 self.toast = Some(format!("bad regex: {e}"));
@@ -591,9 +666,8 @@ impl App {
             Action::SearchNext => self.search_jump(true),
             Action::SearchPrev => self.search_jump(false),
             Action::FilterCurrentColumn { regex } => {
-                if let Some(col) = self.current_column_name() {
-                    self.sheets.active_mut().view.filter = Some(FilterState { column: col, regex });
-                    self.spawn_materialize();
+                if let Some(column) = self.current_column_name() {
+                    self.dispatch(Action::SetFilter { column, regex });
                 }
             }
             Action::SetFilter { column, regex } => {
@@ -750,6 +824,7 @@ impl App {
             .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
             .cast(DataType::Float64)
             .alias(name.as_str())]);
+        s.view.count_key = None; // a filter on this column may now match differently
         self.spawn_materialize();
     }
 
@@ -773,12 +848,8 @@ impl App {
     }
 
     fn goto_bottom(&mut self) {
-        let s = self.sheets.active_mut();
-        if let Some(df) = &s.window {
-            if df.height() > 0 {
-                s.view.row_cursor = df.height() - 1;
-            }
-        }
+        self.sheets.active_mut().view.jump_bottom = true;
+        self.settle_jump_bottom();
     }
 
     fn search_jump(&mut self, forward: bool) {
@@ -884,21 +955,20 @@ impl App {
             return;
         }
         let follow = matches!(active.origin, Origin::Tail { follow: true, .. });
-        let was_at_bottom = active
-            .window
-            .as_ref()
-            .map(|df| df.height() > 0 && active.view.row_cursor + 1 == df.height())
-            .unwrap_or(true);
+        let v = &active.view;
+        let abs = v.window_offset + v.row_cursor as u64;
+        let was_at_bottom = match (v.total_rows, &active.window) {
+            (Some(total), _) => abs + 1 >= total,
+            (None, Some(df)) => v.row_cursor + 1 >= df.height(),
+            (None, None) => true,
+        };
         if let Err(e) = active.refresh_tail() {
             self.toast = Some(format!("tail refresh: {e}"));
             return;
         }
+        // Settles across the window + count results the refresh triggers.
+        active.view.jump_bottom |= follow && was_at_bottom;
         self.spawn_materialize();
-        if follow && was_at_bottom {
-            // GotoBottom lands after the next materialize completes; we signal intent now.
-            // Simpler path: set a flag; on_materialize jumps cursor to df.height()-1 if set.
-            self.follow_jump_bottom = true;
-        }
     }
 
     fn open_diff(&mut self, path: &str, keys: &[String]) {
@@ -1209,7 +1279,11 @@ impl App {
             .as_ref()
             .map(|df| (df.height(), df.width()))
             .unwrap_or((0, 0));
-        let abs_row = window_offset as usize + row_cursor;
+        let abs_row = window_offset as usize + row_cursor + usize::from(rows > 0); // 1-based
+        let total = s
+            .view
+            .total_rows
+            .map_or_else(|| "?".to_string(), |n| n.to_string());
         let stack_pos = self.sheets.len();
         let sel = s.view.selected.len();
         let col_name = s
@@ -1219,7 +1293,7 @@ impl App {
             .unwrap_or_default();
         let left = format!(" {name} ", name = s.name);
         let center =
-            format!(" row {abs_row}/{rows} · col {col_cursor}/{cols} ({col_name}) · sel {sel} ",);
+            format!(" row {abs_row}/{total} · col {col_cursor}/{cols} ({col_name}) · sel {sel} ",);
         let right = format!(" {kind:?} · sheets {stack_pos} ", kind = s.kind);
         let th = &self.theme;
         let line = Line::from(vec![
@@ -1317,6 +1391,91 @@ mod tests {
         let s = app.sheets.active_mut();
         s.window = Some(s.window_plan().collect().unwrap());
         (app, tmp)
+    }
+
+    /// `test_app` with a 2-row window over the 3-row data, count already known.
+    fn paged_app() -> (App, tempfile::NamedTempFile) {
+        let (mut app, tmp) = test_app();
+        let s = app.sheets.active_mut();
+        s.view.window_rows = 2;
+        s.window = Some(s.window_plan().collect().unwrap());
+        s.view.total_rows = Some(3);
+        s.view.count_key = Some(s.count_key());
+        (app, tmp)
+    }
+
+    /// Feed the result the materialize task would send for the active sheet.
+    fn land_window(app: &mut App) {
+        let s = app.sheets.active();
+        let msg = MaterializeResult::Ok {
+            sheet_id: s.id,
+            revision: s.revision,
+            df: s.window_plan().collect().unwrap(),
+        };
+        app.on_materialize(msg);
+    }
+
+    fn titlebar(app: &App) -> String {
+        let mut term = Terminal::new(ratatui::backend::TestBackend::new(80, 6)).unwrap();
+        term.draw(|f| app.render(f)).unwrap();
+        let buf = term.backend().buffer();
+        (0..80).map(|x| buf[(x, 0)].symbol()).collect()
+    }
+
+    #[tokio::test]
+    async fn goto_bottom_slides_to_last_data_row() {
+        let (mut app, _tmp) = paged_app();
+        app.dispatch(Action::GotoBottom);
+        assert_eq!(app.sheets.active().view.window_offset, 1);
+        land_window(&mut app);
+        let v = &app.sheets.active().view;
+        assert_eq!((v.row_cursor, v.jump_bottom), (1, false));
+        assert!(titlebar(&app).contains("row 3/3"), "{}", titlebar(&app));
+    }
+
+    #[tokio::test]
+    async fn goto_bottom_before_count_settles_when_count_lands() {
+        let (mut app, _tmp) = paged_app();
+        let s = app.sheets.active_mut();
+        s.view.total_rows = None;
+        let key = s.count_key();
+        app.dispatch(Action::GotoBottom);
+        let v = &app.sheets.active().view;
+        assert_eq!((v.window_offset, v.row_cursor, v.jump_bottom), (0, 1, true));
+        assert!(titlebar(&app).contains("row 2/?"), "{}", titlebar(&app));
+        // stale count is ignored
+        app.on_materialize(MaterializeResult::Count {
+            sheet_id: 0,
+            key: "stale".into(),
+            total: Ok(99),
+        });
+        assert_eq!(app.sheets.active().view.total_rows, None);
+        app.on_materialize(MaterializeResult::Count {
+            sheet_id: 0,
+            key,
+            total: Ok(3),
+        });
+        assert_eq!(app.sheets.active().view.window_offset, 1);
+        land_window(&mut app);
+        let v = &app.sheets.active().view;
+        assert_eq!((v.row_cursor, v.jump_bottom), (1, false));
+    }
+
+    #[tokio::test]
+    async fn cursor_move_cancels_pending_goto_bottom() {
+        let (mut app, _tmp) = paged_app();
+        app.sheets.active_mut().view.total_rows = None;
+        app.dispatch(Action::GotoBottom);
+        app.dispatch(Action::CursorUp { count: None });
+        assert!(!app.sheets.active().view.jump_bottom);
+    }
+
+    #[tokio::test]
+    async fn materialize_keeps_toast() {
+        let (mut app, _tmp) = test_app();
+        app.toast = Some("saved 3 rows".into());
+        land_window(&mut app);
+        assert_eq!(app.toast.as_deref(), Some("saved 3 rows"));
     }
 
     #[tokio::test]

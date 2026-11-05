@@ -126,6 +126,7 @@ pub enum Action {
 
 impl Action {
     /// True = re-materialize the window after dispatch; false = cosmetic.
+    /// Paging/`G` aren't listed: their handlers re-materialize only when the window slides.
     pub fn affects_data(&self) -> bool {
         matches!(
             self,
@@ -136,9 +137,6 @@ impl Action {
                 | Action::SortDesc
                 | Action::SetSort { .. }
                 | Action::ClearSort
-                | Action::PageDown
-                | Action::PageUp
-                | Action::GotoBottom
         )
     }
 
