@@ -95,7 +95,9 @@ impl Theme {
             .add_modifier(Modifier::BOLD)
     }
     pub fn titlebar_mid(&self) -> Style {
-        Style::default().fg(self.titlebar_mid_fg).bg(self.titlebar_mid_bg)
+        Style::default()
+            .fg(self.titlebar_mid_fg)
+            .bg(self.titlebar_mid_bg)
     }
     pub fn titlebar_right(&self) -> Style {
         Style::default()

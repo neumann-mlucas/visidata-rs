@@ -117,7 +117,9 @@ impl<'a> Widget for SheetWidget<'a> {
                     .bg(th.header_cursor_bg)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(th.header_fg).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(th.header_fg)
+                    .add_modifier(Modifier::BOLD)
             };
             let badge_style = if hi {
                 Style::default()
@@ -132,7 +134,14 @@ impl<'a> Widget for SheetWidget<'a> {
             let badge_width = badge_text.chars().count() as u16;
             if name_width + badge_width <= w {
                 paint_run(buf, x, area.y, name_width, name, name_style);
-                paint_run(buf, x + name_width, area.y, badge_width, &badge_text, badge_style);
+                paint_run(
+                    buf,
+                    x + name_width,
+                    area.y,
+                    badge_width,
+                    &badge_text,
+                    badge_style,
+                );
                 let pad = w.saturating_sub(name_width + badge_width);
                 if pad > 0 {
                     paint_run(

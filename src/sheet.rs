@@ -256,12 +256,10 @@ impl Sheet {
             .view_plan()
             .group_by([col(col_name)])
             .agg([len().alias("count")])
-            .with_columns([
-                (col("count").cast(DataType::Float64) * lit(100.0f64)
-                    / col("count").cast(DataType::Float64).sum())
-                .round(2)
-                .alias("percent"),
-            ])
+            .with_columns([(col("count").cast(DataType::Float64) * lit(100.0f64)
+                / col("count").cast(DataType::Float64).sum())
+            .round(2)
+            .alias("percent")])
             .sort(
                 ["count"],
                 SortMultipleOptions::default().with_order_descending(true),
@@ -637,7 +635,12 @@ impl Sheet {
                     }
                 }
                 if order != all {
-                    lf = lf.select(order.into_iter().map(|s| col(s.as_str())).collect::<Vec<_>>());
+                    lf = lf.select(
+                        order
+                            .into_iter()
+                            .map(|s| col(s.as_str()))
+                            .collect::<Vec<_>>(),
+                    );
                 }
             }
         }
@@ -754,7 +757,11 @@ mod tests {
         s.view.keys.push("n".into());
         s.view.hidden.insert("name".into());
         let df = s.window_plan().collect().unwrap();
-        let names: Vec<&str> = df.get_column_names().into_iter().map(|s| s.as_ref()).collect();
+        let names: Vec<&str> = df
+            .get_column_names()
+            .into_iter()
+            .map(|s| s.as_ref())
+            .collect();
         assert_eq!(names, vec!["n"]);
     }
 
@@ -1000,7 +1007,11 @@ mod tests {
         let (mut s, _tmp) = make_sheet();
         let count = |s: &Sheet| {
             let df = s.count_plan().collect().unwrap();
-            df.get_columns()[0].get(0).unwrap().try_extract::<u64>().unwrap()
+            df.get_columns()[0]
+                .get(0)
+                .unwrap()
+                .try_extract::<u64>()
+                .unwrap()
         };
         assert_eq!(count(&s), 3);
         let before = s.count_key();

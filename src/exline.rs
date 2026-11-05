@@ -147,7 +147,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "unkey" => Ok(vec![Action::UnkeyAll]),
         "rename" => {
             if rest.is_empty() {
-                return Err(ExError::Usage(":rename <new-name> (operates on current column)"));
+                return Err(ExError::Usage(
+                    ":rename <new-name> (operates on current column)",
+                ));
             }
             Ok(vec![Action::RenameCol {
                 new_name: rest.trim().to_string(),

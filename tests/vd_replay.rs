@@ -74,7 +74,9 @@ fn parse_vd(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
             continue;
         }
         let f: Vec<&str> = line.split('\t').collect();
-        let get = |i: Option<usize>| -> String { i.and_then(|j| f.get(j)).map_or("", |s| *s).to_string() };
+        let get = |i: Option<usize>| -> String {
+            i.and_then(|j| f.get(j)).map_or("", |s| *s).to_string()
+        };
         rows.push(CmdlogRow {
             sheet: get(si),
             col: get(ci),
@@ -390,10 +392,7 @@ impl Replay {
                 Ok(())
             }
             "unkey-col" => {
-                self.current_slot_mut()?
-                    .meta
-                    .keys
-                    .retain(|k| k != &r.col);
+                self.current_slot_mut()?.meta.keys.retain(|k| k != &r.col);
                 Ok(())
             }
             "type-int" => self.cast(&r.col, DataType::Int64),
@@ -612,7 +611,11 @@ impl Replay {
             .column(col_name)
             .map_err(|e| StepErr::Runtime(e.to_string()))?;
         let cursor_idx: usize = if let Ok(i) = row_key.parse::<usize>() {
-            if keys.is_empty() { i } else { find_by_key(&df, &keys, row_key)? }
+            if keys.is_empty() {
+                i
+            } else {
+                find_by_key(&df, &keys, row_key)?
+            }
         } else {
             find_by_key(&df, &keys, row_key)?
         };
@@ -621,7 +624,10 @@ impl Replay {
                 "select-equal-cell: cursor row {cursor_idx} out of bounds"
             )));
         }
-        let target = col.get(cursor_idx).map(|v| av_display(&v)).unwrap_or_default();
+        let target = col
+            .get(cursor_idx)
+            .map(|v| av_display(&v))
+            .unwrap_or_default();
         for i in 0..col.len() {
             let v = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
             if v == target {
@@ -750,7 +756,12 @@ impl Replay {
         if df.height() <= 1 {
             return Ok(());
         }
-        for name in df.get_column_names().iter().map(|s| s.to_string()).collect::<Vec<_>>() {
+        for name in df
+            .get_column_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+        {
             let col = match df.column(&name) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -795,12 +806,9 @@ impl Replay {
             }
             let series: Vec<Column> = order
                 .iter()
-                .map(|val| {
-                    Series::new(val.as_str().into(), &[counts[val]]).into_column()
-                })
+                .map(|val| Series::new(val.as_str().into(), &[counts[val]]).into_column())
                 .collect();
-            let out_df = DataFrame::new(series)
-                .map_err(|e| StepErr::Runtime(e.to_string()))?;
+            let out_df = DataFrame::new(series).map_err(|e| StepErr::Runtime(e.to_string()))?;
             let id = self.next_id;
             let name = format!("pivot({col_name})-{}", parent_slot.name);
             let sheet = Sheet {
@@ -829,7 +837,8 @@ impl Replay {
             }
             let id = self.next_id;
             let name = format!("sel-{}", parent_slot.name);
-            let sheet = Sheet::dup_selected_from(&parent_slot.sheet, id).map_err(StepErr::Runtime)?;
+            let sheet =
+                Sheet::dup_selected_from(&parent_slot.sheet, id).map_err(StepErr::Runtime)?;
             (name, sheet)
         };
         self.next_id += 1;
@@ -839,11 +848,16 @@ impl Replay {
 
     /// VisiData `&` on a data sheet: join current + previous via same core as join-sheets.
     fn join_top2(&mut self, jointype: &str) -> Result<(), StepErr> {
-        let cur = self.current.ok_or_else(|| StepErr::Runtime("no current".into()))?;
+        let cur = self
+            .current
+            .ok_or_else(|| StepErr::Runtime("no current".into()))?;
         let prev = self
             .prev_current
             .ok_or_else(|| StepErr::Runtime("join-sheets-top2: no previous sheet".into()))?;
-        let selected = vec![self.loaded[cur].name.clone(), self.loaded[prev].name.clone()];
+        let selected = vec![
+            self.loaded[cur].name.clone(),
+            self.loaded[prev].name.clone(),
+        ];
         self.meta_mode = Some(MetaMode::SheetsStack { selected });
         self.join_sheets(jointype)
     }
@@ -878,7 +892,11 @@ impl Replay {
                     .ok_or_else(|| StepErr::Runtime(format!("no sheet named '{name}'")))
             })
             .collect::<Result<_, _>>()?;
-        let jt = if jointype.is_empty() { "inner" } else { jointype };
+        let jt = if jointype.is_empty() {
+            "inner"
+        } else {
+            jointype
+        };
         let result = match jt {
             "append" => {
                 // VisiData tags each row with origin_sheet. Prepend an
@@ -950,8 +968,7 @@ impl Replay {
                         self.loaded[i].sheet.plan.clone(),
                         left_exprs.clone(),
                         right_exprs,
-                        JoinArgs::new(how.clone())
-                            .with_coalesce(JoinCoalesce::CoalesceColumns),
+                        JoinArgs::new(how.clone()).with_coalesce(JoinCoalesce::CoalesceColumns),
                     );
                     // VisiData `merge`: for each non-key col colliding with the
                     // right side (suffixed `_right` by Polars), prefer the right
@@ -980,10 +997,8 @@ impl Replay {
                                         .alias(base.as_str())
                                 })
                                 .collect();
-                            let drop_cols: Vec<String> = right_dups
-                                .iter()
-                                .map(|b| format!("{b}_right"))
-                                .collect();
+                            let drop_cols: Vec<String> =
+                                right_dups.iter().map(|b| format!("{b}_right")).collect();
                             acc = acc.with_columns(coalesce_exprs).drop(drop_cols);
                         }
                     }
@@ -1020,8 +1035,15 @@ impl Replay {
         // selected=[data2, data1]).
         if jt == "append" {
             let mut col_order: Vec<String> = Vec::new();
-            let keys: HashSet<&str> =
-                self.loaded.last().unwrap().meta.keys.iter().map(String::as_str).collect();
+            let keys: HashSet<&str> = self
+                .loaded
+                .last()
+                .unwrap()
+                .meta
+                .keys
+                .iter()
+                .map(String::as_str)
+                .collect();
             for &i in slot_idxs.iter().rev() {
                 let schema = match self.loaded[i].sheet.plan.clone().collect_schema() {
                     Ok(s) => s,
@@ -1029,7 +1051,8 @@ impl Replay {
                 };
                 for name in schema.iter_names() {
                     let n = name.to_string();
-                    if !keys.contains(n.as_str()) && n != "origin_sheet" && !col_order.contains(&n) {
+                    if !keys.contains(n.as_str()) && n != "origin_sheet" && !col_order.contains(&n)
+                    {
                         col_order.push(n);
                     }
                 }
@@ -1101,7 +1124,9 @@ impl Replay {
             }
         }
         if order != all_names {
-            df = df.select(order.iter().cloned()).map_err(|e| e.to_string())?;
+            df = df
+                .select(order.iter().cloned())
+                .map_err(|e| e.to_string())?;
         }
 
         let mut buf = Vec::new();
@@ -1206,7 +1231,9 @@ fn eq_loose(a: &str, b: &str) -> bool {
             return true;
         }
         match (x.parse::<f64>(), y.parse::<f64>()) {
-            (Ok(xf), Ok(yf)) => xf == yf || (xf - yf).abs() <= 1e-9 * xf.abs().max(yf.abs()).max(1.0),
+            (Ok(xf), Ok(yf)) => {
+                xf == yf || (xf - yf).abs() <= 1e-9 * xf.abs().max(yf.abs()).max(1.0)
+            }
             _ => false,
         }
     })
@@ -1323,7 +1350,9 @@ fn vd_replay_corpus() {
                     break;
                 }
                 Err(StepErr::Runtime(e)) => {
-                    skip.entry(format!("runtime: {e}")).or_default().push(stem.clone());
+                    skip.entry(format!("runtime: {e}"))
+                        .or_default()
+                        .push(stem.clone());
                     outcome = Err("skip".into());
                     break;
                 }

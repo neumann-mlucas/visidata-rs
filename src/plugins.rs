@@ -118,11 +118,7 @@ impl Plugins {
     /// is expected to parse `src_path`, convert into a format we scan natively
     /// (CSV/TSV/Parquet/Arrow/Jsonl), and return the destination path. Tempfile
     /// cleanup is the plugin's responsibility — typically via `os.tmpname()`.
-    pub fn call_loader(
-        &self,
-        rule: &LoaderRule,
-        src_path: &Path,
-    ) -> Result<PathBuf, PluginError> {
+    pub fn call_loader(&self, rule: &LoaderRule, src_path: &Path) -> Result<PathBuf, PluginError> {
         let s = src_path.to_string_lossy().into_owned();
         let out: String = rule.open.call(s)?;
         Ok(PathBuf::from(out))

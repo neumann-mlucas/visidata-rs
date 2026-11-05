@@ -255,7 +255,13 @@ impl App {
                 Ok(Err(e)) => Err(e.to_string()),
                 Err(e) => Err(format!("count task crashed: {e}")),
             };
-            let _ = tx.send(MaterializeResult::Count { sheet_id, key, total }).await;
+            let _ = tx
+                .send(MaterializeResult::Count {
+                    sheet_id,
+                    key,
+                    total,
+                })
+                .await;
         });
     }
 
@@ -627,9 +633,14 @@ impl App {
                 self.input = InputBuf::Rename(String::new());
             }
             Action::RenameCol { new_name } => {
-                let Some(old) = self.current_column_name() else { return };
+                let Some(old) = self.current_column_name() else {
+                    return;
+                };
                 let s = self.sheets.active_mut();
-                s.plan = s.plan.clone().rename([old.as_str()], [new_name.as_str()], true);
+                s.plan = s
+                    .plan
+                    .clone()
+                    .rename([old.as_str()], [new_name.as_str()], true);
                 if s.view.hidden.remove(&old) {
                     s.view.hidden.insert(new_name.clone());
                 }

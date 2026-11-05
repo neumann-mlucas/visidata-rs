@@ -63,7 +63,9 @@ fn open_sqlite_first_table(path: &Path) -> Result<DataFrame, OpenError> {
         .collect();
     let width = headers.len();
     let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::new()).collect();
-    let mut rows = stmt.query([]).map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| OpenError::Sqlite(e.to_string()))?;
     while let Some(row) = rows.next().map_err(|e| OpenError::Sqlite(e.to_string()))? {
         for (i, c) in cols.iter_mut().enumerate().take(width) {
             // Use ValueRef to tolerate non-UTF8 TEXT (lossy convert) instead of
@@ -72,9 +74,7 @@ fn open_sqlite_first_table(path: &Path) -> Result<DataFrame, OpenError> {
                 Ok(rusqlite::types::ValueRef::Null) => String::new(),
                 Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
                 Ok(rusqlite::types::ValueRef::Real(f)) => float_cell_string(f),
-                Ok(rusqlite::types::ValueRef::Text(b)) => {
-                    String::from_utf8_lossy(b).into_owned()
-                }
+                Ok(rusqlite::types::ValueRef::Text(b)) => String::from_utf8_lossy(b).into_owned(),
                 Ok(rusqlite::types::ValueRef::Blob(b)) => format!("<blob:{} bytes>", b.len()),
                 Err(_) => String::new(),
             };
