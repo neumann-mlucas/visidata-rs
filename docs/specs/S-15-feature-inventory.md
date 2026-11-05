@@ -136,6 +136,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null) |
 | Describe | `I`, `:describe` | per column: type, count, nulls, distinct, min, max, mean, median (background job) |
 | Pivot | `W` | key cols × current col, counts; no keys → one row of counts |
+| Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background; Lua aggs inline); Enter runs the full pivot |
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
@@ -294,7 +295,6 @@ Enumerated here so no one re-asks:
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
 - **Rest of S-10**: `vd.frame`, `Series` methods, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet` and function bindings shipped.
 - **Lua aggregators off the UI thread**: the Lua VM is not `Send`; `:pivot` with a Lua aggregator runs synchronously. (Renderers are memoized per distinct value.)
 - **Export**: describe / diff / `W` sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
@@ -325,7 +325,7 @@ When a change touches this spec, it probably belongs in a successor:
 
 - **S-17**: aggregator plugin shape (per S-09 §Lifecycle)
 - **S-18**: renderer plugin shape (per S-09 §Lifecycle)
-- **S-19**: pivot setup sheet + live preview panel UI (bet #1 Tier 2)
+- **S-19**: pivot setup sheet (column roles picked on a meta-sheet) — only if the `:pivot` preview proves too little
 - **S-20**: plan panel export (bet #2 Tier 2)
 
 Only draft one when the implementation starts (direction §README "specs rot, late-bind to reality").

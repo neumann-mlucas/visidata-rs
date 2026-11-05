@@ -93,6 +93,30 @@ enum MaterializeResult {
     },
 }
 
+const PIVOT_USAGE: &str = ":pivot <rows> <columns> <values> [agg]";
+const PIVOT_AGGS: &str = "sum (default), mean, count, min, max, first, last, or a Lua aggregator";
+const PIVOT_PREVIEW_ROWS: u32 = 10_000;
+
+struct PivotPreview {
+    /// Ex-line text this preview belongs to.
+    text: String,
+    /// The pivoted sample, or hint / error text.
+    body: Result<Box<Sheet>, String>,
+}
+
+/// An in-memory sheet showing `df` (preview panes).
+fn preview_sheet(parent: &Sheet, df: DataFrame) -> Sheet {
+    let mut s = Sheet::child(
+        parent,
+        0,
+        String::new(),
+        df.clone().lazy(),
+        Origin::Copy { parent: parent.id },
+    );
+    s.window = Some(df);
+    s
+}
+
 /// What a background job hands back to the UI thread.
 enum JobDone {
     /// Push a derived sheet (pivot, dup, describe, sql, join, …).
@@ -110,6 +134,11 @@ enum JobDone {
         note: String,
     },
     Toast(String),
+    /// `:pivot` preview for the ex-line text it was computed from.
+    PivotPreview {
+        text: String,
+        result: Result<Box<Sheet>, String>,
+    },
 }
 
 /// Which prompt the input line belongs to; decides what `<CR>` does with the text.
@@ -157,6 +186,8 @@ pub struct App {
     input: Option<(Prompt, LineEdit)>,
     ex_history: crate::exline::History,
     plan_mode: PlanMode,
+    /// While typing `:pivot …`: hints, then a pivot of the first rows.
+    pivot_preview: Option<PivotPreview>,
     theme: Theme,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
@@ -189,6 +220,7 @@ impl App {
             input: None,
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
+            pivot_preview: None,
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             busy: Vec::new(),
@@ -286,6 +318,11 @@ impl App {
         match result {
             Err(e) => self.toast = Some(format!("{label}: {e}")),
             Ok(JobDone::Toast(t)) => self.toast = Some(t),
+            Ok(JobDone::PivotPreview { text, result }) => {
+                if let Some(p) = self.pivot_preview.as_mut().filter(|p| p.text == text) {
+                    p.body = result.map_err(|e| format!("{e}\n\n{}", PIVOT_USAGE));
+                }
+            }
             Ok(JobDone::PushSheet(sheet)) => {
                 self.sheets.push(*sheet);
                 self.spawn_materialize();
@@ -482,6 +519,7 @@ impl App {
         self.toast = None;
         if self.input.is_some() {
             self.on_input_key(key);
+            self.refresh_pivot_preview();
             return;
         }
         // Count prefix: digits accumulate when no pending chord AND the digit
@@ -569,6 +607,84 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Keep the `:pivot` preview in step with the ex-line text.
+    fn refresh_pivot_preview(&mut self) {
+        let text = match &self.input {
+            Some((Prompt::Ex, line)) => line.text().to_string(),
+            _ => {
+                self.pivot_preview = None;
+                return;
+            }
+        };
+        let rest = match text.trim_start().strip_prefix("pivot") {
+            Some(r) if r.is_empty() || r.starts_with(' ') => r.to_string(),
+            _ => {
+                self.pivot_preview = None;
+                return;
+            }
+        };
+        if self.pivot_preview.as_ref().is_some_and(|p| p.text == text) {
+            return;
+        }
+        let s = self.sheets.active();
+        let columns: Vec<String> = s.window.as_ref().map_or_else(Vec::new, |df| {
+            df.get_column_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect()
+        });
+        let args = crate::exline::split_args(&rest, PIVOT_USAGE).unwrap_or_default();
+        let hint = |next: &str| {
+            format!(
+                "{PIVOT_USAGE}\n\nnext: {next}\n\ncolumns: {}\naggs: {}",
+                columns.join(", "),
+                PIVOT_AGGS
+            )
+        };
+        // A half-typed column name (prefix of one, no space yet) isn't an error.
+        let typing = !rest.ends_with(' ')
+            && args.len() <= 3
+            && args.last().is_some_and(|a| {
+                !columns.contains(a) && columns.iter().any(|c| c.starts_with(a.as_str()))
+            });
+        let done = args.len() - usize::from(typing);
+        let unknown = args.iter().take(done.min(3)).find(|a| !columns.contains(a));
+        let body = match (done, unknown) {
+            (_, Some(c)) => Err(format!("unknown column: {c}\n\n{}", hint("a column name"))),
+            (0, _) => Err(hint("<rows>: column whose values label the rows")),
+            (1, _) => Err(hint("<columns>: column whose values become new columns")),
+            (2, _) => Err(hint("<values>: column to aggregate in each cell")),
+            _ => {
+                let (index, on, values) = (args[0].clone(), args[1].clone(), args[2].clone());
+                let agg = args.get(3).cloned().unwrap_or_else(|| "sum".into());
+                let mut sample = s.clone();
+                sample.plan = s.view_plan().slice(0, PIVOT_PREVIEW_ROWS);
+                sample.view = Default::default();
+                let lua = self.plugins.as_ref().filter(|p| p.has_aggregator(&agg));
+                if let Some(p) = lua {
+                    // Lua can't leave this thread; the sample keeps it quick.
+                    lua_pivot(p, &sample, &index, &on, &values, &agg)
+                        .map(|df| Box::new(preview_sheet(&sample, df)))
+                        .map_err(|e| format!("{e}\n\n{PIVOT_USAGE}"))
+                } else {
+                    let previous = self.pivot_preview.take().map(|p| p.body);
+                    let job_text = text.clone();
+                    self.spawn_job("preview", move || {
+                        let result =
+                            Sheet::pivot_from(&sample, 0, &index, &on, &values, &agg).map(Box::new);
+                        Ok(JobDone::PivotPreview {
+                            text: job_text,
+                            result,
+                        })
+                    });
+                    // Keep showing the last preview until this one lands.
+                    previous.unwrap_or_else(|| Err("computing…".into()))
+                }
+            }
+        };
+        self.pivot_preview = Some(PivotPreview { text, body });
     }
 
     fn start_input(&mut self, prompt: Prompt) {
@@ -1584,12 +1700,21 @@ impl App {
             ])
             .split(area);
         let main_area = chunks[1];
-        let (sheet_area, plan_area) = if self.plan_mode == PlanMode::Off {
+        let preview = self
+            .input
+            .is_some()
+            .then_some(())
+            .and(self.pivot_preview.as_ref());
+        let (sheet_area, plan_area) = if self.plan_mode == PlanMode::Off && preview.is_none() {
             (main_area, None)
         } else {
             let halves = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                .constraints(if preview.is_some() {
+                    [Constraint::Percentage(50), Constraint::Percentage(50)]
+                } else {
+                    [Constraint::Percentage(65), Constraint::Percentage(35)]
+                })
                 .split(main_area);
             (halves[0], Some(halves[1]))
         };
@@ -1613,12 +1738,42 @@ impl App {
             sheet_area,
         );
         if let Some(area) = plan_area {
-            self.render_plan_panel(f, area);
+            match self.pivot_preview.as_ref().filter(|_| self.input.is_some()) {
+                Some(p) => self.render_pivot_preview(f, area, p),
+                None => self.render_plan_panel(f, area),
+            }
         }
 
         self.render_statusbar(f, chunks[2]);
         if !self.pending_candidates.is_empty() {
             self.render_which_key(f, main_area);
+        }
+    }
+
+    fn render_pivot_preview(&self, f: &mut ratatui::Frame<'_>, area: Rect, p: &PivotPreview) {
+        let title = match &p.body {
+            Ok(_) => format!(" pivot preview: first {PIVOT_PREVIEW_ROWS} rows (Enter = all) "),
+            Err(_) => " pivot ".to_string(),
+        };
+        let block = ratatui::widgets::Block::default()
+            .title(title)
+            .borders(ratatui::widgets::Borders::ALL)
+            .style(Style::default().fg(self.theme.header_fg));
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        match &p.body {
+            Ok(sheet) => f.render_widget(
+                SheetWidget {
+                    sheet,
+                    theme: &self.theme,
+                    render: None,
+                },
+                inner,
+            ),
+            Err(hint) => f.render_widget(
+                Paragraph::new(hint.as_str()).wrap(ratatui::widgets::Wrap { trim: false }),
+                inner,
+            ),
         }
     }
 
@@ -2159,13 +2314,20 @@ mod scenario {
         }
 
         pub async fn type_(&mut self, text: &str) {
+            self.type_no_enter(text).await;
+            self.keys("<CR>").await;
+        }
+
+        /// Type into the open prompt without submitting; waits for jobs.
+        pub async fn type_no_enter(&mut self, text: &str) {
             for c in text.chars() {
                 self.app
                     .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
                         c,
                     ))));
             }
-            self.keys("<CR>").await;
+            self.pump().await;
+            self.app.draw(&mut self.term).unwrap();
         }
 
         pub fn screen(&self) -> String {
@@ -2705,6 +2867,35 @@ mod scenario {
         assert_eq!(total, 20.0);
         h.keys("q l l ,").await; // grp of row 1 is 1 → ids 1, 8, 15
         assert!(title(&h).contains("sel 3"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pivot_prompt_previews_live() {
+        let mut h = Harness::new(20).await;
+        h.keys(":").await;
+        h.type_no_enter("pivot grp").await;
+        assert!(h.screen().contains("next: <columns>"), "{}", h.screen());
+        h.type_no_enter(" nope").await;
+        assert!(
+            h.screen().contains("unknown column: nope"),
+            "{}",
+            h.screen()
+        );
+        for _ in 0..4 {
+            h.keys("<BS>").await;
+        }
+        h.type_no_enter("na").await; // half-typed: still a hint, not an error
+        assert!(h.screen().contains("next: <columns>"), "{}", h.screen());
+        h.type_no_enter("me id").await;
+        let screen = h.screen();
+        assert!(screen.contains("pivot preview"), "{screen}");
+        eprintln!("{screen}");
+        assert!(screen.contains("name_1"), "{screen}"); // pivoted column header
+        h.type_no_enter(" bogus").await; // bad agg: error in the panel, no toast
+        assert!(h.screen().contains("unknown agg: bogus"), "{}", h.screen());
+        assert!(h.app.toast.is_none());
+        h.keys("<Esc>").await;
+        assert!(!h.screen().contains("pivot"), "{}", h.screen());
     }
 
     #[tokio::test(flavor = "multi_thread")]

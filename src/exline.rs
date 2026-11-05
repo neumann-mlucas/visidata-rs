@@ -256,7 +256,7 @@ const HISTORY_MAX: usize = 1000;
 
 /// Shell-like split: whitespace separates, `"..."` / `'...'` group (quotes
 /// removed), backslash escapes the next char outside single quotes.
-fn split_args(s: &str, usage: &'static str) -> Result<Vec<String>, ExError> {
+pub(crate) fn split_args(s: &str, usage: &'static str) -> Result<Vec<String>, ExError> {
     let mut out = Vec::new();
     let mut cur: Option<String> = None;
     let mut chars = s.chars();
