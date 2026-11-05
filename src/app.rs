@@ -832,11 +832,11 @@ impl App {
     }
 
     /// Persist the active sheet to disk. Writer picked by extension; applies
-    /// the sheet's `window_plan` (type-casts + filter + sort + visible projection)
-    /// so the saved file matches what the user sees — not raw source data.
-    /// Overwrites existing files.
+    /// the sheet's `view_plan` (type-casts + filter + sort + visible projection,
+    /// all rows — not just the materialized window) so the saved file matches
+    /// what the user sees, not raw source data. Overwrites existing files.
     fn save_active(&mut self, path: &str) {
-        let plan = self.sheets.active().window_plan();
+        let plan = self.sheets.active().view_plan();
         let mut df = match plan.collect() {
             Ok(d) => d,
             Err(e) => {

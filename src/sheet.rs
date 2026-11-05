@@ -589,9 +589,15 @@ impl Sheet {
         }
     }
 
-    /// Build the lazy query for the current `window`. Applies, in order:
-    /// type_casts → filter → sort → visible-column projection → slice.
+    /// Build the lazy query for the current `window`: `view_plan` + slice.
     pub fn window_plan(&self) -> LazyFrame {
+        self.view_plan()
+            .slice(self.view.window_offset as i64, self.view.window_rows)
+    }
+
+    /// Full (unsliced) query for what the user sees. Applies, in order:
+    /// type_casts → filter → sort → visible-column projection.
+    pub fn view_plan(&self) -> LazyFrame {
         let mut lf = self.plan.clone();
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
@@ -646,7 +652,7 @@ impl Sheet {
                 }
             }
         }
-        lf.slice(self.view.window_offset as i64, self.view.window_rows)
+        lf
     }
 
     pub fn visible_columns(&self) -> Vec<String> {
@@ -670,27 +676,28 @@ impl Sheet {
 /// Write a DataFrame to disk, picking the writer by file extension.
 /// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
 /// Overwrites existing files via `File::create`.
+/// Unknown extensions error before the file is opened, so existing files are untouched.
 pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
-    let file = std::fs::File::create(path)?;
+    let file = || std::fs::File::create(path);
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase());
     match ext.as_deref() {
-        Some("csv") | None => CsvWriter::new(file).finish(df).map(|_| ()),
-        Some("tsv") | Some("tab") => CsvWriter::new(file)
+        Some("csv") | None => CsvWriter::new(file()?).finish(df).map(|_| ()),
+        Some("tsv") | Some("tab") => CsvWriter::new(file()?)
             .with_separator(b'\t')
             .finish(df)
             .map(|_| ()),
-        Some("parquet") | Some("pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
+        Some("parquet") | Some("pq") => ParquetWriter::new(file()?).finish(df).map(|_| ()),
         Some("ipc") | Some("arrow") | Some("feather") => {
-            IpcWriter::new(file).finish(df).map(|_| ())
+            IpcWriter::new(file()?).finish(df).map(|_| ())
         }
-        Some("jsonl") | Some("ndjson") => JsonWriter::new(file)
+        Some("jsonl") | Some("ndjson") => JsonWriter::new(file()?)
             .with_json_format(JsonFormat::JsonLines)
             .finish(df)
             .map(|_| ()),
-        Some("json") => JsonWriter::new(file)
+        Some("json") => JsonWriter::new(file()?)
             .with_json_format(JsonFormat::Json)
             .finish(df)
             .map(|_| ()),
@@ -916,9 +923,20 @@ mod tests {
     #[test]
     fn write_df_unknown_extension_errors() {
         let mut df = df!("a" => [1i64]).unwrap();
-        let path = std::path::PathBuf::from("/tmp/vdrs_save_test.xyz");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("existing.xyz");
+        std::fs::write(&path, b"keep me").unwrap();
         let err = write_df_by_extension(&mut df, &path).unwrap_err();
         assert!(err.to_string().contains("unknown extension"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"keep me"); // not truncated
+    }
+
+    #[test]
+    fn view_plan_is_unsliced() {
+        let (mut s, _tmp) = make_sheet();
+        s.view.window_rows = 1;
+        assert_eq!(s.window_plan().collect().unwrap().height(), 1);
+        assert_eq!(s.view_plan().collect().unwrap().height(), 3);
     }
 
     #[test]
