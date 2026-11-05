@@ -562,6 +562,12 @@ impl App {
                         *c = new_name.clone();
                     }
                 }
+                if let Some(f) = s.view.filter.as_mut().filter(|f| f.column == old) {
+                    f.column = new_name.clone();
+                }
+                for k in s.view.sort.iter_mut().filter(|k| k.column == old) {
+                    k.column = new_name.clone();
+                }
                 self.spawn_materialize();
             }
             Action::TypeCastInt => self.push_type_cast(DataType::Int64),
@@ -704,27 +710,10 @@ impl App {
         s.view.col_cursor = new;
     }
 
+    /// Half-window jump. `move_cursor_rows` slides the window when needed.
     fn page(&mut self, dir: isize) {
-        let (rows, step) = {
-            let s = self.sheets.active();
-            let Some(df) = &s.window else { return };
-            (
-                df.height() as isize,
-                (s.view.window_rows as isize / 2).max(1),
-            )
-        };
+        let step = (self.sheets.active().view.window_rows as isize / 2).max(1);
         self.move_cursor_rows(dir * step);
-        let s = self.sheets.active_mut();
-        let near_top = s.view.row_cursor < 2;
-        let near_bot = s.view.row_cursor + 2 >= rows as usize;
-        let offset = s.view.window_offset as i64;
-        if dir < 0 && near_top && offset > 0 {
-            s.view.window_offset = offset.saturating_sub(step as i64) as u64;
-            self.spawn_materialize();
-        } else if dir > 0 && near_bot {
-            s.view.window_offset = (offset + step as i64) as u64;
-            self.spawn_materialize();
-        }
     }
 
     fn push_type_cast(&mut self, dt: DataType) {
@@ -1258,6 +1247,10 @@ impl App {
                 Span::styled("| ", Style::default().fg(Color::Magenta)),
                 Span::raw(s.clone()),
             ]),
+            (InputBuf::Rename(s), _, _, _) => Line::from(vec![
+                Span::styled("rename: ", Style::default().fg(Color::Yellow)),
+                Span::raw(s.clone()),
+            ]),
             (_, Some(t), _, _) => {
                 Line::from(Span::styled(t.clone(), Style::default().fg(Color::Red)))
             }
@@ -1307,14 +1300,67 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    #[tokio::test]
-    async fn sort_and_filter_clear_positional_selection() {
+    /// App over `name,n / alice,3 / bob,1 / carol,2` with the first window materialized.
+    fn test_app() -> (App, tempfile::NamedTempFile) {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        writeln!(tmp, "name,n\nalice,3\nbob,1").unwrap();
+        writeln!(tmp, "name,n\nalice,3\nbob,1\ncarol,2").unwrap();
         tmp.flush().unwrap();
         let csv = Some(crate::reader::SourceKind::Csv);
         let loaded = crate::reader::open(tmp.path().as_os_str(), csv).unwrap();
         let mut app = App::new(Sheet::from_source(0, loaded), None, None);
+        let s = app.sheets.active_mut();
+        s.window = Some(s.window_plan().collect().unwrap());
+        (app, tmp)
+    }
+
+    #[tokio::test]
+    async fn rename_keeps_filter_and_sort_on_column() {
+        let (mut app, _tmp) = test_app();
+        let v = &mut app.sheets.active_mut().view;
+        v.filter = Some(FilterState {
+            column: "name".into(),
+            regex: "a".into(),
+        });
+        v.sort.push(SortKey {
+            column: "name".into(),
+            order: SortOrder::Asc,
+        });
+        app.dispatch(Action::RenameCol {
+            new_name: "who".into(),
+        });
+        let s = app.sheets.active();
+        assert_eq!(s.view.filter.as_ref().unwrap().column, "who");
+        assert_eq!(s.view.sort[0].column, "who");
+        assert!(s.window_plan().collect().is_ok());
+    }
+
+    #[tokio::test]
+    async fn rename_prompt_is_rendered() {
+        let (mut app, _tmp) = test_app();
+        app.input = InputBuf::Rename("foo".into());
+        let mut term = Terminal::new(ratatui::backend::TestBackend::new(40, 6)).unwrap();
+        term.draw(|f| app.render(f)).unwrap();
+        let buf = term.backend().buffer();
+        let last: String = (0..40).map(|x| buf[(x, 5)].symbol()).collect();
+        assert!(last.starts_with("rename: foo"), "status bar: {last:?}");
+    }
+
+    #[tokio::test]
+    async fn page_down_on_last_window_stays_in_bounds() {
+        let (mut app, _tmp) = test_app();
+        // Window of 4 holding 3 rows = last (partial) window; nothing beyond it.
+        app.sheets.active_mut().view.window_rows = 4;
+        for _ in 0..3 {
+            app.dispatch(Action::PageDown);
+        }
+        let v = &app.sheets.active().view;
+        assert_eq!(v.window_offset, 0);
+        assert_eq!(v.row_cursor, 2);
+    }
+
+    #[tokio::test]
+    async fn sort_and_filter_clear_positional_selection() {
+        let (mut app, _tmp) = test_app();
         for action in [
             Action::SetSort {
                 column: "n".into(),
