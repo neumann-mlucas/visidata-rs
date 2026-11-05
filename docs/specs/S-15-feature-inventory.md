@@ -33,8 +33,8 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
 | JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line |
 | JSON | `.json` | Polars `JsonReader` (eager) | array of records; a `.json` file holding JSON Lines is sniffed and read as JSONL |
-| Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | **first worksheet only**, all cells as String (downstream `type-*` casts); empty header names preserved |
-| SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | **first user table only** ordered by `rowid`, all columns as String, UTF-8-lossy decode (handles invalid-unicode TEXT) |
+| Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), all cells as String (downstream `type-*` casts); empty header names preserved |
+| SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`, all columns as String, UTF-8-lossy decode (handles invalid-unicode TEXT) |
 | stdin | `-` | drained to tempfile, sniffed | csvlens-style fallback |
 | gzip | `*.gz` suffix (any case) | `flate2` → tempfile | one layer; format from the inner extension (`.json.gz`) or `--format` |
 
@@ -225,7 +225,7 @@ vd.unbind(layer, keys)               -- no-op patch (last-wins, doesn't remove f
 
 Last-write wins semantics via `Keymap::append()` + reverse resolve.
 
-**Known action names** (from `action_from_name()` in `src/plugins.rs`): all 3.1–3.9 Actions that take no args / default-arg form. Composite Actions (`Pivot`, `SetFilter`, `Save`, etc.) are not yet exposed to Lua.
+**Known action names** (from `action_from_name()` in `src/plugins.rs`): all 3.1–3.9 Actions that take no args / default-arg form. Composite Actions (`Pivot`, `SetFilter`, `Save`, etc.) are bound as ex-command strings (`":pivot …"`, §7.3).
 
 ### 7.2 Loader registration
 
@@ -280,13 +280,10 @@ Enumerated here so no one re-asks:
 - **No options system** (direction §1): `set-option`, `unset-option`, 4-level default→global→class→instance fallback. User overrides go in `init.lua`.
 - **No clipboard** (`copy-row`, `copy-cells`, `copy-selected`, `paste-after`, `setcol-clipboard`): we're a non-mutable projection engine; "copy to new sheet" is `dup-selected` + sheet-switcher instead.
 - **No interactive new sheet** (`open-new`, `add-row`): data sheets are read from sources, not authored in-place. Users compose transforms, not rows.
-- **No nested-field drilldown** (`unfurl-col`, `expand-col`, `expand-col-depth`): JSON records load with nested fields as JSON strings; users project via `:derive` (future).
+- **No nested-field drilldown** (`unfurl-col`, `expand-col`, `expand-col-depth`): JSON records load with nested fields as JSON strings; users project via `:derive` (Polars SQL expressions).
 - **No `.vd` / `.vdj` runtime** (direction §9.5): the cmdlog format exists only in the S-14 test harness, not the `vdrs` binary.
 - **No VisiData state file compat** (direction §9.5): no `~/.visidata`, no `.visidatarc` import.
-- **No multi-table SQLite** (direction §1 default): single-table loader; multi-table workflows need `?table=` URL param (not yet shipped).
-- **No multi-sheet xlsx workbook**: first-worksheet-only, same reasoning as sqlite. Users split workbooks externally.
 - **No macros** (`macro-param-*`, record/playback): `.` repeat covers the common case; record/replay is clipboard-shaped, see above.
-- **No undo/redo** (direction §1): the LazyFrame plan IS the undo log; stack-pop replays an earlier plan. Not surfaced as a user command yet.
 - **No save-all** (`g^S`) and no `^S` binding: saving is the `:save <path.ext>` ex-command only.
 - **No plot column**, **no LLM-on-cells**, **no live chart previews**.
 
@@ -298,7 +295,6 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
 - **Lua work off the UI thread**: aggregators and renderers run synchronously in the interface thread.
 - **Export** of derived sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
-- **Multi-part files in `:join` / `:diff`** use the first worksheet / table.
 - **Renderer output in column widths** (widths come from the default display).
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 
