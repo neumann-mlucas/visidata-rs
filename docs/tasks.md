@@ -1,6 +1,24 @@
 # Tasks
 
 Phase-ordered punchlist. `[spec?]` = a spec must land before starting (see `specs/`).
+What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-feature-inventory.md) (§10 cut, §10.1 not yet supported).
+
+## Open issues & gaps (rescan 2026-11-05)
+
+Known limitations, ranked by user impact. None corrupt data; all are verified in code.
+
+- [ ] **Harness-only features → binary.** Joins (`join-sheets` inner/left/full/append/merge), `hide-uniform-cols`, `setcol-input` gang edit and `dup-rows` exist only in `tests/vd_replay.rs` (S-14 driver). The `vdrs` binary has no key or ex-command for them. Port joins first (`:join <path> <keys> [type]`).
+- [ ] **UI-thread blocking on full-view work.** `n`/`N` search, `|` select, `:save`, `:pivot` and `"` collect synchronously; big files freeze the UI with no progress. Move to the materialize-style background task pattern (tagged results, stale ones dropped).
+- [ ] **Selection is positional** (view row offsets) → cleared on sort/filter change. Survive re-sorts via a row-identity column on the base plan.
+- [ ] **One `init.lua` error discards the whole config.** Load is all-or-nothing; earlier `vd.bind` calls in the same file are lost. Apply registrations made before the error, report the error.
+- [ ] **`vd.bind` can't bind parametrized actions or ex-commands** (`:sort -id`, `:save x.csv`). Accept `":..."` strings as `ExCommand`.
+- [ ] **Ex-line args are whitespace-split**: column names and paths with spaces can't be passed to `:filter`, `:sort`, `:tail`, `:diff`, `:pivot`. Needs quoting in `exline::parse`.
+- [ ] **Input line editing is append/backspace only**: no cursor movement, `<C-u>`, `<C-w>`.
+- [ ] **CSV dates arrive as strings** (`try_parse_dates` off) — users must `@` cast; lenient formats like `7/3/2018 1:47p` fail the cast.
+- [ ] **xlsx/sqlite: first sheet/table only**, loaded eagerly as all-String columns.
+- [ ] **`:tail` re-reads and recounts the whole file every 2 s** (see Phase 4 incremental read).
+- [ ] `vd.bind` leaks each description string (`Box::leak`, `Chord.desc: &'static str`) — harmless at startup, a leak once hot-reload exists.
+- [ ] Column widths sample the first 64 rows of the loaded window only; later long values truncate with `…`.
 
 ## Phase 0 — viewer parity (csvlens++)
 - [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) → canonical TOML — _deferred: Phase 0 ships only the nav/freeze/search subset, baked in; full extract waits until a user actually asks for VisiData parity on a non-nav key_
@@ -67,7 +85,8 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] S-14 drafted — [`docs/specs/S-14-corpus-replay-harness.md`](specs/S-14-corpus-replay-harness.md) (landed + stable)
 - [x] S-15 drafted — [`docs/specs/S-15-feature-inventory.md`](specs/S-15-feature-inventory.md) (authoritative shipped-feature list)
 - [x] **Harness bootstrap** — `tests/vd_replay.rs` + cmdlog parser (`.vd`/`.vdj`) + sheet-level `Replay` driver + numeric-aware diff + quote-style-never serialize + stable sort. `src/lib.rs` added so integration tests see internals.
-- [x] **Shipped (per S-15 §3)**: Column meta (hide/rename/key/unkey/freeze), Type coercion (int/float/string/date/currency), Selection system (select-rows/row/regex/equal-cell/dup-selected), Sort variants (all), Joins (inner/outer/full/left/append/extend/merge), Readers (CSV/TSV/Parquet/Arrow/Jsonl + xlsx via calamine + sqlite via rusqlite + gzip via flate2), Pivot with and without keys, hide-uniform-cols, setcol-input (gang mode), unpivot/melt.
+- [x] **In the `vdrs` binary (per S-15 §3)**: Column meta (hide/rename/key/unkey/freeze), Type coercion (int/float/string/date/currency), Selection (row/all/regex/dup-selected), Sort (multi-col asc/desc), Readers (CSV/TSV/Parquet/Arrow/Jsonl/JSON + xlsx via calamine + sqlite via rusqlite + gzip via flate2), Pivot with keys, unpivot/melt.
+- [x] **Harness-only (`tests/vd_replay.rs` driver, no binary surface yet)**: Joins (inner/outer/full/left/append/extend/merge), pivot without keys, hide-uniform-cols, setcol-input (gang mode), dup-rows, select-equal-cell. Tracked under "Open issues & gaps".
 - [ ] **CI**: add `../visidata` checkout step pinned to `v3.4`; run `cargo test --test vd_replay`. Per S-14 §CI integration. _Not blocking: harness skips cleanly without the corpus._
 
 **Deferred (per iter 14 postmortem — explicit non-features):**
@@ -118,7 +137,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 3. **Lenient date parsing** (strptime fallback via `str.strptime`, +1-3 PASS). Trivial Polars one-liner, do when touching date paths next.
 4. **Python-expr compat subset** (col * col, col > N, col.method() for a few builtins) — unlocks 5–10 UNTESTABLE. Direction §9.5 defers; revisit if user demand clear.
 5. **Format plugins** (XML/HTML/YAML/TOML via `vdrs-ext-*` crates per S-09 ADR) — PASS lift per format but no urgency; CSV/TSV/JSON/Parquet/XLSX/SQLite covers 95% of exploratory workflows.
-6. **Visual verification pass** on `vdrs` binary — nothing in the test suite covers interactive UX; manually drive hide/key/type-cast on a sample CSV before any release tag.
+6. ~~Visual verification pass~~ — done 2026-11-05: `app::scenario` end-to-end tests drive keymap → dispatch → background Polars → render; real binary smoke-tested on a pty.
 
 Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` runtime support, `unfurl-col`, `set-option` precedence tests, `issue*`/`pr*` regressions, loaders not in core (conllu/h5/stata/xpt/png/mbtiles/msgpack/usv/lsv/pcap/zip/numpy/ods/html/xml/yaml/toml/geojson). Those are Lua plugin territory per S-09 extension ADR.
 
@@ -164,10 +183,12 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] Input validation: bad regex, unknown sort/filter column, rename onto existing name → toast, sheet stays healthy
 - [x] `.json` arrays read; `.gz` honours `--format`; missing file fails fast with path; no-terminal error suggests `--headless`
 - [x] End-to-end `app::scenario` tests (keymap → dispatch → Polars tasks → render)
+- [x] Rescan fixes: shifted symbol keys (`!`, `$`, `|`, …) match bindings on terminals that flag SHIFT; `:tail -` / `:diff -` refused (reading stdin inside the TUI hung the app)
 
 ## Cross-cutting — do when it hurts, not before
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — needs TTY-less TUI driver; defer
 - [ ] `rust-toolchain.toml` only when a nightly is needed
 - [ ] Release path (cargo-dist or similar)
-- [ ] Refactor: extract `sheet_actions.rs` from `app.rs` dispatch match when it next grows
+- [ ] Refactor: extract `sheet_actions.rs` from `app.rs` dispatch match when it next grows (`app.rs` is ~1950 lines, ~half of it `tests`/`scenario`)
+- [ ] CI: run the replay corpus (`../visidata` checkout pinned to v3.4) — harness skips cleanly without it

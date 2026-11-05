@@ -253,6 +253,22 @@ Enumerated here so no one re-asks:
 - **No save-all** (`g^S`) and no `^S` binding: saving is the `:save <path.ext>` ex-command only.
 - **No plot column**, **no LLM-on-cells**, **no live chart previews**.
 
+### 10.1 Not yet supported (planned or open)
+
+In scope but missing from the `vdrs` binary today. Tracked in `tasks.md` ("Open issues & gaps" + phase lists).
+
+- **Joins** across sheets (inner/left/full/append/merge), `hide-uniform-cols`, `setcol` gang edit, `dup-rows`, pivot without keys: implemented only in the S-14 replay driver (`tests/vd_replay.rs`).
+- **Expression columns** (`:derive`, `=` key) and **aggregators / describe-sheet** (per-column stats).
+- **Undo/redo** as a user command.
+- **Pivot setup sheet** (`W`), live pivot preview, **plan export** (`.pl` / SQL), **dedicated diff UI** (`D`).
+- **`:sql`** via DuckDB (direction §7).
+- **Lua**: aggregator and renderer shapes, hot-reload, API versioning (`since`/`deprecate`), binding parametrized actions or ex-commands, partial apply of a failing `init.lua`.
+- **Streaming**: incremental tail, Parquet directory watcher.
+- **Readers**: multi-sheet xlsx and multi-table sqlite (`?sheet=` / `?table=`), CSV date inference, lenient date casts.
+- **Ex-line**: quoted arguments (names/paths with spaces), line editing beyond append/backspace.
+- **Responsiveness**: search, `|`, `:save`, `:pivot`, `"` run on the UI thread; selections don't survive re-sorts.
+- **Theme**: only `Theme::dark()`; no light theme or user override.
+
 ## 11. File map (where to look)
 
 | Concern | File |
