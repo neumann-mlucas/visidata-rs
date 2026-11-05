@@ -102,6 +102,8 @@ enum JobDone {
         row: u64,
         col: usize,
     },
+    /// Hide these columns on the job's sheet (`:uniform`).
+    Hide(Vec<String>),
     /// Add row ids to the job's sheet selection.
     Select {
         rids: Vec<u64>,
@@ -292,6 +294,15 @@ impl App {
                 if self.sheets.active().id == sheet_id {
                     self.goto_row(row);
                     self.sheets.active_mut().view.col_cursor = col;
+                }
+            }
+            Ok(JobDone::Hide(cols)) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    self.toast = Some(format!("hid {} uniform columns", cols.len()));
+                    s.view.hidden.extend(cols);
+                    if s.id == self.sheets.active().id {
+                        self.spawn_materialize();
+                    }
                 }
             }
             Ok(JobDone::Select { rids, note }) => {
@@ -644,6 +655,9 @@ impl App {
                 return;
             }
         }
+        if action.undoable() {
+            self.sheets.active_mut().checkpoint();
+        }
         match action {
             Action::Quit => self.quit = true,
             Action::PopSheet => {
@@ -748,10 +762,15 @@ impl App {
                     return;
                 }
                 let s = self.sheets.active_mut();
+                s.checkpoint();
                 s.plan = s
                     .plan
                     .clone()
                     .rename([old.as_str()], [new_name.as_str()], true);
+                s.state.steps.push(crate::sheet::PlanStep::Rename {
+                    old: old.clone(),
+                    new: new_name.clone(),
+                });
                 if s.view.hidden.remove(&old) {
                     s.view.hidden.insert(new_name.clone());
                 }
@@ -865,16 +884,71 @@ impl App {
                 };
             }
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
-            Action::Derive { .. }
-            | Action::Sql { .. }
-            | Action::SetCol { .. }
-            | Action::Export { .. }
-            | Action::HideUniform
-            | Action::DupSheet
-            | Action::Describe
-            | Action::PivotCurrent
-            | Action::Undo
-            | Action::Redo => self.toast = Some("not implemented yet".into()),
+            Action::Derive { name, expr } => {
+                let s = self.sheets.active_mut();
+                match s.derive(&name, &expr) {
+                    Ok(()) => self.spawn_materialize(),
+                    Err(e) => self.toast = Some(format!("derive: {e}")),
+                }
+            }
+            Action::SetCol { value } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                match self.sheets.active_mut().set_col(&column, &value) {
+                    Ok(n) => {
+                        self.toast = Some(format!("set {column} on {n} rows"));
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(format!("setcol: {e}")),
+                }
+            }
+            Action::Sql { query } => self.open_sql(&query),
+            Action::Export { path } => self.export(&path),
+            Action::HideUniform => {
+                let sheet = self.sheets.active().clone();
+                self.spawn_job("uniform", move || {
+                    Ok(JobDone::Hide(
+                        sheet.uniform_columns().map_err(|e| e.to_string())?,
+                    ))
+                });
+            }
+            Action::DupSheet => {
+                let id = self.sheets.alloc_id();
+                let copy = Sheet::copy_from(self.sheets.active(), id);
+                self.sheets.push(copy);
+                self.spawn_materialize();
+            }
+            Action::Describe => {
+                let id = self.sheets.alloc_id();
+                let parent = self.sheets.active().clone();
+                self.spawn_job("describe", move || {
+                    Ok(JobDone::PushSheet(Box::new(Sheet::describe_from(
+                        &parent, id,
+                    )?)))
+                });
+            }
+            Action::PivotCurrent => {
+                let Some(on) = self.current_column_name() else {
+                    return;
+                };
+                let id = self.sheets.alloc_id();
+                let parent = self.sheets.active().clone();
+                let keys = parent.view.keys.clone();
+                self.spawn_job("pivot", move || {
+                    let child = Sheet::pivot_current_from(&parent, id, &keys, &on)?;
+                    Ok(JobDone::PushSheet(Box::new(child)))
+                });
+            }
+            Action::Undo | Action::Redo => {
+                let undo = matches!(action, Action::Undo);
+                if self.sheets.active_mut().time_travel(undo) {
+                    self.spawn_materialize();
+                } else {
+                    self.toast = Some(format!("nothing to {}", if undo { "undo" } else { "redo" }));
+                }
+            }
+            Action::SubmitSelected => self.dive_freq(true),
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SubmitInput
             | Action::CancelInput
@@ -974,6 +1048,9 @@ impl App {
             .cast(DataType::Float64)
             .alias(name.as_str())]);
         s.view.count_key = None; // a filter on this column may now match differently
+        s.state
+            .steps
+            .push(crate::sheet::PlanStep::Currency { column: name });
         self.spawn_materialize();
     }
 
@@ -1194,12 +1271,16 @@ impl App {
     }
 
     fn submit_row(&mut self) {
-        // Only meaningful on the sheet-switcher: pull the row's `id` column and switch.
-        let s = self.sheets.active();
-        if !matches!(s.origin, Origin::SheetSwitcher) {
-            self.toast = Some("<CR>: nothing to submit here".into());
-            return;
+        match &self.sheets.active().origin {
+            Origin::SheetSwitcher => self.switch_to_row_sheet(),
+            Origin::Freq { .. } => self.dive_freq(false),
+            _ => self.toast = Some("<CR>: nothing to open here".into()),
         }
+    }
+
+    /// Sheet list: pull the row's `id` and raise that sheet.
+    fn switch_to_row_sheet(&mut self) {
+        let s = self.sheets.active();
         let Some(df) = &s.window else { return };
         let ri = s.view.row_cursor;
         let Ok(av) = df.column("id").and_then(|c| c.get(ri)) else {
@@ -1214,6 +1295,81 @@ impl App {
         if !self.sheets.switch_to(id) {
             self.toast = Some(format!("no sheet with id {id}"));
         }
+    }
+
+    /// Freq sheet: open the parent's rows whose value is the cursor row's
+    /// (`<CR>`) or any selected row's (`g<CR>`) value.
+    fn dive_freq(&mut self, selected: bool) {
+        let s = self.sheets.active();
+        let Origin::Freq { parent, column } = s.origin.clone() else {
+            self.toast = Some("g<CR>: only on a frequency sheet".into());
+            return;
+        };
+        let rids: Vec<u64> = if selected {
+            s.view.selected.iter().copied().collect()
+        } else {
+            self.rid_at_cursor().into_iter().collect()
+        };
+        if rids.is_empty() {
+            self.toast = Some("no rows selected".into());
+            return;
+        }
+        // Values by row id = position in the freq sheet's base plan.
+        let values = match s.plan.clone().select([col(column.as_str())]).collect() {
+            Ok(df) => df,
+            Err(e) => {
+                self.toast = Some(format!("dive: {e}"));
+                return;
+            }
+        };
+        let vals = values.column(&column).expect("selected column");
+        let picked: Vec<AnyValue> = rids
+            .iter()
+            .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
+            .collect();
+        let Some(parent_sheet) = self.sheets.find_by_id_mut(parent) else {
+            self.toast = Some("dive: parent sheet was closed".into());
+            return;
+        };
+        let parent_sheet = parent_sheet.clone();
+        let id = self.sheets.alloc_id();
+        let child = Sheet::rows_with_values(&parent_sheet, id, &column, &picked);
+        self.sheets.push(child);
+        self.spawn_materialize();
+    }
+
+    /// `:sql`: `self` = this view; every open sheet is also `s<id>` (see `S`).
+    fn open_sql(&mut self, query: &str) {
+        let active = self.sheets.active().id;
+        let ids: Vec<SheetId> = self.sheets.summaries().map(|(id, _, _)| id).collect();
+        let others: Vec<(String, LazyFrame)> = ids
+            .into_iter()
+            .filter(|id| *id != active)
+            .filter_map(|id| {
+                Some((
+                    format!("s{id}"),
+                    self.sheets.find_by_id_mut(id)?.view_plan(),
+                ))
+            })
+            .collect();
+        let id = self.sheets.alloc_id();
+        match Sheet::sql_from(self.sheets.active(), id, query, others) {
+            Ok(s) => {
+                self.sheets.push(s);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("sql: {e}")),
+        }
+    }
+
+    fn export(&mut self, path: &str) {
+        let p = std::path::Path::new(path);
+        let result = crate::export::script_for(self.sheets.active(), p)
+            .and_then(|script| std::fs::write(p, script).map_err(|e| format!("export: {e}")));
+        self.toast = Some(match result {
+            Ok(()) => format!("exported → {path}"),
+            Err(e) => e,
+        });
     }
 
     /// Row id under the cursor; None on an empty view.
@@ -2174,6 +2330,137 @@ mod scenario {
         let df = h.app.sheets.active().view_plan().collect().unwrap();
         assert_eq!(df.height(), 5);
         assert!(df.column("count").is_ok(), "{:?}", df.get_column_names());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn freq_dive_opens_matching_rows() {
+        let mut h = Harness::new(5000).await; // grp = id % 7: 1..=5 → 715 rows, 0 and 6 → 714
+        h.keys("l l F").await;
+        assert_eq!(first_cell(&h), "1"); // count tie broken by value
+        h.keys("<CR>").await;
+        assert!(
+            title(&h).contains("grp=1") && title(&h).contains("row 1/715"),
+            "{}",
+            title(&h)
+        );
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert!(
+            df.column("grp")
+                .unwrap()
+                .i64()
+                .unwrap()
+                .into_iter()
+                .all(|v| v == Some(1))
+        );
+        h.keys("q s j s g <CR>").await; // two freq rows selected → union
+        assert!(title(&h).contains("row 1/1430"), "{}", title(&h));
+        h.keys("q q <CR>").await; // <CR> on a data sheet explains itself
+        assert_eq!(status(&h), "<CR>: nothing to open here");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn derive_setcol_and_undo_redo() {
+        let mut h = Harness::new(5).await;
+        h.keys(":").await;
+        h.type_("derive dbl = amt * 2").await;
+        let names = |h: &Harness| h.screen().lines().nth(1).unwrap().to_string();
+        assert!(names(&h).contains("dbl"), "{}", h.screen());
+        h.keys("U").await;
+        assert!(!names(&h).contains("dbl"), "{}", h.screen());
+        h.keys("R").await;
+        assert!(names(&h).contains("dbl"), "{}", h.screen());
+        h.keys(":").await;
+        h.type_("derive bad = nosuch + 1").await;
+        assert!(status(&h).starts_with("derive:"), "{}", status(&h));
+        // setcol on selected rows, type-checked
+        h.keys("s j s 0 :").await;
+        h.type_("setcol 42").await;
+        assert_eq!(status(&h), "set id on 2 rows");
+        let ids: Vec<_> = h
+            .app
+            .sheets
+            .active()
+            .view_plan()
+            .collect()
+            .unwrap()
+            .column("id")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(ids, [Some(42), Some(42), Some(3), Some(4), Some(5)]);
+        h.keys(":").await;
+        h.type_("setcol abc").await;
+        assert!(status(&h).contains("doesn't fit id"), "{}", status(&h));
+        h.keys("U U").await; // undo setcol, then the second selection
+        assert!(title(&h).contains("sel 1"), "{}", title(&h));
+        assert_eq!(first_cell(&h), "1");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sql_describe_pivot_uniform_copy() {
+        let mut h = Harness::new(5000).await;
+        h.keys(":").await;
+        h.type_("sql SELECT grp, count(*) AS n FROM self GROUP BY grp ORDER BY grp")
+            .await;
+        assert!(
+            title(&h).contains("sql:") || title(&h).contains("row 1/7"),
+            "{}",
+            title(&h)
+        );
+        assert!(title(&h).contains("row 1/7"), "{}", title(&h));
+        h.keys("q I").await;
+        assert!(
+            title(&h).contains("describe") && title(&h).contains("row 1/4"),
+            "{}",
+            title(&h)
+        );
+        let d = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(
+            d.column("distinct")
+                .unwrap()
+                .get(2)
+                .unwrap()
+                .extract::<u64>(),
+            Some(7)
+        ); // grp
+        assert_eq!(
+            d.column("max").unwrap().get(0).unwrap().get_str(),
+            Some("5000")
+        ); // id
+        h.keys("q l l W").await; // no key cols → one row, a column per grp value
+        let p = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(p.shape(), (1, 7));
+        h.keys("q h !").await; // key on name… then W on grp → 5000 rows
+        h.keys("l W").await;
+        assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+        h.keys("q :").await;
+        h.type_("derive k = 1").await;
+        h.keys(":").await;
+        h.type_("uniform").await;
+        assert_eq!(status(&h), "hid 1 uniform columns");
+        h.keys("g \"").await;
+        assert!(title(&h).contains("copy of"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn diff_prompt_uses_key_columns_and_export_writes_scripts() {
+        let mut h = Harness::new(3).await;
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("o.csv");
+        std::fs::write(&other, "id,name,grp,amt\n1,name_1,1,1.5\n2,X,2,3.0\n").unwrap();
+        h.keys("! D").await; // key = id
+        h.type_(&other.display().to_string()).await;
+        assert!(title(&h).contains("row 1/2"), "{}", h.screen()); // id 2 changed, id 3 only_a
+        h.keys("q").await;
+        for ext in ["py", "sql"] {
+            let out = dir.path().join(format!("view.{ext}"));
+            h.keys(":").await;
+            h.type_(&format!("export {}", out.display())).await;
+            let script = std::fs::read_to_string(&out).unwrap();
+            assert!(script.contains(".csv"), "{script}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]

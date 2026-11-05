@@ -374,6 +374,7 @@ fn action_from_name(s: &str) -> Option<Action> {
         "open_freq_table" => OpenFreqTable,
         "open_sheet_switcher" => OpenSheetSwitcher,
         "submit_row" => SubmitRow,
+        "submit_selected" => SubmitSelected,
         "toggle_plan_panel" => TogglePlanPanel,
         "pop_sheet" => PopSheet,
         "quit" => Quit,

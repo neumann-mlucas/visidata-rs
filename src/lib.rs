@@ -5,6 +5,7 @@
 pub mod action;
 pub mod app;
 pub mod exline;
+pub mod export;
 pub mod key;
 pub mod keymap;
 pub mod lineedit;

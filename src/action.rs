@@ -82,6 +82,8 @@ pub enum Action {
     },
     SwitchToSheet(u32),
     SubmitRow,
+    /// `g<CR>`: like `SubmitRow` for every selected row (freq dive).
+    SubmitSelected,
 
     // plan panel
     TogglePlanPanel,
@@ -168,6 +170,40 @@ impl Action {
         )
     }
 
+    /// Whether `dispatch` checkpoints before this action for `U`. Rename,
+    /// `:derive` and `:setcol` are undoable too, but checkpoint themselves after
+    /// validating, so a rejected command leaves no empty undo step.
+    pub fn undoable(&self) -> bool {
+        matches!(
+            self,
+            Action::HideCol
+                | Action::UnhideAll
+                | Action::KeyCol
+                | Action::UnkeyAll
+                | Action::TypeCastInt
+                | Action::TypeCastFloat
+                | Action::TypeCastString
+                | Action::TypeCastDate
+                | Action::TypeCastCurrency
+                | Action::FreezeColumn
+                | Action::UnfreezeAll
+                | Action::FilterCurrentColumn { .. }
+                | Action::SetFilter { .. }
+                | Action::ClearFilter
+                | Action::SortAsc
+                | Action::SortDesc
+                | Action::SetSort { .. }
+                | Action::ClearSort
+                | Action::ToggleSelectRow
+                | Action::SelectRow
+                | Action::UnselectRow
+                | Action::SelectAll
+                | Action::UnselectAll
+                | Action::SelectByRegex { .. }
+                | Action::HideUniform
+        )
+    }
+
     /// Whether `.` should repeat this action.
     pub fn repeatable(&self) -> bool {
         !matches!(
@@ -186,6 +222,10 @@ impl Action {
                 | Action::OpenSheetSwitcher
                 | Action::StartRenameColInput
                 | Action::Save { .. }
+                | Action::Export { .. }
+                | Action::Undo
+                | Action::Redo
+                | Action::StartDiffInput
         )
     }
 }

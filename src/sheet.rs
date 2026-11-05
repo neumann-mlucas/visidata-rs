@@ -35,7 +35,48 @@ pub struct SheetState {
     pub counting: bool,
     /// [`ROW_ID`] of each row of `window`, split off when the window lands.
     pub window_rids: Vec<u64>,
+    /// Edits baked into `plan`, in order — replayed by `:export`.
+    pub steps: Vec<PlanStep>,
+    /// Undo / redo history of (plan, view, steps), newest last.
+    pub undo: Vec<Snapshot>,
+    pub redo: Vec<Snapshot>,
 }
+
+/// A change made to a sheet's base `plan` (as opposed to `View` state).
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlanStep {
+    Rename {
+        old: String,
+        new: String,
+    },
+    /// VisiData `$`: strip `[^0-9.-]`, cast to f64.
+    Currency {
+        column: String,
+    },
+    /// `:derive name = <sql expr>`.
+    Derive {
+        name: String,
+        expr: String,
+    },
+    /// `:setcol`: `column` := `value` on rows `rids`.
+    SetCol {
+        column: String,
+        value: String,
+        dtype: DataType,
+        rids: Vec<u64>,
+    },
+}
+
+/// Everything `U` restores.
+#[derive(Clone)]
+pub struct Snapshot {
+    pub plan: LazyFrame,
+    pub view: View,
+    pub steps: Vec<PlanStep>,
+}
+
+/// Undo depth per sheet.
+const UNDO_MAX: usize = 100;
 
 #[derive(Debug, Clone)]
 pub enum Origin {
@@ -62,6 +103,18 @@ pub enum Origin {
     },
     /// Rows selected in parent (VisiData `"`).
     Selected {
+        parent: SheetId,
+    },
+    /// `:sql` result over `parent` (registered as `self`).
+    Sql {
+        parent: SheetId,
+    },
+    /// `I`: per-column stats of `parent`.
+    Describe {
+        parent: SheetId,
+    },
+    /// `g"` / `:dup`: copy of `parent`'s view.
+    Copy {
         parent: SheetId,
     },
     /// `:join` of `left`'s view with another sheet or file.
@@ -284,9 +337,13 @@ impl Sheet {
                 / col("count").cast(DataType::Float64).sum())
             .round(2)
             .alias("percent")])
+            // Value breaks count ties: row order must repeat across collects,
+            // since row ids (selection, freq dive) are positions in this plan.
             .sort(
-                ["count"],
-                SortMultipleOptions::default().with_order_descending(true),
+                ["count", col_name],
+                SortMultipleOptions::default()
+                    .with_order_descending_multi([true, false])
+                    .with_nulls_last(true),
             );
         Sheet {
             id,
@@ -603,6 +660,267 @@ impl Sheet {
         })
     }
 
+    /// A sheet derived from `parent` with a fresh view.
+    fn child(parent: &Sheet, id: SheetId, name: String, plan: LazyFrame, origin: Origin) -> Self {
+        Sheet {
+            id,
+            name,
+            kind: parent.kind,
+            source: parent.source.clone(),
+            plan,
+            view: View::default(),
+            window: None,
+            revision: 0,
+            state: Default::default(),
+            origin,
+        }
+    }
+
+    /// Freq dive: `parent`'s rows whose `column` equals one of `values`
+    /// (compared as text, the way the freq sheet grouped them; null matches null).
+    pub fn rows_with_values(
+        parent: &Sheet,
+        id: SheetId,
+        column: &str,
+        values: &[AnyValue],
+    ) -> Self {
+        let text: Vec<String> = values
+            .iter()
+            .filter(|v| !v.is_null())
+            .map(|v| v.get_str().map_or_else(|| v.to_string(), String::from))
+            .collect();
+        let c = || col(column);
+        let mut pred = c()
+            .cast(DataType::String)
+            .is_in(lit(Series::new("v".into(), &text)));
+        if values.iter().any(AnyValue::is_null) {
+            pred = pred.or(c().is_null());
+        }
+        let label = match values {
+            [one] => format!(
+                "{column}={}",
+                one.get_str().map_or_else(|| one.to_string(), String::from)
+            ),
+            many => format!("{column} in {} values", many.len()),
+        };
+        let origin = Origin::Selected { parent: parent.id };
+        Self::child(
+            parent,
+            id,
+            format!("{label}: {}", parent.name),
+            parent.view_plan().filter(pred),
+            origin,
+        )
+    }
+
+    /// `g"` / `:dup`: an independent copy of what `parent` shows.
+    pub fn copy_from(parent: &Sheet, id: SheetId) -> Self {
+        let origin = Origin::Copy { parent: parent.id };
+        Self::child(
+            parent,
+            id,
+            format!("copy of {}", parent.name),
+            parent.view_plan(),
+            origin,
+        )
+    }
+
+    /// `:sql <query>`: `self` is `parent`'s view; `others` are extra tables.
+    pub fn sql_from(
+        parent: &Sheet,
+        id: SheetId,
+        query: &str,
+        others: Vec<(String, LazyFrame)>,
+    ) -> Result<Self, String> {
+        let mut ctx = polars::sql::SQLContext::new();
+        ctx.register("self", parent.view_plan());
+        for (name, plan) in others {
+            ctx.register(&name, plan);
+        }
+        let mut plan = ctx.execute(query).map_err(|e| e.to_string())?;
+        plan.collect_schema().map_err(|e| e.to_string())?;
+        let origin = Origin::Sql { parent: parent.id };
+        Ok(Self::child(
+            parent,
+            id,
+            format!("sql: {query}"),
+            plan,
+            origin,
+        ))
+    }
+
+    /// `I` (VisiData describe-sheet): one row per visible column with
+    /// type, count, nulls, distinct, min, max, mean, median. Eager.
+    pub fn describe_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
+        let mut lf = parent.view_plan();
+        let schema = lf.collect_schema().map_err(|e| e.to_string())?;
+        let stat = |i: usize, s: &str| format!("{i}\u{1f}{s}");
+        let mut aggs = Vec::new();
+        for (i, (name, dt)) in schema.iter().enumerate() {
+            let c = || col(name.as_str());
+            aggs.push(c().count().cast(DataType::UInt64).alias(stat(i, "count")));
+            aggs.push(
+                c().null_count()
+                    .cast(DataType::UInt64)
+                    .alias(stat(i, "nulls")),
+            );
+            aggs.push(
+                c().n_unique()
+                    .cast(DataType::UInt64)
+                    .alias(stat(i, "distinct")),
+            );
+            let ordered = !dt.is_nested();
+            let text_stat = |e: Expr, s| {
+                if ordered {
+                    e.cast(DataType::String)
+                } else {
+                    lit(NULL).cast(DataType::String)
+                }
+                .alias(stat(i, s))
+            };
+            aggs.push(text_stat(c().min(), "min"));
+            aggs.push(text_stat(c().max(), "max"));
+            let num_stat = |e: Expr, s| {
+                if dt.is_numeric() {
+                    e.cast(DataType::Float64)
+                } else {
+                    lit(NULL).cast(DataType::Float64)
+                }
+                .alias(stat(i, s))
+            };
+            aggs.push(num_stat(c().mean(), "mean"));
+            aggs.push(num_stat(c().median(), "median"));
+        }
+        let row = lf.select(aggs).collect().map_err(|e| e.to_string())?;
+        let get = |i: usize, s: &str| {
+            row.column(&stat(i, s))
+                .and_then(|c| c.get(0).map(|v| v.into_static()))
+        };
+        let mut names = Vec::new();
+        let mut types = Vec::new();
+        let (mut count, mut nulls, mut distinct) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut min, mut max, mut mean, mut median) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for (i, (name, dt)) in schema.iter().enumerate() {
+            names.push(name.to_string());
+            types.push(dt.to_string());
+            let u = |s| get(i, s).ok().and_then(|v| v.extract::<u64>());
+            let f = |s| get(i, s).ok().and_then(|v| v.extract::<f64>());
+            let t = |s| get(i, s).ok().and_then(|v| v.get_str().map(String::from));
+            count.push(u("count"));
+            nulls.push(u("nulls"));
+            distinct.push(u("distinct"));
+            min.push(t("min"));
+            max.push(t("max"));
+            mean.push(f("mean"));
+            median.push(f("median"));
+        }
+        let df = DataFrame::new(vec![
+            Column::new("column".into(), names),
+            Column::new("type".into(), types),
+            Column::new("count".into(), count),
+            Column::new("nulls".into(), nulls),
+            Column::new("distinct".into(), distinct),
+            Column::new("min".into(), min),
+            Column::new("max".into(), max),
+            Column::new("mean".into(), mean),
+            Column::new("median".into(), median),
+        ])
+        .map_err(|e| e.to_string())?;
+        let origin = Origin::Describe { parent: parent.id };
+        Ok(Self::child(
+            parent,
+            id,
+            format!("describe: {}", parent.name),
+            df.lazy(),
+            origin,
+        ))
+    }
+
+    /// `W`: count pivot of the current column `on`, rows keyed by `keys`.
+    /// No keys → one row of counts, one column per distinct value (first-seen order).
+    pub fn pivot_current_from(
+        parent: &Sheet,
+        id: SheetId,
+        keys: &[String],
+        on: &str,
+    ) -> Result<Self, String> {
+        let name = format!("pivot({on}): {}", parent.name);
+        let origin = Origin::Pivot { parent: parent.id };
+        let counted = parent
+            .view_plan()
+            .group_by_stable(
+                keys.iter()
+                    .chain([&on.to_string()])
+                    .map(|k| col(k.as_str()))
+                    .collect::<Vec<_>>(),
+            )
+            .agg([len().alias("__vdrs_n")])
+            .with_column(col(on).cast(DataType::String))
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let out = if keys.is_empty() {
+            let vals = counted
+                .column(on)
+                .map_err(|e| e.to_string())?
+                .str()
+                .map_err(|e| e.to_string())?
+                .clone();
+            let ns = counted
+                .column("__vdrs_n")
+                .map_err(|e| e.to_string())?
+                .cast(&DataType::Int64)
+                .map_err(|e| e.to_string())?;
+            let ns = ns.i64().map_err(|e| e.to_string())?;
+            let cols: Vec<Column> = vals
+                .into_iter()
+                .zip(ns)
+                .map(|(v, n)| Column::new(v.unwrap_or("null").into(), [n.unwrap_or(0)]))
+                .collect();
+            DataFrame::new(cols).map_err(|e| e.to_string())?
+        } else {
+            use polars_ops::pivot::{PivotAgg, pivot_stable};
+            pivot_stable(
+                &counted,
+                [on],
+                Some(keys),
+                Some(["__vdrs_n"]),
+                false,
+                Some(PivotAgg::First),
+                None,
+            )
+            .map_err(|e| e.to_string())?
+        };
+        Ok(Self::child(parent, id, name, out.lazy(), origin))
+    }
+
+    /// Columns of the view holding at most one distinct value (`:uniform`).
+    pub fn uniform_columns(&self) -> PolarsResult<Vec<String>> {
+        let mut lf = self.view_plan();
+        let names: Vec<String> = lf
+            .collect_schema()?
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect();
+        let row = lf
+            .select(
+                names
+                    .iter()
+                    .map(|n| col(n.as_str()).n_unique().cast(DataType::UInt64))
+                    .collect::<Vec<_>>(),
+            )
+            .collect()?;
+        Ok(names
+            .into_iter()
+            .filter(|n| {
+                row.column(n)
+                    .ok()
+                    .and_then(|c| c.get(0).ok()?.extract::<u64>())
+                    .is_some_and(|d| d <= 1)
+            })
+            .collect())
+    }
+
     /// `:join`: `left`'s view joined with `right` on same-named `keys`.
     /// `how`: inner | left | full | merge (full, right's non-null values win) |
     /// append (stack rows, union columns, tag each with `origin_sheet`).
@@ -815,6 +1133,103 @@ impl Sheet {
     /// Plan replacements (tail refresh, currency cast) reset `view.count_key` instead.
     pub fn count_key(&self) -> String {
         format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
+    }
+
+    /// Remember the current plan/view for `U`; a new change forgets redo history.
+    pub fn checkpoint(&mut self) {
+        let snap = self.snapshot();
+        let undo = &mut self.state.undo;
+        undo.push(snap);
+        if undo.len() > UNDO_MAX {
+            undo.remove(0);
+        }
+        self.state.redo.clear();
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            plan: self.plan.clone(),
+            view: self.view.clone(),
+            steps: self.state.steps.clone(),
+        }
+    }
+
+    /// Step back (`undo = true`) or forward through history. False when empty.
+    pub fn time_travel(&mut self, undo: bool) -> bool {
+        let (from, to) = if undo {
+            (&mut self.state.undo, &mut self.state.redo)
+        } else {
+            (&mut self.state.redo, &mut self.state.undo)
+        };
+        let Some(snap) = from.pop() else {
+            return false;
+        };
+        to.push(Snapshot {
+            plan: std::mem::replace(&mut self.plan, snap.plan),
+            view: std::mem::replace(&mut self.view, snap.view),
+            steps: std::mem::replace(&mut self.state.steps, snap.steps),
+        });
+        self.view.count_key = None; // plan may differ: recount
+        true
+    }
+
+    /// `:derive name = <sql expr>` on the base plan. Validated against the schema.
+    pub fn derive(&mut self, name: &str, expr: &str) -> Result<(), String> {
+        let e = polars::sql::sql_expr(expr).map_err(|e| e.to_string())?;
+        let plan = self.plan.clone().with_column(e.alias(name));
+        plan.clone().collect_schema().map_err(|e| e.to_string())?;
+        self.checkpoint();
+        self.plan = plan;
+        self.state.steps.push(PlanStep::Derive {
+            name: name.to_string(),
+            expr: expr.to_string(),
+        });
+        Ok(())
+    }
+
+    /// `:setcol`: write `value` into `column` on the selected rows. The value
+    /// must fit the column's type (checked here, not at collect time).
+    pub fn set_col(&mut self, column: &str, value: &str) -> Result<usize, String> {
+        let rids: Vec<u64> = self.view.selected.iter().copied().collect();
+        if rids.is_empty() {
+            return Err("no rows selected".into());
+        }
+        let dtype = self
+            .plan
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("no column: {column}"))?;
+        df!("v" => [value])
+            .and_then(|d| {
+                d.lazy()
+                    .select([col("v").strict_cast(dtype.clone())])
+                    .collect()
+            })
+            .map_err(|_| format!("{value:?} doesn't fit {column} ({dtype})"))?;
+        let ids = Series::new("ids".into(), &rids);
+        self.checkpoint();
+        self.plan = self
+            .plan
+            .clone()
+            .with_row_index("__vdrs_set", None)
+            .with_column(
+                when(col("__vdrs_set").cast(DataType::UInt64).is_in(lit(ids)))
+                    .then(lit(value.to_string()).strict_cast(dtype.clone()))
+                    .otherwise(col(column))
+                    .alias(column),
+            )
+            .drop(["__vdrs_set"]);
+        self.state.steps.push(PlanStep::SetCol {
+            column: column.to_string(),
+            value: value.to_string(),
+            dtype: dtype.clone(),
+            rids: rids.clone(),
+        });
+        self.view.count_key = None;
+        Ok(rids.len())
     }
 
     /// Whether the base plan has `name` (hidden columns count: filter/sort may use them).

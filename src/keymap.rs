@@ -176,9 +176,28 @@ impl Keymap {
             ),
             ch(vec![k("S")], vec![OpenSheetSwitcher], "list open sheets"),
             ch(
+                vec![k("g"), k("<CR>")],
+                vec![SubmitSelected],
+                "open rows of all selected values (freq)",
+            ),
+            ch(vec![k("g"), k("\"")], vec![DupSheet], "copy of this sheet"),
+            ch(vec![k("I")], vec![Describe], "describe columns"),
+            ch(
+                vec![k("W")],
+                vec![PivotCurrent],
+                "pivot: key cols × current col",
+            ),
+            ch(
+                vec![k("D")],
+                vec![StartDiffInput],
+                "diff with file (key cols)",
+            ),
+            ch(vec![k("U")], vec![Undo], "undo"),
+            ch(vec![k("R")], vec![Redo], "redo"),
+            ch(
                 vec![k("<CR>")],
                 vec![SubmitRow],
-                "activate row (sheet-switcher only)",
+                "open row: sheet list → sheet, freq → matching rows",
             ),
             // plan panel
             ch(
