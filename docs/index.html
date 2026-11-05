@@ -113,8 +113,8 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td>Arrow IPC</td><td><code>.arrow</code>, <code>.ipc</code>, <code>.feather</code></td><td></td></tr>
 <tr><td>JSON Lines</td><td><code>.jsonl</code>, <code>.ndjson</code></td><td>One record per line.</td></tr>
 <tr><td>JSON</td><td><code>.json</code></td><td>An array of records. A <code>.json</code> file that is really JSON Lines is detected.</td></tr>
-<tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>Cells load as text; use the type keys to convert. Several worksheets → a list to pick from.</td></tr>
-<tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>Columns load as text. Several tables → a list to pick from.</td></tr>
+<tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>Cells load as text; use the type keys to convert. Several worksheets → a list to pick from; <code>book.xlsx:Sheet2</code> opens one directly (also in <code>:join</code>/<code>:diff</code>).</td></tr>
+<tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>Columns load as text. Several tables → a list to pick from; <code>app.db:users</code> opens one directly.</td></tr>
 <tr><td>gzip</td><td>any of the above + <code>.gz</code></td><td>The inner extension (or <code>--format</code>) decides the format.</td></tr>
 </table>
 <p>Files are scanned lazily: vdrs only loads a 1024-row window around the cursor and counts rows in the background, so large files open immediately. Other formats can be added with a <a href="#lua-loader">Lua loader</a>.</p>

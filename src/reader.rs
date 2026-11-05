@@ -220,6 +220,14 @@ pub fn open(
     if path.is_dir() {
         return open_parquet_dir(&path);
     }
+    // `book.xlsx:Sheet2` / `app.db:users` — the same name the parts list shows.
+    if !path.exists()
+        && let Some((file, part)) = s.rsplit_once(':')
+        && let Ok(kind @ (SourceKind::Xlsx | SourceKind::Sqlite)) = detect(Path::new(file))
+        && Path::new(file).is_file()
+    {
+        return open_part(Path::new(file), kind, part);
+    }
     let kind = format_override.map_or_else(|| detect(&path), Ok)?;
     open_path(&path, kind)
 }
@@ -526,6 +534,8 @@ mod tests {
         assert_eq!(list_parts(&db, SourceKind::Sqlite).unwrap(), ["a", "b"]);
         let b = open_part(&db, SourceKind::Sqlite, "b").unwrap();
         assert_eq!(b.lazy.collect().unwrap().shape(), (1, 1));
+        let by_name = open(format!("{}:b", db.display()).as_ref(), None).unwrap();
+        assert_eq!(by_name.lazy.collect().unwrap().shape(), (1, 1));
         // a directory of parquet files is one table
         let pq = dir.path().join("pq");
         std::fs::create_dir(&pq).unwrap();

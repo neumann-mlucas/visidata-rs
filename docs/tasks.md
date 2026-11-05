@@ -27,7 +27,7 @@ Still open (see S-15 §10.1):
 - [ ] Run Lua aggregators/renderers off the UI thread (or cache renderer output)
 - [ ] Deterministic row order for full joins / grouped `:sql` so selections can't drift
 - [ ] `:export` for derived sheets; more source kinds in `.sql`/`.py`
-- [ ] Multi-part files as `:join`/`:diff` targets (`path:part` syntax)
+- [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
 
 ## Phase 0 — viewer parity (csvlens++)
 - [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) → canonical TOML — _deferred: Phase 0 ships only the nav/freeze/search subset, baked in; full extract waits until a user actually asks for VisiData parity on a non-nav key_
