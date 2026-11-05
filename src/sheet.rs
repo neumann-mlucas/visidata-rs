@@ -684,6 +684,14 @@ impl Sheet {
         format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
     }
 
+    /// Whether the base plan has `name` (hidden columns count: filter/sort may use them).
+    pub fn has_column(&self, name: &str) -> bool {
+        self.plan
+            .clone()
+            .collect_schema()
+            .is_ok_and(|s| s.contains(name))
+    }
+
     /// View rows whose `column` (as text) matches regex `pattern`, in view order.
     pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
         let df = self

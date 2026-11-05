@@ -533,6 +533,12 @@ impl App {
                 return;
             }
         }
+        if let Action::SetFilter { column, .. } | Action::SetSort { column, .. } = &action {
+            if !self.sheets.active().has_column(column) {
+                self.toast = Some(format!("no column: {column}"));
+                return;
+            }
+        }
         // Selection is positional (row offsets into the view), so any change to
         // row order/membership would silently re-point it at other rows.
         // ponytail: clear instead of tracking row identity; add a row-index
@@ -648,6 +654,10 @@ impl App {
                 let Some(old) = self.current_column_name() else {
                     return;
                 };
+                if new_name != old && self.sheets.active().has_column(&new_name) {
+                    self.toast = Some(format!("column already exists: {new_name}"));
+                    return;
+                }
                 let s = self.sheets.active_mut();
                 s.plan = s
                     .plan
@@ -1338,9 +1348,11 @@ impl App {
                 Span::styled("rename: ", Style::default().fg(Color::Yellow)),
                 Span::raw(s.clone()),
             ]),
-            (_, Some(t), _, _) => {
-                Line::from(Span::styled(t.clone(), Style::default().fg(Color::Red)))
-            }
+            // Polars errors span lines (plan dumps); the bar shows the first.
+            (_, Some(t), _, _) => Line::from(Span::styled(
+                t.lines().next().unwrap_or_default().to_string(),
+                Style::default().fg(Color::Red),
+            )),
             (_, _, Some(c), _) => Line::from(format!("count: {c}")),
             (_, _, _, true) => Line::from(format!(
                 "pending: {}",
@@ -1727,6 +1739,73 @@ mod scenario {
         assert!(title(&h).contains("col 1/4 (grp)"), "{}", title(&h));
         h.keys("!").await; // unkey → back to its place
         assert!(title(&h).contains("col 3/4 (grp)"), "{}", title(&h));
+    }
+
+    fn status(h: &Harness) -> String {
+        h.screen().lines().last().unwrap_or_default().to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn bad_user_input_is_rejected_without_breaking_the_sheet() {
+        let mut h = Harness::new(30).await;
+        h.keys(":").await;
+        h.type_("sort nosuch").await;
+        assert_eq!(status(&h), "no column: nosuch");
+        h.keys(":").await;
+        h.type_("filter nosuch x").await;
+        assert_eq!(status(&h), "no column: nosuch");
+        h.keys("^").await;
+        h.type_("grp").await; // id → grp would duplicate
+        assert_eq!(status(&h), "column already exists: grp");
+        // sheet still healthy: derived sheets build
+        h.keys("F").await;
+        assert!(
+            title(&h).contains("freq(id)") && title(&h).contains("/30 "),
+            "{}",
+            title(&h)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn multiline_errors_show_first_line_only() {
+        let mut h = Harness::new(3).await;
+        h.app.toast = Some("materialize: boom\n\nResolved plan: …".into());
+        h.pump().await;
+        assert_eq!(status(&h), "materialize: boom");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_follow_and_row_diff() {
+        use std::io::Write;
+        let mut h = Harness::new(3).await;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.jsonl");
+        std::fs::write(&p, "{\"a\":1}\n{\"a\":2}\n").unwrap();
+        h.keys(":").await;
+        h.type_(&format!("tail {} -f", p.display())).await;
+        h.keys("G").await;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+        writeln!(f, "{{\"a\":3}}\n{{\"a\":4}}").unwrap();
+        drop(f);
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert!(title(&h).contains("row 4/4"), "{}", title(&h)); // followed to the new bottom
+
+        h.keys("q").await;
+        let other = dir.path().join("o.csv");
+        std::fs::write(
+            &other,
+            "id,name,grp,amt\n1,name_1,1,1.5\n2,CHANGED,2,3.0\n99,x,0,0\n",
+        )
+        .unwrap();
+        h.keys(":").await;
+        h.type_(&format!("diff {} id", other.display())).await;
+        // id 2 changed, id 3 only_a, id 99 only_b; id 1 identical → hidden
+        assert!(
+            title(&h).contains("rowdiff(id)") && title(&h).contains("/3 "),
+            "{}",
+            h.screen()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
