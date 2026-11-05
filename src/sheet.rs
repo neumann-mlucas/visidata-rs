@@ -11,6 +11,7 @@ use crate::reader::{LoadedSource, SourceKind};
 
 pub type SheetId = u32;
 
+#[derive(Clone)]
 pub struct Sheet {
     pub id: SheetId,
     pub name: String,
@@ -26,7 +27,7 @@ pub struct Sheet {
 }
 
 /// Per-sheet bookkeeping. `Default` so derived-sheet constructors stay short.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct SheetState {
     /// `revision` of the last materialize result applied (Ok or Err).
     pub loaded_rev: u64,

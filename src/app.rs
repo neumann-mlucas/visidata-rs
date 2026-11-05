@@ -79,12 +79,35 @@ enum MaterializeResult {
         revision: u64,
         err: String,
     },
+    /// A background job finished (see `App::spawn_job`).
+    Job {
+        sheet_id: SheetId,
+        label: &'static str,
+        result: Result<JobDone, String>,
+    },
     /// Row count of the filtered view, tagged with the `count_key` it was computed for.
     Count {
         sheet_id: SheetId,
         key: String,
         total: Result<u64, String>,
     },
+}
+
+/// What a background job hands back to the UI thread.
+enum JobDone {
+    /// Push a derived sheet (pivot, dup, describe, sql, join, …).
+    PushSheet(Box<Sheet>),
+    /// Move the cursor to view row / column (search).
+    Jump {
+        row: u64,
+        col: usize,
+    },
+    /// Add row ids to the job's sheet selection.
+    Select {
+        rids: Vec<u64>,
+        note: String,
+    },
+    Toast(String),
 }
 
 /// Which prompt the input line belongs to; decides what `<CR>` does with the text.
@@ -135,6 +158,8 @@ pub struct App {
     theme: Theme,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
+    /// Labels of background jobs in flight, shown in the status bar.
+    busy: Vec<&'static str>,
     quit: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
     materialize_rx: mpsc::Receiver<MaterializeResult>,
@@ -164,6 +189,7 @@ impl App {
             plan_mode: PlanMode::Off,
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
+            busy: Vec::new(),
             quit: false,
             materialize_tx: tx,
             materialize_rx: rx,
@@ -218,7 +244,63 @@ impl App {
     #[cfg(test)]
     fn settled(&self) -> bool {
         let s = self.sheets.active();
-        s.state.loaded_rev == s.revision && !s.state.counting
+        s.state.loaded_rev == s.revision && !s.state.counting && self.busy.is_empty()
+    }
+
+    /// Run `work` on the blocking pool; its result lands in `on_job_done`.
+    /// Polars collects can't be interrupted, so there's no cancel: a result
+    /// for a sheet that's gone is dropped.
+    fn spawn_job(
+        &mut self,
+        label: &'static str,
+        work: impl FnOnce() -> Result<JobDone, String> + Send + 'static,
+    ) {
+        self.busy.push(label);
+        let sheet_id = self.sheets.active().id;
+        let tx = self.materialize_tx.clone();
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(work)
+                .await
+                .unwrap_or_else(|e| Err(format!("job crashed: {e}")));
+            let _ = tx
+                .send(MaterializeResult::Job {
+                    sheet_id,
+                    label,
+                    result,
+                })
+                .await;
+        });
+    }
+
+    fn on_job_done(
+        &mut self,
+        sheet_id: SheetId,
+        label: &'static str,
+        result: Result<JobDone, String>,
+    ) {
+        if let Some(i) = self.busy.iter().position(|l| *l == label) {
+            self.busy.remove(i);
+        }
+        match result {
+            Err(e) => self.toast = Some(format!("{label}: {e}")),
+            Ok(JobDone::Toast(t)) => self.toast = Some(t),
+            Ok(JobDone::PushSheet(sheet)) => {
+                self.sheets.push(*sheet);
+                self.spawn_materialize();
+            }
+            Ok(JobDone::Jump { row, col }) => {
+                if self.sheets.active().id == sheet_id {
+                    self.goto_row(row);
+                    self.sheets.active_mut().view.col_cursor = col;
+                }
+            }
+            Ok(JobDone::Select { rids, note }) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    s.view.selected.extend(rids);
+                    self.toast = Some(note);
+                }
+            }
+        }
     }
 
     fn spawn_materialize(&mut self) {
@@ -338,6 +420,11 @@ impl App {
                     self.settle_jump_bottom();
                 }
             }
+            MaterializeResult::Job {
+                sheet_id,
+                label,
+                result,
+            } => self.on_job_done(sheet_id, label, result),
             MaterializeResult::Count {
                 sheet_id,
                 key,
@@ -921,42 +1008,35 @@ impl App {
             return;
         };
         let cur = s.view.window_offset + s.view.row_cursor as u64;
-        // ponytail: synchronous full scan per n/N; move to a background task with
-        // cached hits if big files make it lag.
-        let hits = match s.search_hits(&needle) {
-            Ok(h) => h,
-            Err(e) => {
-                self.toast = Some(format!("search: {e}"));
-                return;
-            }
-        };
-        let next = if forward {
-            hits.iter().find(|(r, _)| *r > cur).or(hits.first())
-        } else {
-            hits.iter().rev().find(|(r, _)| *r < cur).or(hits.last())
-        };
-        match next.copied() {
-            Some((row, c)) => {
-                self.goto_row(row);
-                self.sheets.active_mut().view.col_cursor = c;
-            }
-            None => self.toast = Some(format!("no match for /{needle}")),
-        }
+        let sheet = s.clone();
+        // ponytail: full scan per n/N; cache hits per (needle, view) if big files lag.
+        self.spawn_job("search", move || {
+            let hits = sheet.search_hits(&needle).map_err(|e| e.to_string())?;
+            let next = if forward {
+                hits.iter().find(|(r, _)| *r > cur).or(hits.first())
+            } else {
+                hits.iter().rev().find(|(r, _)| *r < cur).or(hits.last())
+            };
+            Ok(match next.copied() {
+                Some((row, col)) => JobDone::Jump { row, col },
+                None => JobDone::Toast(format!("no match for /{needle}")),
+            })
+        });
     }
 
     fn open_pivot(&mut self, index: &str, on: &str, values: &str, agg: &str) {
         let id = self.sheets.alloc_id();
-        let child = {
-            let parent = self.sheets.active();
-            Sheet::pivot_from(parent, id, index, on, values, agg)
-        };
-        match child {
-            Ok(c) => {
-                self.sheets.push(c);
-                self.spawn_materialize();
-            }
-            Err(e) => self.toast = Some(format!("pivot: {e}")),
-        }
+        let parent = self.sheets.active().clone();
+        let (index, on, values, agg) = (
+            index.to_string(),
+            on.to_string(),
+            values.to_string(),
+            agg.to_string(),
+        );
+        self.spawn_job("pivot", move || {
+            let child = Sheet::pivot_from(&parent, id, &index, &on, &values, &agg)?;
+            Ok(JobDone::PushSheet(Box::new(child)))
+        });
     }
 
     /// Persist the active sheet to disk. Writer picked by extension; applies
@@ -965,17 +1045,16 @@ impl App {
     /// what the user sees, not raw source data. Overwrites existing files.
     fn save_active(&mut self, path: &str) {
         let plan = self.sheets.active().view_plan();
-        let mut df = match plan.collect() {
-            Ok(d) => d,
-            Err(e) => {
-                self.toast = Some(format!("save: collect: {e}"));
-                return;
-            }
-        };
-        match crate::sheet::write_df_by_extension(&mut df, std::path::Path::new(path)) {
-            Ok(()) => self.toast = Some(format!("saved {} rows → {path}", df.height())),
-            Err(e) => self.toast = Some(format!("save: {e}")),
-        }
+        let path = path.to_string();
+        self.spawn_job("save", move || {
+            let mut df = plan.collect().map_err(|e| format!("collect: {e}"))?;
+            crate::sheet::write_df_by_extension(&mut df, std::path::Path::new(&path))
+                .map_err(|e| e.to_string())?;
+            Ok(JobDone::Toast(format!(
+                "saved {} rows → {path}",
+                df.height()
+            )))
+        });
     }
 
     fn open_tail(&mut self, path: &str, follow: bool) {
@@ -1133,13 +1212,14 @@ impl App {
 
     /// Select every row of the view (not just the loaded window).
     fn select_all(&mut self) {
-        let s = self.sheets.active_mut();
-        match s.view_rids() {
-            // ponytail: one set entry per row; swap BTreeSet for a bitmap if
-            // multi-million-row selections eat too much memory.
-            Ok(rids) => s.view.selected.extend(rids),
-            Err(e) => self.toast = Some(format!("select: {e}")),
-        }
+        let sheet = self.sheets.active().clone();
+        // ponytail: one set entry per row; swap BTreeSet for a bitmap if
+        // multi-million-row selections eat too much memory.
+        self.spawn_job("select all", move || {
+            let rids = sheet.view_rids().map_err(|e| e.to_string())?;
+            let note = format!("selected {} rows", rids.len());
+            Ok(JobDone::Select { rids, note })
+        });
     }
 
     /// Select view rows whose current-column text matches `pat` (whole view).
@@ -1151,30 +1231,29 @@ impl App {
         let Some(column) = self.current_column_name() else {
             return;
         };
-        let s = self.sheets.active_mut();
-        match s.rows_matching(&column, pat) {
-            Ok(rows) => {
-                let matched = rows.len();
-                s.view.selected.extend(rows);
-                self.toast = Some(format!("selected {matched} rows matching /{pat}"));
-            }
-            Err(e) => self.toast = Some(format!("select: {e}")),
-        }
+        let sheet = self.sheets.active().clone();
+        let pat = pat.to_string();
+        self.spawn_job("select", move || {
+            let rids = sheet
+                .rows_matching(&column, &pat)
+                .map_err(|e| e.to_string())?;
+            let note = format!("selected {} rows matching /{pat}", rids.len());
+            Ok(JobDone::Select { rids, note })
+        });
     }
 
     fn open_dup_selected(&mut self) {
-        let id = self.sheets.alloc_id();
-        let built = {
-            let parent = self.sheets.active();
-            Sheet::dup_selected_from(parent, id)
-        };
-        match built {
-            Ok(s) => {
-                self.sheets.push(s);
-                self.spawn_materialize();
-            }
-            Err(e) => self.toast = Some(format!("dup: {e}")),
+        if self.sheets.active().view.selected.is_empty() {
+            self.toast = Some("dup: no rows selected".into());
+            return;
         }
+        let id = self.sheets.alloc_id();
+        let parent = self.sheets.active().clone();
+        self.spawn_job("dup", move || {
+            Ok(JobDone::PushSheet(Box::new(Sheet::dup_selected_from(
+                &parent, id,
+            )?)))
+        });
     }
 
     fn open_sheet_switcher(&mut self) {
@@ -1383,6 +1462,7 @@ impl App {
                 self.theme.toast(),
             )),
             (_, _, Some(c), _) => Line::from(format!("count: {c}")),
+            _ if !self.busy.is_empty() => Line::from(format!("working: {}…", self.busy.join(", "))),
             (_, _, _, true) => Line::from(format!(
                 "pending: {}",
                 self.pending
@@ -1636,6 +1716,11 @@ mod tests {
             regex: "a".into(),
         }); // alice + carol remain, selection kept
         app.dispatch(Action::DupSelected);
+        while !app.busy.is_empty() {
+            let res = app.materialize_rx.recv().await.unwrap();
+            app.on_materialize(res);
+        }
+        assert_eq!(app.sheets.len(), 2, "dup sheet pushed");
         let dup = app.sheets.active().plan.clone().collect().unwrap();
         assert_eq!(
             dup.column("name").unwrap().get(0).unwrap().get_str(),
@@ -1983,6 +2068,30 @@ mod scenario {
         h.keys(":").await;
         h.type_(r#"filter "name" ^name_[12]$"#).await;
         assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn heavy_commands_run_in_background_and_report() {
+        let mut h = Harness::new(3000).await;
+        h.keys(":").await;
+        h.type_("pivot grp grp id count").await; // job → pushes pivot sheet
+        assert!(
+            title(&h).contains("pivot(") && title(&h).contains("row 1/7"),
+            "{}",
+            title(&h)
+        );
+        h.keys("q").await;
+        // while a job runs the status bar says so
+        h.app.on_key("g".parse().unwrap());
+        h.app.on_key("s".parse().unwrap());
+        h.app.draw(&mut h.term).unwrap();
+        assert!(
+            status(&h).starts_with("working: select all"),
+            "{}",
+            status(&h)
+        );
+        h.pump().await;
+        assert!(title(&h).contains("sel 3000"), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]
