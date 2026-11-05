@@ -388,18 +388,19 @@ impl Sheet {
     /// (count / total * 100, 2-decimal). No `histogram` column — users who need
     /// one can hide-col the extras.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
+        let (count, percent) = freq_stat_names(col_name);
         let plan = parent
             .view_plan()
             .group_by([col(col_name)])
-            .agg([len().alias("count")])
-            .with_columns([(col("count").cast(DataType::Float64) * lit(100.0f64)
-                / col("count").cast(DataType::Float64).sum())
+            .agg([len().alias(count)])
+            .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
+                / col(count).cast(DataType::Float64).sum())
             .round(2)
-            .alias("percent")])
+            .alias(percent)])
             // Value breaks count ties: row order must repeat across collects,
             // since row ids (selection, freq dive) are positions in this plan.
             .sort(
-                ["count", col_name],
+                [count, col_name],
                 SortMultipleOptions::default()
                     .with_order_descending_multi([true, false])
                     .with_nulls_last(true),
@@ -1596,6 +1597,15 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
     pred
 }
 
+/// Freq sheet stat columns; renamed when the grouped column already has the name.
+pub fn freq_stat_names(column: &str) -> (&'static str, &'static str) {
+    if column == "count" || column == "percent" {
+        ("freq_count", "freq_percent")
+    } else {
+        ("count", "percent")
+    }
+}
+
 /// A value as the text `values_predicate` compares.
 fn any_text(v: &AnyValue) -> String {
     v.get_str().map_or_else(|| v.to_string(), String::from)
@@ -1916,6 +1926,10 @@ mod tests {
         });
         let freq = Sheet::freq_from(&s, 2, "name").plan.collect().unwrap();
         assert_eq!(freq.height(), 1); // only alice survives the filter
+        // freq of a freq's `count` column: stat columns step aside
+        let ff = Sheet::freq_from(&Sheet::freq_from(&s, 3, "name"), 4, "count");
+        let names = ff.plan.collect().unwrap().get_column_names_owned();
+        assert_eq!(names, ["count", "freq_count", "freq_percent"]);
     }
 
     #[test]

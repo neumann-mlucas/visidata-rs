@@ -12,7 +12,7 @@ use std::path::Path;
 use polars::prelude::DataType;
 
 use crate::reader::SourceKind;
-use crate::sheet::{Derivation, Lineage, Origin, PlanStep, Sheet, SortOrder};
+use crate::sheet::{Derivation, Lineage, Origin, PlanStep, Sheet, SortOrder, freq_stat_names};
 
 /// Script for `sheet`, language picked by `path`'s extension.
 pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
@@ -189,17 +189,27 @@ impl Script {
         Ok(match &l.how {
             Derivation::Copy if py => p,
             Derivation::Copy => format!("SELECT * FROM {p}"),
-            Derivation::Freq { column } if py => format!(
-                "{p}.group_by({c}).agg(pl.len().alias(\"count\"))\
-                 .with_columns((pl.col(\"count\").cast(pl.Float64) * 100 / pl.col(\"count\").cast(pl.Float64).sum()).round(2).alias(\"percent\"))\
-                 .sort([\"count\", {c}], descending=[True, False], nulls_last=True)",
-                c = py_str(column)
-            ),
-            Derivation::Freq { column } => format!(
-                "SELECT {c}, count(*) AS \"count\", round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS \"percent\"\n\
-                 FROM {p} GROUP BY {c} ORDER BY \"count\" DESC, {c} ASC NULLS LAST",
-                c = q_ident(column)
-            ),
+            Derivation::Freq { column } if py => {
+                let (n, pct) = freq_stat_names(column);
+                format!(
+                    "{p}.group_by({c}).agg(pl.len().alias({n}))\
+                     .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
+                     .sort([{n}, {c}], descending=[True, False], nulls_last=True)",
+                    c = py_str(column),
+                    n = py_str(n),
+                    pct = py_str(pct)
+                )
+            }
+            Derivation::Freq { column } => {
+                let (n, pct) = freq_stat_names(column);
+                format!(
+                    "SELECT {c}, count(*) AS {n}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct}\n\
+                     FROM {p} GROUP BY {c} ORDER BY {n} DESC, {c} ASC NULLS LAST",
+                    c = q_ident(column),
+                    n = q_ident(n),
+                    pct = q_ident(pct)
+                )
+            }
             Derivation::Rids(rids) => {
                 let ids: Vec<String> = rids.iter().map(u64::to_string).collect();
                 if py {
