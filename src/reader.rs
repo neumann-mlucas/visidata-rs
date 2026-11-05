@@ -233,22 +233,16 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
     }
 }
 
-/// Decompress `path` (ending in .gz) to a tempfile and return (path, kind, tempfile).
-/// The returned kind is detected from the stem; the caller must open the tempfile.
-fn decompress_gz(path: &Path) -> Result<(PathBuf, SourceKind, tempfile::NamedTempFile), OpenError> {
-    use flate2::read::GzDecoder;
-    let kind = detect(path)?;
-    let stem = path.file_stem().unwrap_or_else(|| OsStr::new("tmp"));
-    let suffix = Path::new(stem)
-        .extension()
-        .and_then(OsStr::to_str)
-        .map_or(String::new(), |e| format!(".{e}"));
-    let mut tmp = tempfile::Builder::new().suffix(&suffix).tempfile()?;
-    let f = std::fs::File::open(path)?;
-    let mut gz = GzDecoder::new(f);
-    io::copy(&mut gz, &mut tmp)?;
+/// Decompress `path` (ending in .gz) to a tempfile the caller keeps alive.
+/// The format is the caller's: detected from the inner extension or `--format`.
+fn decompress_gz(path: &Path) -> Result<tempfile::NamedTempFile, OpenError> {
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    io::copy(
+        &mut flate2::read::GzDecoder::new(std::fs::File::open(path)?),
+        &mut tmp,
+    )?;
     tmp.flush()?;
-    Ok((tmp.path().to_owned(), kind, tmp))
+    Ok(tmp)
 }
 
 fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
@@ -257,14 +251,12 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
     // `.gz` → decompress to a tempfile and open that. We keep the tempfile
     // handle alive on the returned source so Polars' lazy scan sees a live file.
-    let gz = path.extension().and_then(OsStr::to_str) == Some("gz");
-    let (real_path, real_kind, tempfile) = if gz {
-        let (p, k, t) = decompress_gz(path)?;
-        (p, k, Some(t))
-    } else {
-        (path.to_owned(), kind, None)
-    };
-    let (lazy, real_kind) = scan(&real_path, real_kind)?;
+    let gz = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
+    let tempfile = if gz { Some(decompress_gz(path)?) } else { None };
+    let real_path = tempfile.as_ref().map_or(path, |t| t.path());
+    let (lazy, real_kind) = scan(real_path, kind)?;
     let display_name = path.display().to_string();
     Ok(LoadedSource {
         kind: real_kind,
@@ -401,6 +393,25 @@ mod tests {
             assert_eq!(src.kind, kind, "{body:?}");
             assert_eq!(src.lazy.collect().unwrap().shape(), (2, 1), "{body:?}");
         }
+    }
+
+    #[test]
+    fn gz_honours_format_override_and_inner_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let gz = |name: &str| {
+            let p = dir.path().join(name);
+            let mut enc = flate2::write::GzEncoder::new(
+                std::fs::File::create(&p).unwrap(),
+                flate2::Compression::default(),
+            );
+            enc.write_all(b"a,b\n1,2\n").unwrap();
+            enc.finish().unwrap();
+            p
+        };
+        let inner = open(gz("x.csv.GZ").as_os_str(), None).unwrap();
+        assert_eq!(inner.lazy.collect().unwrap().shape(), (1, 2));
+        let forced = open(gz("data.gz").as_os_str(), Some(SourceKind::Csv)).unwrap();
+        assert_eq!(forced.lazy.collect().unwrap().shape(), (1, 2));
     }
 
     #[test]
