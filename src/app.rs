@@ -149,15 +149,7 @@ impl App {
         plugin_warning: Option<String>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(8);
-        let mut keymap = Keymap::defaults();
-        let toast = match (plugins.as_ref(), plugin_warning) {
-            (Some(p), _) => {
-                p.apply_keymap(&mut keymap);
-                None
-            }
-            (None, Some(w)) => Some(w),
-            (None, None) => None,
-        };
+        let (keymap, theme) = keymap_and_theme(plugins.as_ref());
         Self {
             plugins,
             sheets: Sheets::new(sheet),
@@ -166,11 +158,11 @@ impl App {
             pending_candidates: Vec::new(),
             pending_count: None,
             last_action: None,
-            toast,
+            toast: plugin_warning,
             input: None,
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
-            theme: Theme::dark(),
+            theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             quit: false,
             materialize_tx: tx,
@@ -209,7 +201,9 @@ impl App {
                     self.draw(term)?;
                 }
                 _ = tail_tick.tick() => {
+                    self.reload_plugins_if_changed();
                     self.on_tail_tick();
+                    self.draw(term)?;
                 }
                 _ = tick.tick() => {}
             }
@@ -1023,6 +1017,17 @@ impl App {
         }
     }
 
+    /// Hot reload: `init.lua` edited/created/deleted → fresh VM, keymap, theme.
+    fn reload_plugins_if_changed(&mut self) {
+        let Some((fresh, warning)) = self.plugins.as_ref().and_then(|p| p.reload_if_changed())
+        else {
+            return;
+        };
+        self.plugins = Some(fresh);
+        (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
+        self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
+    }
+
     fn on_tail_tick(&mut self) {
         // Only refresh the active sheet's tail if any. Dormant tail sheets are reactivated
         // via sheet-switcher; refreshing all of them per tick would be wasteful.
@@ -1283,7 +1288,7 @@ impl App {
         let lines: Vec<Line> = self
             .pending_candidates
             .iter()
-            .filter_map(|c| c.on.get(pending_len).map(|k| (k, c.desc)))
+            .filter_map(|c| c.on.get(pending_len).map(|k| (k, c.desc.as_ref())))
             .map(|(k, desc)| {
                 Line::from(vec![
                     Span::styled(
@@ -1403,6 +1408,17 @@ impl App {
         };
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
     }
+}
+
+/// Default keymap plus Lua patches, and the theme `init.lua` picked.
+fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme) {
+    let mut keymap = Keymap::defaults();
+    let mut theme = Theme::dark();
+    if let Some(p) = plugins {
+        p.apply_keymap(&mut keymap);
+        theme = p.theme().unwrap_or(theme);
+    }
+    (keymap, theme)
 }
 
 /// Keep the tail of `s` within `max` display cells, marking the cut with `…`.

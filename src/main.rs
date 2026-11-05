@@ -54,10 +54,8 @@ fn main() -> ExitCode {
     // Load Lua plugins before the initial read so `vd.register_loader` rules
     // can intercept a user-supplied extension. Plugin-load failure is reported
     // but non-fatal — users without an `init.lua` are the common case.
-    let (plugins, plugin_warning) = match plugins::Plugins::load() {
-        Ok(p) => (Some(p), None),
-        Err(e) => (None, Some(format!("init.lua: {e}"))),
-    };
+    let (plugins, plugin_warning) = plugins::Plugins::load();
+    let plugins = Some(plugins);
 
     let loaded = match plugins::open(plugins.as_ref(), &cli.path, fmt) {
         Ok(l) => l,

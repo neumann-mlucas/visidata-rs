@@ -4,6 +4,8 @@
 //! when Lua is also in play (user explicitly deferred custom color scheme to the plugin
 //! system, same rationale for user keymap).
 
+use std::borrow::Cow;
+
 use crate::action::Action;
 use crate::key::Key;
 
@@ -17,7 +19,7 @@ pub enum Layer {
 pub struct Chord {
     pub on: Vec<Key>,
     pub run: Vec<Action>,
-    pub desc: &'static str,
+    pub desc: Cow<'static, str>,
 }
 
 #[derive(Debug)]
@@ -75,7 +77,11 @@ impl Keymap {
     pub fn defaults() -> Self {
         use Action::*;
         let k = |s: &str| -> Key { s.parse().unwrap() };
-        let ch = |on: Vec<Key>, run: Vec<Action>, desc: &'static str| Chord { on, run, desc };
+        let ch = |on: Vec<Key>, run: Vec<Action>, desc: &'static str| Chord {
+            on,
+            run,
+            desc: Cow::Borrowed(desc),
+        };
         let sheet = vec![
             // nav
             ch(vec![k("j")], vec![CursorDown { count: None }], "down"),

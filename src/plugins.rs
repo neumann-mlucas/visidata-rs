@@ -25,7 +25,12 @@ pub enum PluginError {
 struct Registry {
     patches: Vec<KeymapPatch>,
     loaders: Vec<LoaderRule>,
+    theme: Option<String>,
 }
+
+/// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
+/// deprecation windows key off it.
+pub const API_VERSION: i64 = 1;
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -54,29 +59,69 @@ impl std::fmt::Debug for LoaderRule {
 
 pub struct Plugins {
     lua: Lua,
+    /// `init.lua` this host was loaded from and its mtime then (hot reload).
+    config: Option<(PathBuf, Option<std::time::SystemTime>)>,
 }
 
 impl Plugins {
-    /// Build a plugin host; immediately executes `init.lua` if it exists.
-    /// Missing init.lua is NOT an error — the common case.
-    pub fn load() -> Result<Self, PluginError> {
-        let lua = Lua::new();
-        lua.set_app_data(RefCell::new(Registry::default()));
-        install_api(&lua)?;
-        if let Some(p) = default_config_path().filter(|p| p.exists()) {
-            let src = std::fs::read_to_string(&p)?;
-            lua.load(&src).set_name("init.lua").exec()?;
-        }
-        Ok(Self { lua })
+    /// Build a plugin host from `$XDG_CONFIG_HOME/vdrs/init.lua`. Never fails:
+    /// a broken `init.lua` keeps everything registered before the error and the
+    /// error comes back as a warning. Missing init.lua is the common case.
+    pub fn load() -> (Self, Option<String>) {
+        Self::load_from(default_config_path())
     }
 
-    /// Build with an explicit config string. Used by tests.
-    pub fn load_from_source(src: &str) -> Result<Self, PluginError> {
+    fn load_from(path: Option<PathBuf>) -> (Self, Option<String>) {
+        let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        let config = path.map(|p| {
+            let m = mtime(&p);
+            (p, m)
+        });
+        let src = match &config {
+            Some((p, Some(_))) => match std::fs::read_to_string(p) {
+                Ok(s) => Some(s),
+                Err(e) => return (Self::empty(config), Some(format!("init.lua: {e}"))),
+            },
+            _ => None,
+        };
+        let host = Self::empty(config);
+        let err = src.and_then(|s| host.exec(&s, "init.lua").err());
+        (host, err.map(|e| format!("init.lua: {e}")))
+    }
+
+    fn empty(config: Option<(PathBuf, Option<std::time::SystemTime>)>) -> Self {
         let lua = Lua::new();
         lua.set_app_data(RefCell::new(Registry::default()));
-        install_api(&lua)?;
-        lua.load(src).set_name("inline").exec()?;
-        Ok(Self { lua })
+        install_api(&lua).expect("installing the vd table on a fresh VM");
+        Self { lua, config }
+    }
+
+    fn exec(&self, src: &str, name: &str) -> Result<(), PluginError> {
+        Ok(self.lua.load(src).set_name(name).exec()?)
+    }
+
+    /// Build with an explicit config string. Used by tests; errors on any Lua error.
+    pub fn load_from_source(src: &str) -> Result<Self, PluginError> {
+        let host = Self::empty(None);
+        host.exec(src, "inline")?;
+        Ok(host)
+    }
+
+    /// `init.lua` changed on disk (created, edited or deleted) since this host
+    /// loaded it → a freshly loaded host plus its warning, if any.
+    pub fn reload_if_changed(&self) -> Option<(Self, Option<String>)> {
+        let (path, loaded) = self.config.as_ref()?;
+        let now = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        (now != *loaded).then(|| Self::load_from(Some(path.clone())))
+    }
+
+    /// Theme picked by `vd.set_theme`, if any.
+    pub fn theme(&self) -> Option<crate::theme::Theme> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        match reg.borrow().theme.as_deref()? {
+            "light" => Some(crate::theme::Theme::light()),
+            _ => Some(crate::theme::Theme::dark()),
+        }
     }
 
     /// Mutate `keymap` by appending the Lua-registered patches.
@@ -141,6 +186,19 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set("bind", bind)?;
     vd.set("unbind", unbind)?;
     vd.set("register_loader", register_loader)?;
+    vd.set("api_version", API_VERSION)?;
+    vd.set(
+        "set_theme",
+        lua.create_function(|lua, name: String| {
+            if !matches!(name.as_str(), "dark" | "light") {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "unknown theme: {name} (dark|light)"
+                )));
+            }
+            registry(lua)?.borrow_mut().theme = Some(name);
+            Ok(())
+        })?,
+    )?;
     lua.globals().set("vd", vd)?;
     Ok(())
 }
@@ -153,14 +211,21 @@ fn bind_fn(
     let layer = parse_layer(&layer_s)
         .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown layer: {layer_s}")))?;
     let keys = parse_keys(keys_val)?;
-    let action = action_from_name(&action_s)
-        .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}")))?;
-    let desc_leaked: &'static str =
-        Box::leak(desc.unwrap_or_else(|| action_s.clone()).into_boxed_str());
+    // ":sort -id" binds an ex-command (validated now so typos fail at load).
+    let action = match action_s.strip_prefix(':') {
+        Some(cmd) => {
+            crate::exline::parse(cmd).map_err(|e| {
+                mlua::Error::RuntimeError(format!("bad ex-command {action_s}: {e}"))
+            })?;
+            Action::ExCommand(cmd.to_string())
+        }
+        None => action_from_name(&action_s)
+            .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}")))?,
+    };
     let chord = Chord {
         on: keys,
         run: vec![action],
-        desc: desc_leaked,
+        desc: desc.unwrap_or(action_s).into(),
     };
     let reg = lua
         .app_data_ref::<RefCell<Registry>>()
@@ -178,7 +243,7 @@ fn unbind_fn(lua: &Lua, (layer_s, keys_val): (String, LuaValue)) -> mlua::Result
     let chord = Chord {
         on: keys,
         run: vec![Action::Redraw],
-        desc: "unbound",
+        desc: "unbound".into(),
     };
     let reg = lua
         .app_data_ref::<RefCell<Registry>>()
@@ -231,6 +296,11 @@ fn register_loader_fn(lua: &Lua, spec: LuaTable) -> mlua::Result<()> {
         .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))?;
     reg.borrow_mut().loaders.push(rule);
     Ok(())
+}
+
+fn registry(lua: &Lua) -> mlua::Result<mlua::AppDataRef<'_, RefCell<Registry>>> {
+    lua.app_data_ref::<RefCell<Registry>>()
+        .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))
 }
 
 fn parse_layer(s: &str) -> Option<Layer> {
@@ -316,6 +386,13 @@ fn action_from_name(s: &str) -> Option<Action> {
         "unselect_all" => UnselectAll,
         "start_select_input" => StartSelectInput,
         "dup_selected" => DupSelected,
+        "dup_sheet" => DupSheet,
+        "hide_uniform" => HideUniform,
+        "describe" => Describe,
+        "pivot_current" => PivotCurrent,
+        "start_diff_input" => StartDiffInput,
+        "undo" => Undo,
+        "redo" => Redo,
         _ => return None,
     })
 }
@@ -356,6 +433,47 @@ mod tests {
             "f".parse().unwrap(),
         );
         assert!(matches!(fired, Dispatch::Fire(v) if matches!(v[0], Action::SearchNext)));
+    }
+
+    #[test]
+    fn bind_accepts_ex_commands_and_rejects_bad_ones() {
+        let p = Plugins::load_from_source(r#"vd.bind("sheet", "x", ":sort -id")"#).unwrap();
+        let mut km = Keymap::defaults();
+        p.apply_keymap(&mut km);
+        let d = km.resolve(Layer::Sheet, &[], "x".parse().unwrap());
+        assert!(matches!(d, Dispatch::Fire(v) if v[0] == Action::ExCommand("sort -id".into())));
+        assert!(Plugins::load_from_source(r#"vd.bind("sheet", "x", ":frobnicate")"#).is_err());
+    }
+
+    #[test]
+    fn broken_init_keeps_earlier_registrations_and_reloads_on_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let init = dir.path().join("init.lua");
+        std::fs::write(
+            &init,
+            "vd.bind('sheet', 'x', 'goto_top')\nvd.set_theme('light')\nerror('boom')",
+        )
+        .unwrap();
+        let (p, warn) = Plugins::load_from(Some(init.clone()));
+        assert!(warn.unwrap().contains("boom"));
+        let mut km = Keymap::defaults();
+        p.apply_keymap(&mut km);
+        assert!(matches!(
+            km.resolve(Layer::Sheet, &[], "x".parse().unwrap()),
+            Dispatch::Fire(_)
+        ));
+        assert!(p.theme().is_some());
+        assert!(p.reload_if_changed().is_none());
+        std::fs::remove_file(&init).unwrap(); // deleting counts as a change
+        let (fresh, warn) = p.reload_if_changed().unwrap();
+        assert!(warn.is_none() && fresh.theme().is_none());
+    }
+
+    #[test]
+    fn api_version_is_exposed() {
+        let p = Plugins::load_from_source("assert(vd.api_version >= 1)");
+        assert!(p.is_ok());
+        assert!(Plugins::load_from_source("vd.set_theme('neon')").is_err());
     }
 
     #[test]

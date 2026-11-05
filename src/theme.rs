@@ -88,6 +88,46 @@ impl Theme {
         }
     }
 
+    /// For light terminal backgrounds (`vd.set_theme("light")`).
+    pub const fn light() -> Self {
+        Self {
+            titlebar_left_fg: Color::White,
+            titlebar_left_bg: Color::Blue,
+            titlebar_mid_fg: Color::Black,
+            titlebar_mid_bg: Color::Rgb(200, 210, 230),
+            titlebar_right_fg: Color::Black,
+            titlebar_right_bg: Color::Green,
+            statusbar_fg: Color::Black,
+            statusbar_bg: Color::Rgb(215, 215, 215),
+            toast_fg: Color::Red,
+
+            header_fg: Color::Blue,
+            header_cursor_fg: Color::Black,
+            header_cursor_bg: Color::Yellow,
+            row_stripe_bg: Color::Rgb(238, 238, 238),
+            row_cursor_fg: Color::White,
+            row_cursor_bg: Color::Rgb(70, 110, 190),
+            cell_cursor_fg: Color::Black,
+            cell_cursor_bg: Color::Yellow,
+            col_cursor_fg: Color::Rgb(160, 90, 0),
+            selected_fg: Color::Black,
+            selected_bg: Color::Magenta,
+            null_fg: Color::Gray,
+
+            num_fg: Color::Rgb(0, 100, 130),
+            date_fg: Color::Rgb(130, 40, 130),
+            bool_true_fg: Color::Rgb(0, 120, 0),
+            bool_false_fg: Color::Rgb(170, 0, 0),
+            dtype_badge_fg: Color::Gray,
+
+            overlay_fg: Color::Black,
+            overlay_bg: Color::White,
+            overlay_border_fg: Color::DarkGray,
+            which_key_fg: Color::Blue,
+            plan_border_fg: Color::Green,
+        }
+    }
+
     pub fn titlebar_left(&self) -> Style {
         Style::default()
             .fg(self.titlebar_left_fg)
