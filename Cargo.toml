@@ -29,6 +29,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 flate2 = "1"
 calamine = "0.26"
 rusqlite = { version = "0.32", features = ["bundled"] }
+unicode-width = "0.2"  # already pulled in by ratatui; display widths of cells
 
 [dev-dependencies]
 serde_json = "1"

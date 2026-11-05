@@ -9,6 +9,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
 use crate::sheet::{Sheet, View};
 use crate::theme::Theme;
 
@@ -28,9 +30,9 @@ impl<'a> SheetWidget<'a> {
             .iter()
             .map(|s| {
                 // Header width = name + " [dtype-badge]" so we don't truncate the badge.
-                let hdr = (s.name().len() + 2 + dtype_badge(s.dtype()).len()) as u16;
+                let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
                 let data = (0..sample.min(s.len()))
-                    .filter_map(|i| s.get(i).ok().map(|av| display_av(&av).len() as u16))
+                    .filter_map(|i| s.get(i).ok().map(|av| display_av(&av).width() as u16))
                     .max()
                     .unwrap_or(0);
                 hdr.max(data)
@@ -131,8 +133,8 @@ impl<'a> Widget for SheetWidget<'a> {
             };
             // Lay out "name  dtype" within w: name on left, badge right-trailing if room.
             let badge_text = format!(" {dtype_s}");
-            let name_width = name.chars().count() as u16;
-            let badge_width = badge_text.chars().count() as u16;
+            let name_width = name.width() as u16;
+            let badge_width = badge_text.width() as u16;
             if name_width + badge_width <= w {
                 paint_run(buf, x, area.y, name_width, name, name_style);
                 paint_run(
@@ -238,17 +240,22 @@ enum DtypeHint {
 }
 
 fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style) {
-    let truncated: String = if text.chars().count() > w as usize {
-        let mut s = text
+    let truncated: String = if text.width() > w as usize {
+        // Keep whole characters that fit in w-1 cells, then the ellipsis.
+        let mut used = 0;
+        let mut s: String = text
             .chars()
-            .take((w as usize).saturating_sub(1))
-            .collect::<String>();
+            .take_while(|c| {
+                used += c.width().unwrap_or(0);
+                used < w as usize
+            })
+            .collect();
         s.push('…');
         s
     } else {
         text.to_string()
     };
-    let used = truncated.chars().count() as u16;
+    let used = truncated.width() as u16;
     paint_run(buf, x, y, used, &truncated, style);
     if used < w {
         let pad = " ".repeat((w - used) as usize);
@@ -261,14 +268,10 @@ fn paint_run(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style)
     if y >= buf.area().y + buf.area().height {
         return;
     }
-    let max_x = (buf.area().x + buf.area().width).min(x + w);
-    for (cx, ch) in (x..).zip(text.chars()) {
-        if cx >= max_x {
-            break;
-        }
-        if let Some(cell) = buf.cell_mut((cx, y)) {
-            cell.set_char(ch).set_style(style);
-        }
+    let max_x = (buf.area().x + buf.area().width).min(x.saturating_add(w));
+    if x < max_x {
+        // Width-aware: wide chars take two cells and never straddle the edge.
+        buf.set_stringn(x, y, text, (max_x - x) as usize, style);
     }
 }
 
@@ -280,8 +283,8 @@ fn display_av(av: &AnyValue) -> String {
 fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
     match av {
         AnyValue::Null => ("·".to_string(), DtypeHint::None),
-        AnyValue::String(s) => ((*s).to_string(), DtypeHint::None),
-        AnyValue::StringOwned(s) => (s.as_str().to_string(), DtypeHint::None),
+        AnyValue::String(s) => (printable(s), DtypeHint::None),
+        AnyValue::StringOwned(s) => (printable(s.as_str()), DtypeHint::None),
         AnyValue::Boolean(b) => ((if *b { "✓" } else { "✗" }).to_string(), DtypeHint::None),
         AnyValue::Int8(_)
         | AnyValue::Int16(_)
@@ -296,8 +299,21 @@ fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
         AnyValue::Date(_) | AnyValue::Datetime(_, _, _) | AnyValue::Duration(_, _) => {
             (av.to_string(), DtypeHint::Date)
         }
-        other => (other.to_string(), DtypeHint::None),
+        other => (printable(&other.to_string()), DtypeHint::None),
     }
+}
+
+/// Cell text must stay on one terminal line: show line breaks/tabs as glyphs
+/// and drop other control characters instead of writing them to the terminal.
+fn printable(s: &str) -> String {
+    s.chars()
+        .filter_map(|c| match c {
+            '\n' | '\r' => Some('↵'),
+            '\t' => Some('→'),
+            c if c.is_control() => None,
+            c => Some(c),
+        })
+        .collect()
 }
 
 /// Short dtype label for the column header badge.

@@ -1586,6 +1586,7 @@ mod scenario {
     //! End-to-end: real keymap + dispatch + background Polars tasks + render.
     use super::*;
     use std::io::Write;
+    use unicode_width::UnicodeWidthStr;
 
     pub struct Harness {
         pub app: App,
@@ -1603,6 +1604,13 @@ mod scenario {
             }
             tmp.flush().unwrap();
             let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+            Self::with_source(loaded, tmp).await
+        }
+
+        pub async fn with_source(
+            loaded: crate::reader::LoadedSource,
+            tmp: tempfile::NamedTempFile,
+        ) -> Self {
             let mut app = App::new(Sheet::from_source(0, loaded), None, None);
             app.spawn_materialize();
             let term = Terminal::new(ratatui::backend::TestBackend::new(100, 12)).unwrap();
@@ -1649,11 +1657,15 @@ mod scenario {
             let buf = self.term.backend().buffer();
             (0..buf.area.height)
                 .map(|y| {
-                    (0..buf.area.width)
-                        .map(|x| buf[(x, y)].symbol())
-                        .collect::<String>()
-                        .trim_end()
-                        .to_string()
+                    // Like a terminal: a wide symbol covers the next cell too.
+                    let mut line = String::new();
+                    let mut x = 0;
+                    while x < buf.area.width {
+                        let sym = buf[(x, y)].symbol();
+                        line.push_str(sym);
+                        x += sym.width().max(1) as u16;
+                    }
+                    line.trim_end().to_string()
                 })
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -1806,6 +1818,27 @@ mod scenario {
             "{}",
             h.screen()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wide_and_control_chars_render_on_one_line() {
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        tmp.write_all("k,v,z\n名前,\"a\nb\",end\nx\ty,q,end\n".as_bytes())
+            .unwrap();
+        tmp.flush().unwrap();
+        let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+        let mut h = Harness::with_source(loaded, tmp).await;
+        let screen = h.screen();
+        let rows: Vec<&str> = screen.lines().collect();
+        assert!(
+            rows[2].starts_with("名前") && rows[2].contains("a↵b"),
+            "{screen}"
+        );
+        assert!(rows[3].contains("x→y"), "{screen}");
+        // `z` column starts at the same terminal column on both rows
+        let col = |r: &str| r[..r.find("end").unwrap()].width();
+        assert_eq!(col(rows[2]), col(rows[3]), "{screen}");
+        h.keys("j").await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
