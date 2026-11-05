@@ -87,6 +87,26 @@ pub enum Derivation {
         values: String,
         agg: String,
     },
+    /// `W`: row counts of `keys` × `on`.
+    PivotCount {
+        keys: Vec<String>,
+        on: String,
+    },
+    Describe,
+    /// Row diff against `other` on `keys`.
+    Diff {
+        other: Box<Sheet>,
+        keys: Vec<String>,
+    },
+}
+
+/// Name of `other`'s column `c` after a row-diff join with columns `a`.
+pub fn diff_right_name(c: &str, a: &Schema) -> String {
+    if a.get(c).is_some() {
+        format!("{c}_right")
+    } else {
+        c.to_string()
+    }
 }
 
 /// Incremental tail: only bytes past `consumed` are parsed on refresh.
@@ -734,7 +754,7 @@ impl Sheet {
     pub fn row_diff_from(
         parent: &Sheet,
         id: SheetId,
-        other: &LoadedSource,
+        other: &Sheet,
         keys: &[String],
     ) -> Result<Self, String> {
         if keys.is_empty() {
@@ -742,7 +762,7 @@ impl Sheet {
         }
         let key_exprs: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
         let a = parent.view_plan();
-        let b = other.lazy.clone();
+        let b = other.view_plan();
         let joined = a.join(
             b,
             key_exprs.clone(),
@@ -756,8 +776,7 @@ impl Sheet {
             .collect_schema()
             .map_err(|e| e.to_string())?;
         let schema_b = other
-            .lazy
-            .clone()
+            .view_plan()
             .collect_schema()
             .map_err(|e| e.to_string())?;
         let probe_a = schema_a
@@ -771,7 +790,7 @@ impl Sheet {
 
         // __diff classifier
         let only_a = match &probe_b {
-            Some(c) => col(format!("{c}_right").as_str()).is_null(),
+            Some(c) => col(diff_right_name(c, &schema_a).as_str()).is_null(),
             None => lit(false),
         };
         let only_b = match &probe_a {
@@ -806,7 +825,11 @@ impl Sheet {
             .with_column(diff_col)
             .filter(only_a.or(only_b).or(mismatch_expr));
 
-        let other_name = other.display_name.clone();
+        let other_name = other.name.clone();
+        let how = Derivation::Diff {
+            other: Box::new(other.clone()),
+            keys: keys.to_vec(),
+        };
         Ok(Sheet {
             id,
             name: format!(
@@ -826,7 +849,8 @@ impl Sheet {
                 left: parent.id,
                 right_name: other_name,
             },
-        })
+        }
+        .derived(parent, how))
     }
 
     /// A sheet derived from `parent` with a fresh view.
@@ -1031,7 +1055,8 @@ impl Sheet {
             format!("describe: {}", parent.name),
             df.lazy(),
             origin,
-        ))
+        )
+        .derived(parent, Derivation::Describe))
     }
 
     /// `W`: count pivot of the current column `on`, rows keyed by `keys`.
@@ -1088,7 +1113,11 @@ impl Sheet {
             )
             .map_err(|e| e.to_string())?
         };
-        Ok(Self::child(parent, id, name, out.lazy(), origin))
+        let how = Derivation::PivotCount {
+            keys: keys.to_vec(),
+            on: on.to_string(),
+        };
+        Ok(Self::child(parent, id, name, out.lazy(), origin).derived(parent, how))
     }
 
     /// Columns of the view holding at most one distinct value (`:uniform`).
@@ -1810,7 +1839,8 @@ mod tests {
         let la = reader::open(ta.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
         let lb = reader::open(tb.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
         let parent = Sheet::from_source(0, la);
-        let d = Sheet::row_diff_from(&parent, 1, &lb, &["id".to_string()]).unwrap();
+        let d = Sheet::row_diff_from(&parent, 1, &Sheet::from_source(2, lb), &["id".to_string()])
+            .unwrap();
         let df = d.plan.clone().collect().unwrap();
         // Expect 3 rows (1 unchanged suppressed): id=2 changed, id=3 only_a, id=4 only_b
         assert_eq!(df.height(), 3);

@@ -41,7 +41,7 @@ fn sqlite_conn(path: &Path) -> Result<rusqlite::Connection, OpenError> {
 }
 
 /// User tables in sqlite's own creation order.
-fn sqlite_tables(path: &Path) -> Result<Vec<String>, OpenError> {
+pub(crate) fn sqlite_tables(path: &Path) -> Result<Vec<String>, OpenError> {
     let conn = sqlite_conn(path)?;
     let mut stmt = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid")

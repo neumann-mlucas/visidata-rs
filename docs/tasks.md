@@ -29,7 +29,7 @@ Still open (see S-15 §10.1):
 - [x] Lua aggregators off the UI thread: `:pivot` and its preview run them on a background job (mlua `send`; VM lock per cell)
 - [x] Deterministic row order for joins / `:sql`: result collected once in the background
 - [x] `:export` for derived sheets (verified: DuckDB + Polars 1.x reproduce the rows)
-- [ ] `:export` for describe/diff/`W`; Arrow/Excel in `.sql`, SQLite in `.py`
+- [x] `:export` for describe/row diff/`W`; Arrow/Excel in `.sql` (DuckDB extensions), SQLite in `.py` (stdlib `sqlite3`) — schema diff stays out
 - [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
 
 ## Phase 0 — viewer parity (csvlens++)

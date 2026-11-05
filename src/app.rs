@@ -1393,7 +1393,7 @@ impl App {
             if keys.is_empty() {
                 Sheet::schema_diff_from(parent, id, &loaded)
             } else {
-                Sheet::row_diff_from(parent, id, &loaded, keys)
+                Sheet::row_diff_from(parent, id, &Sheet::from_source(0, loaded), keys)
             }
         };
         match built {

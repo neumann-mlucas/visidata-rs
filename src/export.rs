@@ -5,7 +5,7 @@
 //! the parent snapshot in `state.lineage`) → plan steps (rename, currency,
 //! derive, setcol) → type casts → filter → sort → visible columns. Each sheet
 //! in the lineage becomes one Python variable / SQL CTE (`t1`, `t2`, …).
-//! Not exportable: describe, diff, `W` pivots, Lua-aggregator pivots, stdin.
+//! Not exportable: schema diff, Lua-aggregator pivots, stdin.
 
 use std::path::Path;
 
@@ -30,7 +30,8 @@ pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
 pub fn to_python(sheet: &Sheet) -> Result<String, String> {
     let mut sc = Script::new(Lang::Py);
     let v = sc.view(sheet, false)?;
-    let mut out = vec!["import polars as pl".to_string(), String::new()];
+    let mut out = sc.head;
+    out.extend(["import polars as pl".to_string(), String::new()]);
     out.extend(sc.defs);
     out.push(String::new());
     out.push(format!("print({v}.collect())"));
@@ -40,7 +41,8 @@ pub fn to_python(sheet: &Sheet) -> Result<String, String> {
 pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
     let mut sc = Script::new(Lang::Sql);
     let q = sc.view_query(sheet, false)?;
-    Ok(format!("WITH\n{}\n{q};\n", sc.defs.join(",\n")))
+    let head: String = sc.head.iter().map(|l| l.clone() + "\n").collect();
+    Ok(format!("{head}WITH\n{}\n{q};\n", sc.defs.join(",\n")))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -49,9 +51,11 @@ enum Lang {
     Sql,
 }
 
-/// Python: `defs` are statements; SQL: `defs` are CTEs.
+/// Python: `defs` are statements; SQL: `defs` are CTEs. `head`: imports /
+/// extension loads the sources need.
 struct Script {
     lang: Lang,
+    head: Vec<String>,
     defs: Vec<String>,
     n: usize,
 }
@@ -60,6 +64,7 @@ impl Script {
     fn new(lang: Lang) -> Self {
         Script {
             lang,
+            head: Vec::new(),
             defs: Vec::new(),
             n: 0,
         }
@@ -74,6 +79,12 @@ impl Script {
             Lang::Sql => format!("{name} AS (\n  {}\n)", expr.replace('\n', "\n  ")),
         });
         name
+    }
+
+    fn need(&mut self, line: &str) {
+        if !self.head.iter().any(|l| l == line) {
+            self.head.push(line.to_string());
+        }
     }
 
     /// Python: append `name = <stmt>` lines that rework `name` in place.
@@ -119,7 +130,7 @@ impl Script {
     }
 
     /// File sheets: the read expression / query.
-    fn source(&self, s: &Sheet) -> Result<String, String> {
+    fn source(&mut self, s: &Sheet) -> Result<String, String> {
         if !matches!(s.origin, Origin::File | Origin::Tail { .. }) {
             return Err(format!("export: can't rebuild {:?}", s.name));
         }
@@ -132,6 +143,14 @@ impl Script {
         // `book.xlsx:Sheet2` / `app.db:users` opened one part of the file
         let part = s.source.display_name.strip_prefix(&format!("{shown}:"));
         let kind = s.kind;
+        let table = match (kind, part) {
+            (SourceKind::Sqlite, None) => crate::reader::sqlite_tables(path)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .next()
+                .ok_or("export: no tables in the sqlite file")?,
+            _ => part.unwrap_or_default().to_string(),
+        };
         match self.lang {
             Lang::Py => {
                 let p = py_str(&shown);
@@ -153,8 +172,17 @@ impl Script {
                         Some(sh) => format!("pl.read_excel({p}, sheet_name={}).lazy()", py_str(sh)),
                         None => format!("pl.read_excel({p}).lazy()"),
                     },
-                    (SourceKind::Sqlite, _) | (SourceKind::Stdin, _) => {
-                        return Err(format!("export: {kind:?} sources aren't supported in .py"));
+                    (SourceKind::Sqlite, _) => {
+                        // vdrs reads sqlite as text, null as ""
+                        self.need("import sqlite3");
+                        format!(
+                            "pl.read_database({}, sqlite3.connect({p})).lazy()\
+                             .select(pl.all().cast(pl.Utf8).fill_null(\"\"))",
+                            py_str(&format!("SELECT * FROM {}", q_ident(&table)))
+                        )
+                    }
+                    (SourceKind::Stdin, _) => {
+                        return Err("export: stdin can't be re-read".into());
                     }
                 })
             }
@@ -167,15 +195,23 @@ impl Script {
                     SourceKind::Jsonl | SourceKind::Json => {
                         format!("SELECT * FROM read_json_auto({p})")
                     }
-                    SourceKind::Sqlite => match part {
-                        Some(t) => format!("SELECT * FROM sqlite_scan({p}, {})", q_str(t)),
-                        None => format!(
-                            "SELECT * FROM sqlite_scan({p}, (SELECT name FROM sqlite_master LIMIT 1))"
-                        ),
-                    },
-                    SourceKind::Arrow | SourceKind::Xlsx | SourceKind::Stdin => {
-                        return Err(format!("export: {kind:?} sources aren't supported in .sql"));
+                    SourceKind::Sqlite => {
+                        format!("SELECT * FROM sqlite_scan({p}, {})", q_str(&table))
                     }
+                    SourceKind::Xlsx => {
+                        self.need("INSTALL excel;\nLOAD excel;");
+                        match part {
+                            Some(sh) => {
+                                format!("SELECT * FROM read_xlsx({p}, sheet = {})", q_str(sh))
+                            }
+                            None => format!("SELECT * FROM read_xlsx({p})"),
+                        }
+                    }
+                    SourceKind::Arrow => {
+                        self.need("INSTALL nanoarrow FROM community;\nLOAD nanoarrow;");
+                        format!("SELECT * FROM read_arrow({p})")
+                    }
+                    SourceKind::Stdin => return Err("export: stdin can't be re-read".into()),
                 })
             }
         }
@@ -286,101 +322,48 @@ impl Script {
             }
             Derivation::Join { right, keys, how } => {
                 let r = self.view(right, false)?;
-                let names = |s: &Sheet| -> Result<Vec<String>, String> {
-                    let schema = s.view_plan().collect_schema().map_err(|e| e.to_string())?;
-                    Ok(schema.iter_names().map(|n| n.to_string()).collect())
-                };
-                let (ln, rn) = (names(&l.parent)?, names(right)?);
-                // Right columns Polars suffixes `_right` (same name as a left one).
-                let dups: Vec<&String> = rn
-                    .iter()
-                    .filter(|n| !keys.contains(n) && ln.contains(n))
-                    .collect();
-                match (how.as_str(), py) {
-                    ("append", true) => format!(
-                        "pl.concat([{p}.with_columns(pl.lit({}).alias(\"origin_sheet\")), \
-                         {r}.with_columns(pl.lit({}).alias(\"origin_sheet\"))], how=\"diagonal_relaxed\")",
-                        py_str(&l.parent.name),
-                        py_str(&right.name)
-                    ),
-                    ("append", false) => format!(
-                        "SELECT *, {} AS origin_sheet FROM {p}\nUNION ALL BY NAME\nSELECT *, {} AS origin_sheet FROM {r}",
-                        q_str(&l.parent.name),
-                        q_str(&right.name)
-                    ),
-                    (_, true) => {
-                        let on: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
-                        let h = if how == "merge" { "full" } else { how.as_str() };
-                        let mut e = format!(
-                            "{p}.join({r}, on=[{}], how={}, coalesce=True)",
-                            on.join(", "),
-                            py_str(h)
-                        );
-                        if how == "merge" && !dups.is_empty() {
-                            let fold: Vec<String> = dups
-                                .iter()
-                                .map(|b| {
-                                    format!(
-                                        "pl.col({}).fill_null(pl.col({b})).alias({b})",
-                                        py_str(&format!("{b}_right")),
-                                        b = py_str(b)
-                                    )
-                                })
-                                .collect();
-                            let drop: Vec<String> =
-                                dups.iter().map(|b| py_str(&format!("{b}_right"))).collect();
-                            e += &format!(
-                                ".with_columns([{}]).drop([{}])",
-                                fold.join(", "),
-                                drop.join(", ")
-                            );
-                        }
-                        e
-                    }
-                    (_, false) => {
-                        let jt = match how.as_str() {
-                            "inner" => "INNER",
-                            "left" => "LEFT",
-                            _ => "FULL OUTER",
-                        };
-                        let rcols: Vec<String> = rn
+                join_code(py, &p, &r, &l.parent, right, keys, how)?
+            }
+            Derivation::Diff { other, keys } => {
+                let r = self.view(other, false)?;
+                let j = join_code(py, &p, &r, &l.parent, other, keys, "full")?;
+                diff_code(py, &j, &l.parent, other, keys)?
+            }
+            Derivation::Describe => describe_code(py, &p, &l.parent)?,
+            Derivation::PivotCount { keys, on } => {
+                let on_py = py_str(on);
+                match (py, keys.is_empty()) {
+                    (true, false) => format!(
+                        "{p}.group_by([{k}, {on_py}], maintain_order=True).len()\
+                         .with_columns(pl.col({on_py}).cast(pl.Utf8)).collect()\
+                         .pivot(on={on_py}, index=[{k}], values=\"len\", aggregate_function=\"first\").lazy()",
+                        k = keys
                             .iter()
-                            .map(|n| {
-                                if dups.contains(&n) {
-                                    format!("{} AS {}", q_ident(n), q_ident(&format!("{n}_right")))
-                                } else {
-                                    q_ident(n)
-                                }
-                            })
-                            .collect();
-                        let using: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
-                        let mut q = format!(
-                            "SELECT * FROM {p} {jt} JOIN (SELECT {} FROM {r}) USING ({})",
-                            rcols.join(", "),
-                            using.join(", ")
-                        );
-                        if how == "merge" && !dups.is_empty() {
-                            let fold: Vec<String> = dups
-                                .iter()
-                                .map(|b| {
-                                    format!(
-                                        "coalesce({}, {b}) AS {b}",
-                                        q_ident(&format!("{b}_right")),
-                                        b = q_ident(b)
-                                    )
-                                })
-                                .collect();
-                            let drop: Vec<String> = dups
-                                .iter()
-                                .map(|b| q_ident(&format!("{b}_right")))
-                                .collect();
-                            q = format!(
-                                "SELECT * EXCLUDE ({}) FROM (SELECT * REPLACE ({}) FROM ({q}))",
-                                drop.join(", "),
-                                fold.join(", ")
-                            );
-                        }
-                        q
+                            .map(|k| py_str(k))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    (true, true) => format!(
+                        "{p}.group_by({on_py}, maintain_order=True).len()\
+                         .with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"), pl.lit(0).alias(\"__k\")).collect()\
+                         .pivot(on={on_py}, index=\"__k\", values=\"len\").drop(\"__k\").lazy()\
+                         .select(pl.all().cast(pl.Int64))"
+                    ),
+                    (false, _) => {
+                        // PIVOT groups by every column it isn't told about
+                        let k: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
+                        let by = if k.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" GROUP BY {}", k.join(", "))
+                        };
+                        let on = q_ident(on);
+                        let cols: Vec<&str> =
+                            k.iter().map(String::as_str).chain([on.as_str()]).collect();
+                        format!(
+                            "SELECT * FROM (PIVOT (SELECT {} FROM {p}) ON coalesce(CAST({on} AS VARCHAR), 'null') USING count(*){by})",
+                            cols.join(", ")
+                        )
                     }
                 }
             }
@@ -552,6 +535,262 @@ impl Script {
         }
         Ok(sql)
     }
+}
+
+fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
+    let schema = s.view_plan().collect_schema().map_err(|e| e.to_string())?;
+    Ok(schema
+        .iter()
+        .map(|(n, d)| (n.to_string(), d.clone()))
+        .collect())
+}
+
+/// `:join` of view `p` (sheet `left`) with view `r` (sheet `right`).
+fn join_code(
+    py: bool,
+    p: &str,
+    r: &str,
+    left: &Sheet,
+    right: &Sheet,
+    keys: &[String],
+    how: &str,
+) -> Result<String, String> {
+    let names = |s| -> Result<Vec<String>, String> {
+        Ok(columns(s)?.into_iter().map(|(n, _)| n).collect())
+    };
+    let (ln, rn) = (names(left)?, names(right)?);
+    // Right columns Polars suffixes `_right` (same name as a left one).
+    let dups: Vec<&String> = rn
+        .iter()
+        .filter(|n| !keys.contains(n) && ln.contains(n))
+        .collect();
+    Ok(match (how, py) {
+        ("append", true) => format!(
+            "pl.concat([{p}.with_columns(pl.lit({}).alias(\"origin_sheet\")), \
+             {r}.with_columns(pl.lit({}).alias(\"origin_sheet\"))], how=\"diagonal_relaxed\")",
+            py_str(&left.name),
+            py_str(&right.name)
+        ),
+        ("append", false) => format!(
+            "SELECT *, {} AS origin_sheet FROM {p}\nUNION ALL BY NAME\nSELECT *, {} AS origin_sheet FROM {r}",
+            q_str(&left.name),
+            q_str(&right.name)
+        ),
+        (_, true) => {
+            let on: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
+            let h = if how == "merge" { "full" } else { how };
+            let mut e = format!(
+                "{p}.join({r}, on=[{}], how={}, coalesce=True)",
+                on.join(", "),
+                py_str(h)
+            );
+            if how == "merge" && !dups.is_empty() {
+                let fold: Vec<String> = dups
+                    .iter()
+                    .map(|b| {
+                        format!(
+                            "pl.col({}).fill_null(pl.col({b})).alias({b})",
+                            py_str(&format!("{b}_right")),
+                            b = py_str(b)
+                        )
+                    })
+                    .collect();
+                let drop: Vec<String> =
+                    dups.iter().map(|b| py_str(&format!("{b}_right"))).collect();
+                e += &format!(
+                    ".with_columns([{}]).drop([{}])",
+                    fold.join(", "),
+                    drop.join(", ")
+                );
+            }
+            e
+        }
+        (_, false) => {
+            let jt = match how {
+                "inner" => "INNER",
+                "left" => "LEFT",
+                _ => "FULL OUTER",
+            };
+            let rcols: Vec<String> = rn
+                .iter()
+                .map(|n| {
+                    if dups.contains(&n) {
+                        format!("{} AS {}", q_ident(n), q_ident(&format!("{n}_right")))
+                    } else {
+                        q_ident(n)
+                    }
+                })
+                .collect();
+            let using: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
+            let mut q = format!(
+                "SELECT * FROM {p} {jt} JOIN (SELECT {} FROM {r}) USING ({})",
+                rcols.join(", "),
+                using.join(", ")
+            );
+            if how == "merge" && !dups.is_empty() {
+                let fold: Vec<String> = dups
+                    .iter()
+                    .map(|b| {
+                        format!(
+                            "coalesce({}, {b}) AS {b}",
+                            q_ident(&format!("{b}_right")),
+                            b = q_ident(b)
+                        )
+                    })
+                    .collect();
+                let drop: Vec<String> = dups
+                    .iter()
+                    .map(|b| q_ident(&format!("{b}_right")))
+                    .collect();
+                q = format!(
+                    "SELECT * EXCLUDE ({}) FROM (SELECT * REPLACE ({}) FROM ({q}))",
+                    drop.join(", "),
+                    fold.join(", ")
+                );
+            }
+            q
+        }
+    })
+}
+
+/// Row diff over the full join `j`: tag `__diff`, keep rows only on one side
+/// or with a changed shared column (mirrors `Sheet::row_diff_from`).
+fn diff_code(
+    py: bool,
+    j: &str,
+    left: &Sheet,
+    other: &Sheet,
+    keys: &[String],
+) -> Result<String, String> {
+    let schema_a = left
+        .view_plan()
+        .collect_schema()
+        .map_err(|e| e.to_string())?;
+    let (a, b) = (columns(left)?, columns(other)?);
+    let non_key = |cols: &[(String, DataType)]| {
+        cols.iter()
+            .map(|(n, _)| n.clone())
+            .find(|n| !keys.contains(n))
+    };
+    let probe_a = non_key(&a);
+    let probe_b = non_key(&b).map(|c| crate::sheet::diff_right_name(&c, &schema_a));
+    let shared: Vec<&String> = a
+        .iter()
+        .map(|(n, _)| n)
+        .filter(|n| !keys.contains(n) && b.iter().any(|(m, _)| m == *n))
+        .collect();
+    Ok(if py {
+        let null = |c: &Option<String>| match c {
+            Some(c) => format!("pl.col({}).is_null()", py_str(c)),
+            None => "pl.lit(False)".into(),
+        };
+        let (only_a, only_b) = (null(&probe_b), null(&probe_a));
+        let mismatch: Vec<String> = shared
+            .iter()
+            .map(|c| {
+                format!(
+                    "(pl.col({}) != pl.col({}))",
+                    py_str(c),
+                    py_str(&format!("{c}_right"))
+                )
+            })
+            .collect();
+        let mismatch = if mismatch.is_empty() {
+            "pl.lit(False)".into()
+        } else {
+            mismatch.join(" | ")
+        };
+        format!(
+            "{j}.with_columns(pl.when({only_a}).then(pl.lit(\"only_a\")).when({only_b}).then(pl.lit(\"only_b\"))\
+             .otherwise(pl.lit(\"changed\")).alias(\"__diff\")).filter({only_a} | {only_b} | {mismatch})"
+        )
+    } else {
+        let null = |c: &Option<String>| match c {
+            Some(c) => format!("{} IS NULL", q_ident(c)),
+            None => "FALSE".into(),
+        };
+        let (only_a, only_b) = (null(&probe_b), null(&probe_a));
+        let mismatch: Vec<String> = shared
+            .iter()
+            .map(|c| format!("{} <> {}", q_ident(c), q_ident(&format!("{c}_right"))))
+            .collect();
+        let mismatch = if mismatch.is_empty() {
+            "FALSE".into()
+        } else {
+            mismatch.join(" OR ")
+        };
+        format!(
+            "SELECT *, CASE WHEN {only_a} THEN 'only_a' WHEN {only_b} THEN 'only_b' ELSE 'changed' END AS __diff\n\
+             FROM ({j})\nWHERE {only_a} OR {only_b} OR {mismatch}"
+        )
+    })
+}
+
+/// `I`: one row per column of view `p` (mirrors `Sheet::describe_from`).
+fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String, String> {
+    let cols = columns(parent)?;
+    if cols.is_empty() {
+        return Err("export: nothing to describe".into());
+    }
+    let rows: Vec<String> = cols
+        .iter()
+        .enumerate()
+        .map(|(i, (name, dt))| {
+            let (ordered, numeric) = (!dt.is_nested(), dt.is_numeric());
+            if py {
+                let c = format!("pl.col({})", py_str(name));
+                let or_null = |ok: bool, e: String, ty: &str, alias: &str| {
+                    if ok {
+                        format!("{e}.cast({ty}).alias(\"{alias}\")")
+                    } else {
+                        format!("pl.lit(None, dtype={ty}).alias(\"{alias}\")")
+                    }
+                };
+                [
+                    format!("pl.lit({}).alias(\"column\")", py_str(name)),
+                    format!("pl.lit({}).alias(\"type\")", py_str(&dt.to_string())),
+                    format!("{c}.count().cast(pl.UInt64).alias(\"count\")"),
+                    format!("{c}.null_count().cast(pl.UInt64).alias(\"nulls\")"),
+                    format!("{c}.n_unique().cast(pl.UInt64).alias(\"distinct\")"),
+                    or_null(ordered, format!("{c}.min()"), "pl.Utf8", "min"),
+                    or_null(ordered, format!("{c}.max()"), "pl.Utf8", "max"),
+                    or_null(numeric, format!("{c}.mean()"), "pl.Float64", "mean"),
+                    or_null(numeric, format!("{c}.median()"), "pl.Float64", "median"),
+                ]
+                .join(", ")
+            } else {
+                let c = q_ident(name);
+                let or_null = |ok: bool, e: String, ty: &str| {
+                    if ok {
+                        format!("CAST({e} AS {ty})")
+                    } else {
+                        format!("CAST(NULL AS {ty})")
+                    }
+                };
+                format!(
+                    "SELECT {i} AS __i, {} AS \"column\", {} AS \"type\", CAST(count({c}) AS UBIGINT) AS \"count\", \
+                     CAST(count(*) - count({c}) AS UBIGINT) AS nulls, \
+                     CAST(count(DISTINCT {c}) + (count(*) > count({c}))::INT AS UBIGINT) AS \"distinct\", \
+                     {} AS \"min\", {} AS \"max\", {} AS mean, {} AS median FROM {p}",
+                    q_str(name),
+                    q_str(&dt.to_string()),
+                    or_null(ordered, format!("min({c})"), "VARCHAR"),
+                    or_null(ordered, format!("max({c})"), "VARCHAR"),
+                    or_null(numeric, format!("avg({c})"), "DOUBLE"),
+                    or_null(numeric, format!("median({c})"), "DOUBLE"),
+                )
+            }
+        })
+        .collect();
+    Ok(if py {
+        let sel: Vec<String> = rows.iter().map(|r| format!("{p}.select({r})")).collect();
+        format!("pl.concat([\n    {},\n])", sel.join(",\n    "))
+    } else {
+        format!(
+            "SELECT * EXCLUDE (__i) FROM (\n{}\n) ORDER BY __i",
+            rows.join("\nUNION ALL\n")
+        )
+    })
 }
 
 fn py_step(t: &str, step: &PlanStep) -> String {
@@ -729,16 +968,17 @@ mod tests {
 
     #[test]
     fn unexportable_sheets_and_bad_extension_refuse() {
-        let (s, _t) = sheet();
-        let described = Sheet::describe_from(&s, 1).unwrap();
-        assert!(to_python(&described).is_err());
+        let (s, t) = sheet();
+        let other = crate::reader::open(t.path().as_os_str(), None).unwrap();
+        let schema_diff = Sheet::schema_diff_from(&s, 1, &other).unwrap();
+        assert!(to_python(&schema_diff).is_err());
         assert!(script_for(&s, Path::new("x.txt")).is_err());
     }
 
     #[test]
     fn derived_sheets_export_their_lineage() {
-        // Verified by hand 2026-11-05: DuckDB and Polars 1.x run these scripts
-        // and reproduce the vdrs rows (join row order aside).
+        // Verified by hand 2026-11-05: DuckDB 1.5 and Polars run these scripts and
+        // reproduce the vdrs rows (join/diff row order, pivot 0-vs-null aside).
         let (s, _t) = sheet();
         let mut r = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
         writeln!(r, "name,extra\nalice,x").unwrap();
@@ -762,6 +1002,21 @@ mod tests {
                 Sheet::sql_from(&s, 6, "SELECT * FROM s5", vec![right.clone()]).unwrap(),
                 "\"s5\": t",
                 "s5 AS (SELECT * FROM t",
+            ),
+            (
+                Sheet::describe_from(&s, 8).unwrap(),
+                "pl.col(\"qty\").n_unique()",
+                "ORDER BY __i",
+            ),
+            (
+                Sheet::pivot_current_from(&s, 9, &["name".into()], "qty").unwrap(),
+                "index=[\"name\"], values=\"len\"",
+                "USING count(*) GROUP BY \"name\"",
+            ),
+            (
+                Sheet::row_diff_from(&s, 10, &right, &["name".into()]).unwrap(),
+                "pl.col(\"extra\").is_null()",
+                "WHEN \"extra\" IS NULL THEN 'only_a'",
             ),
         ];
         for (sheet, py, sql) in cases {

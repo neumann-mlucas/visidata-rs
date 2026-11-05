@@ -205,7 +205,7 @@ id i   date date    <span class="c">region str</span>  qty i  price f
 <table>
 <tr><th>Command</th><th>Action</th></tr>
 <tr><td><code>:save out.parquet</code> (<code>:w</code>)</td><td>Write every row of the current view (filter, sort, types, visible columns). The extension picks the format: <code>.csv</code>, <code>.tsv</code>, <code>.parquet</code>, <code>.arrow</code>/<code>.ipc</code>, <code>.jsonl</code>, <code>.json</code>. An existing file is overwritten; an unknown extension is refused and leaves the file alone.</td></tr>
-<tr><td><code>:export view.py</code>, <code>:export view.sql</code></td><td>Write a script that rebuilds the current view from the source files: Python with Polars, or SQL for DuckDB. Derived sheets (frequency, copy, selected rows, <code>:join</code>, <code>:sql</code>, <code>:pivot</code>, <code>:unpivot</code>) are rebuilt step by step from the sheet they came from, as it was when you made them.</td></tr>
+<tr><td><code>:export view.py</code>, <code>:export view.sql</code></td><td>Write a script that rebuilds the current view from the source files: Python with Polars, or SQL for DuckDB. Derived sheets (frequency, copy, selected rows, <code>:join</code>, <code>:sql</code>, <code>:pivot</code>, <kbd>W</kbd>, <code>:unpivot</code>, describe, row diff) are rebuilt step by step from the sheet they came from, as it was when you made them.</td></tr>
 </table>
 
 <h2 id="stream">Following files</h2>
@@ -389,7 +389,7 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 <ul>
 <li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
 <li><code>:join</code> and <code>:sql</code> results are computed once and held in memory, so their row order (and your selections) stay fixed.</li>
-<li><code>:export</code> can't rebuild describe (<kbd>I</kbd>), diff, <kbd>W</kbd> pivots, pivots with a Lua aggregator, or stdin; SQL can't read Excel/Arrow and Python can't read SQLite. Joins may come out in a different row order, and <code>:sql</code> queries run as written by the other engine.</li>
+<li><code>:export</code> can't rebuild a schema diff (<kbd>D</kbd> with no key columns), pivots with a Lua aggregator, or stdin. SQL scripts load DuckDB's <code>excel</code> / <code>nanoarrow</code> extensions for Excel / Arrow files; nanoarrow can't read Arrow files with string-view columns (as Polars writes them). Joins and diffs may come out in a different row order, DuckDB pivots show 0 where vdrs shows empty, and <code>:sql</code> queries run as written by the other engine.</li>
 <li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>
 </ul>
 
