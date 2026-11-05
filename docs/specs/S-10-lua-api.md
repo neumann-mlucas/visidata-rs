@@ -1,6 +1,6 @@
 # S-10 — Lua API surface + versioning
 
-Status: **draft** (unapproved)
+Status: **draft** (unapproved). Shipped subset (2026-11-05, `vd.api_version` 2): registration fns, `vd.bind` with a function, `vd.toast`, `vd.sheet()`. The rest waits for a Lua user to ask.
 Phase: 3
 Depends on: S-09 (plugin lifecycle), direction §4 (Neovim-style API discipline)
 

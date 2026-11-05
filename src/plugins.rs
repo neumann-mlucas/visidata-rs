@@ -30,6 +30,21 @@ struct Registry {
     theme: Option<String>,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
+    /// `vd.bind` functions, indexed by `Action::Lua`.
+    callbacks: Vec<LuaFunction>,
+    /// While a callback runs: what `vd.sheet()` returns, and `vd.toast` messages.
+    current: Option<LuaTable>,
+    toasts: Vec<String>,
+}
+
+/// What a `vd.bind` function sees through `vd.sheet()`.
+pub struct SheetCtx<'a> {
+    pub name: &'a str,
+    /// 1-based row in the view, 1-based column.
+    pub row: u64,
+    pub col: usize,
+    pub column_names: Vec<String>,
+    pub value: AnyValue<'a>,
 }
 
 /// `vd.register_renderer { column = "price" | dtype = "f64", render = fn(v) }`.
@@ -50,7 +65,7 @@ pub enum AggValue {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 1;
+pub const API_VERSION: i64 = 2; // 2: function bindings, vd.toast, vd.sheet
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -213,6 +228,40 @@ impl Plugins {
         f.call::<Option<String>>(v).ok().flatten()
     }
 
+    /// Run `vd.bind` function `id` with `vd.sheet()` = `ctx`. Returns the
+    /// `vd.toast` messages; a Lua error comes back as Err.
+    pub fn call(&self, id: usize, ctx: &SheetCtx) -> Result<Vec<String>, PluginError> {
+        let lua = &self.lua;
+        let t = lua.create_table()?;
+        t.set("name", ctx.name)?;
+        let cursor = lua.create_table()?;
+        cursor.set("row", ctx.row)?;
+        cursor.set("col", ctx.col)?;
+        t.set("cursor", cursor)?;
+        t.set(
+            "column",
+            ctx.column_names.get(ctx.col.wrapping_sub(1)).cloned(),
+        )?;
+        t.set("column_names", ctx.column_names.clone())?;
+        t.set("value", to_lua(lua, &ctx.value)?)?;
+        let f = {
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            reg.current = Some(t);
+            reg.callbacks.get(id).cloned()
+        };
+        let result = match f {
+            Some(f) => f.call::<()>(()),
+            None => Err(mlua::Error::RuntimeError(format!("no lua binding #{id}"))),
+        };
+        let r = registry(lua)?;
+        let mut reg = r.borrow_mut();
+        reg.current = None;
+        let toasts = std::mem::take(&mut reg.toasts);
+        result?;
+        Ok(toasts)
+    }
+
     /// Theme picked by `vd.set_theme`, if any.
     pub fn theme(&self) -> Option<crate::theme::Theme> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
@@ -286,6 +335,24 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set("register_loader", register_loader)?;
     vd.set("api_version", API_VERSION)?;
     vd.set(
+        "toast",
+        lua.create_function(|lua, msg: String| {
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            if reg.current.is_none() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.toast works inside a vd.bind function".into(),
+                ));
+            }
+            reg.toasts.push(msg);
+            Ok(())
+        })?,
+    )?;
+    vd.set(
+        "sheet",
+        lua.create_function(|lua, ()| Ok(registry(lua)?.borrow().current.clone()))?,
+    )?;
+    vd.set(
         "register_aggregator",
         lua.create_function(|lua, (name, f): (String, LuaFunction)| {
             registry(lua)?.borrow_mut().aggregators.push((name, f));
@@ -328,11 +395,35 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
 /// `vd.bind(layer, keys, action, desc?)`
 fn bind_fn(
     lua: &Lua,
-    (layer_s, keys_val, action_s, desc): (String, LuaValue, String, Option<String>),
+    (layer_s, keys_val, action_v, desc): (String, LuaValue, LuaValue, Option<String>),
 ) -> mlua::Result<()> {
     let layer = parse_layer(&layer_s)
         .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown layer: {layer_s}")))?;
     let keys = parse_keys(keys_val)?;
+    let action_s = match action_v {
+        LuaValue::Function(f) => {
+            let id = {
+                let r = registry(lua)?;
+                let mut reg = r.borrow_mut();
+                reg.callbacks.push(f);
+                reg.callbacks.len() - 1
+            };
+            return push_patch(
+                lua,
+                layer,
+                keys,
+                Action::Lua(id),
+                desc.unwrap_or("lua function".into()),
+            );
+        }
+        LuaValue::String(s) => s.to_str()?.to_string(),
+        other => {
+            return Err(mlua::Error::RuntimeError(format!(
+                "vd.bind: action must be a name, \":command\" or function, not {}",
+                other.type_name()
+            )));
+        }
+    };
     // ":sort -id" binds an ex-command (validated now so typos fail at load).
     let action = match action_s.strip_prefix(':') {
         Some(cmd) => {
@@ -344,15 +435,26 @@ fn bind_fn(
         None => action_from_name(&action_s)
             .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}")))?,
     };
+    let desc = desc.unwrap_or(action_s);
+    push_patch(lua, layer, keys, action, desc)
+}
+
+fn push_patch(
+    lua: &Lua,
+    layer: Layer,
+    on: Vec<Key>,
+    action: Action,
+    desc: String,
+) -> mlua::Result<()> {
     let chord = Chord {
-        on: keys,
+        on,
         run: vec![action],
-        desc: desc.unwrap_or(action_s).into(),
+        desc: desc.into(),
     };
-    let reg = lua
-        .app_data_ref::<RefCell<Registry>>()
-        .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))?;
-    reg.borrow_mut().patches.push(KeymapPatch { layer, chord });
+    registry(lua)?
+        .borrow_mut()
+        .patches
+        .push(KeymapPatch { layer, chord });
     Ok(())
 }
 

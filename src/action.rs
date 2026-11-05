@@ -104,6 +104,8 @@ pub enum Action {
     // ex-line
     StartExInput,
     ExCommand(String), // raw command text, parsed at dispatch
+    /// `vd.bind(layer, keys, function() … end)`: index of the Lua callback.
+    Lua(usize),
 
     // persist current sheet to disk; extension decides writer
     Save {

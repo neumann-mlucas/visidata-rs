@@ -619,6 +619,35 @@ impl App {
         self.ex_history.reset_cursor();
     }
 
+    /// A `vd.bind` function: `vd.sheet()` describes the active sheet's cursor.
+    fn run_lua_binding(&mut self, id: usize) {
+        let Some(p) = self.plugins.as_ref() else {
+            return;
+        };
+        let s = self.sheets.active();
+        let v = &s.view;
+        let df = s.window.as_ref();
+        let ctx = crate::plugins::SheetCtx {
+            name: &s.name,
+            row: v.window_offset + v.row_cursor as u64 + 1,
+            col: v.col_cursor + 1,
+            column_names: df.map_or_else(Vec::new, |df| {
+                df.get_column_names()
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect()
+            }),
+            value: df
+                .and_then(|df| df.get_columns().get(v.col_cursor)?.get(v.row_cursor).ok())
+                .unwrap_or(AnyValue::Null),
+        };
+        self.toast = Some(match p.call(id, &ctx) {
+            Ok(toasts) if toasts.is_empty() => return,
+            Ok(toasts) => toasts.join(" · "),
+            Err(e) => format!("{e}"),
+        });
+    }
+
     fn current_column_name(&self) -> Option<String> {
         let s = self.sheets.active();
         s.window.as_ref().and_then(|df| {
@@ -671,6 +700,7 @@ impl App {
                 }
             }
             Action::Redraw => {}
+            Action::Lua(id) => self.run_lua_binding(id),
             Action::RepeatLast => {
                 if let Some(last) = self.last_action.clone() {
                     for a in last {
@@ -2675,6 +2705,29 @@ mod scenario {
         assert_eq!(total, 20.0);
         h.keys("q l l ,").await; // grp of row 1 is 1 → ids 1, 8, 15
         assert!(title(&h).contains("sel 3"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lua_function_binding_sees_the_cursor_and_toasts() {
+        let mut h = Harness::new(5).await;
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"vd.bind("sheet", "X", function()
+                     local s = vd.sheet()
+                     vd.toast(s.column .. "=" .. s.value .. " @" .. s.cursor.row .. "/" .. #s.column_names)
+                   end, "show cell")
+                   vd.bind("sheet", "E", function() error("boom") end)"#,
+            )
+            .unwrap(),
+        );
+        (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+        h.keys("j l X").await;
+        assert!(status(&h).contains("name=name_2 @2/"), "{}", status(&h));
+        h.keys("E").await;
+        assert!(status(&h).contains("boom"), "{}", status(&h));
+        // vd.toast outside a binding is a load error, not a silent queue
+        let err = crate::plugins::Plugins::load_from_source(r#"vd.toast("hi")"#);
+        assert!(err.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread")]

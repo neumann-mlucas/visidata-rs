@@ -322,6 +322,11 @@ vd.bind("sheet", "x", "goto_bottom", "jump to end") -- a key → an action
 vd.bind("sheet", {"&lt;Space&gt;", "s"}, ":sort -id")    -- a chord → an ex command
 vd.unbind("sheet", "t")
 
+vd.bind("sheet", "&lt;F2&gt;", function()            -- a key → your own Lua
+  local s = vd.sheet()
+  vd.toast(s.column .. " = " .. tostring(s.value))
+end, "show cell")
+
 vd.register_renderer {                               -- how cells look
   column = "price",                                  -- or: dtype = "f64"
   render = function(v) return string.format("$%.2f", v) end,
@@ -336,7 +341,7 @@ end)
 if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 
 <h3>vd.bind(layer, keys, action, description?)</h3>
-<p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, or an ex command starting with <code>:</code>. An unknown action or invalid command is an error at load time.</p>
+<p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, an ex command starting with <code>:</code>, or a Lua function to run when the keys are pressed. An unknown action or invalid command is an error at load time; an error inside a function is shown in the status line.</p>
 <p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>quit</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
 
 <h3>vd.unbind(layer, keys)</h3>
@@ -364,6 +369,9 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 
 <h3>vd.register_renderer { column | dtype, render }</h3>
 <p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument.</p>
+
+<h3>vd.sheet(), vd.toast(message)</h3>
+<p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
 <p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features.</p>

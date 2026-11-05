@@ -23,7 +23,8 @@ Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same
 Still open (see S-15 §10.1):
 
 - [ ] Live pivot preview / interactive pivot setup beyond `W`
-- [ ] S-10 data/app Lua API (`vd.frame`, `vd.toast`, `vd.sheet`, sandbox, coroutines) + `since`/`deprecate` registry and `cargo xtask check-api-versions`
+- [x] Lua function bindings + `vd.toast` + `vd.sheet()` (api_version 2)
+- [ ] Rest of S-10 (`vd.frame`, push/pop sheet, sandbox, coroutines, deprecate registry) — when a Lua user asks
 - [x] Renderer output memoized per value and counted in column widths
 - [ ] Lua aggregators off the UI thread (VM is not `Send`)
 - [x] Deterministic row order for joins / `:sql`: result collected once in the background

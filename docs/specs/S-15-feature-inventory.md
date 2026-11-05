@@ -256,7 +256,10 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 1
+vd.api_version                                  -- 2
+vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
+vd.toast(msg)                                   -- status line; only inside a bound function
+vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
 ```
 
 `init.lua` reloads when its mtime changes (polled on the 2 s tick; no `notify` dependency). A failing `init.lua` keeps registrations made before the error and reports it. Input-layer action names: `submit_input`, `cancel_input`, `input_backspace`.
@@ -292,7 +295,7 @@ Enumerated here so no one re-asks:
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 - **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
-- **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
+- **Rest of S-10**: `vd.frame`, `Series` methods, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet` and function bindings shipped.
 - **Lua aggregators off the UI thread**: the Lua VM is not `Send`; `:pivot` with a Lua aggregator runs synchronously. (Renderers are memoized per distinct value.)
 - **Export**: describe / diff / `W` sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
