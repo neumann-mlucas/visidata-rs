@@ -1568,20 +1568,21 @@ impl App {
             (halves[0], Some(halves[1]))
         };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
-        let s = self.sheets.active_mut();
-        if let Some(df) = &s.window {
-            clamp_view(&mut s.view, df, sheet_area);
-        }
-
-        self.render_titlebar(f, chunks[0]);
         let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
         let render_cell =
             |c: &str, d: &DataType, v: &AnyValue| lua_render.and_then(|p| p.render(c, d, v));
+        let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
+        let s = self.sheets.active_mut();
+        if let Some(df) = &s.window {
+            clamp_view(&mut s.view, df, sheet_area, render);
+        }
+
+        self.render_titlebar(f, chunks[0]);
         f.render_widget(
             SheetWidget {
                 sheet: self.sheets.active(),
                 theme: &self.theme,
-                render: lua_render.map(|_| &render_cell as crate::widget::CellRenderer),
+                render,
             },
             sheet_area,
         );
@@ -2678,6 +2679,26 @@ mod scenario {
         assert_eq!(total, 20.0);
         h.keys("q l l ,").await; // grp of row 1 is 1 → ids 1, 8, 15
         assert!(title(&h).contains("sel 3"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn renderer_output_sets_width_and_runs_once_per_value() {
+        let mut h = Harness::new(3).await;
+        // `calls` grows on every Lua call: memoized output never changes
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"calls = 0
+                   vd.register_renderer { column = "id", render = function(v)
+                     calls = calls + 1
+                     return "id-" .. v .. "-rendered-wide#" .. calls end }"#,
+            )
+            .unwrap(),
+        );
+        h.pump().await;
+        let first = h.screen();
+        assert!(first.contains("id-1-rendered-wide#1 "), "{first}"); // not cut to the i64 width
+        h.keys("j k").await;
+        assert_eq!(h.screen(), first);
     }
 
     #[tokio::test(flavor = "multi_thread")]

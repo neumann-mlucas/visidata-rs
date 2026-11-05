@@ -363,7 +363,7 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 <p><code>fn</code> receives the values of one pivot cell as a Lua array (empty values are <code>nil</code>) and returns a number, a string or <code>nil</code>. Use it as the last argument of <code>:pivot</code>.</p>
 
 <h3>vd.register_renderer { column | dtype, render }</h3>
-<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files.</p>
+<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument.</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
 <p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features.</p>
@@ -380,7 +380,7 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 <h2 id="limits">Limitations</h2>
 <ul>
 <li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
-<li>Lua aggregators and renderers run in the interface thread; heavy Lua work slows the display.</li>
+<li>Lua aggregators run in the interface thread; a slow aggregator pauses the display while <code>:pivot</code> runs.</li>
 <li><code>:join</code> and <code>:sql</code> results are computed once and held in memory, so their row order (and your selections) stay fixed.</li>
 <li><code>:export</code> works for sheets opened from a file (not for derived sheets, stdin, or Excel/SQLite/Arrow in SQL form).</li>
 <li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>

@@ -31,7 +31,12 @@ impl<'a> SheetWidget<'a> {
 
     /// Column widths from the window's first `sample` rows plus the rows on
     /// screen (from `first_visible`), so scrolled-to long values aren't cut.
-    fn col_widths(df: &DataFrame, sample: usize, first_visible: usize) -> Vec<u16> {
+    fn col_widths(
+        df: &DataFrame,
+        sample: usize,
+        first_visible: usize,
+        render: Option<CellRenderer>,
+    ) -> Vec<u16> {
         let rows = (0..sample).chain(first_visible..first_visible + sample);
         df.get_columns()
             .iter()
@@ -41,7 +46,15 @@ impl<'a> SheetWidget<'a> {
                 let data = rows
                     .clone()
                     .filter(|i| *i < s.len())
-                    .filter_map(|i| s.get(i).ok().map(|av| display_av(&av).width() as u16))
+                    .filter_map(|i| {
+                        let av = s.get(i).ok()?;
+                        let custom = render.and_then(|r| r(s.name(), s.dtype(), &av));
+                        Some(
+                            custom
+                                .map_or_else(|| display_av(&av), |t| printable(&t))
+                                .width() as u16,
+                        )
+                    })
                     .max()
                     .unwrap_or(0);
                 hdr.max(data)
@@ -70,7 +83,12 @@ impl<'a> Widget for SheetWidget<'a> {
             return;
         }
         let view = &self.sheet.view;
-        let widths = Self::col_widths(df, Self::WIDTH_SAMPLE, self.sheet.view.row_offset);
+        let widths = Self::col_widths(
+            df,
+            Self::WIDTH_SAMPLE,
+            self.sheet.view.row_offset,
+            self.render,
+        );
         let cols = df.get_columns();
         if cols.is_empty() {
             let msg = "<empty>";
@@ -356,7 +374,7 @@ pub fn dtype_badge(dt: &DataType) -> String {
 /// Clamp cursor + scroll after a window-size or data-size change.
 /// Keep the cursor inside the loaded window and on screen for a sheet drawn
 /// into `area` (header row included). Scrolls rows and non-frozen columns.
-pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect) {
+pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, render: Option<CellRenderer>) {
     let (rows, cols) = (df.height(), df.width());
     let data_rows = (area.height as usize).saturating_sub(1).max(1); // minus header
     if rows == 0 {
@@ -389,7 +407,7 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect) {
             .map(|w| (w + SheetWidget::CELL_PAD) as usize)
             .sum::<usize>()
     };
-    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE, view.row_offset);
+    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE, view.row_offset, render);
     let room = (area.width as usize).saturating_sub(span(&widths[..frozen]));
     while frozen + view.col_offset < view.col_cursor
         && span(&widths[frozen + view.col_offset..=view.col_cursor]) > room

@@ -254,7 +254,7 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 ```lua
 vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated at load)
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
-vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }
+vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
 vd.api_version                                  -- 1
 ```
@@ -293,9 +293,8 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 - **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
 - **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
-- **Lua work off the UI thread**: aggregators and renderers run synchronously in the interface thread.
+- **Lua aggregators off the UI thread**: the Lua VM is not `Send`; `:pivot` with a Lua aggregator runs synchronously. (Renderers are memoized per distinct value.)
 - **Export** of derived sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
-- **Renderer output in column widths** (widths come from the default display).
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 
 ## 11. File map (where to look)

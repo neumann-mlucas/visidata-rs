@@ -24,7 +24,8 @@ Still open (see S-15 §10.1):
 
 - [ ] Live pivot preview / interactive pivot setup beyond `W`
 - [ ] S-10 data/app Lua API (`vd.frame`, `vd.toast`, `vd.sheet`, sandbox, coroutines) + `since`/`deprecate` registry and `cargo xtask check-api-versions`
-- [ ] Run Lua aggregators/renderers off the UI thread (or cache renderer output)
+- [x] Renderer output memoized per value and counted in column widths
+- [ ] Lua aggregators off the UI thread (VM is not `Send`)
 - [x] Deterministic row order for joins / `:sql`: result collected once in the background
 - [ ] `:export` for derived sheets; more source kinds in `.sql`/`.py`
 - [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)

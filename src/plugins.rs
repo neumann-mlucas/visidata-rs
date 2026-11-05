@@ -4,6 +4,7 @@
 //! Pending: aggregator, renderer, hot-reload.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value as LuaValue};
@@ -80,6 +81,9 @@ pub struct Plugins {
     lua: Lua,
     /// `init.lua` this host was loaded from and its mtime then (hot reload).
     config: Option<(PathBuf, Option<std::time::SystemTime>)>,
+    /// Renderer results by (column, dtype, value): renderers run on the UI
+    /// thread, so each distinct cell is rendered once, not every frame.
+    rendered: RefCell<HashMap<(String, String, String), Option<String>>>,
 }
 
 impl Plugins {
@@ -112,7 +116,11 @@ impl Plugins {
         let lua = Lua::new();
         lua.set_app_data(RefCell::new(Registry::default()));
         install_api(&lua).expect("installing the vd table on a fresh VM");
-        Self { lua, config }
+        Self {
+            lua,
+            config,
+            rendered: Default::default(),
+        }
     }
 
     fn exec(&self, src: &str, name: &str) -> Result<(), PluginError> {
@@ -175,14 +183,30 @@ impl Plugins {
     /// Display text from the first renderer matching the cell's column name or
     /// dtype (`i64`, `f64`, `str`, `date`, … as shown in headers). Lua errors
     /// fall back to the default display.
+    /// Renderers are assumed pure: results are memoized per distinct value.
     pub fn render(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<String> {
+        let dt = crate::widget::dtype_badge(dtype);
+        let key = (column.to_string(), dt.clone(), value.to_string());
+        if let Some(hit) = self.rendered.borrow().get(&key) {
+            return hit.clone();
+        }
+        let out = self.render_uncached(column, &dt, value);
+        let mut memo = self.rendered.borrow_mut();
+        if memo.len() >= 100_000 {
+            memo.clear(); // ponytail: crude bound, LRU if anyone scrolls that far
+        }
+        memo.insert(key, out.clone());
+        out
+    }
+
+    fn render_uncached(&self, column: &str, dt: &str, value: &AnyValue) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         let f = {
             let reg = reg.borrow();
-            let dt = crate::widget::dtype_badge(dtype);
-            let rule = reg.renderers.iter().find(|r| {
-                r.column.as_deref() == Some(column) || r.dtype.as_deref() == Some(dt.as_str())
-            })?;
+            let rule = reg
+                .renderers
+                .iter()
+                .find(|r| r.column.as_deref() == Some(column) || r.dtype.as_deref() == Some(dt))?;
             rule.render.clone()
         };
         let v = to_lua(&self.lua, value).ok()?;
