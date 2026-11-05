@@ -42,6 +42,51 @@ pub struct SheetState {
     pub redo: Vec<Snapshot>,
     /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
     pub tail: Option<TailCache>,
+    /// Derived sheets: the parent as it was + how this was made (`:export`).
+    pub lineage: Option<Box<Lineage>>,
+}
+
+/// A snapshot of the parent at derivation time, so later edits to the parent
+/// don't change what `:export` rebuilds.
+#[derive(Clone)]
+pub struct Lineage {
+    pub parent: Sheet,
+    pub how: Derivation,
+}
+
+#[derive(Clone)]
+pub enum Derivation {
+    Copy,
+    Freq {
+        column: String,
+    },
+    /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
+    Rids(std::collections::BTreeSet<u64>),
+    /// Rows whose `column`, as text, is one of `values` (freq dive; None = null).
+    Values {
+        column: String,
+        values: Vec<Option<String>>,
+    },
+    /// `others`: the `s<id>` sheets the query names.
+    Sql {
+        query: String,
+        others: Vec<Sheet>,
+    },
+    Join {
+        right: Box<Sheet>,
+        keys: Vec<String>,
+        how: String,
+    },
+    Unpivot {
+        on: Vec<String>,
+        index: Vec<String>,
+    },
+    Pivot {
+        index: String,
+        on: String,
+        values: String,
+        agg: String,
+    },
 }
 
 /// Incremental tail: only bytes past `consumed` are parsed on refresh.
@@ -374,6 +419,12 @@ impl Sheet {
                 column: col_name.to_string(),
             },
         }
+        .derived(
+            parent,
+            Derivation::Freq {
+                column: col_name.to_string(),
+            },
+        )
     }
 
     /// Build a pivot sheet. Eager: collects parent, then pivots.
@@ -421,7 +472,16 @@ impl Sheet {
             revision: 0,
             state: Default::default(),
             origin: Origin::Pivot { parent: parent.id },
-        })
+        }
+        .derived(
+            parent,
+            Derivation::Pivot {
+                index: index.into(),
+                on: on.into(),
+                values: values.into(),
+                agg: agg.to_ascii_lowercase(),
+            },
+        ))
     }
 
     /// Build a sheet containing only the parent's selected rows.
@@ -460,7 +520,8 @@ impl Sheet {
             revision: 0,
             state: Default::default(),
             origin: Origin::Selected { parent: parent.id },
-        })
+        }
+        .derived(parent, Derivation::Rids(parent.view.selected.clone())))
     }
 
     /// Open a tail-mode sheet. The path is re-scanned on each tail tick to pick up appended rows.
@@ -789,6 +850,16 @@ impl Sheet {
         }
     }
 
+    /// Record how `self` was derived from `parent` (snapshot without history).
+    pub fn derived(mut self, parent: &Sheet, how: Derivation) -> Self {
+        let mut p = parent.clone();
+        p.window = None;
+        p.state.undo.clear();
+        p.state.redo.clear();
+        self.state.lineage = Some(Box::new(Lineage { parent: p, how }));
+        self
+    }
+
     /// Freq dive: `parent`'s rows whose `column` equals one of `values`
     /// (compared as text, the way the freq sheet grouped them; null matches null).
     pub fn rows_with_values(
@@ -806,12 +877,23 @@ impl Sheet {
             many => format!("{column} in {} values", many.len()),
         };
         let origin = Origin::Selected { parent: parent.id };
+        let text = values
+            .iter()
+            .map(|v| (!v.is_null()).then(|| any_text(v)))
+            .collect();
         Self::child(
             parent,
             id,
             format!("{label}: {}", parent.name),
             parent.view_plan().filter(pred),
             origin,
+        )
+        .derived(
+            parent,
+            Derivation::Values {
+                column: column.into(),
+                values: text,
+            },
         )
     }
 
@@ -825,6 +907,7 @@ impl Sheet {
             parent.view_plan(),
             origin,
         )
+        .derived(parent, Derivation::Copy)
     }
 
     /// `:sql <query>`: `self` is `parent`'s view; `others` are extra tables.
@@ -832,23 +915,34 @@ impl Sheet {
         parent: &Sheet,
         id: SheetId,
         query: &str,
-        others: Vec<(String, LazyFrame)>,
+        others: Vec<Sheet>,
     ) -> Result<Self, String> {
         let mut ctx = polars::sql::SQLContext::new();
         ctx.register("self", parent.view_plan());
-        for (name, plan) in others {
-            ctx.register(&name, plan);
+        for o in &others {
+            ctx.register(&format!("s{}", o.id), o.view_plan());
         }
+        // Only the sheets the query names belong in the lineage.
+        let words: Vec<String> = query
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let others = others
+            .into_iter()
+            .filter(|o| words.contains(&format!("s{}", o.id)))
+            .collect();
         let mut plan = ctx.execute(query).map_err(|e| e.to_string())?;
         plan.collect_schema().map_err(|e| e.to_string())?;
         let origin = Origin::Sql { parent: parent.id };
-        Ok(Self::child(
-            parent,
-            id,
-            format!("sql: {query}"),
-            plan,
-            origin,
-        ))
+        Ok(
+            Self::child(parent, id, format!("sql: {query}"), plan, origin).derived(
+                parent,
+                Derivation::Sql {
+                    query: query.into(),
+                    others,
+                },
+            ),
+        )
     }
 
     /// `I` (VisiData describe-sheet): one row per visible column with
@@ -1029,12 +1123,12 @@ impl Sheet {
     pub fn join_from(
         left: &Sheet,
         id: SheetId,
-        right: LazyFrame,
-        right_name: &str,
+        right_sheet: &Sheet,
         keys: &[String],
         how: &str,
     ) -> Result<Self, String> {
         let l = left.view_plan();
+        let (right, right_name) = (right_sheet.view_plan(), right_sheet.name.as_str());
         let plan = if how == "append" {
             let tag = |p: LazyFrame, name: &str| {
                 p.with_column(lit(name.to_string()).alias("origin_sheet"))
@@ -1094,7 +1188,15 @@ impl Sheet {
                 left: left.id,
                 right_name: right_name.to_string(),
             },
-        })
+        }
+        .derived(
+            left,
+            Derivation::Join {
+                right: Box::new(right_sheet.clone()),
+                keys: keys.to_vec(),
+                how: how.into(),
+            },
+        ))
     }
 
     /// Build an unpivot (melt) sheet. `on` = columns to unpivot; `index` = keep columns.
@@ -1125,6 +1227,13 @@ impl Sheet {
             state: Default::default(),
             origin: Origin::Unpivot { parent: parent.id },
         }
+        .derived(
+            parent,
+            Derivation::Unpivot {
+                on: on.to_vec(),
+                index: index.to_vec(),
+            },
+        )
     }
 
     /// Build the lazy query for the current `window`: `view_plan` + slice.
@@ -1476,7 +1585,7 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
     let text: Vec<String> = values
         .iter()
         .filter(|v| !v.is_null())
-        .map(|v| v.get_str().map_or_else(|| v.to_string(), String::from))
+        .map(any_text)
         .collect();
     let mut pred = col(column)
         .cast(DataType::String)
@@ -1485,6 +1594,11 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
         pred = pred.or(col(column).is_null());
     }
     pred
+}
+
+/// A value as the text `values_predicate` compares.
+fn any_text(v: &AnyValue) -> String {
+    v.get_str().map_or_else(|| v.to_string(), String::from)
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.

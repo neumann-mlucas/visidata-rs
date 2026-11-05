@@ -27,7 +27,8 @@ Still open (see S-15 §10.1):
 - [x] Renderer output memoized per value and counted in column widths
 - [ ] Lua aggregators off the UI thread (VM is not `Send`)
 - [x] Deterministic row order for joins / `:sql`: result collected once in the background
-- [ ] `:export` for derived sheets; more source kinds in `.sql`/`.py`
+- [x] `:export` for derived sheets (verified: DuckDB + Polars 1.x reproduce the rows)
+- [ ] `:export` for describe/diff/`W`; Arrow/Excel in `.sql`, SQLite in `.py`
 - [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
 
 ## Phase 0 — viewer parity (csvlens++)

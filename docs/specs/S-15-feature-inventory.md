@@ -145,7 +145,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
 | Set column | `:setcol <value>` | current col on selected rows; value must cast strictly to the column type |
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
-| Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection (file sheets only) |
+| Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection; derived sheets (freq, copy, selected, freq dive, join, sql, pivot, unpivot) replay from a parent snapshot (`SheetState.lineage`), one variable/CTE per sheet. Not: describe, diff, `W`, Lua-agg pivots, stdin |
 | Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
 | Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform` | run on the blocking pool; status line shows `working: …` |
 | Readers | — | CSV/TSV date inference; lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
@@ -294,7 +294,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
 - **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
 - **Lua aggregators off the UI thread**: the Lua VM is not `Send`; `:pivot` with a Lua aggregator runs synchronously. (Renderers are memoized per distinct value.)
-- **Export** of derived sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
+- **Export**: describe / diff / `W` sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 
 ## 11. File map (where to look)

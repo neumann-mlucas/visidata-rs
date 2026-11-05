@@ -1278,13 +1278,14 @@ impl App {
                     && (*name == source || source.strip_prefix('#') == Some(&id.to_string()))
             })
             .map(|(id, _, _)| id);
-        let (right, right_name) = match open_sheet {
-            Some(id) => {
-                let s = self.sheets.find_by_id_mut(id).expect("id from summaries");
-                (s.view_plan(), s.name.clone())
-            }
+        let right = match open_sheet {
+            Some(id) => self
+                .sheets
+                .find_by_id_mut(id)
+                .expect("id from summaries")
+                .clone(),
             None => match crate::plugins::open(self.plugins.as_ref(), source.as_ref(), None) {
-                Ok(l) => (l.lazy.clone(), l.display_name.clone()),
+                Ok(l) => Sheet::from_source(0, l),
                 Err(e) => {
                     self.toast = Some(format!("join: {e}"));
                     return;
@@ -1292,7 +1293,7 @@ impl App {
             },
         };
         let id = self.sheets.alloc_id();
-        match Sheet::join_from(self.sheets.active(), id, right, &right_name, keys, how) {
+        match Sheet::join_from(self.sheets.active(), id, &right, keys, how) {
             Ok(s) => self.push_collected("join", s),
             Err(e) => self.toast = Some(format!("join: {e}")),
         }
@@ -1397,15 +1398,10 @@ impl App {
     fn open_sql(&mut self, query: &str) {
         let active = self.sheets.active().id;
         let ids: Vec<SheetId> = self.sheets.summaries().map(|(id, _, _)| id).collect();
-        let others: Vec<(String, LazyFrame)> = ids
+        let others: Vec<Sheet> = ids
             .into_iter()
             .filter(|id| *id != active)
-            .filter_map(|id| {
-                Some((
-                    format!("s{id}"),
-                    self.sheets.find_by_id_mut(id)?.view_plan(),
-                ))
-            })
+            .filter_map(|id| Some(self.sheets.find_by_id_mut(id)?.clone()))
             .collect();
         let id = self.sheets.alloc_id();
         match Sheet::sql_from(self.sheets.active(), id, query, others) {
