@@ -35,24 +35,35 @@ pub enum OpenError {
     Plugin(String),
 }
 
-/// Load first user table from a sqlite file as a DataFrame of all-String
-/// columns. VisiData opens sqlite into a meta-sheet listing tables and
-/// dive-row enters one; we skip that layer by loading the first table
-/// directly. Multi-table databases need `?table=` URL param (not yet).
-fn open_sqlite_first_table(path: &Path) -> Result<DataFrame, OpenError> {
-    let conn = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    )
-    .map_err(|e| OpenError::Sqlite(e.to_string()))?;
-    // Pick first user table in sqlite's own insertion order (rowid-ordered).
-    let table: String = conn
-        .query_row(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
+fn sqlite_conn(path: &Path) -> Result<rusqlite::Connection, OpenError> {
+    rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| OpenError::Sqlite(e.to_string()))
+}
+
+/// User tables in sqlite's own creation order.
+fn sqlite_tables(path: &Path) -> Result<Vec<String>, OpenError> {
+    let conn = sqlite_conn(path)?;
+    let mut stmt = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid")
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    let names = stmt
+        .query_map([], |r| r.get(0))
+        .and_then(|rows| rows.collect::<Result<Vec<String>, _>>())
+        .map_err(|e| OpenError::Sqlite(e.to_string()))?;
+    Ok(names)
+}
+
+/// Load one sqlite table (default: the first) as a DataFrame of all-String
+/// columns. Several tables → the app shows a table list first (`list_parts`).
+fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, OpenError> {
+    let conn = sqlite_conn(path)?;
+    let table = match table {
+        Some(t) => t.to_string(),
+        None => sqlite_tables(path)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| OpenError::Sqlite("no tables".into()))?,
+    };
     let mut stmt = conn
         .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
@@ -105,14 +116,17 @@ fn float_cell_string(f: f64) -> String {
 ///
 /// All cells come back as strings so downstream `type-*` operations do the
 /// casting. Matches VisiData's xlsx loader behavior.
-fn open_xlsx(path: &Path) -> Result<DataFrame, OpenError> {
+fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
     use calamine::{Data, Reader, open_workbook_auto};
     let mut wb = open_workbook_auto(path).map_err(|e| OpenError::Xlsx(e.to_string()))?;
-    let sheet_names = wb.sheet_names();
-    let name = sheet_names
-        .first()
-        .cloned()
-        .ok_or_else(|| OpenError::Xlsx("empty workbook".into()))?;
+    let name = match sheet {
+        Some(s) => s.to_string(),
+        None => wb
+            .sheet_names()
+            .first()
+            .cloned()
+            .ok_or_else(|| OpenError::Xlsx("empty workbook".into()))?,
+    };
     let range = wb
         .worksheet_range(&name)
         .map_err(|e| OpenError::Xlsx(e.to_string()))?;
@@ -203,8 +217,90 @@ pub fn open(
         return open_stdin(format_override);
     }
     let path = PathBuf::from(path_or_dash);
+    if path.is_dir() {
+        return open_parquet_dir(&path);
+    }
     let kind = format_override.map_or_else(|| detect(&path), Ok)?;
     open_path(&path, kind)
+}
+
+/// A directory = every `*.parquet` file in it, scanned as one table.
+/// Reopening picks up new files (`:tail <dir>/`).
+fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
+    let glob = dir.join("*.parquet");
+    let lazy = LazyFrame::scan_parquet(&glob, ScanArgsParquet::default())?;
+    Ok(LoadedSource {
+        kind: SourceKind::Parquet,
+        display_name: dir.display().to_string(),
+        path: Some(dir.to_owned()),
+        lazy,
+        _tempfile: None,
+    })
+}
+
+/// Worksheets (xlsx/ods) or tables (sqlite) when a file holds more than one
+/// thing to open; empty for single-part files and other formats.
+pub fn list_parts(path: &Path, kind: SourceKind) -> Result<Vec<String>, OpenError> {
+    let parts = match kind {
+        SourceKind::Xlsx => {
+            use calamine::Reader;
+            calamine::open_workbook_auto(path)
+                .map_err(|e| OpenError::Xlsx(e.to_string()))?
+                .sheet_names()
+        }
+        SourceKind::Sqlite => sqlite_tables(path)?,
+        _ => Vec::new(),
+    };
+    Ok(if parts.len() > 1 { parts } else { Vec::new() })
+}
+
+/// Open one worksheet / table from `list_parts`.
+pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSource, OpenError> {
+    let df = match kind {
+        SourceKind::Xlsx => open_xlsx(path, Some(part))?,
+        SourceKind::Sqlite => open_sqlite_table(path, Some(part))?,
+        other => return Err(OpenError::Xlsx(format!("{other:?} has no parts"))),
+    };
+    Ok(LoadedSource {
+        kind,
+        display_name: format!("{}:{part}", path.display()),
+        path: Some(path.to_owned()),
+        lazy: df.lazy(),
+        _tempfile: None,
+    })
+}
+
+/// Parse a chunk of CSV/TSV/JSONL bytes (`:tail` increments). `schema` =
+/// continue an existing table: no header row, same column types.
+pub fn parse_chunk(
+    kind: SourceKind,
+    bytes: Vec<u8>,
+    schema: Option<SchemaRef>,
+) -> PolarsResult<DataFrame> {
+    let cursor = io::Cursor::new(bytes);
+    match kind {
+        SourceKind::Jsonl => {
+            let mut r = JsonLineReader::new(cursor);
+            if let Some(s) = schema {
+                r = r.with_schema(s);
+            }
+            r.finish()
+        }
+        SourceKind::Csv | SourceKind::Tsv => {
+            let sep = if kind == SourceKind::Tsv { b'\t' } else { b',' };
+            CsvReadOptions::default()
+                .with_has_header(schema.is_none())
+                .with_schema(schema)
+                .with_parse_options(
+                    CsvParseOptions::default()
+                        .with_separator(sep)
+                        .with_try_parse_dates(true),
+                )
+                .into_reader_with_file_handle(cursor)
+                .finish()
+        }
+        other => polars_bail!(ComputeError: "{other:?} can't be read incrementally"),
+    }
 }
 
 pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
@@ -271,9 +367,13 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
 /// `Json` falls back to `Jsonl` when the file isn't a JSON array.
 fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenError> {
     let lazy = match kind {
-        SourceKind::Csv => LazyCsvReader::new(path).with_has_header(true).finish()?,
+        SourceKind::Csv => LazyCsvReader::new(path)
+            .with_has_header(true)
+            .with_try_parse_dates(true)
+            .finish()?,
         SourceKind::Tsv => LazyCsvReader::new(path)
             .with_has_header(true)
+            .with_try_parse_dates(true)
             .with_separator(b'\t')
             .finish()?,
         SourceKind::Parquet => LazyFrame::scan_parquet(path, ScanArgsParquet::default())?,
@@ -287,8 +387,8 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             .with_json_format(JsonFormat::Json)
             .finish()?
             .lazy(),
-        SourceKind::Xlsx => open_xlsx(path)?.lazy(),
-        SourceKind::Sqlite => open_sqlite_first_table(path)?.lazy(),
+        SourceKind::Xlsx => open_xlsx(path, None)?.lazy(),
+        SourceKind::Sqlite => open_sqlite_table(path, None)?.lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
     };
     Ok((lazy, kind))
@@ -412,6 +512,44 @@ mod tests {
         assert_eq!(inner.lazy.collect().unwrap().shape(), (1, 2));
         let forced = open(gz("data.gz").as_os_str(), Some(SourceKind::Csv)).unwrap();
         assert_eq!(forced.lazy.collect().unwrap().shape(), (1, 2));
+    }
+
+    #[test]
+    fn parts_dir_and_dates() {
+        let dir = tempfile::tempdir().unwrap();
+        // sqlite with two tables → listed, each openable
+        let db = dir.path().join("two.db");
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch("create table a(x); insert into a values (1),(2); create table b(y); insert into b values (9);")
+            .unwrap();
+        drop(c);
+        assert_eq!(list_parts(&db, SourceKind::Sqlite).unwrap(), ["a", "b"]);
+        let b = open_part(&db, SourceKind::Sqlite, "b").unwrap();
+        assert_eq!(b.lazy.collect().unwrap().shape(), (1, 1));
+        // a directory of parquet files is one table
+        let pq = dir.path().join("pq");
+        std::fs::create_dir(&pq).unwrap();
+        for i in 0..2 {
+            let mut df = df!("v" => [i, i]).unwrap();
+            let f = std::fs::File::create(pq.join(format!("{i}.parquet"))).unwrap();
+            ParquetWriter::new(f).finish(&mut df).unwrap();
+        }
+        let src = open(pq.as_os_str(), None).unwrap();
+        assert_eq!(src.lazy.collect().unwrap().height(), 4);
+        // ISO dates in CSV arrive as Date
+        let csv = dir.path().join("d.csv");
+        std::fs::write(&csv, "day\n2024-01-02\n2024-02-03\n").unwrap();
+        let df = open(csv.as_os_str(), None).unwrap().lazy.collect().unwrap();
+        assert_eq!(df.column("day").unwrap().dtype(), &DataType::Date);
+        // chunks continue an existing schema without a header
+        let first = parse_chunk(SourceKind::Csv, b"a,b\n1,x\n".to_vec(), None).unwrap();
+        let more = parse_chunk(
+            SourceKind::Csv,
+            b"2,y\n".to_vec(),
+            Some(std::sync::Arc::new(first.schema())),
+        )
+        .unwrap();
+        assert_eq!(more.shape(), (1, 2));
     }
 
     #[test]

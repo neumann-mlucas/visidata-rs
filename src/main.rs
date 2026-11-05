@@ -73,7 +73,16 @@ fn main() -> ExitCode {
             }
         };
     }
-    let sheet = Sheet::from_source(0, loaded);
+    // Several worksheets / tables → start on the list; `<CR>` opens one.
+    let parts = match &loaded.path {
+        Some(p) => reader::list_parts(p, loaded.kind).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let sheet = if parts.is_empty() {
+        Sheet::from_source(0, loaded)
+    } else {
+        Sheet::parts_list(0, loaded, parts)
+    };
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

@@ -40,6 +40,15 @@ pub struct SheetState {
     /// Undo / redo history of (plan, view, steps), newest last.
     pub undo: Vec<Snapshot>,
     pub redo: Vec<Snapshot>,
+    /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
+    pub tail: Option<TailCache>,
+}
+
+/// Incremental tail: only bytes past `consumed` are parsed on refresh.
+#[derive(Clone)]
+pub struct TailCache {
+    pub consumed: u64,
+    pub df: DataFrame,
 }
 
 /// A change made to a sheet's base `plan` (as opposed to `View` state).
@@ -116,6 +125,11 @@ pub enum Origin {
     /// `g"` / `:dup`: copy of `parent`'s view.
     Copy {
         parent: SheetId,
+    },
+    /// Worksheets / tables of a multi-part xlsx or sqlite file; `<CR>` opens one.
+    Parts {
+        path: std::path::PathBuf,
+        kind: SourceKind,
     },
     /// `:join` of `left`'s view with another sheet or file.
     Join {
@@ -464,7 +478,7 @@ impl Sheet {
         let kind = loaded.kind;
         let plan = loaded.lazy.clone();
         let display = loaded.display_name.clone();
-        Ok(Sheet {
+        let mut sheet = Sheet {
             id,
             name: format!("tail: {display}"),
             kind,
@@ -475,18 +489,111 @@ impl Sheet {
             revision: 0,
             state: Default::default(),
             origin: Origin::Tail { path, follow },
-        })
+        };
+        if sheet.tails_incrementally() {
+            sheet.reload_tail_cache()?;
+        }
+        Ok(sheet)
     }
 
-    /// Rebuild `plan` from the tail path. Called by the app loop each tail tick.
-    pub fn refresh_tail(&mut self) -> Result<(), crate::reader::OpenError> {
+    /// Plain (not gzipped) CSV/TSV/JSONL files grow by appending lines, so a
+    /// refresh can parse just the new bytes. Others (Parquet dirs, …) re-scan.
+    fn tails_incrementally(&self) -> bool {
         let Origin::Tail { path, .. } = &self.origin else {
-            return Ok(());
+            return false;
         };
-        let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
-        self.plan = loaded.lazy;
-        self.view.count_key = None; // file grew: recount
+        matches!(
+            self.kind,
+            SourceKind::Csv | SourceKind::Tsv | SourceKind::Jsonl
+        ) && path.is_file()
+            && !path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
+    }
+
+    /// Bytes `[from..]` of the tail file up to its last newline (a partial
+    /// last line waits for the next refresh).
+    fn tail_bytes(&self, from: u64) -> std::io::Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let Origin::Tail { path, .. } = &self.origin else {
+            return Ok(Vec::new());
+        };
+        let mut f = std::fs::File::open(path)?;
+        f.seek(SeekFrom::Start(from))?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf)?;
+        buf.truncate(buf.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1));
+        Ok(buf)
+    }
+
+    /// Read the whole tail file into the cache (first load, or after truncation).
+    fn reload_tail_cache(&mut self) -> Result<(), crate::reader::OpenError> {
+        let bytes = self.tail_bytes(0)?;
+        let consumed = bytes.len() as u64;
+        let df = crate::reader::parse_chunk(self.kind, bytes, None)?;
+        self.plan = df.clone().lazy();
+        self.state.tail = Some(TailCache { consumed, df });
         Ok(())
+    }
+
+    /// Pick up appended rows. Returns whether anything changed (an unchanged
+    /// file isn't re-materialized or recounted).
+    pub fn refresh_tail(&mut self) -> Result<bool, crate::reader::OpenError> {
+        let Origin::Tail { path, .. } = &self.origin else {
+            return Ok(false);
+        };
+        let Some(cache) = &self.state.tail else {
+            let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
+            self.plan = loaded.lazy;
+            self.view.count_key = None;
+            return Ok(true);
+        };
+        let len = std::fs::metadata(path)?.len();
+        if len < cache.consumed {
+            self.reload_tail_cache()?; // truncated or rotated: start over
+        } else {
+            let new = self.tail_bytes(cache.consumed)?;
+            if new.is_empty() {
+                return Ok(false);
+            }
+            let added = new.len() as u64;
+            let schema = Arc::new(cache.df.schema());
+            match crate::reader::parse_chunk(self.kind, new, Some(schema)) {
+                Ok(more) => {
+                    let cache = self.state.tail.as_mut().expect("checked above");
+                    cache.df.vstack_mut(&more)?;
+                    cache.consumed += added;
+                    self.plan = cache.df.clone().lazy();
+                }
+                Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
+            }
+        }
+        self.view.count_key = None;
+        Ok(true)
+    }
+
+    /// List sheet for a multi-part xlsx/sqlite file.
+    pub fn parts_list(id: SheetId, loaded: LoadedSource, parts: Vec<String>) -> Self {
+        let path = loaded.path.clone().unwrap_or_default();
+        let kind = loaded.kind;
+        let what = if kind == SourceKind::Sqlite {
+            "table"
+        } else {
+            "sheet"
+        };
+        let df = DataFrame::new(vec![Column::new(what.into(), parts)]).expect("one column");
+        Sheet {
+            id,
+            name: format!("{}: {what}s", loaded.display_name),
+            kind,
+            source: Arc::new(loaded),
+            plan: df.lazy(),
+            view: View::default(),
+            window: None,
+            revision: 0,
+            state: Default::default(),
+            origin: Origin::Parts { path, kind },
+        }
     }
 
     /// Build a schema-diff sheet comparing `parent` with `other`.
@@ -1102,11 +1209,16 @@ impl Sheet {
         }
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
+            let base = self.plan.clone().collect_schema().ok();
+            let is_text = |n: &str| base.as_ref().and_then(|s| s.get(n)) == Some(&DataType::String);
             let exprs: Vec<Expr> = self
                 .view
                 .type_casts
                 .iter()
-                .map(|(name, dt)| col(name.as_str()).cast(dt.clone()).alias(name.as_str()))
+                .map(|(name, dt)| match dt {
+                    DataType::Date if is_text(name) => lenient_date(name),
+                    _ => col(name.as_str()).cast(dt.clone()).alias(name.as_str()),
+                })
                 .collect();
             lf = lf.with_columns(exprs);
         }
@@ -1309,6 +1421,48 @@ impl Sheet {
             })
             .collect())
     }
+}
+
+/// Text → Date trying common layouts in turn; a trailing time part is ignored
+/// (`7/3/2018 1:47p` → 2018-07-03). Unparseable values become null.
+/// chrono's `%Y` takes any digit count, so numeric layouts only apply to
+/// strings of their exact shape (regex guard): `7/3/18` isn't year 7.
+fn lenient_date(name: &str) -> Expr {
+    const LAYOUTS: [(&str, &str); 12] = [
+        ("%Y-%m-%d", r"^\d{4}-\d{1,2}-\d{1,2}$"),
+        ("%Y/%m/%d", r"^\d{4}/\d{1,2}/\d{1,2}$"),
+        ("%m/%d/%Y", r"^\d{1,2}/\d{1,2}/\d{4}$"),
+        ("%m/%d/%y", r"^\d{1,2}/\d{1,2}/\d{2}$"),
+        ("%d.%m.%Y", r"^\d{1,2}\.\d{1,2}\.\d{4}$"),
+        ("%d.%m.%y", r"^\d{1,2}\.\d{1,2}\.\d{2}$"),
+        ("%Y%m%d", r"^\d{8}$"),
+        ("%d %b %Y", r"^\d{1,2} [A-Za-z]{3} \d{4}$"),
+        ("%b %d %Y", r"^[A-Za-z]{3} \d{1,2} \d{4}$"),
+        ("%b %d, %Y", r"^[A-Za-z]{3} \d{1,2}, \d{4}$"),
+        ("%B %d, %Y", r"^[A-Za-z]+ \d{1,2}, \d{4}$"),
+        ("%d %B %Y", r"^\d{1,2} [A-Za-z]+ \d{4}$"),
+    ];
+    // drop a time part: "2018-07-03T10:00", "7/3/2018 1:47p"
+    let day = col(name).str().strip_chars(lit(NULL)).str().replace(
+        lit(r"(T| +)\d{1,2}:\d{2}.*$"),
+        lit(""),
+        false,
+    );
+    let tries: Vec<Expr> = LAYOUTS
+        .iter()
+        .map(|(layout, shape)| {
+            let parsed = day.clone().str().to_date(StrptimeOptions {
+                format: Some((*layout).into()),
+                strict: false,
+                exact: true,
+                cache: true,
+            });
+            when(day.clone().str().contains(lit(*shape), true))
+                .then(parsed)
+                .otherwise(lit(NULL).cast(DataType::Date))
+        })
+        .collect();
+    coalesce(&tries).alias(name)
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.
@@ -1537,9 +1691,21 @@ mod tests {
         writeln!(handle, r#"{{"a":4}}"#).unwrap();
         handle.flush().unwrap();
         drop(handle);
-        s.refresh_tail().unwrap();
+        assert!(s.refresh_tail().unwrap());
         let after = s.plan.clone().collect().unwrap();
         assert_eq!(after.height(), 4);
+        assert!(!s.refresh_tail().unwrap(), "unchanged file → no reload");
+        // a partial last line waits; truncation starts over
+        let mut handle = std::fs::OpenOptions::new()
+            .append(true)
+            .open(tmp.path())
+            .unwrap();
+        write!(handle, r#"{{"a":5"#).unwrap();
+        drop(handle);
+        assert!(!s.refresh_tail().unwrap());
+        std::fs::write(tmp.path(), "{\"a\":9}\n").unwrap();
+        assert!(s.refresh_tail().unwrap());
+        assert_eq!(s.plan.clone().collect().unwrap().height(), 1);
     }
 
     #[test]
@@ -1649,6 +1815,44 @@ mod tests {
         assert_eq!(s.search_hits("AR").unwrap(), vec![(1, 0)]);
         assert_eq!(s.search_hits("3").unwrap(), vec![(2, 1)]);
         assert!(s.search_hits("zzz").unwrap().is_empty());
+    }
+
+    #[test]
+    fn lenient_date_cast_reads_common_layouts() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            tmp,
+            "d\n7/3/2018 1:47p\n2024-01-02\n03.04.2020\n\"Jan 5, 2021\"\n7/3/18\nnope"
+        )
+        .unwrap();
+        tmp.flush().unwrap();
+        let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
+        let mut s = Sheet::from_source(0, loaded);
+        s.view.type_casts.push(("d".into(), DataType::Date));
+        let df = s.view_plan().collect().unwrap();
+        let got: Vec<Option<String>> = df
+            .column("d")
+            .unwrap()
+            .cast(&DataType::String)
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_iter()
+            .map(|v| v.map(String::from))
+            .collect();
+        let want = [
+            "2018-07-03",
+            "2024-01-02",
+            "2020-04-03",
+            "2021-01-05",
+            "2018-07-03",
+        ];
+        let want: Vec<Option<String>> = want
+            .iter()
+            .map(|d| Some(d.to_string()))
+            .chain([None])
+            .collect();
+        assert_eq!(got, want);
     }
 
     #[test]

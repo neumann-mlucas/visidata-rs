@@ -1189,9 +1189,13 @@ impl App {
             (None, Some(df)) => v.row_cursor + 1 >= df.height(),
             (None, None) => true,
         };
-        if let Err(e) = active.refresh_tail() {
-            self.toast = Some(format!("tail refresh: {e}"));
-            return;
+        match active.refresh_tail() {
+            Ok(true) => {}
+            Ok(false) => return, // nothing new
+            Err(e) => {
+                self.toast = Some(format!("tail refresh: {e}"));
+                return;
+            }
         }
         // Settles across the window + count results the refresh triggers.
         active.view.jump_bottom |= follow && was_at_bottom;
@@ -1274,6 +1278,23 @@ impl App {
         match &self.sheets.active().origin {
             Origin::SheetSwitcher => self.switch_to_row_sheet(),
             Origin::Freq { .. } => self.dive_freq(false),
+            Origin::Parts { path, kind } => {
+                let (path, kind) = (path.clone(), *kind);
+                let s = self.sheets.active();
+                let part = s.window.as_ref().and_then(|df| {
+                    let v = df.get_columns().first()?.get(s.view.row_cursor).ok()?;
+                    v.get_str().map(String::from)
+                });
+                let Some(part) = part else { return };
+                match crate::reader::open_part(&path, kind, &part) {
+                    Ok(loaded) => {
+                        let id = self.sheets.alloc_id();
+                        self.sheets.push(Sheet::from_source(id, loaded));
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(format!("open {part}: {e}")),
+                }
+            }
             _ => self.toast = Some("<CR>: nothing to open here".into()),
         }
     }
@@ -1929,7 +1950,7 @@ mod scenario {
     pub struct Harness {
         pub app: App,
         pub term: Terminal<ratatui::backend::TestBackend>,
-        _tmp: tempfile::NamedTempFile,
+        _tmp: Option<tempfile::NamedTempFile>,
     }
 
     impl Harness {
@@ -1951,11 +1972,17 @@ mod scenario {
         ) -> Self {
             let mut app = App::new(Sheet::from_source(0, loaded), None, None);
             app.spawn_materialize();
+            let mut h = Self::from_app(app).await;
+            h._tmp = Some(tmp);
+            h
+        }
+
+        pub async fn from_app(app: App) -> Self {
             let term = Terminal::new(ratatui::backend::TestBackend::new(100, 12)).unwrap();
             let mut h = Self {
                 app,
                 term,
-                _tmp: tmp,
+                _tmp: None,
             };
             h.pump().await;
             h
@@ -2461,6 +2488,51 @@ mod scenario {
             let script = std::fs::read_to_string(&out).unwrap();
             assert!(script.contains(".csv"), "{script}");
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parts_list_opens_each_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("two.db");
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch("create table a(x); insert into a values (1); create table b(y); insert into b values (8),(9);")
+            .unwrap();
+        drop(c);
+        let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
+        let parts = crate::reader::list_parts(&db, loaded.kind).unwrap();
+        let mut app = App::new(Sheet::parts_list(0, loaded, parts), None, None);
+        app.spawn_materialize();
+        let mut h = Harness::from_app(app).await;
+        assert!(
+            title(&h).contains("tables") && title(&h).contains("row 1/2"),
+            "{}",
+            title(&h)
+        );
+        h.keys("j <CR>").await;
+        assert!(
+            title(&h).contains(":b") && title(&h).contains("row 1/2"),
+            "{}",
+            title(&h)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_on_parquet_directory_picks_up_new_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |i: i64| {
+            let mut df = df!("v" => [i, i]).unwrap();
+            let f = std::fs::File::create(dir.path().join(format!("{i}.parquet"))).unwrap();
+            ParquetWriter::new(f).finish(&mut df).unwrap();
+        };
+        write(1);
+        let mut h = Harness::new(1).await;
+        h.keys(":").await;
+        h.type_(&format!("tail {}", dir.path().display())).await;
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+        write(2);
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert!(title(&h).contains("/4 "), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]
