@@ -40,7 +40,7 @@ pub async fn run(
 ) -> Result<()> {
     install_panic_hook();
 
-    enable_raw_mode()?;
+    enable_raw_mode().context("no usable terminal (try --headless)")?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);

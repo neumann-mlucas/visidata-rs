@@ -90,7 +90,7 @@ fn main() -> ExitCode {
     match rt.block_on(app::run(sheet, plugins, plugin_warning)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("vdrs: {e}");
+            eprintln!("vdrs: {e:#}"); // `:#` = include the cause chain
             ExitCode::from(1)
         }
     }

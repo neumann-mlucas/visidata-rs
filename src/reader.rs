@@ -252,6 +252,9 @@ fn decompress_gz(path: &Path) -> Result<(PathBuf, SourceKind, tempfile::NamedTem
 }
 
 fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
+    // Lazy scans don't touch the file until collect; fail here, naming the path.
+    std::fs::metadata(path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
     // `.gz` → decompress to a tempfile and open that. We keep the tempfile
     // handle alive on the returned source so Polars' lazy scan sees a live file.
     let gz = path.extension().and_then(OsStr::to_str) == Some("gz");
@@ -398,6 +401,12 @@ mod tests {
             assert_eq!(src.kind, kind, "{body:?}");
             assert_eq!(src.lazy.collect().unwrap().shape(), (2, 1), "{body:?}");
         }
+    }
+
+    #[test]
+    fn missing_file_errors_with_path() {
+        let err = open(OsStr::new("/no/such/file.csv"), None).err().unwrap();
+        assert!(err.to_string().contains("/no/such/file.csv"), "{err}");
     }
 
     #[test]
