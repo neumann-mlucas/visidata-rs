@@ -4,6 +4,7 @@ Modal terminal data explorer with VisiData's taste: Polars + Ratatui + mlua,
 Lua-extensible like Neovim. Pre-alpha.
 
 ```
+cargo install --path . --locked              # installs `vdrs`; --locked = tested dep versions
 cargo run --release -- data.parquet          # TUI
 cargo run --release -- --headless data.csv   # schema + first rows, no TUI
 cat data.csv | cargo run --release -- -      # stdin, format sniffed
