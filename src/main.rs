@@ -103,15 +103,23 @@ fn main() -> ExitCode {
 }
 
 fn print_headless(src: &reader::LoadedSource, head: usize) -> Result<(), AppError> {
+    use std::io::Write;
     let df = src.lazy.clone().limit(head as u32).collect()?;
-    println!("source : {} ({:?})", src.display_name, src.kind);
-    println!("schema : {} columns", df.width());
-    for (name, dtype) in df.schema().iter() {
-        println!("  {name:<20} {dtype}");
+    let mut out = std::io::stdout().lock();
+    let written = (|| -> std::io::Result<()> {
+        writeln!(out, "source : {} ({:?})", src.display_name, src.kind)?;
+        writeln!(out, "schema : {} columns", df.width())?;
+        for (name, dtype) in df.schema().iter() {
+            writeln!(out, "  {name:<20} {dtype}")?;
+        }
+        writeln!(out, "head   :")?;
+        writeln!(out, "{df}")
+    })();
+    match written {
+        // `vdrs --headless x | head`: the reader left early; that's fine.
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        other => Ok(other?),
     }
-    println!("head   :");
-    println!("{df}");
-    Ok(())
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -120,4 +128,6 @@ enum AppError {
     Open(#[from] OpenError),
     #[error("polars: {0}")]
     Polars(#[from] polars::prelude::PolarsError),
+    #[error("write: {0}")]
+    Io(#[from] std::io::Error),
 }
