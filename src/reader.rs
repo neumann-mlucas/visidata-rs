@@ -11,6 +11,7 @@ pub enum SourceKind {
     Parquet,
     Arrow,
     Jsonl,
+    Json, // JSON array of records; `.json` holding JSON Lines is sniffed back to Jsonl
     Xlsx,
     Sqlite,
     Stdin, // resolved to one of the above after sniffing
@@ -222,7 +223,8 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("tsv" | "tab") => Ok(SourceKind::Tsv),
         Some("parquet" | "pq") => Ok(SourceKind::Parquet),
         Some("arrow" | "ipc" | "feather") => Ok(SourceKind::Arrow),
-        Some("jsonl" | "ndjson" | "json") => Ok(SourceKind::Jsonl),
+        Some("jsonl" | "ndjson") => Ok(SourceKind::Jsonl),
+        Some("json") => Ok(SourceKind::Json),
         Some("xlsx" | "xls" | "xlsm" | "xlsb" | "ods") => Ok(SourceKind::Xlsx),
         Some("sqlite" | "sqlite3" | "db") => Ok(SourceKind::Sqlite),
         _ => Err(OpenError::UnknownFormat {
@@ -259,19 +261,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
     } else {
         (path.to_owned(), kind, None)
     };
-    let lazy = match real_kind {
-        SourceKind::Csv => LazyCsvReader::new(&real_path).with_has_header(true).finish()?,
-        SourceKind::Tsv => LazyCsvReader::new(&real_path)
-            .with_has_header(true)
-            .with_separator(b'\t')
-            .finish()?,
-        SourceKind::Parquet => LazyFrame::scan_parquet(&real_path, ScanArgsParquet::default())?,
-        SourceKind::Arrow => LazyFrame::scan_ipc(&real_path, ScanArgsIpc::default())?,
-        SourceKind::Jsonl => LazyJsonLineReader::new(&real_path).finish()?,
-        SourceKind::Xlsx => open_xlsx(&real_path)?.lazy(),
-        SourceKind::Sqlite => open_sqlite_first_table(&real_path)?.lazy(),
-        SourceKind::Stdin => unreachable!("stdin resolved separately"),
-    };
+    let (lazy, real_kind) = scan(&real_path, real_kind)?;
     let display_name = path.display().to_string();
     Ok(LoadedSource {
         kind: real_kind,
@@ -280,6 +270,43 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         lazy,
         _tempfile: tempfile,
     })
+}
+
+/// Build the plan for a file of a known kind. Returns the kind actually used:
+/// `Json` falls back to `Jsonl` when the file isn't a JSON array.
+fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenError> {
+    let lazy = match kind {
+        SourceKind::Csv => LazyCsvReader::new(path).with_has_header(true).finish()?,
+        SourceKind::Tsv => LazyCsvReader::new(path)
+            .with_has_header(true)
+            .with_separator(b'\t')
+            .finish()?,
+        SourceKind::Parquet => LazyFrame::scan_parquet(path, ScanArgsParquet::default())?,
+        SourceKind::Arrow => LazyFrame::scan_ipc(path, ScanArgsIpc::default())?,
+        SourceKind::Jsonl => LazyJsonLineReader::new(path).finish()?,
+        SourceKind::Json if !starts_with_json_array(path)? => {
+            return scan(path, SourceKind::Jsonl);
+        }
+        // ponytail: eager read; JSON arrays can't be streamed by Polars' lazy reader.
+        SourceKind::Json => JsonReader::new(std::fs::File::open(path)?)
+            .with_json_format(JsonFormat::Json)
+            .finish()?
+            .lazy(),
+        SourceKind::Xlsx => open_xlsx(path)?.lazy(),
+        SourceKind::Sqlite => open_sqlite_first_table(path)?.lazy(),
+        SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
+    };
+    Ok((lazy, kind))
+}
+
+/// First non-whitespace byte (after an optional UTF-8 BOM) is `[`.
+fn starts_with_json_array(path: &Path) -> io::Result<bool> {
+    let mut head = [0u8; 512];
+    let n = std::fs::File::open(path)?.read(&mut head)?;
+    let head = head[..n]
+        .strip_prefix(b"\xef\xbb\xbf")
+        .unwrap_or(&head[..n]);
+    Ok(head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'['))
 }
 
 fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenError> {
@@ -296,21 +323,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         Some(k) => k,
         None => sniff_format(&buf),
     };
-    let lazy = match kind {
-        SourceKind::Csv => LazyCsvReader::new(tmp.path())
-            .with_has_header(true)
-            .finish()?,
-        SourceKind::Tsv => LazyCsvReader::new(tmp.path())
-            .with_has_header(true)
-            .with_separator(b'\t')
-            .finish()?,
-        SourceKind::Parquet => LazyFrame::scan_parquet(tmp.path(), ScanArgsParquet::default())?,
-        SourceKind::Arrow => LazyFrame::scan_ipc(tmp.path(), ScanArgsIpc::default())?,
-        SourceKind::Jsonl => LazyJsonLineReader::new(tmp.path()).finish()?,
-        SourceKind::Xlsx => open_xlsx(tmp.path())?.lazy(),
-        SourceKind::Sqlite => open_sqlite_first_table(tmp.path())?.lazy(),
-        SourceKind::Stdin => unreachable!("sniff_format never returns Stdin"),
-    };
+    let (lazy, kind) = scan(tmp.path(), kind)?;
     Ok(LoadedSource {
         kind,
         display_name: "<stdin>".to_string(),
@@ -331,8 +344,10 @@ fn sniff_format(buf: &[u8]) -> SourceKind {
     }
     let first = buf.split(|b| *b == b'\n').next().unwrap_or(&[]);
     let trimmed = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
-    if trimmed.first() == Some(&b'{') || trimmed.first() == Some(&b'[') {
-        return SourceKind::Jsonl;
+    match trimmed.first() {
+        Some(b'[') => return SourceKind::Json,
+        Some(b'{') => return SourceKind::Jsonl,
+        _ => {}
     }
     let tabs = trimmed.iter().filter(|b| **b == b'\t').count();
     let commas = trimmed.iter().filter(|b| **b == b',').count();
@@ -367,6 +382,22 @@ mod tests {
         assert_eq!(sniff_format(b"a,b,c\n1,2,3"), SourceKind::Csv);
         assert_eq!(sniff_format(b"a\tb\tc\n1\t2\t3"), SourceKind::Tsv);
         assert_eq!(sniff_format(b"{\"a\":1}\n"), SourceKind::Jsonl);
+        assert_eq!(sniff_format(b"[{\"a\":1}]"), SourceKind::Json);
+    }
+
+    #[test]
+    fn json_extension_reads_arrays_and_json_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.json");
+        for (body, kind) in [
+            ("\u{feff} [{\"a\":1},{\"a\":2}]", SourceKind::Json),
+            ("{\"a\":1}\n{\"a\":2}\n", SourceKind::Jsonl),
+        ] {
+            std::fs::write(&path, body).unwrap();
+            let src = open(path.as_os_str(), None).unwrap();
+            assert_eq!(src.kind, kind, "{body:?}");
+            assert_eq!(src.lazy.collect().unwrap().shape(), (2, 1), "{body:?}");
+        }
     }
 
     #[test]

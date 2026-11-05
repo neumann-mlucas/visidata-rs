@@ -607,13 +607,14 @@ impl Sheet {
             lf = lf.with_columns(exprs);
         }
         if let Some(f) = &self.view.filter {
-            if regex::Regex::new(&f.regex).is_ok() {
-                lf = lf.filter(
-                    col(f.column.as_str())
-                        .str()
-                        .contains(lit(f.regex.as_str()), false),
-                );
-            }
+            // Cast so numeric/date columns filter on their display text. Strict:
+            // a bad regex errors loudly instead of filtering every row out.
+            lf = lf.filter(
+                col(f.column.as_str())
+                    .cast(DataType::String)
+                    .str()
+                    .contains(lit(f.regex.as_str()), true),
+            );
         }
         if !self.view.sort.is_empty() {
             let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
@@ -898,7 +899,13 @@ mod tests {
             "b" => ["x", "y", "z"],
         )
         .unwrap();
-        for (ext, want_sep) in [("csv", b','), ("tsv", b'\t'), ("parquet", 0u8)] {
+        for (ext, want_sep) in [
+            ("csv", b','),
+            ("tsv", b'\t'),
+            ("parquet", 0u8),
+            ("json", 0),
+            ("jsonl", 0),
+        ] {
             let path = tempfile::NamedTempFile::new()
                 .unwrap()
                 .path()
@@ -926,6 +933,16 @@ mod tests {
         let err = write_df_by_extension(&mut df, &path).unwrap_err();
         assert!(err.to_string().contains("unknown extension"));
         assert_eq!(std::fs::read(&path).unwrap(), b"keep me"); // not truncated
+    }
+
+    #[test]
+    fn window_plan_filter_non_string_column() {
+        let (mut s, _tmp) = make_sheet();
+        s.view.filter = Some(FilterState {
+            column: "n".into(),
+            regex: "^3$".into(),
+        });
+        assert_eq!(s.window_plan().collect().unwrap().height(), 1);
     }
 
     #[test]

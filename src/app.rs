@@ -442,6 +442,12 @@ impl App {
     fn dispatch(&mut self, action: Action) {
         let before_rev = self.sheets.active().revision;
         let affects = action.affects_data();
+        if let Action::SetFilter { regex, .. } | Action::FilterCurrentColumn { regex } = &action {
+            if let Err(e) = regex::Regex::new(regex) {
+                self.toast = Some(format!("bad regex: {e}"));
+                return;
+            }
+        }
         // Selection is positional (row offsets into the view), so any change to
         // row order/membership would silently re-point it at other rows.
         // ponytail: clear instead of tracking row identity; add a row-index
@@ -1356,6 +1362,17 @@ mod tests {
         let v = &app.sheets.active().view;
         assert_eq!(v.window_offset, 0);
         assert_eq!(v.row_cursor, 2);
+    }
+
+    #[tokio::test]
+    async fn bad_filter_regex_is_rejected_with_toast() {
+        let (mut app, _tmp) = test_app();
+        app.dispatch(Action::SetFilter {
+            column: "name".into(),
+            regex: "(".into(),
+        });
+        assert!(app.sheets.active().view.filter.is_none());
+        assert!(app.toast.as_deref().unwrap().starts_with("bad regex"));
     }
 
     #[tokio::test]
