@@ -876,4 +876,32 @@ mod tests {
         let _ = std::fs::remove_file(&input_path);
         let _ = std::fs::remove_file(&out_path);
     }
+
+    /// The `init.lua` example in docs/index.html loads and does what it says.
+    #[test]
+    fn guide_example_runs() {
+        let html = include_str!("../docs/index.html");
+        let start = "<pre><code>-- ~/.config/vdrs/init.lua\n";
+        let code = html
+            .split(start)
+            .nth(1)
+            .unwrap()
+            .split("</code></pre>")
+            .next()
+            .unwrap();
+        let code = code
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&");
+        let p = Plugins::load_from_source(&code).unwrap();
+        use polars::prelude::NamedFrom;
+        let range = p.aggregator("range").unwrap();
+        let vals = Series::new("v".into(), [Some(3.0f64), None, Some(9.0)]);
+        assert_eq!(range.call(&vals).unwrap(), AggValue::Num(6.0));
+        let empty = Series::new("v".into(), [None::<f64>]);
+        assert_eq!(range.call(&empty).unwrap(), AggValue::Null);
+        let price = |v| p.render("price", &DataType::Float64, &v);
+        assert_eq!(price(AnyValue::Float64(2.5)), Some("$2.50".into()));
+        assert_eq!(price(AnyValue::Null), None);
+    }
 }

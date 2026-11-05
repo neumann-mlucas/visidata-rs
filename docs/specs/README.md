@@ -9,11 +9,11 @@ File naming: `S-NN-slug.md`.
 | S-00 | Direction & scope | — | approved → see `../direction.md` |
 | S-01 | Core data model: Sheet, Column, DataFrame binding | 0 | **shipped** → [`S-01-core-data-model.md`](S-01-core-data-model.md) |
 | S-02 | Ratatui app loop & Model/Update/View shape | 0 | **shipped** → [`S-02-app-loop.md`](S-02-app-loop.md) |
-| S-03 | Reader interface | 0 | **shipped + extended** (JSON arrays, xlsx/sqlite first sheet/table, gzip; Lua loaders via `plugins::open`) → [`S-03-reader-interface.md`](S-03-reader-interface.md) |
+| S-03 | Reader interface | 0 | **shipped + extended** (JSON arrays, Parquet directories, multi-part xlsx/sqlite + `file:part`, gzip; Lua loaders via `plugins::open`) → [`S-03-reader-interface.md`](S-03-reader-interface.md) |
 | S-04 | Keybinding model & prefix maps | 0 | **shipped** (Lua `vd.bind()` instead of planned TOML) → [`S-04-keybindings.md`](S-04-keybindings.md) |
 | S-05 | Type-system adapter over Polars dtypes | 1 | cut (superseded by S-13 #3 Type coercion chunk; shipped as `TypeCast*` Actions) |
 | S-06 | Ex-line grammar | 1 | **shipped as ad-hoc parser** in `src/exline.rs` — no formal grammar spec; 28 commands incl. `:derive`/`:sql`/`:join`; quote-aware args |
-| S-07 | Pivot / melt UX + LazyFrame construction | 2 | partial — `:pivot` / `:unpivot` / `W` shipped (Lua aggregators too); live preview panel deferred |
+| S-07 | Pivot / melt UX + LazyFrame construction | 2 | shipped — `:pivot` / `:unpivot` / `W` (Lua aggregators run in the background); live preview while typing `:pivot` |
 | S-08 | Plan panel: display, optimize, export | 2 | **shipped** — `P` display + optimize; `:export` writes Polars `.py` / DuckDB `.sql` |
 | S-09 | mlua plugin system: shapes, sandbox, errors | 3 | **keymap, loader, aggregator, renderer shapes + hot-reload shipped** → [`S-09-plugin-system.md`](S-09-plugin-system.md) |
 | S-10 | Lua API surface + versioning (`since` / `deprecate`) | 3 | `vd.api_version` shipped; `since`/`deprecate` registry + data/app API not started → [`S-10-lua-api.md`](S-10-lua-api.md) |

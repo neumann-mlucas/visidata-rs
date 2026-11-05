@@ -220,7 +220,9 @@ VM: mlua Lua 5.4, vendored. Loaded from `$XDG_CONFIG_HOME/vdrs/init.lua` (missin
 ```lua
 vd.bind(layer, keys, action, desc)   -- layer: "sheet" | "input"
                                      -- keys: string | table of strings
-                                     -- action: snake_case name per src/plugins.rs
+                                     -- action: snake_case name per src/plugins.rs,
+                                     --   ":ex command", or a Lua function (Action::Lua;
+                                     --   vd.sheet() / vd.toast() inside it)
 vd.unbind(layer, keys)               -- no-op patch (last-wins, doesn't remove from base)
 ```
 
@@ -272,8 +274,9 @@ vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-b
 ## 9. Testing
 
 - `cargo test --lib` — unit tests over sheet/keymap/widget/exline/action/plugins, plus `app::scenario` end-to-end tests: real keymap → dispatch → background Polars tasks → TestBackend render (never touches the user's ex history)
-- `cargo test --test vd_replay` — golden corpus replay (S-14). Needs `../visidata` checked out alongside; skips cleanly otherwise.
-- `cargo clippy --tests` — zero warnings as of iteration 14
+- `cargo test --test vd_replay` — golden corpus replay (S-14). Needs `../visidata` checked out alongside; skips cleanly otherwise. CI fetches it pinned at `dd1a9f0` and fails on any regression.
+- Doc sync: tests fail if docs/index.html misses a default key (`keymap.rs`) or documents an unknown ex command (`exline.rs`), or if its `init.lua` example stops working (`plugins.rs`)
+- `cargo clippy --all-targets` — zero warnings
 - No benchmarks shipped; `hyperfine` harness is a tasks.md todo
 
 ## 10. Non-features (explicitly cut)
@@ -312,7 +315,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 | Action enum + `affects_data()` + `repeatable()` | `src/action.rs` |
 | Ex-line parser + history | `src/exline.rs` |
 | Sheet widget + `clamp_view` | `src/widget.rs` |
-| Lua plugin host (vd.bind / vd.unbind / vd.register_loader, `plugins::open`) | `src/plugins.rs` |
+| Lua plugin host (`vd.*` API, aggregators, renderers, hot reload, `plugins::open`) | `src/plugins.rs` |
 | Theme | `src/theme.rs` |
 | Binary entry | `src/main.rs` |
 | Library façade (re-exports for integration tests) | `src/lib.rs` |

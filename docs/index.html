@@ -72,6 +72,7 @@ td:first-child { white-space: nowrap; }
   <div class="links">
     <a href="#install">Install</a>
     <a href="#open">Opening data</a>
+    <a href="#tour">A first session</a>
     <a href="#screen">The screen</a>
     <a href="#move">Moving around</a>
     <a href="#columns">Columns &amp; types</a>
@@ -118,6 +119,17 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td>gzip</td><td>any of the above + <code>.gz</code></td><td>The inner extension (or <code>--format</code>) decides the format.</td></tr>
 </table>
 <p>Files are scanned lazily: vdrs only loads a 1024-row window around the cursor and counts rows in the background, so large files open immediately. Other formats can be added with a <a href="#lua-loader">Lua loader</a>.</p>
+
+<h2 id="tour">A first session</h2>
+<p>Say <code>sales.csv</code> has columns <code>date</code>, <code>region</code>, <code>qty</code> and <code>price</code>. A typical look around:</p>
+<ol>
+<li><code>vdrs sales.csv</code>. The table opens at once; the row count in the title bar shows <code>?</code> until it has been counted.</li>
+<li>Move to <code>region</code> with <kbd>l</kbd> and press <kbd>F</kbd>: each region with its row count and percentage. Put the cursor on <code>north</code> and press <kbd>Enter</kbd> to see just those rows. <kbd>q</kbd> takes you back, one sheet at a time.</li>
+<li>On <code>price</code>, press <kbd>]</kbd> to sort by it, most expensive first. On <code>region</code>, <kbd>z</kbd><kbd>|</kbd> <code>^n</code> <kbd>Enter</kbd> keeps the regions starting with <em>n</em>.</li>
+<li>Type <code>:derive total = qty * price</code> to add a column, then <code>:pivot region date total</code>: while you type, the right half of the screen tells you what comes next and previews the result.</li>
+<li>Press <kbd>U</kbd> if a step went wrong. When the view is what you want, <code>:save north.parquet</code> writes it, and <code>:export north.py</code> writes a Python script that rebuilds it from <code>sales.csv</code>.</li>
+</ol>
+<p>Nothing you do changes <code>sales.csv</code>.</p>
 
 <h2 id="screen">The screen</h2>
 <pre class="screen"><span class="t"> sales.csv  row 12/48210 · col 3/7 (region) · sel 0  Csv · sheets 1 </span>
@@ -207,6 +219,15 @@ id i   date date    <span class="c">region str</span>  qty i  price f
 <tr><td><code>:save out.parquet</code> (<code>:w</code>)</td><td>Write every row of the current view (filter, sort, types, visible columns). The extension picks the format: <code>.csv</code>, <code>.tsv</code>, <code>.parquet</code>, <code>.arrow</code>/<code>.ipc</code>, <code>.jsonl</code>, <code>.json</code>. An existing file is overwritten; an unknown extension is refused and leaves the file alone.</td></tr>
 <tr><td><code>:export view.py</code>, <code>:export view.sql</code></td><td>Write a script that rebuilds the current view from the source files: Python with Polars, or SQL for DuckDB. Derived sheets (frequency, copy, selected rows, <code>:join</code>, <code>:sql</code>, <code>:pivot</code>, <kbd>W</kbd>, <code>:unpivot</code>, describe, row diff) are rebuilt step by step from the sheet they came from, as it was when you made them.</td></tr>
 </table>
+<p>For example, filtering <code>region</code> on <code>^n</code>, pressing <kbd>F</kbd> on <code>qty</code> and running <code>:export qty.py</code> writes:</p>
+<pre><code>import polars as pl
+
+t1 = pl.scan_csv("sales.csv")
+t2 = t1.filter(pl.col("region").cast(pl.Utf8).str.contains("^n"))
+t3 = t2.group_by("qty").agg(pl.len().alias("count")).with_columns(…).sort(["count", "qty"], …)
+
+print(t3.collect())</code></pre>
+<p>Each sheet becomes one variable (<code>t1</code>, <code>t2</code>, …); in <code>.sql</code> each is a <code>WITH</code> table. Run it with <code>python qty.py</code> or <code>duckdb -c ".read qty.sql"</code>. See <a href="#limits">Limitations</a> for what can't be exported.</p>
 
 <h2 id="stream">Following files</h2>
 <p><code>:tail app.jsonl -f</code> opens a file that keeps growing and checks it every 2 seconds. With <code>-f</code> (follow), if you are on the last row you stay on the last row as new rows arrive. For CSV, TSV and JSON Lines only the new lines are read. <code>:tail data/ -f</code> on a directory picks up new Parquet files.</p>
@@ -329,16 +350,17 @@ end, "show cell")
 
 vd.register_renderer {                               -- how cells look
   column = "price",                                  -- or: dtype = "f64"
-  render = function(v) return string.format("$%.2f", v) end,
+  render = function(v) return v and string.format("$%.2f", v) end,
 }
 
 vd.register_aggregator("range", function(values)     -- for :pivot … range
   local lo, hi = math.huge, -math.huge
-  for _, v in ipairs(values) do lo = math.min(lo, v); hi = math.max(hi, v) end
+  for _, v in pairs(values) do lo = math.min(lo, v); hi = math.max(hi, v) end
+  if lo &gt; hi then return nil end                     -- only empty values
   return hi - lo
 end)
 
-if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
+if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions in vd.bind</code></pre>
 
 <h3>vd.bind(layer, keys, action, description?)</h3>
 <p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, an ex command starting with <code>:</code>, or a Lua function to run when the keys are pressed. An unknown action or invalid command is an error at load time; an error inside a function is shown in the status line.</p>
@@ -365,16 +387,16 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 }</code></pre>
 
 <h3 id="lua-agg">vd.register_aggregator(name, fn)</h3>
-<p><code>fn</code> receives the values of one pivot cell as a Lua array (empty values are <code>nil</code>) and returns a number, a string or <code>nil</code>. Use it as the last argument of <code>:pivot</code>.</p>
+<p><code>fn</code> receives the values of one pivot cell as a Lua array and returns a number, a string or <code>nil</code> (an empty cell). Empty values are holes in the array, so loop with <code>pairs</code>: <code>ipairs</code> stops at the first one, and <code>#values</code> is unreliable. Use the name as the last argument of <code>:pivot</code>. It runs in the background, cell by cell; an error stops the pivot and is shown in the status line.</p>
 
 <h3>vd.register_renderer { column | dtype, render }</h3>
-<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument.</p>
+<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument. Empty cells arrive as <code>nil</code>; if <code>render</code> raises an error, the cell is shown normally.</p>
 
 <h3>vd.sheet(), vd.toast(message)</h3>
 <p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
-<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features.</p>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>.</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>
