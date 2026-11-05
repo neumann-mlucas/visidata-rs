@@ -1081,7 +1081,7 @@ impl App {
 
     fn abs_row_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
-        s.window.as_ref()?;
+        s.window.as_ref().filter(|df| df.height() > 0)?; // empty view: no row to act on
         Some(s.view.window_offset + s.view.row_cursor as u64)
     }
 
@@ -1906,6 +1906,23 @@ mod scenario {
         h.keys("q :").await;
         h.type_(&format!("tail {}", ml.display())).await;
         assert!(status(&h).contains("can't follow"), "{}", status(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn empty_sheet_survives_every_basic_key() {
+        let mut h = Harness::new(0).await;
+        for k in [
+            "G", "j", "k", "<C-d>", "<C-u>", "g g", "s", "t", "u", "g s", "n", "$", "F", "q",
+        ] {
+            h.keys(k).await;
+            assert!(
+                title(&h).contains("row 0/0") && title(&h).contains("sel 0"),
+                "{k}: {}",
+                title(&h)
+            );
+        }
+        h.keys("\"").await;
+        assert_eq!(status(&h), "dup: no rows selected");
     }
 
     #[tokio::test(flavor = "multi_thread")]
