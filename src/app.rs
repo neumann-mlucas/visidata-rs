@@ -20,6 +20,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
@@ -1308,10 +1310,12 @@ impl App {
             .as_ref()
             .and_then(|df| df.get_column_names().get(col_cursor).map(|n| n.to_string()))
             .unwrap_or_default();
-        let left = format!(" {name} ", name = s.name);
         let center =
             format!(" row {abs_row}/{total} · col {col}/{cols} ({col_name}) · sel {sel} ",);
         let right = format!(" {kind:?} · sheets {stack_pos} ", kind = s.kind);
+        // Position info wins over the sheet name: the name gives up its head.
+        let room = (area.width as usize).saturating_sub(center.width() + right.width() + 2);
+        let left = format!(" {} ", truncate_head(&s.name, room));
         let th = &self.theme;
         let line = Line::from(vec![
             Span::styled(left, th.titlebar_left()),
@@ -1371,6 +1375,24 @@ impl App {
             area,
         );
     }
+}
+
+/// Keep the tail of `s` within `max` display cells, marking the cut with `…`.
+fn truncate_head(s: &str, max: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    if s.width() <= max {
+        return s.to_string();
+    }
+    let mut used = 1; // the ellipsis
+    let tail: Vec<char> = s
+        .chars()
+        .rev()
+        .take_while(|c| {
+            used += c.width().unwrap_or(0);
+            used <= max
+        })
+        .collect();
+    std::iter::once('…').chain(tail.into_iter().rev()).collect()
 }
 
 fn inject_count(actions: Vec<Action>, count: Option<usize>) -> Vec<Action> {
@@ -1814,7 +1836,7 @@ mod scenario {
         h.type_(&format!("diff {} id", other.display())).await;
         // id 2 changed, id 3 only_a, id 99 only_b; id 1 identical → hidden
         assert!(
-            title(&h).contains("rowdiff(id)") && title(&h).contains("/3 "),
+            title(&h).contains("o.csv") && title(&h).contains("row 1/3"),
             "{}",
             h.screen()
         );
@@ -1839,6 +1861,18 @@ mod scenario {
         let col = |r: &str| r[..r.find("end").unwrap()].width();
         assert_eq!(col(rows[2]), col(rows[3]), "{screen}");
         h.keys("j").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn long_sheet_name_never_hides_position() {
+        let mut h = Harness::new(3).await;
+        h.app.sheets.active_mut().name = format!("/{}/data.csv", "very/long/dir".repeat(20));
+        h.pump().await;
+        let t = title(&h);
+        assert!(
+            t.contains("…") && t.contains("data.csv") && t.contains("row 1/3"),
+            "{t}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
