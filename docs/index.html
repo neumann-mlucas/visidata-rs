@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vdrs user guide</title>
+<meta name="description" content="How to use vdrs (visidata-rs), a modal terminal data explorer built on Polars, Ratatui and Lua.">
+<style>
+:root {
+  --bg: #fbfbfa; --fg: #1d1f21; --muted: #5f6368; --line: #e3e3e0; --panel: #f2f2ef;
+  --accent: #2456a6; --kbd-bg: #ffffff; --kbd-line: #c9c9c4; --code-bg: #f0f0ec; --warn: #8a5a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --fg: #e4e4e1; --muted: #a0a4a8; --line: #2b2f34; --panel: #1c1f23;
+    --accent: #7aa7ff; --kbd-bg: #23272c; --kbd-line: #3a3f46; --code-bg: #1f2327; --warn: #e0b45a;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 1rem; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); max-width: 72rem; margin: 0 auto; }
+nav {
+  position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+  padding: 1.5rem 1rem; border-right: 1px solid var(--line); font-size: .9rem;
+}
+nav .brand { font-weight: 700; font-size: 1.1rem; margin-bottom: 1rem; }
+nav a { display: block; color: var(--muted); text-decoration: none; padding: .15rem 0; }
+nav a:hover { color: var(--accent); }
+main { padding: 1.5rem 2.5rem 5rem; min-width: 0; }
+h1 { font-size: 2rem; margin: .5rem 0 .25rem; }
+h2 { font-size: 1.4rem; margin: 2.75rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
+p, li { max-width: 46rem; }
+a { color: var(--accent); }
+.lede { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+code, kbd, pre { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .88em; }
+code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+pre { background: var(--code-bg); padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; line-height: 1.45; }
+pre code { background: none; padding: 0; }
+kbd {
+  display: inline-block; min-width: 1.5em; text-align: center; padding: .05em .4em; margin: 0 .1em;
+  background: var(--kbd-bg); border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 5px;
+}
+table { border-collapse: collapse; width: 100%; margin: .75rem 0 1.25rem; font-size: .93rem; }
+th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+td:first-child { white-space: nowrap; }
+.note { border-left: 3px solid var(--accent); background: var(--panel); padding: .6rem 1rem; border-radius: 0 6px 6px 0; max-width: 46rem; }
+.warn { border-left-color: var(--warn); }
+.screen { background: #101214; color: #d7dae0; border-radius: 8px; padding: .8rem 1rem; overflow-x: auto; font-size: .8rem; line-height: 1.35; }
+.screen .t { background: #1f4f8f; color: #fff; }
+.screen .s { background: #3a3d41; color: #fff; }
+.screen .c { background: #e8c547; color: #111; }
+#keyfilter { width: 100%; max-width: 22rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--kbd-bg); color: var(--fg); font: inherit; }
+@media (max-width: 52rem) {
+  .layout { display: block; }
+  nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 1rem; }
+  nav .links { display: flex; flex-wrap: wrap; gap: .25rem .9rem; }
+  main { padding: 1rem 1rem 4rem; }
+  td:first-child { white-space: normal; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <div class="brand">vdrs</div>
+  <div class="links">
+    <a href="#install">Install</a>
+    <a href="#open">Opening data</a>
+    <a href="#screen">The screen</a>
+    <a href="#move">Moving around</a>
+    <a href="#columns">Columns &amp; types</a>
+    <a href="#find">Search, sort, filter</a>
+    <a href="#select">Selecting rows</a>
+    <a href="#sheets">Sheets</a>
+    <a href="#change">Changing data</a>
+    <a href="#save">Saving &amp; export</a>
+    <a href="#stream">Following files</a>
+    <a href="#plan">Plan panel</a>
+    <a href="#prompt">Prompt editing</a>
+    <a href="#ex">Ex commands</a>
+    <a href="#keys">All keys</a>
+    <a href="#lua">Lua config</a>
+    <a href="#trouble">Troubleshooting</a>
+    <a href="#limits">Limitations</a>
+  </div>
+</nav>
+<main>
+
+<h1>vdrs user guide</h1>
+<p class="lede">vdrs (visidata-rs) is a modal terminal data explorer. It reads CSV, Parquet, JSON, Excel and SQLite through Polars, shows them in a keyboard-driven table, and lets you sort, filter, pivot, join and query without leaving the terminal. If you know VisiData, most keys will feel familiar.</p>
+
+<h2 id="install">Install</h2>
+<p>You need a Rust toolchain (1.85 or newer). From a checkout of the repository:</p>
+<pre><code>cargo install --path . --locked</code></pre>
+<p>This installs the <code>vdrs</code> binary. <code>--locked</code> builds with the dependency versions the project is tested with; without it Cargo may pick newer, incompatible releases.</p>
+
+<h2 id="open">Opening data</h2>
+<pre><code>vdrs sales.parquet                 # open in the TUI
+vdrs data/                         # every *.parquet file in a directory, as one table
+cat events.jsonl | vdrs -          # read stdin; format is sniffed
+vdrs --format tsv export.txt       # force a format when the extension is wrong
+vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
+<table>
+<tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
+<tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates (<code>2024-01-31</code>) are read as dates.</td></tr>
+<tr><td>Parquet</td><td><code>.parquet</code>, <code>.pq</code>, a directory</td><td>A directory means all its <code>*.parquet</code> files.</td></tr>
+<tr><td>Arrow IPC</td><td><code>.arrow</code>, <code>.ipc</code>, <code>.feather</code></td><td></td></tr>
+<tr><td>JSON Lines</td><td><code>.jsonl</code>, <code>.ndjson</code></td><td>One record per line.</td></tr>
+<tr><td>JSON</td><td><code>.json</code></td><td>An array of records. A <code>.json</code> file that is really JSON Lines is detected.</td></tr>
+<tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>Cells load as text; use the type keys to convert. Several worksheets → a list to pick from.</td></tr>
+<tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>Columns load as text. Several tables → a list to pick from.</td></tr>
+<tr><td>gzip</td><td>any of the above + <code>.gz</code></td><td>The inner extension (or <code>--format</code>) decides the format.</td></tr>
+</table>
+<p>Files are scanned lazily: vdrs only loads a 1024-row window around the cursor and counts rows in the background, so large files open immediately. Other formats can be added with a <a href="#lua-loader">Lua loader</a>.</p>
+
+<h2 id="screen">The screen</h2>
+<pre class="screen"><span class="t"> sales.csv  row 12/48210 · col 3/7 (region) · sel 0  Csv · sheets 1 </span>
+id i   date date    <span class="c">region str</span>  qty i  price f
+11     2024-01-03   north       4      12.5
+12     2024-01-03   <span class="c">south     </span>  1      80.0
+13     2024-01-04   north       2      19.9
+<span class="s"> hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q </span></pre>
+<ul>
+<li><strong>Title bar</strong>: the sheet name; your position as <code>row N/total</code> (<code>?</code> while rows are still being counted) and <code>col N/total (name)</code>; how many rows are selected; the source format; how many sheets are open. Long names are shortened from the left so the position stays visible.</li>
+<li><strong>Header</strong>: column names with a dim type badge (<code>i</code> integer, <code>f</code> float, <code>str</code> text, <code>date</code>, …).</li>
+<li><strong>Status line</strong>: a short key hint, or messages, prompts (<code>/</code>, <code>:</code>, …), <code>working: …</code> while a long command runs in the background, a pending count (<code>count: 3</code>) or a pending key chord. When you press the first key of a chord (for example <kbd>g</kbd> or <kbd>z</kbd>), a popup lists what can follow.</li>
+</ul>
+<p>Messages stay until your next key press.</p>
+
+<h2 id="move">Moving around</h2>
+<table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td><kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd>, arrows</td><td>Left, down, up, right. A number first repeats: <kbd>3</kbd><kbd>j</kbd> moves three rows.</td></tr>
+<tr><td><kbd>Ctrl-d</kbd> / <kbd>PgDn</kbd>, <kbd>Ctrl-u</kbd> / <kbd>PgUp</kbd></td><td>One screen down / up.</td></tr>
+<tr><td><kbd>g</kbd><kbd>g</kbd>, <kbd>G</kbd></td><td>First row, last row of the whole sheet (not just the loaded window).</td></tr>
+<tr><td><kbd>0</kbd>, <kbd>$</kbd></td><td>First column, last column.</td></tr>
+<tr><td><kbd>.</kbd></td><td>Repeat the last action (including ex commands).</td></tr>
+</table>
+
+<h2 id="columns">Columns &amp; types</h2>
+<table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td><kbd>-</kbd>, <kbd>g</kbd><kbd>-</kbd></td><td>Hide the current column; show all hidden columns.</td></tr>
+<tr><td><kbd>!</kbd>, <kbd>z</kbd><kbd>!</kbd></td><td>Toggle the current column as a <em>key column</em> (moved to the left; used by <kbd>W</kbd> and <kbd>D</kbd>); clear all keys.</td></tr>
+<tr><td><kbd>^</kbd></td><td>Rename the current column.</td></tr>
+<tr><td><kbd>z</kbd><kbd>s</kbd>, <kbd>z</kbd><kbd>c</kbd></td><td>Freeze columns up to the cursor at the left edge; unfreeze.</td></tr>
+<tr><td><kbd>#</kbd> <kbd>%</kbd> <kbd>~</kbd> <kbd>@</kbd></td><td>Treat the column as integer, float, text, date. Values that don't convert show as <code>·</code> (empty).</td></tr>
+<tr><td><code>:type currency</code></td><td>Strip everything but digits, <code>.</code> and <code>-</code> (so <code>$1,200.50</code> → 1200.5) and make it a float.</td></tr>
+</table>
+<p>The date conversion (<kbd>@</kbd>) understands <code>2024-01-31</code>, <code>2024/01/31</code>, <code>1/31/2024</code>, <code>1/31/24</code>, <code>31.01.2024</code>, <code>20240131</code>, <code>31 Jan 2024</code>, <code>Jan 31 2024</code>, <code>Jan 31, 2024</code> and <code>January 31, 2024</code>, and ignores a trailing time (<code>7/3/2018 1:47p</code>). Slash dates are read month first.</p>
+
+<h2 id="find">Search, sort, filter</h2>
+<table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td><kbd>/</kbd> then text, <kbd>n</kbd>, <kbd>N</kbd></td><td>Find text (case-insensitive) in any column of the whole sheet; next / previous match, wrapping around.</td></tr>
+<tr><td><kbd>[</kbd>, <kbd>]</kbd>, <kbd>z</kbd><kbd>o</kbd></td><td>Sort ascending / descending by the current column. Pressing it on more columns sorts by several. Clear sorting.</td></tr>
+<tr><td><kbd>z</kbd><kbd>|</kbd> then a regex, <kbd>z</kbd><kbd>f</kbd></td><td>Keep only rows whose current column matches the regular expression (works on numbers and dates too, by their text); remove the filter.</td></tr>
+</table>
+<p>The same from the command line: <code>:sort -price</code>, <code>:filter region ^n</code>, <code>:unsort</code>, <code>:unfilter</code>. Column names with spaces need quotes: <code>:filter "unit price" ^1\d+$</code>.</p>
+
+<h2 id="select">Selecting rows</h2>
+<table>
+<tr><th>Keys</th><th>Action</th></tr>
+<tr><td><kbd>s</kbd> or <kbd>t</kbd>, <kbd>u</kbd></td><td>Toggle selection of the current row; unselect it.</td></tr>
+<tr><td><kbd>g</kbd><kbd>s</kbd>, <kbd>g</kbd><kbd>u</kbd></td><td>Select every row of the sheet (respecting the filter); clear the selection.</td></tr>
+<tr><td><kbd>|</kbd> then a regex</td><td>Add rows whose current column matches.</td></tr>
+<tr><td><kbd>,</kbd></td><td>Add rows whose current column equals the value under the cursor.</td></tr>
+<tr><td><kbd>"</kbd></td><td>Open a new sheet with just the selected rows.</td></tr>
+</table>
+<p>Selections stick to rows, not positions: sorting or filtering keeps the same rows selected.</p>
+
+<h2 id="sheets">Sheets</h2>
+<p>Many commands open a new <em>sheet</em> on top of the current one. <kbd>q</kbd> closes the top sheet (and quits on the last one); <kbd>S</kbd> lists open sheets (<kbd>Enter</kbd> jumps to one). New sheets are built from what you see: the current filter, sort, types and visible columns.</p>
+<table>
+<tr><th>Keys / command</th><th>Opens</th></tr>
+<tr><td><kbd>F</kbd></td><td>Frequency table of the current column: each value with <code>count</code> and <code>percent</code>, most common first. On it, <kbd>Enter</kbd> opens the original rows with that value; select several values and press <kbd>g</kbd><kbd>Enter</kbd> to open the rows of all of them.</td></tr>
+<tr><td><kbd>I</kbd></td><td>Describe: one row per column with type, count, nulls, distinct, min, max, mean, median.</td></tr>
+<tr><td><kbd>W</kbd></td><td>Pivot: one row per key-column combination, one column per value of the current column, counts in the cells. With no key columns: a single row of counts.</td></tr>
+<tr><td><code>:pivot index on values [agg]</code></td><td>Pivot with an aggregate: <code>sum</code> (default), <code>mean</code>, <code>count</code>, <code>min</code>, <code>max</code>, <code>first</code>, <code>last</code>, or a <a href="#lua-agg">Lua aggregator</a>.</td></tr>
+<tr><td><code>:unpivot a,b -- id</code></td><td>Long format: columns <code>a</code>, <code>b</code> become <code>variable</code>/<code>value</code> rows, keeping <code>id</code>.</td></tr>
+<tr><td><code>:join other.csv id [type]</code></td><td>Join with a file, an open sheet's name, or <code>#2</code> (sheet id from <kbd>S</kbd>) on columns with the same name. Types: <code>inner</code> (default), <code>left</code>, <code>full</code>, <code>merge</code> (full join; the other side's non-empty values win), <code>append</code> (stack rows, union of columns, with an <code>origin_sheet</code> column; needs no key).</td></tr>
+<tr><td><kbd>D</kbd> or <code>:diff file [keys]</code></td><td>Compare with another file. With key columns (<kbd>D</kbd> uses yours): the rows that differ, tagged <code>only_a</code>, <code>only_b</code> or <code>changed</code>. Without keys: a column-by-column schema comparison.</td></tr>
+<tr><td><code>:sql SELECT … FROM self</code></td><td>Run SQL (Polars SQL) on the current sheet, called <code>self</code>. Other open sheets are <code>s0</code>, <code>s1</code>, … (ids from <kbd>S</kbd>).</td></tr>
+<tr><td><kbd>g</kbd><kbd>"</kbd> or <code>:dup</code></td><td>A copy of the current sheet.</td></tr>
+</table>
+<p>Commands that read the whole data (search, select all, <kbd>|</kbd>, <kbd>,</kbd>, <kbd>"</kbd>, <kbd>I</kbd>, <kbd>W</kbd>, <code>:pivot</code>, <code>:save</code>) run in the background; the status line shows <code>working: …</code> and you can keep moving.</p>
+
+<h2 id="change">Changing data</h2>
+<p>vdrs never modifies your files; changes live in the sheet until you save.</p>
+<table>
+<tr><th>Command</th><th>Action</th></tr>
+<tr><td><code>:derive total = qty * price</code></td><td>Add a computed column. The expression is SQL (<code>CASE WHEN …</code>, <code>upper(name)</code>, <code>price * 1.2</code>, …).</td></tr>
+<tr><td><code>:setcol 0</code></td><td>Set the current column to a value on the selected rows. The value must fit the column's type.</td></tr>
+<tr><td><code>:uniform</code></td><td>Hide columns that hold a single value.</td></tr>
+<tr><td><kbd>U</kbd>, <kbd>R</kbd></td><td>Undo, redo. Covers column changes, types, sorting, filtering, selection, <code>:derive</code> and <code>:setcol</code> (up to 100 steps per sheet).</td></tr>
+</table>
+
+<h2 id="save">Saving &amp; export</h2>
+<table>
+<tr><th>Command</th><th>Action</th></tr>
+<tr><td><code>:save out.parquet</code> (<code>:w</code>)</td><td>Write every row of the current view (filter, sort, types, visible columns). The extension picks the format: <code>.csv</code>, <code>.tsv</code>, <code>.parquet</code>, <code>.arrow</code>/<code>.ipc</code>, <code>.jsonl</code>, <code>.json</code>. An existing file is overwritten; an unknown extension is refused and leaves the file alone.</td></tr>
+<tr><td><code>:export view.py</code>, <code>:export view.sql</code></td><td>Write a script that rebuilds the current view from the source file: Python with Polars, or SQL for DuckDB. Works for sheets opened from a file.</td></tr>
+</table>
+
+<h2 id="stream">Following files</h2>
+<p><code>:tail app.jsonl -f</code> opens a file that keeps growing and checks it every 2 seconds. With <code>-f</code> (follow), if you are on the last row you stay on the last row as new rows arrive. For CSV, TSV and JSON Lines only the new lines are read. <code>:tail data/ -f</code> on a directory picks up new Parquet files.</p>
+
+<h2 id="plan">Plan panel</h2>
+<p><kbd>P</kbd> opens a side panel with the Polars query behind the current window; press again for the optimized plan, a third time to close. Useful to see what a filter or join actually does.</p>
+
+<h2 id="prompt">Prompt editing</h2>
+<p>All prompts (<kbd>/</kbd>, <kbd>:</kbd>, filters, rename, diff) support: <kbd>←</kbd> <kbd>→</kbd>, <kbd>Home</kbd>/<kbd>Ctrl-a</kbd>, <kbd>End</kbd>/<kbd>Ctrl-e</kbd>, <kbd>Backspace</kbd>, <kbd>Del</kbd>, <kbd>Ctrl-u</kbd> (delete to start), <kbd>Ctrl-w</kbd> (delete previous word). <kbd>Enter</kbd> runs, <kbd>Esc</kbd> cancels. In the <kbd>:</kbd> prompt, <kbd>↑</kbd>/<kbd>↓</kbd> walk the command history (kept in <code>$XDG_STATE_HOME/vdrs/exline_history</code>).</p>
+<p>Arguments are split on spaces; use quotes (<code>"a b"</code> or <code>'a b'</code>) or a backslash for spaces inside one argument.</p>
+
+<h2 id="ex">Ex commands</h2>
+<table id="extable">
+<tr><th>Command</th><th>Action</th></tr>
+<tr data-ex="q"><td><code>:q</code>, <code>:quit</code></td><td>Close the current sheet (quit on the last).</td></tr>
+<tr data-ex="qa"><td><code>:qa</code>, <code>:quit!</code></td><td>Quit.</td></tr>
+<tr data-ex="filter"><td><code>:filter col regex</code></td><td>Filter rows on a column.</td></tr>
+<tr data-ex="unfilter"><td><code>:unfilter</code></td><td>Remove the filter.</td></tr>
+<tr data-ex="sort"><td><code>:sort [+|-]col</code></td><td>Sort ascending (<code>+</code>, default) or descending (<code>-</code>).</td></tr>
+<tr data-ex="unsort"><td><code>:unsort</code></td><td>Clear sorting.</td></tr>
+<tr data-ex="ls"><td><code>:ls</code>, <code>:sheets</code></td><td>List open sheets.</td></tr>
+<tr data-ex="hide"><td><code>:hide</code>, <code>:unhide</code></td><td>Hide the current column; show all.</td></tr>
+<tr data-ex="key"><td><code>:key</code>, <code>:unkey</code></td><td>Toggle key column; clear keys.</td></tr>
+<tr data-ex="rename"><td><code>:rename name</code></td><td>Rename the current column.</td></tr>
+<tr data-ex="type"><td><code>:type int|float|string|date|currency</code></td><td>Convert the current column.</td></tr>
+<tr data-ex="pivot"><td><code>:pivot index on values [agg]</code></td><td>Pivot table.</td></tr>
+<tr data-ex="unpivot"><td><code>:unpivot a,b [-- id,…]</code>, <code>:melt</code></td><td>Columns to rows.</td></tr>
+<tr data-ex="join"><td><code>:join source [keys] [type]</code></td><td>Join with a file or sheet.</td></tr>
+<tr data-ex="diff"><td><code>:diff file [key1,key2]</code></td><td>Compare with a file.</td></tr>
+<tr data-ex="sql"><td><code>:sql query</code></td><td>SQL on <code>self</code> and <code>s&lt;id&gt;</code>.</td></tr>
+<tr data-ex="derive"><td><code>:derive name = expr</code></td><td>Add a computed column.</td></tr>
+<tr data-ex="setcol"><td><code>:setcol value</code></td><td>Set the current column on selected rows.</td></tr>
+<tr data-ex="uniform"><td><code>:uniform</code></td><td>Hide single-valued columns.</td></tr>
+<tr data-ex="dup"><td><code>:dup</code></td><td>Copy the sheet.</td></tr>
+<tr data-ex="describe"><td><code>:describe</code></td><td>Column statistics.</td></tr>
+<tr data-ex="undo"><td><code>:undo</code>, <code>:redo</code></td><td>Undo, redo.</td></tr>
+<tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
+<tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view.</td></tr>
+<tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>
+</table>
+
+<h2 id="keys">All keys</h2>
+<p><input id="keyfilter" type="search" placeholder="Filter keys…" aria-label="Filter the key table"></p>
+<table id="keytable">
+<tr><th>Keys</th><th>Action</th></tr>
+<tr data-keys="j"><td><kbd>j</kbd></td><td>down</td></tr>
+<tr data-keys="k"><td><kbd>k</kbd></td><td>up</td></tr>
+<tr data-keys="h"><td><kbd>h</kbd></td><td>left</td></tr>
+<tr data-keys="l"><td><kbd>l</kbd></td><td>right</td></tr>
+<tr data-keys="&lt;Down&gt;"><td><kbd>↓</kbd></td><td>down</td></tr>
+<tr data-keys="&lt;Up&gt;"><td><kbd>↑</kbd></td><td>up</td></tr>
+<tr data-keys="&lt;Left&gt;"><td><kbd>←</kbd></td><td>left</td></tr>
+<tr data-keys="&lt;Right&gt;"><td><kbd>→</kbd></td><td>right</td></tr>
+<tr data-keys="&lt;C-d&gt;"><td><kbd>Ctrl-d</kbd></td><td>page down</td></tr>
+<tr data-keys="&lt;C-u&gt;"><td><kbd>Ctrl-u</kbd></td><td>page up</td></tr>
+<tr data-keys="&lt;PgDn&gt;"><td><kbd>PgDn</kbd></td><td>page down</td></tr>
+<tr data-keys="&lt;PgUp&gt;"><td><kbd>PgUp</kbd></td><td>page up</td></tr>
+<tr data-keys="g g"><td><kbd>g</kbd><kbd>g</kbd></td><td>first row</td></tr>
+<tr data-keys="G"><td><kbd>G</kbd></td><td>last row</td></tr>
+<tr data-keys="0"><td><kbd>0</kbd></td><td>first column</td></tr>
+<tr data-keys="$"><td><kbd>$</kbd></td><td>last column</td></tr>
+<tr data-keys="z s"><td><kbd>z</kbd><kbd>s</kbd></td><td>freeze columns up to the cursor</td></tr>
+<tr data-keys="z c"><td><kbd>z</kbd><kbd>c</kbd></td><td>unfreeze</td></tr>
+<tr data-keys="-"><td><kbd>-</kbd></td><td>hide column</td></tr>
+<tr data-keys="g -"><td><kbd>g</kbd><kbd>-</kbd></td><td>show all columns</td></tr>
+<tr data-keys="!"><td><kbd>!</kbd></td><td>toggle key column</td></tr>
+<tr data-keys="z !"><td><kbd>z</kbd><kbd>!</kbd></td><td>clear key columns</td></tr>
+<tr data-keys="^"><td><kbd>^</kbd></td><td>rename column</td></tr>
+<tr data-keys="#"><td><kbd>#</kbd></td><td>type: integer</td></tr>
+<tr data-keys="%"><td><kbd>%</kbd></td><td>type: float</td></tr>
+<tr data-keys="~"><td><kbd>~</kbd></td><td>type: text</td></tr>
+<tr data-keys="@"><td><kbd>@</kbd></td><td>type: date</td></tr>
+<tr data-keys="/"><td><kbd>/</kbd></td><td>search</td></tr>
+<tr data-keys="n"><td><kbd>n</kbd></td><td>next match</td></tr>
+<tr data-keys="N"><td><kbd>N</kbd></td><td>previous match</td></tr>
+<tr data-keys="z |"><td><kbd>z</kbd><kbd>|</kbd></td><td>filter current column by regex</td></tr>
+<tr data-keys="z f"><td><kbd>z</kbd><kbd>f</kbd></td><td>clear filter</td></tr>
+<tr data-keys="s"><td><kbd>s</kbd></td><td>toggle row selection</td></tr>
+<tr data-keys="t"><td><kbd>t</kbd></td><td>toggle row selection</td></tr>
+<tr data-keys="u"><td><kbd>u</kbd></td><td>unselect row</td></tr>
+<tr data-keys="g s"><td><kbd>g</kbd><kbd>s</kbd></td><td>select all rows</td></tr>
+<tr data-keys="g u"><td><kbd>g</kbd><kbd>u</kbd></td><td>clear selection</td></tr>
+<tr data-keys="|"><td><kbd>|</kbd></td><td>select rows matching a regex</td></tr>
+<tr data-keys=","><td><kbd>,</kbd></td><td>select rows equal to this cell</td></tr>
+<tr data-keys="&quot;"><td><kbd>"</kbd></td><td>sheet of selected rows</td></tr>
+<tr data-keys="g &quot;"><td><kbd>g</kbd><kbd>"</kbd></td><td>copy of this sheet</td></tr>
+<tr data-keys="["><td><kbd>[</kbd></td><td>sort ascending</td></tr>
+<tr data-keys="]"><td><kbd>]</kbd></td><td>sort descending</td></tr>
+<tr data-keys="z o"><td><kbd>z</kbd><kbd>o</kbd></td><td>clear sort</td></tr>
+<tr data-keys="F"><td><kbd>F</kbd></td><td>frequency table</td></tr>
+<tr data-keys="I"><td><kbd>I</kbd></td><td>describe columns</td></tr>
+<tr data-keys="W"><td><kbd>W</kbd></td><td>pivot: key columns × current column</td></tr>
+<tr data-keys="D"><td><kbd>D</kbd></td><td>diff with a file</td></tr>
+<tr data-keys="S"><td><kbd>S</kbd></td><td>list open sheets</td></tr>
+<tr data-keys="&lt;CR&gt;"><td><kbd>Enter</kbd></td><td>open row: sheet list → that sheet; frequency table → matching rows; worksheet/table list → that one</td></tr>
+<tr data-keys="g &lt;CR&gt;"><td><kbd>g</kbd><kbd>Enter</kbd></td><td>frequency table: rows of all selected values</td></tr>
+<tr data-keys="U"><td><kbd>U</kbd></td><td>undo</td></tr>
+<tr data-keys="R"><td><kbd>R</kbd></td><td>redo</td></tr>
+<tr data-keys="P"><td><kbd>P</kbd></td><td>plan panel (off → plan → optimized)</td></tr>
+<tr data-keys=":"><td><kbd>:</kbd></td><td>ex command</td></tr>
+<tr data-keys="."><td><kbd>.</kbd></td><td>repeat last action</td></tr>
+<tr data-keys="q"><td><kbd>q</kbd></td><td>close sheet (quit on the last)</td></tr>
+<tr data-keys="&lt;C-c&gt;"><td><kbd>Ctrl-c</kbd></td><td>quit</td></tr>
+<tr data-keys="&lt;C-l&gt;"><td><kbd>Ctrl-l</kbd></td><td>redraw</td></tr>
+</table>
+
+<h2 id="lua">Lua configuration</h2>
+<p>vdrs runs <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (usually <code>~/.config/vdrs/init.lua</code>) at startup. It is optional. Saving the file while vdrs runs reloads it within about two seconds. If it has an error, everything registered before the error still applies and the error is shown in the status line.</p>
+<pre><code>-- ~/.config/vdrs/init.lua
+vd.set_theme("light")                               -- "dark" (default) or "light"
+
+vd.bind("sheet", "x", "goto_bottom", "jump to end") -- a key → an action
+vd.bind("sheet", {"&lt;Space&gt;", "s"}, ":sort -id")    -- a chord → an ex command
+vd.unbind("sheet", "t")
+
+vd.register_renderer {                               -- how cells look
+  column = "price",                                  -- or: dtype = "f64"
+  render = function(v) return string.format("$%.2f", v) end,
+}
+
+vd.register_aggregator("range", function(values)     -- for :pivot … range
+  local lo, hi = math.huge, -math.huge
+  for _, v in ipairs(values) do lo = math.min(lo, v); hi = math.max(hi, v) end
+  return hi - lo
+end)
+
+if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
+
+<h3>vd.bind(layer, keys, action, description?)</h3>
+<p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, or an ex command starting with <code>:</code>. An unknown action or invalid command is an error at load time.</p>
+<p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>quit</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
+
+<h3>vd.unbind(layer, keys)</h3>
+<p>Makes a key do nothing.</p>
+
+<h3 id="lua-loader">vd.register_loader { name?, extensions, open }</h3>
+<p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads natively (CSV, TSV, Parquet, Arrow, JSON Lines) and returns the path of the result. Used when opening files from the command line and by <code>:diff</code> and <code>:join</code>.</p>
+<pre><code>vd.register_loader {
+  extensions = { "log" },
+  open = function(path)
+    local out = os.tmpname() .. ".csv"
+    local f = io.open(out, "w")
+    f:write("level,message\n")
+    for line in io.lines(path) do
+      local level, msg = line:match("^(%u+)%s+(.*)$")
+      if level then f:write(level, ",\"", msg:gsub('"', '""'), "\"\n") end
+    end
+    f:close()
+    return out
+  end,
+}</code></pre>
+
+<h3 id="lua-agg">vd.register_aggregator(name, fn)</h3>
+<p><code>fn</code> receives the values of one pivot cell as a Lua array (empty values are <code>nil</code>) and returns a number, a string or <code>nil</code>. Use it as the last argument of <code>:pivot</code>.</p>
+
+<h3>vd.register_renderer { column | dtype, render }</h3>
+<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files.</p>
+
+<h3>vd.set_theme(name), vd.api_version</h3>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features.</p>
+
+<h2 id="trouble">Troubleshooting</h2>
+<ul>
+<li><strong><code>cargo install</code> fails compiling a dependency</strong> (for example <code>calamine</code> or <code>zip</code>): add <code>--locked</code>.</li>
+<li><strong>"no usable terminal (try --headless)"</strong>: vdrs needs a terminal for the TUI. In scripts or pipes use <code>vdrs --headless file</code>.</li>
+<li><strong>A column of numbers sorts like text</strong>: it was read as text (Excel, SQLite, mixed CSV columns). Press <kbd>#</kbd> or <kbd>%</kbd>.</li>
+<li><strong>"no binding: x"</strong>: that key does nothing in this mode. Press the first key of a chord (<kbd>g</kbd>, <kbd>z</kbd>) to see what follows.</li>
+<li><strong>A command prints "working: …" for a while</strong>: it is reading the whole file; keep working, the result appears when done.</li>
+</ul>
+
+<h2 id="limits">Limitations</h2>
+<ul>
+<li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
+<li>Lua aggregators and renderers run in the interface thread; heavy Lua work slows the display.</li>
+<li>Selections on sheets produced by <code>:join</code> or <code>:sql</code> with grouping may not survive a refresh, because those results have no fixed row order.</li>
+<li><code>:export</code> works for sheets opened from a file (not for derived sheets, stdin, or Excel/SQLite/Arrow in SQL form).</li>
+<li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>
+</ul>
+
+</main>
+</div>
+<script>
+// Filter the key table as you type (matches keys and descriptions).
+const box = document.getElementById("keyfilter");
+const rows = [...document.querySelectorAll("#keytable tr[data-keys]")];
+box.addEventListener("input", () => {
+  const q = box.value.trim().toLowerCase();
+  for (const r of rows) r.hidden = q !== "" && !r.textContent.toLowerCase().includes(q) && !r.dataset.keys.toLowerCase().includes(q);
+});
+</script>
+</body>
+</html>

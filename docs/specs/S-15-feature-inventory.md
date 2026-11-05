@@ -1,6 +1,8 @@
 # S-15 — Feature inventory (what `visidata-rs` actually ships)
 
-Status: **landed 2026-10-16**, re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05. This is the authoritative list of what the `vdrs` binary and companion crate expose. Update when a user-visible surface changes.
+Status: **landed 2026-10-16**, re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of the same day.
+
+User-facing reference: [`docs/index.html`](../index.html) (GitHub Pages). Unit tests fail if it misses a default key binding or documents an ex command that doesn't exist. This is the authoritative list of what the `vdrs` binary and companion crate expose. Update when a user-visible surface changes.
 Phase: n/a (cross-cutting documentation)
 Depends on: all prior specs
 Blocks: nothing — reference material
@@ -77,7 +79,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `SearchNext` / `SearchPrev` | `n` / `N` | — | next/prev row of the whole view, wrapping |
 | `StartSearchInput` | `/` | — | case-insensitive literal match in any column of the whole view |
 
-Changing sort or filter clears the selection (selection is positional).
+Selections key on row ids (position in the base plan), so they survive sort and filter.
 
 ### 3.4 Derived sheets
 
@@ -127,6 +129,28 @@ Changing sort or filter clears the selection (selection is positional).
 
 Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename`): `InputChar(c)`, `InputBackspace`, `SubmitInput`, `CancelInput`. History on exline via `$XDG_STATE_HOME/vdrs/exline_history`.
 
+### 3.10 Added 2026-11-05 (open-features pass)
+
+| Surface | Key / command | Semantics |
+|---|---|---|
+| Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null) |
+| Describe | `I`, `:describe` | per column: type, count, nulls, distinct, min, max, mean, median (background job) |
+| Pivot | `W` | key cols × current col, counts; no keys → one row of counts |
+| Diff prompt | `D` | prompts for a path; key cols are the diff keys |
+| Copy | `g"`, `:dup` | lazy copy of the view |
+| Select equal | `,` | rows whose current col equals the cursor cell |
+| Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet snapshots of (plan, view, steps), depth 100 |
+| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | lazy; same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet` |
+| Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
+| SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets |
+| Set column | `:setcol <value>` | current col on selected rows; value must cast strictly to the column type |
+| Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
+| Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection (file sheets only) |
+| Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
+| Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform` | run on the blocking pool; status line shows `working: …` |
+| Readers | — | CSV/TSV date inference; lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list |
+| Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized |
+
 ## 4. Keymap
 
 Entry: `src/keymap.rs`. Model: linear vec of `Chord { on: Vec<Key>, run: Vec<Action>, desc: &'static str }` per `Layer` (`Sheet`, `Input`). Resolution: first-match; incomplete prefix → `Dispatch::Pending(vec)` which status bar echoes as the which-key hint.
@@ -174,7 +198,12 @@ Each returns a new `Sheet` with an `Origin` enum entry so the lineage is visible
 - `Origin::Unpivot { parent }`
 - `Origin::Diff { left, right_name }`
 - `Origin::Tail { path, follow }`
-- `Origin::Selected { parent }` — `"` dup of selected rows
+- `Origin::Selected { parent }` — `"` dup of selected rows, and freq dives
+- `Origin::Copy { parent }` — `g"` / `:dup`
+- `Origin::Describe { parent }` — `I`
+- `Origin::Sql { parent }` — `:sql`
+- `Origin::Join { left, right_name }` — `:join`
+- `Origin::Parts { path, kind }` — worksheet / table list
 - `Origin::SheetSwitcher` — sheet-stack listing
 
 Derived sheets are built from the parent's `view_plan()`: what you see (casts, filter, sort, visible columns) is what freq/pivot/unpivot/diff/dup operate on.
@@ -220,13 +249,21 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 
 **Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
 
-### 7.3 Not yet shipped
+### 7.3 Added 2026-11-05
 
-Aggregator plugin shape (`vd.register_aggregator`), renderer plugin shape (`vd.register_renderer`), hot-reload via `notify`. See Phase 3 todos in `tasks.md`.
+```lua
+vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated at load)
+vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
+vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }
+vd.set_theme("dark" | "light")
+vd.api_version                                  -- 1
+```
+
+`init.lua` reloads when its mtime changes (polled on the 2 s tick; no `notify` dependency). A failing `init.lua` keeps registrations made before the error and reports it. Input-layer action names: `submit_input`, `cancel_input`, `input_backspace`.
 
 ## 8. Theme
 
-`Theme::dark()` in `src/theme.rs` drives the table, title bar, status bar and toasts. No user override; Phase-3-pending: user-defined theme via Lua.
+`Theme::dark()` / `Theme::light()` in `src/theme.rs` drive the table, title bar, status bar and toasts; `vd.set_theme` picks one. No per-colour override.
 
 ## 9. Testing
 
@@ -255,19 +292,16 @@ Enumerated here so no one re-asks:
 
 ### 10.1 Not yet supported (planned or open)
 
-In scope but missing from the `vdrs` binary today. Tracked in `tasks.md` ("Open issues & gaps" + phase lists).
+In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Joins** across sheets (inner/left/full/append/merge), `hide-uniform-cols`, `setcol` gang edit, `dup-rows`, pivot without keys: implemented only in the S-14 replay driver (`tests/vd_replay.rs`).
-- **Expression columns** (`:derive`, `=` key) and **aggregators / describe-sheet** (per-column stats).
-- **Undo/redo** as a user command.
-- **Pivot setup sheet** (`W`), live pivot preview, **plan export** (`.pl` / SQL), **dedicated diff UI** (`D`).
-- **`:sql`** via DuckDB (direction §7).
-- **Lua**: aggregator and renderer shapes, hot-reload, API versioning (`since`/`deprecate`), binding parametrized actions or ex-commands, partial apply of a failing `init.lua`.
-- **Streaming**: incremental tail, Parquet directory watcher.
-- **Readers**: multi-sheet xlsx and multi-table sqlite (`?sheet=` / `?table=`), CSV date inference, lenient date casts.
-- **Ex-line**: quoted arguments (names/paths with spaces), line editing beyond append/backspace.
-- **Responsiveness**: search, `|`, `:save`, `:pivot`, `"` run on the UI thread; selections don't survive re-sorts.
-- **Theme**: only `Theme::dark()`; no light theme or user override.
+- **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
+- **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
+- **Lua work off the UI thread**: aggregators and renderers run synchronously in the interface thread.
+- **Stable row ids on non-deterministic results**: selections on `:join` (full) or grouped `:sql` sheets can drift between collects.
+- **Export** of derived sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
+- **Multi-part files in `:join` / `:diff`** use the first worksheet / table.
+- **Renderer output in column widths** (widths come from the default display).
+- **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 
 ## 11. File map (where to look)
 

@@ -3,22 +3,31 @@
 Phase-ordered punchlist. `[spec?]` = a spec must land before starting (see `specs/`).
 What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-feature-inventory.md) (§10 cut, §10.1 not yet supported).
 
-## Open issues & gaps (rescan 2026-11-05)
+## Open issues & gaps
 
-Known limitations, ranked by user impact. None corrupt data; all are verified in code.
+Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same day:
 
-- [ ] **Harness-only features → binary.** Joins (`join-sheets` inner/left/full/append/merge), `hide-uniform-cols`, `setcol-input` gang edit and `dup-rows` exist only in `tests/vd_replay.rs` (S-14 driver). The `vdrs` binary has no key or ex-command for them. Port joins first (`:join <path> <keys> [type]`).
-- [ ] **UI-thread blocking on full-view work.** `n`/`N` search, `|` select, `:save`, `:pivot` and `"` collect synchronously; big files freeze the UI with no progress. Move to the materialize-style background task pattern (tagged results, stale ones dropped).
-- [ ] **Selection is positional** (view row offsets) → cleared on sort/filter change. Survive re-sorts via a row-identity column on the base plan.
-- [ ] **One `init.lua` error discards the whole config.** Load is all-or-nothing; earlier `vd.bind` calls in the same file are lost. Apply registrations made before the error, report the error.
-- [ ] **`vd.bind` can't bind parametrized actions or ex-commands** (`:sort -id`, `:save x.csv`). Accept `":..."` strings as `ExCommand`.
-- [ ] **Ex-line args are whitespace-split**: column names and paths with spaces can't be passed to `:filter`, `:sort`, `:tail`, `:diff`, `:pivot`. Needs quoting in `exline::parse`.
-- [ ] **Input line editing is append/backspace only**: no cursor movement, `<C-u>`, `<C-w>`.
-- [ ] **CSV dates arrive as strings** (`try_parse_dates` off) — users must `@` cast; lenient formats like `7/3/2018 1:47p` fail the cast.
-- [ ] **xlsx/sqlite: first sheet/table only**, loaded eagerly as all-String columns.
-- [ ] **`:tail` re-reads and recounts the whole file every 2 s** (see Phase 4 incremental read).
-- [ ] `vd.bind` leaks each description string (`Box::leak`, `Chord.desc: &'static str`) — harmless at startup, a leak once hot-reload exists.
-- [ ] Column widths sample the first 64 rows of the loaded window only; later long values truncate with `…`.
+- [x] Harness-only features → binary: `:join` (inner/left/full/merge/append), `:uniform`, `:setcol`, `:dup`/`g"`, `W` (pivot with/without keys), `,` select-equal
+- [x] Background jobs for search, select(-all), `|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform`
+- [x] Selections key on row ids → survive sort/filter
+- [x] Broken `init.lua` keeps earlier registrations; hot reload
+- [x] `vd.bind` accepts `":ex commands"`; input-layer action names exposed
+- [x] Quoted ex-line args; readline-style prompt editing
+- [x] CSV date inference; lenient `@`
+- [x] Multi-sheet xlsx / multi-table sqlite list
+- [x] Incremental `:tail`; Parquet directory tail
+- [x] No `Box::leak` in `vd.bind`
+- [x] Column widths include on-screen rows
+- [x] Freq dive: `<CR>` / `g<CR>` on a frequency sheet (user report)
+
+Still open (see S-15 §10.1):
+
+- [ ] Live pivot preview / interactive pivot setup beyond `W`
+- [ ] S-10 data/app Lua API (`vd.frame`, `vd.toast`, `vd.sheet`, sandbox, coroutines) + `since`/`deprecate` registry and `cargo xtask check-api-versions`
+- [ ] Run Lua aggregators/renderers off the UI thread (or cache renderer output)
+- [ ] Deterministic row order for full joins / grouped `:sql` so selections can't drift
+- [ ] `:export` for derived sheets; more source kinds in `.sql`/`.py`
+- [ ] Multi-part files as `:join`/`:diff` targets (`path:part` syntax)
 
 ## Phase 0 — viewer parity (csvlens++)
 - [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) → canonical TOML — _deferred: Phase 0 ships only the nav/freeze/search subset, baked in; full extract waits until a user actually asks for VisiData parity on a non-nav key_
@@ -86,7 +95,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] S-15 drafted — [`docs/specs/S-15-feature-inventory.md`](specs/S-15-feature-inventory.md) (authoritative shipped-feature list)
 - [x] **Harness bootstrap** — `tests/vd_replay.rs` + cmdlog parser (`.vd`/`.vdj`) + sheet-level `Replay` driver + numeric-aware diff + quote-style-never serialize + stable sort. `src/lib.rs` added so integration tests see internals.
 - [x] **In the `vdrs` binary (per S-15 §3)**: Column meta (hide/rename/key/unkey/freeze), Type coercion (int/float/string/date/currency), Selection (row/all/regex/dup-selected), Sort (multi-col asc/desc), Readers (CSV/TSV/Parquet/Arrow/Jsonl/JSON + xlsx via calamine + sqlite via rusqlite + gzip via flate2), Pivot with keys, unpivot/melt.
-- [x] **Harness-only (`tests/vd_replay.rs` driver, no binary surface yet)**: Joins (inner/outer/full/left/append/extend/merge), pivot without keys, hide-uniform-cols, setcol-input (gang mode), dup-rows, select-equal-cell. Tracked under "Open issues & gaps".
+- [x] **Harness-first, now also in the binary (2026-11-05)**: Joins (inner/outer/full/left/append/extend/merge → `:join`), pivot without keys (`W`), hide-uniform-cols (`:uniform`), setcol-input gang mode (`:setcol`), dup-rows (`g"`), select-equal-cell (`,`).
 - [ ] **CI**: add `../visidata` checkout step pinned to `v3.4`; run `cargo test --test vd_replay`. Per S-14 §CI integration. _Not blocking: harness skips cleanly without the corpus._
 
 **Deferred (per iter 14 postmortem — explicit non-features):**
@@ -144,10 +153,10 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 ## Phase 2 — pivot + plan panel (the differentiating release)
 - [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.
 - [x] Melt/unpivot sheet: `:unpivot <on1,on2,...> -- <idx1,idx2,...>` — lazy via `LazyFrame::unpivot`
-- [ ] Pivot via a dedicated setup sheet (`W` key, mark rowkeys/aggs) — current flow is ex-only; VisiData-style UI pending
+- [x] `W` pivot: key columns × current column (counts); custom aggregates via `:pivot … <agg>`
 - [ ] Live preview panel (shape + first N rows before materialize) — _basic form already works: stale window renders until new materialize lands_
 - [x] Plan side-panel: `P` cycles Off → Normal → Optimized (`describe_optimized_plan`)
-- [ ] Plan panel: `s` export as `.pl` / SQL
+- [x] Plan export — `:export view.py` (Polars) / `view.sql` (DuckDB), replaying the view from the source file
 - [ ] DuckDB backend switch for OOC pivots (optional feature) — _dropped from direction §9.3; revisit only if Polars OOC wall hit_
 
 ## Phase 3 — mlua plugins
@@ -158,20 +167,20 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
 - [x] Loader plugin covers `:diff` too (shared `plugins::open`); `:tail` refuses loader formats since refresh would re-scan the stale converted file
 - [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — per S-10
-- [ ] Aggregator plugin shape — per S-09; `:derive` consumer waits on S-06
-- [ ] Renderer plugin shape — per S-09 §4
-- [ ] Hot-reload on save via `notify` — per S-09 §Hot-reload
+- [x] Aggregator plugin shape — `vd.register_aggregator(name, fn)`, used by `:pivot`; `:derive` takes SQL expressions (Polars `sql_expr`)
+- [x] Renderer plugin shape — `vd.register_renderer { column | dtype, render }`
+- [x] Hot-reload on save — mtime poll on the 2 s tick (no `notify` dependency)
 - [ ] Extract `trait Source` from the current enum — deferred; current enum + loader-returns-path pattern covers the user-facing extension story. Add only when a `LuaSource` wants in-memory streaming.
 
 ## Phase 4 — streaming / tail-sheet
 - [x] Tail sheet (JSONL today, CSV/Parquet by passing format): `:tail <path> [--follow|-f]`; 2s tick re-reads file
 - [x] Append-only cursor with `--follow` mode (auto-scroll to bottom when user was at bottom)
-- [ ] Parquet directory watcher (new file in a dir → append rows)
-- [ ] Incremental read (currently full re-read per tick; fine for small files, bad for big ones)
+- [x] Parquet directory watcher — `:tail <dir>` scans `*.parquet`, re-globbed each tick
+- [x] Incremental read — CSV/TSV/JSONL parse only appended bytes
 
 ## Phase 5 — modal frame diff
 - [x] Diff sheet via `:diff <path>` (schema diff) or `:diff <path> <keys>` (full outer join; `__diff` flags only_a/only_b/changed; same rows suppressed)
-- [ ] Dedicated UI (`D` key, visual key picker) — current flow is ex-only
+- [x] `D` key: path prompt, key columns as diff keys
 
 ## Correctness pass (2026-11-05, branch `fix/save-full-plan`)
 - [x] `:save` writes every view row (was: 1024-row window); unknown extension no longer truncates the target

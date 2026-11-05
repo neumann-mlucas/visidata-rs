@@ -535,6 +535,24 @@ mod tests {
         }
     }
 
+    /// Every command docs/index.html documents (`data-ex="…"`) exists.
+    #[test]
+    fn user_guide_commands_exist() {
+        let html = include_str!("../docs/index.html");
+        let documented: Vec<&str> = html
+            .split("data-ex=\"")
+            .skip(1)
+            .filter_map(|s| s.split('"').next())
+            .collect();
+        assert!(documented.len() >= 25, "{documented:?}");
+        for cmd in documented {
+            assert!(
+                !matches!(parse(cmd), Err(ExError::Unknown(_))),
+                "documented :{cmd} doesn't exist"
+            );
+        }
+    }
+
     #[test]
     fn rejects_bad_usage() {
         assert!(matches!(parse("filter justone"), Err(ExError::Usage(_))));

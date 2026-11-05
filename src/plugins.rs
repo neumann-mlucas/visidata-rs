@@ -483,6 +483,10 @@ fn action_from_name(s: &str) -> Option<Action> {
         "start_search_input" => StartSearchInput,
         "start_filter_input" => StartFilterInput,
         "start_ex_input" => StartExInput,
+        // input layer (prompts)
+        "submit_input" => SubmitInput,
+        "cancel_input" => CancelInput,
+        "input_backspace" => InputBackspace,
         "search_next" => SearchNext,
         "search_prev" => SearchPrev,
         "clear_filter" => ClearFilter,

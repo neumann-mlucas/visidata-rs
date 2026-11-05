@@ -251,6 +251,27 @@ mod tests {
         assert!(matches!(d2, Dispatch::Fire(v) if matches!(v[0], Action::GotoTop)));
     }
 
+    /// docs/index.html lists every default sheet binding (`data-keys="…"`).
+    #[test]
+    fn user_guide_documents_every_default_key() {
+        let html = include_str!("../docs/index.html");
+        let esc = |s: String| {
+            s.replace('&', "&amp;")
+                .replace('"', "&quot;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        };
+        for chord in &Keymap::defaults().sheet {
+            let keys: Vec<String> = chord.on.iter().map(|k| k.to_string()).collect();
+            let attr = format!("data-keys=\"{}\"", esc(keys.join(" ")));
+            assert!(
+                html.contains(&attr),
+                "docs/index.html misses {attr} ({})",
+                chord.desc
+            );
+        }
+    }
+
     #[test]
     fn unknown_misses() {
         let km = Keymap::defaults();
