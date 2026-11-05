@@ -169,8 +169,12 @@ impl<'a> Widget for SheetWidget<'a> {
                 break;
             }
             let row_hi = ri == view.row_cursor;
-            let abs = view.window_offset + ri as u64;
-            let selected = view.selected.contains(&abs);
+            let selected = self
+                .sheet
+                .state
+                .window_rids
+                .get(ri)
+                .is_some_and(|rid| view.selected.contains(rid));
             let stripe = ri % 2 == 1;
             for (slot, &ci) in visible.iter().enumerate() {
                 let x = col_x[slot];

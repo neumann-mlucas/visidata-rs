@@ -27,7 +27,7 @@ use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
 use crate::lineedit::LineEdit;
 use crate::sheet::{
-    FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
+    FilterState, Origin, ROW_ID, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
 };
 use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
@@ -226,7 +226,7 @@ impl App {
         s.revision = s.revision.wrapping_add(1);
         let sheet_id = s.id;
         let rev = s.revision;
-        let plan = s.window_plan();
+        let plan = s.window_plan_with_rids();
         if let Some(h) = self.materialize_handles.remove(&sheet_id) {
             h.abort();
         }
@@ -328,6 +328,11 @@ impl App {
                     return;
                 }
                 s.state.loaded_rev = revision;
+                let (rids, df) = match crate::sheet::rid_values(&df) {
+                    Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
+                    Err(_) => (Vec::new(), df), // pre-built windows carry no ids
+                };
+                s.state.window_rids = rids;
                 s.window = Some(df);
                 if sheet_id == self.sheets.active().id {
                     self.settle_jump_bottom();
@@ -551,22 +556,6 @@ impl App {
                 self.toast = Some(format!("no column: {column}"));
                 return;
             }
-        }
-        // Selection is positional (row offsets into the view), so any change to
-        // row order/membership would silently re-point it at other rows.
-        // ponytail: clear instead of tracking row identity; add a row-index
-        // column to the base plan if users want selections to survive re-sorts.
-        if matches!(
-            action,
-            Action::FilterCurrentColumn { .. }
-                | Action::SetFilter { .. }
-                | Action::ClearFilter
-                | Action::SortAsc
-                | Action::SortDesc
-                | Action::SetSort { .. }
-                | Action::ClearSort
-        ) {
-            self.sheets.active_mut().view.selected.clear();
         }
         match action {
             Action::Quit => self.quit = true,
@@ -1114,42 +1103,42 @@ impl App {
         }
     }
 
-    fn abs_row_at_cursor(&self) -> Option<u64> {
+    /// Row id under the cursor; None on an empty view.
+    fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
-        s.window.as_ref().filter(|df| df.height() > 0)?; // empty view: no row to act on
-        Some(s.view.window_offset + s.view.row_cursor as u64)
+        s.state.window_rids.get(s.view.row_cursor).copied()
     }
 
     fn toggle_select_current(&mut self) {
-        let Some(abs) = self.abs_row_at_cursor() else {
+        let Some(rid) = self.rid_at_cursor() else {
             return;
         };
         let v = &mut self.sheets.active_mut().view;
-        if !v.selected.remove(&abs) {
-            v.selected.insert(abs);
+        if !v.selected.remove(&rid) {
+            v.selected.insert(rid);
         }
     }
 
     fn set_select_current(&mut self, select: bool) {
-        let Some(abs) = self.abs_row_at_cursor() else {
+        let Some(rid) = self.rid_at_cursor() else {
             return;
         };
         let v = &mut self.sheets.active_mut().view;
         if select {
-            v.selected.insert(abs);
+            v.selected.insert(rid);
         } else {
-            v.selected.remove(&abs);
+            v.selected.remove(&rid);
         }
     }
 
     /// Select every row of the view (not just the loaded window).
     fn select_all(&mut self) {
-        let v = &mut self.sheets.active_mut().view;
-        match v.total_rows {
+        let s = self.sheets.active_mut();
+        match s.view_rids() {
             // ponytail: one set entry per row; swap BTreeSet for a bitmap if
             // multi-million-row selections eat too much memory.
-            Some(total) => v.selected = (0..total).collect(),
-            None => self.toast = Some("still counting rows; try again".into()),
+            Ok(rids) => s.view.selected.extend(rids),
+            Err(e) => self.toast = Some(format!("select: {e}")),
         }
     }
 
@@ -1495,7 +1484,7 @@ mod tests {
         let msg = MaterializeResult::Ok {
             sheet_id: s.id,
             revision: s.revision,
-            df: s.window_plan().collect().unwrap(),
+            df: s.window_plan_with_rids().collect().unwrap(),
         };
         app.on_materialize(msg);
     }
@@ -1630,22 +1619,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sort_and_filter_clear_positional_selection() {
-        let (mut app, _tmp) = test_app();
-        for action in [
-            Action::SetSort {
-                column: "n".into(),
-                descending: false,
-            },
-            Action::SetFilter {
-                column: "name".into(),
-                regex: "a".into(),
-            },
-        ] {
-            app.sheets.active_mut().view.selected.insert(0);
-            app.dispatch(action);
-            assert!(app.sheets.active().view.selected.is_empty());
-        }
+    async fn selection_follows_its_row_across_sort_and_filter() {
+        let (mut app, _tmp) = test_app(); // alice,3 bob,1 carol,2
+        land_window(&mut app);
+        app.dispatch(Action::ToggleSelectRow); // alice
+        app.dispatch(Action::SetSort {
+            column: "n".into(),
+            descending: false,
+        });
+        land_window(&mut app); // bob, carol, alice
+        let s = app.sheets.active();
+        assert_eq!(s.state.window_rids, vec![1, 2, 0]);
+        assert_eq!(s.view.selected.iter().copied().collect::<Vec<_>>(), vec![0]);
+        app.dispatch(Action::SetFilter {
+            column: "name".into(),
+            regex: "a".into(),
+        }); // alice + carol remain, selection kept
+        app.dispatch(Action::DupSelected);
+        let dup = app.sheets.active().plan.clone().collect().unwrap();
+        assert_eq!(
+            dup.column("name").unwrap().get(0).unwrap().get_str(),
+            Some("alice")
+        );
     }
 }
 

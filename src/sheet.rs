@@ -32,6 +32,8 @@ pub struct SheetState {
     pub loaded_rev: u64,
     /// A row count for the current `count_key` is in flight.
     pub counting: bool,
+    /// [`ROW_ID`] of each row of `window`, split off when the window lands.
+    pub window_rids: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,7 +150,7 @@ pub struct View {
     pub search: Option<SearchState>,
     pub filter: Option<FilterState>,
     pub sort: Vec<SortKey>,
-    /// Selected absolute row offsets (VisiData-style). Cleared on plan mutations.
+    /// Selected rows by [`ROW_ID`]; survive sort and filter.
     pub selected: std::collections::BTreeSet<u64>,
     /// Hidden columns — projected out at window_plan time.
     pub hidden: std::collections::BTreeSet<String>,
@@ -213,6 +215,10 @@ pub struct SortKey {
 }
 
 pub const DEFAULT_WINDOW_ROWS: u32 = 1024;
+
+/// Stable row identity: the row's position in the sheet's base `plan`. Sorting,
+/// filtering and casts don't change it, so selections key on it.
+pub const ROW_ID: &str = "__vdrs_rid";
 
 impl Sheet {
     pub fn from_source(id: SheetId, loaded: LoadedSource) -> Self {
@@ -347,13 +353,20 @@ impl Sheet {
         if parent.view.selected.is_empty() {
             return Err("no rows selected".into());
         }
-        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
-        let height = df.height() as u64;
-        let mask: Vec<bool> = (0..height)
-            .map(|i| parent.view.selected.contains(&i))
+        // Selected row ids, in the parent's current view order and shape.
+        let df = parent
+            .view_plan_rid(true)
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let rids = rid_values(&df).map_err(|e| e.to_string())?;
+        let bc: BooleanChunked = rids
+            .iter()
+            .map(|r| parent.view.selected.contains(r))
             .collect();
-        let bc: BooleanChunked = mask.into_iter().collect();
-        let out = df.filter(&bc).map_err(|e| e.to_string())?;
+        let out = df
+            .filter(&bc)
+            .and_then(|d| d.drop(ROW_ID))
+            .map_err(|e| e.to_string())?;
         let plan = out.clone().lazy();
         Ok(Sheet {
             id,
@@ -620,10 +633,22 @@ impl Sheet {
             .slice(self.view.window_offset as i64, self.view.window_rows)
     }
 
+    /// `window_plan` plus a trailing [`ROW_ID`] column (split off by the app
+    /// into `state.window_rids` when the window lands).
+    pub fn window_plan_with_rids(&self) -> LazyFrame {
+        self.view_plan_rid(true)
+            .slice(self.view.window_offset as i64, self.view.window_rows)
+    }
+
     /// Full (unsliced) query for what the user sees. Applies, in order:
     /// type_casts → filter → sort → visible-column projection.
     pub fn view_plan(&self) -> LazyFrame {
-        let mut lf = self.filtered_plan();
+        self.view_plan_rid(false)
+    }
+
+    /// `view_plan`, optionally carrying each row's [`ROW_ID`] as the last column.
+    fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
+        let mut lf = self.filtered_plan(with_rid);
         if !self.view.sort.is_empty() {
             let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
             let desc: Vec<bool> = self
@@ -641,7 +666,8 @@ impl Sheet {
         // order for the rest; drop hidden. Skipped when nothing to project.
         if !self.view.hidden.is_empty() || !self.view.keys.is_empty() {
             if let Ok(schema) = lf.clone().collect_schema() {
-                let all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
+                let mut all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
+                all.retain(|n| n != ROW_ID);
                 let mut order: Vec<String> = Vec::with_capacity(all.len());
                 for k in &self.view.keys {
                     if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) {
@@ -654,6 +680,9 @@ impl Sheet {
                     }
                 }
                 if order != all {
+                    if with_rid {
+                        order.push(ROW_ID.to_string());
+                    }
                     lf = lf.select(
                         order
                             .into_iter()
@@ -667,8 +696,12 @@ impl Sheet {
     }
 
     /// Base plan + type_casts + filter: decides which rows exist, not their order.
-    fn filtered_plan(&self) -> LazyFrame {
+    /// `with_rid` numbers base rows first, so ids survive filter and sort.
+    fn filtered_plan(&self, with_rid: bool) -> LazyFrame {
         let mut lf = self.plan.clone();
+        if with_rid {
+            lf = lf.with_row_index(ROW_ID, None);
+        }
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
             let exprs: Vec<Expr> = self
@@ -695,7 +728,7 @@ impl Sheet {
     /// One-row `len` query over `filtered_plan`. Sort/projection don't change
     /// the row count, so they're skipped to keep the count cheap.
     pub fn count_plan(&self) -> LazyFrame {
-        self.filtered_plan().select([len()])
+        self.filtered_plan(false).select([len()])
     }
 
     /// Identifies the row count `count_plan` yields; when it changes, recount.
@@ -713,23 +746,24 @@ impl Sheet {
     }
 
     /// View rows whose `column` (as text) matches regex `pattern`, in view order.
+    /// Row ids of view rows whose `column` (as text) matches `pattern`.
     pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
         let df = self
-            .view_plan()
-            .with_row_index("__vdrs_row", None)
+            .filtered_plan(true)
             .filter(
                 col(column)
                     .cast(DataType::String)
                     .str()
                     .contains(lit(pattern), true),
             )
-            .select([col("__vdrs_row").cast(DataType::UInt64)])
+            .select([col(ROW_ID)])
             .collect()?;
-        Ok(df
-            .column("__vdrs_row")?
-            .u64()?
-            .into_no_null_iter()
-            .collect())
+        rid_values(&df)
+    }
+
+    /// Row ids of every row in the (filtered) view.
+    pub fn view_rids(&self) -> PolarsResult<Vec<u64>> {
+        rid_values(&self.filtered_plan(true).select([col(ROW_ID)]).collect()?)
     }
 
     /// Rows of the full view holding `needle` (case-insensitive, literal) in any
@@ -780,6 +814,12 @@ impl Sheet {
             })
             .collect())
     }
+}
+
+/// The [`ROW_ID`] column of `df` as u64s.
+pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
+    let c = df.column(ROW_ID)?.cast(&DataType::UInt64)?;
+    Ok(c.u64()?.into_no_null_iter().collect())
 }
 
 /// Write a DataFrame to disk, picking the writer by file extension.
@@ -1067,7 +1107,7 @@ mod tests {
             column: "n".into(),
             order: SortOrder::Asc,
         });
-        s.view.selected.insert(0); // row 0 of the sorted view = bob
+        s.view.selected.insert(1); // row id 1 = bob (base order), first in the sorted view
         let dup = Sheet::dup_selected_from(&s, 1).unwrap();
         let df = dup.plan.collect().unwrap();
         let name = df.column("name").unwrap().get(0).unwrap();
