@@ -29,6 +29,9 @@ use crate::sheet::{
 use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
 
+/// Data rows assumed visible before the first draw measures the real area.
+const DEFAULT_VIEWPORT_ROWS: usize = 20;
+
 /// Entry point from main.
 pub async fn run(
     initial: Sheet,
@@ -113,6 +116,8 @@ pub struct App {
     ex_history: crate::exline::History,
     plan_mode: PlanMode,
     theme: Theme,
+    /// Data rows visible in the sheet area at the last draw; one PageDown step.
+    viewport_rows: usize,
     quit: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
     materialize_rx: mpsc::Receiver<MaterializeResult>,
@@ -149,6 +154,7 @@ impl App {
             ex_history: crate::exline::History::load(),
             plan_mode: PlanMode::Off,
             theme: Theme::dark(),
+            viewport_rows: DEFAULT_VIEWPORT_ROWS,
             quit: false,
             materialize_tx: tx,
             materialize_rx: rx,
@@ -274,17 +280,18 @@ impl App {
         if !s.view.jump_bottom {
             return;
         }
-        if let Some(total) = s.view.total_rows {
-            let last_page = total.saturating_sub(s.view.window_rows as u64);
-            if s.view.window_offset != last_page {
-                s.view.window_offset = last_page;
-                self.spawn_materialize(); // settles again when that window lands
-                return;
+        match s.view.total_rows {
+            // In-window → done; otherwise the slide's window lands and settles again.
+            Some(total) => {
+                if total == 0 || self.goto_row(total - 1) {
+                    self.sheets.active_mut().view.jump_bottom = false;
+                }
             }
-            s.view.jump_bottom = false;
-        }
-        if let Some(h) = s.window.as_ref().map(|df| df.height()).filter(|h| *h > 0) {
-            s.view.row_cursor = h - 1;
+            None => {
+                if let Some(h) = s.window.as_ref().map(|df| df.height()).filter(|h| *h > 0) {
+                    s.view.row_cursor = h - 1;
+                }
+            }
         }
     }
 
@@ -464,10 +471,7 @@ impl App {
     fn submit_input(&mut self) {
         match std::mem::replace(&mut self.input, InputBuf::None) {
             InputBuf::Search(needle) if !needle.is_empty() => {
-                self.sheets.active_mut().view.search = Some(SearchState {
-                    needle,
-                    current: None,
-                });
+                self.sheets.active_mut().view.search = Some(SearchState { needle });
                 self.dispatch(Action::SearchNext);
             }
             InputBuf::Filter(regex) if !regex.is_empty() => {
@@ -572,9 +576,7 @@ impl App {
             Action::PageDown => self.page(1),
             Action::PageUp => self.page(-1),
             Action::GotoTop => {
-                let s = self.sheets.active_mut();
-                s.view.row_cursor = 0;
-                s.view.row_offset = 0;
+                self.goto_row(0);
             }
             Action::GotoBottom => self.goto_bottom(),
             Action::GotoLeftmost => {
@@ -764,30 +766,45 @@ impl App {
     }
 
     fn move_cursor_rows(&mut self, delta: isize) {
-        let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return };
-        let rows = df.height() as isize;
-        if rows == 0 {
-            return;
-        }
-        let new_cursor = s.view.row_cursor as isize + delta;
-        let window_full = df.height() as u32 == s.view.window_rows;
-        if new_cursor >= rows && window_full {
-            let step = ((new_cursor - rows + 1) as u64)
-                .max(1)
-                .min(s.view.window_rows as u64 / 2);
-            s.view.window_offset = s.view.window_offset.saturating_add(step);
-            s.view.row_cursor = (rows as usize).saturating_sub(1);
-            self.spawn_materialize();
-        } else if new_cursor < 0 && s.view.window_offset > 0 {
-            let overflow = (-new_cursor) as u64;
-            let step = overflow.max(1).min(s.view.window_rows as u64 / 2);
-            s.view.window_offset = s.view.window_offset.saturating_sub(step);
-            s.view.row_cursor = 0;
-            self.spawn_materialize();
+        let v = &self.sheets.active().view;
+        let cur = v.window_offset + v.row_cursor as u64;
+        let target = if delta < 0 {
+            cur.saturating_sub(delta.unsigned_abs() as u64)
         } else {
-            s.view.row_cursor = new_cursor.clamp(0, rows - 1) as usize;
+            cur.saturating_add(delta as u64)
+        };
+        self.goto_row(target);
+    }
+
+    /// Put the cursor on absolute view row `target`, clamped to the data. When
+    /// the row isn't in the loaded window, re-centre the window on it and load.
+    /// Returns true when the target was already inside the window.
+    fn goto_row(&mut self, target: u64) -> bool {
+        let s = self.sheets.active_mut();
+        let Some(df) = &s.window else { return false };
+        let rows = df.height() as u64;
+        let (off, wr) = (s.view.window_offset, s.view.window_rows as u64);
+        let last = match s.view.total_rows {
+            Some(t) => t.saturating_sub(1),
+            None if rows == wr => u64::MAX, // full window: more rows may follow
+            None => (off + rows).saturating_sub(1),
+        };
+        let target = target.min(last);
+        if (off..off + rows).contains(&target) {
+            s.view.row_cursor = (target - off) as usize;
+            return true;
         }
+        let mut new_off = target.saturating_sub(wr / 2);
+        if let Some(t) = s.view.total_rows {
+            new_off = new_off.min(t.saturating_sub(wr));
+        }
+        if new_off == off {
+            return false; // nothing more to load (empty view)
+        }
+        s.view.window_offset = new_off;
+        s.view.row_cursor = (target - new_off) as usize;
+        self.spawn_materialize();
+        false
     }
 
     fn move_cursor_cols(&mut self, delta: isize) {
@@ -802,9 +819,9 @@ impl App {
     }
 
     /// Half-window jump. `move_cursor_rows` slides the window when needed.
+    /// One screen of data rows.
     fn page(&mut self, dir: isize) {
-        let step = (self.sheets.active().view.window_rows as isize / 2).max(1);
-        self.move_cursor_rows(dir * step);
+        self.move_cursor_rows(dir * self.viewport_rows.max(1) as isize);
     }
 
     fn push_type_cast(&mut self, dt: DataType) {
@@ -864,44 +881,33 @@ impl App {
     }
 
     fn search_jump(&mut self, forward: bool) {
-        let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return };
-        let Some(state) = s.view.search.as_mut() else {
+        let s = self.sheets.active();
+        let Some(needle) = s.view.search.as_ref().map(|st| st.needle.clone()) else {
             self.toast = Some("no search; press / first".into());
             return;
         };
-        let needle = state.needle.to_lowercase();
-        let start = state.current.map(|(r, _)| r).unwrap_or(s.view.row_cursor);
-        let n = df.height();
-        if n == 0 {
-            return;
-        }
-        let indices: Box<dyn Iterator<Item = usize>> = if forward {
-            Box::new(((start + 1)..n).chain(0..=start))
-        } else {
-            let before: Vec<usize> = (0..start).rev().collect();
-            let after: Vec<usize> = ((start + 1)..n).rev().collect();
-            Box::new(before.into_iter().chain(after))
-        };
-        let cols = df.get_columns();
-        for ri in indices {
-            for (ci, c) in cols.iter().enumerate() {
-                if let Ok(av) = c.get(ri) {
-                    let cell = match av {
-                        AnyValue::String(s) => s.to_string(),
-                        AnyValue::StringOwned(s) => s.as_str().to_string(),
-                        other => other.to_string(),
-                    };
-                    if cell.to_lowercase().contains(&needle) {
-                        s.view.row_cursor = ri;
-                        s.view.col_cursor = ci;
-                        state.current = Some((ri, ci));
-                        return;
-                    }
-                }
+        let cur = s.view.window_offset + s.view.row_cursor as u64;
+        // ponytail: synchronous full scan per n/N; move to a background task with
+        // cached hits if big files make it lag.
+        let hits = match s.search_hits(&needle) {
+            Ok(h) => h,
+            Err(e) => {
+                self.toast = Some(format!("search: {e}"));
+                return;
             }
+        };
+        let next = if forward {
+            hits.iter().find(|(r, _)| *r > cur).or(hits.first())
+        } else {
+            hits.iter().rev().find(|(r, _)| *r < cur).or(hits.last())
+        };
+        match next.copied() {
+            Some((row, c)) => {
+                self.goto_row(row);
+                self.sheets.active_mut().view.col_cursor = c;
+            }
+            None => self.toast = Some(format!("no match for /{needle}")),
         }
-        self.toast = Some(format!("no match for /{needle}"));
     }
 
     fn open_pivot(&mut self, index: &str, on: &str, values: &str, agg: &str) {
@@ -1157,22 +1163,12 @@ impl App {
     }
 
     fn draw<B: ratatui::backend::Backend>(&mut self, term: &mut Terminal<B>) -> Result<()> {
-        let viewport_rows = term
-            .size()
-            .map(|s| s.height.saturating_sub(2) as usize)
-            .unwrap_or(10);
-        {
-            let s = self.sheets.active_mut();
-            if let Some(df) = &s.window {
-                let (h, w) = (df.height(), df.width());
-                clamp_view(&mut s.view, h, w, viewport_rows);
-            }
-        }
         term.draw(|f| self.render(f))?;
         Ok(())
     }
 
-    fn render(&self, f: &mut ratatui::Frame<'_>) {
+    /// `&mut` only to clamp the view to the sheet area measured here.
+    fn render(&mut self, f: &mut ratatui::Frame<'_>) {
         let area = f.area();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -1182,30 +1178,32 @@ impl App {
                 Constraint::Length(1),
             ])
             .split(area);
-        self.render_titlebar(f, chunks[0]);
-
         let main_area = chunks[1];
-        if self.plan_mode == PlanMode::Off {
-            f.render_widget(
-                SheetWidget {
-                    sheet: self.sheets.active(),
-                    theme: &self.theme,
-                },
-                main_area,
-            );
+        let (sheet_area, plan_area) = if self.plan_mode == PlanMode::Off {
+            (main_area, None)
         } else {
             let halves = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
                 .split(main_area);
-            f.render_widget(
-                SheetWidget {
-                    sheet: self.sheets.active(),
-                    theme: &self.theme,
-                },
-                halves[0],
-            );
-            self.render_plan_panel(f, halves[1]);
+            (halves[0], Some(halves[1]))
+        };
+        self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
+        let s = self.sheets.active_mut();
+        if let Some(df) = &s.window {
+            clamp_view(&mut s.view, df, sheet_area);
+        }
+
+        self.render_titlebar(f, chunks[0]);
+        f.render_widget(
+            SheetWidget {
+                sheet: self.sheets.active(),
+                theme: &self.theme,
+            },
+            sheet_area,
+        );
+        if let Some(area) = plan_area {
+            self.render_plan_panel(f, area);
         }
 
         self.render_statusbar(f, chunks[2]);
@@ -1291,6 +1289,7 @@ impl App {
             .map(|df| (df.height(), df.width()))
             .unwrap_or((0, 0));
         let abs_row = window_offset as usize + row_cursor + usize::from(rows > 0); // 1-based
+        let col = col_cursor + usize::from(cols > 0); // 1-based
         let total = s
             .view
             .total_rows
@@ -1304,7 +1303,7 @@ impl App {
             .unwrap_or_default();
         let left = format!(" {name} ", name = s.name);
         let center =
-            format!(" row {abs_row}/{total} · col {col_cursor}/{cols} ({col_name}) · sel {sel} ",);
+            format!(" row {abs_row}/{total} · col {col}/{cols} ({col_name}) · sel {sel} ",);
         let right = format!(" {kind:?} · sheets {stack_pos} ", kind = s.kind);
         let th = &self.theme;
         let line = Line::from(vec![
@@ -1426,7 +1425,7 @@ mod tests {
         app.on_materialize(msg);
     }
 
-    fn titlebar(app: &App) -> String {
+    fn titlebar(app: &mut App) -> String {
         let mut term = Terminal::new(ratatui::backend::TestBackend::new(80, 6)).unwrap();
         term.draw(|f| app.render(f)).unwrap();
         let buf = term.backend().buffer();
@@ -1441,7 +1440,11 @@ mod tests {
         land_window(&mut app);
         let v = &app.sheets.active().view;
         assert_eq!((v.row_cursor, v.jump_bottom), (1, false));
-        assert!(titlebar(&app).contains("row 3/3"), "{}", titlebar(&app));
+        assert!(
+            titlebar(&mut app).contains("row 3/3"),
+            "{}",
+            titlebar(&mut app)
+        );
     }
 
     #[tokio::test]
@@ -1453,7 +1456,11 @@ mod tests {
         app.dispatch(Action::GotoBottom);
         let v = &app.sheets.active().view;
         assert_eq!((v.window_offset, v.row_cursor, v.jump_bottom), (0, 1, true));
-        assert!(titlebar(&app).contains("row 2/?"), "{}", titlebar(&app));
+        assert!(
+            titlebar(&mut app).contains("row 2/?"),
+            "{}",
+            titlebar(&mut app)
+        );
         // stale count is ignored
         app.on_materialize(MaterializeResult::Count {
             sheet_id: 0,
@@ -1562,5 +1569,163 @@ mod tests {
             app.dispatch(action);
             assert!(app.sheets.active().view.selected.is_empty());
         }
+    }
+}
+
+#[cfg(test)]
+mod scenario {
+    //! End-to-end: real keymap + dispatch + background Polars tasks + render.
+    use super::*;
+    use std::io::Write;
+
+    pub struct Harness {
+        pub app: App,
+        pub term: Terminal<ratatui::backend::TestBackend>,
+        _tmp: tempfile::NamedTempFile,
+    }
+
+    impl Harness {
+        /// `rows`-row CSV: id,name,grp,amt with id = 1..=rows.
+        pub async fn new(rows: usize) -> Self {
+            let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+            writeln!(tmp, "id,name,grp,amt").unwrap();
+            for i in 1..=rows {
+                writeln!(tmp, "{i},name_{i},{},{}", i % 7, i as f64 * 1.5).unwrap();
+            }
+            tmp.flush().unwrap();
+            let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+            let mut app = App::new(Sheet::from_source(0, loaded), None, None);
+            app.spawn_materialize();
+            let term = Terminal::new(ratatui::backend::TestBackend::new(100, 12)).unwrap();
+            let mut h = Self {
+                app,
+                term,
+                _tmp: tmp,
+            };
+            h.pump().await;
+            h
+        }
+
+        /// Apply background results until none arrive for a while, then draw.
+        pub async fn pump(&mut self) {
+            while let Ok(Some(res)) =
+                tokio::time::timeout(Duration::from_millis(500), self.app.materialize_rx.recv())
+                    .await
+            {
+                self.app.on_materialize(res);
+            }
+            self.app.draw(&mut self.term).unwrap();
+        }
+
+        /// Space-separated key tokens, e.g. "g g", "<C-d>", or literal text via `type_`.
+        pub async fn keys(&mut self, ks: &str) {
+            for k in ks.split(' ').filter(|k| !k.is_empty()) {
+                self.app.on_key(k.parse().unwrap());
+                self.app.draw(&mut self.term).unwrap();
+            }
+            self.pump().await;
+        }
+
+        pub async fn type_(&mut self, text: &str) {
+            for c in text.chars() {
+                self.app
+                    .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
+                        c,
+                    ))));
+            }
+            self.keys("<CR>").await;
+        }
+
+        pub fn screen(&self) -> String {
+            let buf = self.term.backend().buffer();
+            (0..buf.area.height)
+                .map(|y| {
+                    (0..buf.area.width)
+                        .map(|x| buf[(x, y)].symbol())
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    }
+
+    fn title(h: &Harness) -> String {
+        h.screen().lines().next().unwrap_or_default().to_string()
+    }
+
+    /// First data row (below the header), first cell.
+    fn first_cell(h: &Harness) -> String {
+        let screen = h.screen();
+        let line = screen.lines().nth(2).unwrap_or_default();
+        line.split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn navigate_search_filter_save_across_windows() {
+        let mut h = Harness::new(5000).await; // 12 rows tall → 9 data rows per screen
+        assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+
+        h.keys("G").await;
+        assert!(title(&h).contains("row 5000/5000"), "{}", title(&h));
+        assert!(h.screen().contains("5000  name_5000"), "{}", h.screen());
+
+        // :save writes every row of the view, not just the loaded window
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("all.csv");
+        h.keys(":").await;
+        h.type_(&format!("w {}", out.display())).await;
+        let saved = crate::reader::open(out.as_os_str(), None).unwrap();
+        assert_eq!(saved.lazy.collect().unwrap().height(), 5000);
+
+        h.keys("g g").await;
+        assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+        assert_eq!(first_cell(&h), "1");
+
+        h.keys(&"<C-d> ".repeat(12)).await;
+        assert!(title(&h).contains("row 109/5000"), "{}", title(&h));
+
+        h.keys("]").await; // sort desc on id
+        assert_eq!(first_cell(&h), "5000");
+        h.keys("z o g g /").await;
+        h.type_("name_4999").await;
+        assert!(title(&h).contains("row 4999/5000"), "{}", title(&h));
+
+        h.keys("0 l l z |").await; // filter grp
+        h.type_("^3$").await;
+        let want = (1..=5000).filter(|i| i % 7 == 3).count();
+        assert!(
+            title(&h).contains(&format!("row 1/{want}")),
+            "{}",
+            title(&h)
+        );
+        h.keys("F").await;
+        assert!(
+            title(&h).contains("freq(grp)") && title(&h).contains("/1 "),
+            "{}",
+            title(&h)
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cursor_column_scrolls_into_view() {
+        let mut h = Harness::new(10).await;
+        h.term = Terminal::new(ratatui::backend::TestBackend::new(16, 5)).unwrap();
+        h.keys("$").await;
+        assert!(
+            h.screen().lines().nth(1).unwrap().contains("amt"),
+            "{}",
+            h.screen()
+        );
+        h.keys("0").await;
+        assert!(
+            h.screen().lines().nth(1).unwrap().starts_with("id"),
+            "{}",
+            h.screen()
+        );
     }
 }

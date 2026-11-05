@@ -21,6 +21,7 @@ impl<'a> SheetWidget<'a> {
     const MIN_COL_WIDTH: u16 = 4;
     const MAX_COL_WIDTH: u16 = 40;
     const CELL_PAD: u16 = 1;
+    const WIDTH_SAMPLE: usize = 64;
 
     fn col_widths(df: &DataFrame, sample: usize) -> Vec<u16> {
         df.get_columns()
@@ -58,7 +59,7 @@ impl<'a> Widget for SheetWidget<'a> {
             return;
         }
         let view = &self.sheet.view;
-        let widths = Self::col_widths(df, 64);
+        let widths = Self::col_widths(df, Self::WIDTH_SAMPLE);
         let cols = df.get_columns();
         if cols.is_empty() {
             let msg = "<empty>";
@@ -318,7 +319,11 @@ fn dtype_badge(dt: &DataType) -> String {
 }
 
 /// Clamp cursor + scroll after a window-size or data-size change.
-pub fn clamp_view(view: &mut View, rows: usize, cols: usize, viewport_rows: usize) {
+/// Keep the cursor inside the loaded window and on screen for a sheet drawn
+/// into `area` (header row included). Scrolls rows and non-frozen columns.
+pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect) {
+    let (rows, cols) = (df.height(), df.width());
+    let data_rows = (area.height as usize).saturating_sub(1).max(1); // minus header
     if rows == 0 {
         view.row_cursor = 0;
         view.row_offset = 0;
@@ -326,20 +331,35 @@ pub fn clamp_view(view: &mut View, rows: usize, cols: usize, viewport_rows: usiz
         view.row_cursor = view.row_cursor.min(rows - 1);
         if view.row_cursor < view.row_offset {
             view.row_offset = view.row_cursor;
-        } else if view.row_cursor >= view.row_offset + viewport_rows.max(1) {
-            view.row_offset = view.row_cursor + 1 - viewport_rows.max(1);
+        } else if view.row_cursor >= view.row_offset + data_rows {
+            view.row_offset = view.row_cursor + 1 - data_rows;
         }
     }
     if cols == 0 {
         view.col_cursor = 0;
         view.col_offset = 0;
-    } else {
-        view.col_cursor = view.col_cursor.min(cols - 1);
-        if view.col_cursor < view.frozen_left + view.col_offset
-            && view.col_cursor >= view.frozen_left
-        {
-            view.col_offset = view.col_cursor - view.frozen_left;
-        }
+        return;
+    }
+    view.col_cursor = view.col_cursor.min(cols - 1);
+    let frozen = view.frozen_left.min(cols);
+    if view.col_cursor < frozen {
+        return;
+    }
+    if view.col_cursor < frozen + view.col_offset {
+        view.col_offset = view.col_cursor - frozen;
+    }
+    // Scroll right until the cursor column fits after the frozen block.
+    let span = |w: &[u16]| {
+        w.iter()
+            .map(|w| (w + SheetWidget::CELL_PAD) as usize)
+            .sum::<usize>()
+    };
+    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE);
+    let room = (area.width as usize).saturating_sub(span(&widths[..frozen]));
+    while frozen + view.col_offset < view.col_cursor
+        && span(&widths[frozen + view.col_offset..=view.col_cursor]) > room
+    {
+        view.col_offset += 1;
     }
 }
 

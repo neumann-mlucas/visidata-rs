@@ -181,7 +181,6 @@ impl Default for View {
 #[derive(Debug, Clone)]
 pub struct SearchState {
     pub needle: String,
-    pub current: Option<(usize, usize)>, // (row_in_window, col)
 }
 
 #[derive(Debug, Clone)]
@@ -685,6 +684,55 @@ impl Sheet {
         format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
     }
 
+    /// Rows of the full view holding `needle` (case-insensitive, literal) in any
+    /// column, as `(view row, first matching column)`, in view order.
+    pub fn search_hits(&self, needle: &str) -> PolarsResult<Vec<(u64, usize)>> {
+        let plan = self.view_plan();
+        let names: Vec<String> = plan
+            .clone()
+            .collect_schema()?
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect();
+        let width = names.len();
+        if width == 0 {
+            return Ok(Vec::new());
+        }
+        let hit = |i: usize| format!("__vdrs_hit{i}");
+        let mut select = vec![col("__vdrs_row")];
+        select.extend(names.iter().enumerate().map(|(i, n)| {
+            col(n.as_str())
+                .cast(DataType::String)
+                .str()
+                .to_lowercase()
+                .str()
+                .contains_literal(lit(needle.to_lowercase()))
+                .fill_null(false)
+                .alias(hit(i).as_str())
+        }));
+        let any = (0..width)
+            .map(|i| col(hit(i).as_str()))
+            .reduce(|a, b| a.or(b))
+            .expect("width > 0");
+        let df = plan
+            .with_row_index("__vdrs_row", None)
+            .select(select)
+            .filter(any)
+            .collect()?;
+        let rows = df.column("__vdrs_row")?.cast(&DataType::UInt64)?;
+        let rows = rows.u64()?;
+        let flags = (0..width)
+            .map(|i| df.column(hit(i).as_str())?.bool().cloned())
+            .collect::<PolarsResult<Vec<_>>>()?;
+        Ok((0..df.height())
+            .filter_map(|r| {
+                let row = rows.get(r)?;
+                let c = flags.iter().position(|f| f.get(r) == Some(true))?;
+                Some((row, c))
+            })
+            .collect())
+    }
+
     pub fn visible_columns(&self) -> Vec<String> {
         self.window
             .as_ref()
@@ -1021,6 +1069,20 @@ mod tests {
         });
         assert_ne!(s.count_key(), before);
         assert_eq!(count(&s), 2);
+    }
+
+    #[test]
+    fn search_hits_scan_full_view_in_view_order() {
+        let (mut s, _tmp) = make_sheet(); // alice,3 bob,1 carol,2
+        s.view.window_rows = 1; // search must not be limited to the window
+        s.view.sort.push(SortKey {
+            column: "n".into(),
+            order: SortOrder::Asc,
+        });
+        // sorted: bob,1 carol,2 alice,3 ; "AR" hits carol (name) only, "3" hits alice (n)
+        assert_eq!(s.search_hits("AR").unwrap(), vec![(1, 0)]);
+        assert_eq!(s.search_hits("3").unwrap(), vec![(2, 1)]);
+        assert!(s.search_hits("zzz").unwrap().is_empty());
     }
 
     #[test]
