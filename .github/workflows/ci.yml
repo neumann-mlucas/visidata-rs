@@ -15,4 +15,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --no-deps -- -D warnings
+      - name: VisiData replay corpus (pinned; tests/vd_replay.rs reads ../visidata)
+        run: |
+          git init -q ../visidata
+          git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata dd1a9f0a53fe4bf030db939b06c73cb665406d4a
+          git -C ../visidata checkout -q FETCH_HEAD
       - run: cargo test --no-fail-fast

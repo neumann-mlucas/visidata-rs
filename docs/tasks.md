@@ -33,7 +33,7 @@ Still open (see S-15 §10.1):
 - [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
 
 ## Phase 0 — viewer parity (csvlens++)
-- [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) → canonical TOML — _deferred: Phase 0 ships only the nav/freeze/search subset, baked in; full extract waits until a user actually asks for VisiData parity on a non-nav key_
+- [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) — _deferred: the baked-in table covers the shipped features; extract only when a user asks for VisiData parity on a key we lack (overrides go through `vd.bind`)_
 - [x] CSV/TSV reader via Polars `scan_csv` (S-03)
 - [x] Parquet reader via Polars `scan_parquet` (S-03)
 - [x] Arrow IPC reader (S-03)
@@ -43,9 +43,9 @@ Still open (see S-15 §10.1):
 - [x] `Action` enum with `affects_data()` + serde snake_case (S-02)
 - [x] Materialize task: `plan.slice(offset, WINDOW).collect()` on tokio task; cancel-and-replace on window slide (S-02)
 - [x] Panic hook: restore terminal, abort cleanly (S-02)
-- [x] Sheet stack: `Vec<Sheet>` + `q` to pop (S-02) — sheet-switcher view still deferred (needs a tiny meta-sheet)
-- [ ] Keymap loader: parse TOML, build `Keymap` with per-layer chord vecs (S-04) — _baked-in defaults ship; TOML loader deferred until Phase 3 lands config alongside Lua_
-- [x] Chord resolver + which-key overlay with 1000 ms timeout (S-04) — _resolver + pending-indicator in status line; full overlay panel deferred_
+- [x] Sheet stack: `Vec<Sheet>` + `q` to pop (S-02); sheet switcher `S` / `:ls`
+- [x] ~~Keymap loader (TOML)~~ — superseded: `init.lua` `vd.bind`/`vd.unbind` is the keymap config (Phase 3)
+- [x] Chord resolver + which-key overlay with 1000 ms timeout (S-04)
 - [x] Count prefix (`3j`) with digit-vs-command resolution rules + tests (S-04)
 - [x] `.` repeat capturing resolved `Action` (S-04)
 - [x] Scrollable table widget over `window` DataFrame
@@ -64,10 +64,10 @@ Still open (see S-15 §10.1):
 - [x] Clean up `materialize_handles` on sheet pop
 
 ## Phase 1 — types, sort, freq, ex-line
-- [ ] [spec?] Type-inference adapter over Polars dtypes — _superseded by Phase 1.5 "Type coercion" chunk (S-13 #3); the broader VisiData-shaped type system is a non-goal_
+- [x] ~~Type-inference adapter~~ — superseded by type coercion (S-13 #3); a VisiData-shaped type system is a non-goal
 - [x] Sort by column (asc/desc, multi-col toggle) — `[` asc, `]` desc, `zo` clear
 - [x] Frequency table sheet — `F` on current column; pushes derived sheet
-- [x] Ex-line parser (`:filter`/`:unfilter`/`:sort`/`:unsort`/`:q`/`:qa`/`:ls`/`:pivot`/`:unpivot`) — `:derive` deferred (needs real expression parser; S-06)
+- [x] Ex-line parser (`:filter`/`:unfilter`/`:sort`/`:unsort`/`:q`/`:qa`/`:ls`/`:pivot`/`:unpivot`); `:derive` landed later as Polars SQL expressions
 - [x] Ex-line history, file-persisted at `$XDG_STATE_HOME/vdrs/exline_history`; `<Up>`/`<Down>` cycle
 - [x] `.` repeat for last ex-command — works via existing `last_action` capture; no extra code needed
 
@@ -99,15 +99,15 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **Harness bootstrap** — `tests/vd_replay.rs` + cmdlog parser (`.vd`/`.vdj`) + sheet-level `Replay` driver + numeric-aware diff + quote-style-never serialize + stable sort. `src/lib.rs` added so integration tests see internals.
 - [x] **In the `vdrs` binary (per S-15 §3)**: Column meta (hide/rename/key/unkey/freeze), Type coercion (int/float/string/date/currency), Selection (row/all/regex/dup-selected), Sort (multi-col asc/desc), Readers (CSV/TSV/Parquet/Arrow/Jsonl/JSON + xlsx via calamine + sqlite via rusqlite + gzip via flate2), Pivot with keys, unpivot/melt.
 - [x] **Harness-first, now also in the binary (2026-11-05)**: Joins (inner/outer/full/left/append/extend/merge → `:join`), pivot without keys (`W`), hide-uniform-cols (`:uniform`), setcol-input gang mode (`:setcol`), dup-rows (`g"`), select-equal-cell (`,`).
-- [ ] **CI**: add `../visidata` checkout step pinned to `v3.4`; run `cargo test --test vd_replay`. Per S-14 §CI integration. _Not blocking: harness skips cleanly without the corpus._
+- [x] **CI**: `ci.yml` fetches saulpw/visidata pinned at `dd1a9f0` (the local corpus) into `../visidata`; `cargo test` runs the replay and fails on any regression
 
-**Deferred (per iter 14 postmortem — explicit non-features):**
-- **Describe-sheet** (~150 LOC, +2 PASS). Needs VisiData's per-column fmtstr formatting + `#ERR` for date aggregates. Low ROI.
+**Deferred (per iter 14 postmortem — explicit non-features; struck items shipped later):**
+- ~~**Describe-sheet**~~ — shipped as `I` / `:describe` (own stats, not VisiData's fmtstr output; golden tests stay quarantined).
 - **Options system** (`set-option`, `g set-option`, 4-level fallback). Cut per direction §1; `init.lua` is the config surface.
-- **Expression column** (`addcol-expr`, `aggregate-col`, `setcol-input` with expressions). Python-expr payloads UNTESTABLE per direction §9.5; Lua-eval wiring exists but not routed through `=` key yet. Defer until a user asks for live derived columns.
+- **Expression column** (`addcol-expr`, `aggregate-col`): Python-expr payloads UNTESTABLE per direction §9.5. Covered by `:derive name = <SQL expr>` and `:setcol <value>`.
 - **Row ops** (`edit-cell` interactive, `delete-row`, `open-row` dive, `open-cell`): clipboard/mutation surface cut per direction §1.
-- **Multi-worksheet xlsx**, **multi-table sqlite**: single-sheet/table loader per S-15 §10.
-- **Lenient date parsing** (strptime fallback for `7/3/2018 1:47p` style). Trivial Polars one-liner; do when touching date paths next.
+- ~~**Multi-worksheet xlsx**, **multi-table sqlite**~~ — shipped: parts list + `file:part`.
+- ~~**Lenient date parsing**~~ — shipped: `@` tries 12 regex-guarded layouts.
 - [x] **Cleanup iteration 2** — fixed pre-existing clippy warnings: `widget.rs` collapsible `if`, `Sheets` missing `is_empty`. Remaining 2 warnings pre-existed and are benign (`fn next` in keymap chord resolver, items-after-test-module in plugins). Not touched.
 - [x] **Iteration 3** — honest ceiling reclassification + .json.gz reader. See learnings above.
 - [x] **Iteration 4** — xlsx reader via `calamine` (+4 PASS, 7 → 11). Nav longnames (`dive-row`, `open-row`, `slide-*`) safely no-op in the single-sheet driver. One quarantine added (`xlsx-color-cells` for VisiData's meta-columns option mode). Clippy warnings reduced to 2 pre-existing. Discovered multi-sheet gap: 8 join tests (`data2` row-not-found) are blocked on multi-sheet replay state, not on the `join-sheets` API itself.
@@ -199,8 +199,7 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 
 ## Cross-cutting — do when it hurts, not before
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
-- [ ] `hyperfine` bench harness for Phase 0 scroll latency — needs TTY-less TUI driver; defer
+- [ ] `hyperfine` bench harness for Phase 0 scroll latency — the `app::scenario` Harness drives the UI without a TTY but is test-only; add a bench target when scroll speed regresses
 - [ ] `rust-toolchain.toml` only when a nightly is needed
 - [ ] Release path (cargo-dist or similar)
 - [x] Refactor: dispatch + action handlers moved to `src/app/actions.rs` (`app.rs` keeps loop, jobs, prompts, render, tests)
-- [ ] CI: run the replay corpus (`../visidata` checkout pinned to v3.4) — harness skips cleanly without it
