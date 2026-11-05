@@ -180,6 +180,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
     }
 }
 
+/// Lines kept in the history file; older ones are dropped on load.
+const HISTORY_MAX: usize = 1000;
+
 /// File-persisted command history. Append-only, best-effort I/O.
 pub struct History {
     path: PathBuf,
@@ -190,7 +193,7 @@ pub struct History {
 impl History {
     pub fn load() -> Self {
         let path = history_path();
-        let lines = fs::File::open(&path)
+        let mut lines = fs::File::open(&path)
             .ok()
             .map(|f| {
                 BufReader::new(f)
@@ -199,6 +202,10 @@ impl History {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        if lines.len() > HISTORY_MAX {
+            lines.drain(..lines.len() - HISTORY_MAX);
+            let _ = fs::write(&path, lines.join("\n") + "\n"); // best-effort, like push
+        }
         Self {
             path,
             lines,
@@ -261,6 +268,11 @@ impl History {
 }
 
 fn history_path() -> PathBuf {
+    // Unit tests drive the real App; never touch the user's history file.
+    if cfg!(test) {
+        let dir = std::env::temp_dir().join(format!("vdrs-test-{}", std::process::id()));
+        return dir.join("exline_history");
+    }
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state")))

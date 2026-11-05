@@ -53,7 +53,6 @@ impl std::fmt::Debug for LoaderRule {
 
 pub struct Plugins {
     lua: Lua,
-    config_path: Option<PathBuf>,
 }
 
 impl Plugins {
@@ -63,14 +62,11 @@ impl Plugins {
         let lua = Lua::new();
         lua.set_app_data(RefCell::new(Registry::default()));
         install_api(&lua)?;
-        let config_path = default_config_path();
-        if let Some(ref p) = config_path {
-            if p.exists() {
-                let src = std::fs::read_to_string(p)?;
-                lua.load(&src).set_name("init.lua").exec()?;
-            }
+        if let Some(p) = default_config_path().filter(|p| p.exists()) {
+            let src = std::fs::read_to_string(&p)?;
+            lua.load(&src).set_name("init.lua").exec()?;
         }
-        Ok(Self { lua, config_path })
+        Ok(Self { lua })
     }
 
     /// Build with an explicit config string. Used by tests.
@@ -79,10 +75,7 @@ impl Plugins {
         lua.set_app_data(RefCell::new(Registry::default()));
         install_api(&lua)?;
         lua.load(src).set_name("inline").exec()?;
-        Ok(Self {
-            lua,
-            config_path: None,
-        })
+        Ok(Self { lua })
     }
 
     /// Mutate `keymap` by appending the Lua-registered patches.
@@ -95,10 +88,6 @@ impl Plugins {
         for patch in reg.patches {
             keymap.append(patch.layer, patch.chord);
         }
-    }
-
-    pub fn config_path(&self) -> Option<&std::path::Path> {
-        self.config_path.as_deref()
     }
 
     /// Return a registered loader matching this path's extension (case-insensitive),

@@ -1355,7 +1355,7 @@ impl App {
             // Polars errors span lines (plan dumps); the bar shows the first.
             (_, Some(t), _, _) => Line::from(Span::styled(
                 t.lines().next().unwrap_or_default().to_string(),
-                Style::default().fg(Color::Red),
+                self.theme.toast(),
             )),
             (_, _, Some(c), _) => Line::from(format!("count: {c}")),
             (_, _, _, true) => Line::from(format!(
@@ -1370,10 +1370,7 @@ impl App {
                 " hjkl · gg/G · s/u sel · gs/gu · | sel-re · \" dup · F freq · [/] sort · zs freeze · P plan · : ex · . · q ",
             ),
         };
-        f.render_widget(
-            Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White)),
-            area,
-        );
+        f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
     }
 }
 

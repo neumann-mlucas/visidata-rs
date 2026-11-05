@@ -760,23 +760,6 @@ impl Sheet {
             })
             .collect())
     }
-
-    pub fn visible_columns(&self) -> Vec<String> {
-        self.window
-            .as_ref()
-            .map(|df| {
-                df.get_column_names()
-                    .into_iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    pub fn total_rows_hint(&self) -> Option<usize> {
-        // Parquet knows; the rest return None. Phase 0 keeps it dumb.
-        None
-    }
 }
 
 /// Write a DataFrame to disk, picking the writer by file extension.
