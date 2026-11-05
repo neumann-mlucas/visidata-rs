@@ -140,7 +140,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
 | Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet snapshots of (plan, view, steps), depth 100 |
-| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | lazy; same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
+| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
 | Set column | `:setcol <value>` | current col on selected rows; value must cast strictly to the column type |
@@ -297,7 +297,6 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Live pivot preview** / interactive pivot setup beyond `W` and `:pivot`.
 - **S-10 data & app API**: `vd.frame`, `Series` methods, `vd.toast`, `vd.sheet`, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions` (only `vd.api_version` exists).
 - **Lua work off the UI thread**: aggregators and renderers run synchronously in the interface thread.
-- **Stable row ids on non-deterministic results**: selections on `:join` (full) or grouped `:sql` sheets can drift between collects.
 - **Export** of derived sheets; Arrow/Excel sources in `.sql`, SQLite in `.py`.
 - **Multi-part files in `:join` / `:diff`** use the first worksheet / table.
 - **Renderer output in column widths** (widths come from the default display).

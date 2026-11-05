@@ -381,7 +381,7 @@ if vd.api_version &lt; 1 then error("needs a newer vdrs") end</code></pre>
 <ul>
 <li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
 <li>Lua aggregators and renderers run in the interface thread; heavy Lua work slows the display.</li>
-<li>Selections on sheets produced by <code>:join</code> or <code>:sql</code> with grouping may not survive a refresh, because those results have no fixed row order.</li>
+<li><code>:join</code> and <code>:sql</code> results are computed once and held in memory, so their row order (and your selections) stay fixed.</li>
 <li><code>:export</code> works for sheets opened from a file (not for derived sheets, stdin, or Excel/SQLite/Arrow in SQL form).</li>
 <li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>
 </ul>
