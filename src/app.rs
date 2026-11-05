@@ -1724,7 +1724,7 @@ impl App {
                     .join(" ")
             )),
             _ => Line::from(
-                " hjkl · gg/G · s/u sel · gs/gu · | sel-re · \" dup · F freq · [/] sort · zs freeze · P plan · : ex · . · q ",
+                " hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q ",
             ),
         };
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
