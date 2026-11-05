@@ -29,13 +29,18 @@ impl<'a> SheetWidget<'a> {
     const CELL_PAD: u16 = 1;
     const WIDTH_SAMPLE: usize = 64;
 
-    fn col_widths(df: &DataFrame, sample: usize) -> Vec<u16> {
+    /// Column widths from the window's first `sample` rows plus the rows on
+    /// screen (from `first_visible`), so scrolled-to long values aren't cut.
+    fn col_widths(df: &DataFrame, sample: usize, first_visible: usize) -> Vec<u16> {
+        let rows = (0..sample).chain(first_visible..first_visible + sample);
         df.get_columns()
             .iter()
             .map(|s| {
                 // Header width = name + " [dtype-badge]" so we don't truncate the badge.
                 let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
-                let data = (0..sample.min(s.len()))
+                let data = rows
+                    .clone()
+                    .filter(|i| *i < s.len())
                     .filter_map(|i| s.get(i).ok().map(|av| display_av(&av).width() as u16))
                     .max()
                     .unwrap_or(0);
@@ -65,7 +70,7 @@ impl<'a> Widget for SheetWidget<'a> {
             return;
         }
         let view = &self.sheet.view;
-        let widths = Self::col_widths(df, Self::WIDTH_SAMPLE);
+        let widths = Self::col_widths(df, Self::WIDTH_SAMPLE, self.sheet.view.row_offset);
         let cols = df.get_columns();
         if cols.is_empty() {
             let msg = "<empty>";
@@ -384,7 +389,7 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect) {
             .map(|w| (w + SheetWidget::CELL_PAD) as usize)
             .sum::<usize>()
     };
-    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE);
+    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE, view.row_offset);
     let room = (area.width as usize).saturating_sub(span(&widths[..frozen]));
     while frozen + view.col_offset < view.col_cursor
         && span(&widths[frozen + view.col_offset..=view.col_cursor]) > room

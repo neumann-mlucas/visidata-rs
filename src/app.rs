@@ -2668,6 +2668,23 @@ mod scenario {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn long_values_further_down_widen_their_column() {
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        let mut body = "k,v\n".to_string();
+        for i in 0..200 {
+            body += &format!(
+                "{i},{}\n",
+                if i == 150 { "a-much-longer-value" } else { "x" }
+            );
+        }
+        tmp.write_all(body.as_bytes()).unwrap();
+        let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+        let mut h = Harness::with_source(loaded, tmp).await;
+        h.keys("1 5 0 j").await; // row 151 holds the long value; far past the first-64 sample
+        assert!(h.screen().contains("a-much-longer-value"), "{}", h.screen());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn cursor_column_scrolls_into_view() {
         let mut h = Harness::new(10).await;
         h.term = Terminal::new(ratatui::backend::TestBackend::new(16, 5)).unwrap();
