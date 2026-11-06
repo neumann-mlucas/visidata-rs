@@ -514,43 +514,66 @@ fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
     Ok(csv_reader(path, sep)
         .with_try_parse_dates(true)
         .with_schema(Some(csv_schema(path, sep)?))
+        .with_infer_schema_length(Some(0)) // or each new plan infers again
         .finish()?)
 }
 
 /// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
 /// and Polars would guess day-first, so other layouts stay text until `@`.
 fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
-    let inferred = csv_reader(path, sep)
-        .with_try_parse_dates(true)
-        .finish()?
-        .collect_schema()?;
-    let dated: Vec<Expr> = inferred
+    let mut schema = (*csv_reader(path, sep).finish()?.collect_schema()?).clone();
+    let text: Vec<Expr> = schema
         .iter()
-        .filter(|(_, d)| is_date(d))
+        .filter(|(_, d)| **d == DataType::String)
         .map(|(n, _)| col(n.clone()))
         .collect();
-    if dated.is_empty() {
-        return Ok(inferred);
+    if text.is_empty() {
+        return Ok(Arc::new(schema));
     }
-    // Every row inference saw: one stray layout makes the column text.
+    // Polars' date inference costs 10-40x plain inference per cell, so it only
+    // names the type here. Every row inference saw must be ISO and parse.
     let values = csv_reader(path, sep)
-        .with_schema(Some(Arc::new(dates_as_text(&inferred))))
+        .with_schema(Some(Arc::new(schema.clone())))
+        .with_infer_schema_length(Some(0))
         .finish()?
-        .select(dated)
+        .select(text)
         .limit(if file_is_small(path) {
             u32::MAX
         } else {
             CSV_INFER_ROWS as u32
         })
         .collect()?;
-    let mut schema = (*inferred).clone();
     for c in values.get_columns() {
-        let has_value = c.str()?.into_iter().flatten().next().is_some();
-        if !has_value || !all_iso(c.str()?) {
-            schema.set_dtype(c.name(), DataType::String);
+        if c.null_count() == c.len() || !all_iso(c.str()?) {
+            continue;
+        }
+        if let Some(dtype) = iso_dtype(c)? {
+            schema.set_dtype(c.name(), dtype);
         }
     }
     Ok(Arc::new(schema))
+}
+
+/// The date type Polars gives these ISO strings, if all of them parse as it.
+fn iso_dtype(values: &Column) -> PolarsResult<Option<DataType>> {
+    let mut csv = String::from("v\n");
+    for v in values.str()?.into_iter().flatten().take(100) {
+        csv += &format!("\"{}\"\n", v.replace('"', "\"\""));
+    }
+    let parsed = CsvReadOptions::default()
+        .map_parse_options(|o| o.with_try_parse_dates(true))
+        .into_reader_with_file_handle(io::Cursor::new(csv.into_bytes()))
+        .finish()?;
+    let dtype = parsed.get_columns()[0].dtype().clone();
+    let parses = is_date(&dtype)
+        && values
+            .clone()
+            .into_frame()
+            .lazy()
+            .select([parse_iso(values.name(), &dtype)])
+            .collect()
+            .is_ok();
+    Ok(parses.then_some(dtype))
 }
 
 /// First non-whitespace byte (after an optional UTF-8 BOM) is `[`.
@@ -770,6 +793,21 @@ mod tests {
             df.column("us").unwrap().str().unwrap().get(0),
             Some("7/3/2018")
         );
+    }
+
+    #[test]
+    fn iso_looking_text_is_a_date_only_when_every_row_parses() {
+        let mut csv = String::from("late,bad,both,zone\n");
+        for _ in 0..200 {
+            csv += ",2024-01-02,2024-01-02,2024-01-02T03:04:05Z\n";
+        }
+        csv += "2024-01-02,2024-13-45,2024-01-02 03:04:05,2024-01-02T03:04:05Z\n";
+        let df = scan_bytes(csv.as_bytes());
+        let dtype = |c: &str| df.column(c).unwrap().dtype().clone();
+        assert_eq!(dtype("late"), DataType::Date);
+        assert_eq!(dtype("bad"), DataType::String);
+        assert_eq!(dtype("both"), DataType::String);
+        assert!(matches!(dtype("zone"), DataType::Datetime(..)));
     }
 
     #[test]
