@@ -46,7 +46,18 @@ pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
     let mut sc = Script::new(Lang::Sql);
     let q = sc.view_query(sheet, false)?;
     let head: String = sc.head.iter().map(|l| l.clone() + "\n").collect();
-    Ok(format!("{head}WITH\n{}\n{q};\n", sc.defs.join(",\n")))
+    // DuckDB 2.0: a PIVOT that reads its columns from the data can't see CTEs
+    // and can't live in a view, so those scripts materialize each step.
+    const PIVOT: &str = "(PIVOT (";
+    let body = if q.contains(PIVOT) || sc.defs.iter().any(|d| d.contains(PIVOT)) {
+        sc.defs
+            .iter()
+            .map(|d| format!("CREATE OR REPLACE TEMP TABLE {d};\n"))
+            .collect()
+    } else {
+        format!("WITH\n{}\n", sc.defs.join(",\n"))
+    };
+    Ok(format!("{head}{body}{q};\n"))
 }
 
 #[derive(Clone, Copy, PartialEq)]
