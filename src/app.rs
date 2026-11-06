@@ -35,6 +35,8 @@ use crate::widget::{SheetWidget, clamp_view};
 mod actions;
 #[cfg(test)]
 mod golden;
+#[cfg(test)]
+mod monkey;
 
 /// Data rows assumed visible before the first draw measures the real area.
 const DEFAULT_VIEWPORT_ROWS: usize = 20;

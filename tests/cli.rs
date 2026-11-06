@@ -1,0 +1,89 @@
+//! The `vdrs` binary from the outside: arguments, stdin, exit codes.
+
+use std::io::Write;
+use std::process::{Command, Output, Stdio};
+
+fn vdrs(args: &[&str], stdin: &[u8]) -> Output {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vdrs"))
+        .args(args)
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env("XDG_STATE_HOME", dir.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // A process that exits without reading closes the pipe; that's its business.
+    let _ = child.stdin.take().unwrap().write_all(stdin);
+    child.wait_with_output().unwrap()
+}
+
+fn text(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
+}
+
+#[test]
+fn headless_prints_schema_and_rows() {
+    let f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::fs::write(f.path(), "a,b\n1,x\n2,y\n").unwrap();
+    let o = vdrs(
+        &[f.path().to_str().unwrap(), "--headless", "--head", "1"],
+        b"",
+    );
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    let out = text(&o.stdout);
+    assert!(out.contains("schema : 2 columns"), "{out}");
+    assert!(out.contains("shape: (1, 2)"), "{out}");
+}
+
+#[test]
+fn stdin_is_sniffed_and_format_overrides() {
+    let o = vdrs(&["-", "--headless"], b"a\tb\n1\t2\n");
+    assert!(text(&o.stdout).contains("Tsv"), "{}", text(&o.stdout));
+    let o = vdrs(&["-", "--headless", "--format", "jsonl"], b"{\"a\":1}\n");
+    assert!(text(&o.stdout).contains("Jsonl"), "{}", text(&o.stderr));
+    let o = vdrs(&["-", "--headless", "--format", "json"], b"[{\"a\":1}]");
+    assert!(text(&o.stdout).contains("Json"), "{}", text(&o.stderr));
+}
+
+#[test]
+fn failures_exit_nonzero_and_say_why() {
+    let o = vdrs(&["/no/such/file.csv", "--headless"], b"");
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        text(&o.stderr).contains("/no/such/file.csv"),
+        "{}",
+        text(&o.stderr)
+    );
+    let o = vdrs(&["-", "--headless"], b"");
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        text(&o.stderr).contains("empty stdin"),
+        "{}",
+        text(&o.stderr)
+    );
+    let f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::fs::write(f.path(), "a\n1\n").unwrap();
+    let o = vdrs(&[f.path().to_str().unwrap()], b""); // no terminal
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        text(&o.stderr).contains("--headless"),
+        "{}",
+        text(&o.stderr)
+    );
+}
+
+#[test]
+fn a_closed_stdout_is_not_an_error() {
+    let f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::fs::write(f.path(), "a\n1\n").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vdrs"))
+        .args([f.path().to_str().unwrap(), "--headless"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take()); // the reader left, like `| head`
+    assert!(child.wait().unwrap().success());
+}
