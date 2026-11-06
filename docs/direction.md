@@ -163,7 +163,7 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 3. **Engine**: Polars only, all phases. DuckDB backend dropped. Revisit only if we hit a Polars OOC wall we can't engineer around.
 4. **Config**: pure `init.lua`. No TOML/KDL layer.
 5. **Compat**: zero. No `.vdj`, no `.visidatarc` import, no reading VisiData state files. Data files are shared; everything else starts fresh.
-6. **Name**: codename `visidata-rs`; final name deferred. Decide before public release.
+6. **Name**: `visidata-rs`, binary `vdrs`.
 
 ### Deltas these cause in earlier sections
 
