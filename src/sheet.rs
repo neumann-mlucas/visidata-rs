@@ -1655,36 +1655,59 @@ pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
 
 /// Write a DataFrame to disk, picking the writer by file extension.
 /// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
-/// Overwrites existing files via `File::create`.
-/// Unknown extensions error before the file is opened, so existing files are untouched.
+/// Writes a temp file beside `path` and renames it over, so a failed save
+/// (unsupported column type, full disk) leaves an existing file untouched.
 pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
-    let file = || std::fs::File::create(path);
+    use std::os::unix::fs::PermissionsExt;
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("csv") | None => CsvWriter::new(file()?).finish(df).map(|_| ()),
-        Some("tsv") | Some("tab") => CsvWriter::new(file()?)
-            .with_separator(b'\t')
-            .finish(df)
-            .map(|_| ()),
-        Some("parquet") | Some("pq") => ParquetWriter::new(file()?).finish(df).map(|_| ()),
-        Some("ipc") | Some("arrow") | Some("feather") => {
-            IpcWriter::new(file()?).finish(df).map(|_| ())
-        }
-        Some("jsonl") | Some("ndjson") => JsonWriter::new(file()?)
-            .with_json_format(JsonFormat::JsonLines)
-            .finish(df)
-            .map(|_| ()),
-        Some("json") => JsonWriter::new(file()?)
-            .with_json_format(JsonFormat::Json)
-            .finish(df)
-            .map(|_| ()),
-        Some(other) => Err(PolarsError::ComputeError(
+    let known = matches!(
+        ext.as_deref(),
+        None | Some(
+            "csv"
+                | "tsv"
+                | "tab"
+                | "parquet"
+                | "pq"
+                | "ipc"
+                | "arrow"
+                | "feather"
+                | "jsonl"
+                | "ndjson"
+                | "json"
+        )
+    );
+    if !known {
+        let other = ext.unwrap_or_default();
+        return Err(PolarsError::ComputeError(
             format!("save: unknown extension '.{other}'").into(),
-        )),
+        ));
     }
+    // A symlink keeps pointing at the data; an existing file keeps its mode.
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target.parent().filter(|d| !d.as_os_str().is_empty());
+    let mode = std::fs::metadata(&target).map_or(0o666, |m| m.permissions().mode());
+    let tmp = tempfile::Builder::new()
+        .prefix(".vdrs-save")
+        .permissions(std::fs::Permissions::from_mode(mode))
+        .tempfile_in(dir.unwrap_or(std::path::Path::new(".")))?;
+    let file = tmp.as_file().try_clone()?;
+    match ext.as_deref() {
+        Some("tsv" | "tab") => CsvWriter::new(file).with_separator(b'\t').finish(df),
+        Some("parquet" | "pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
+        Some("ipc" | "arrow" | "feather") => IpcWriter::new(file).finish(df),
+        Some("jsonl" | "ndjson") => JsonWriter::new(file)
+            .with_json_format(JsonFormat::JsonLines)
+            .finish(df),
+        Some("json") => JsonWriter::new(file)
+            .with_json_format(JsonFormat::Json)
+            .finish(df),
+        _ => CsvWriter::new(file).finish(df),
+    }?;
+    tmp.persist(&target).map_err(|e| e.error)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2062,5 +2085,24 @@ mod tests {
         assert_eq!(sheets.len(), 2);
         assert!(sheets.pop());
         assert_eq!(sheets.len(), 1);
+    }
+
+    #[test]
+    fn failed_save_keeps_the_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("keep.csv");
+        std::fs::write(&p, "precious\n").unwrap();
+        let list = Series::new("l".into(), [1i32, 2]).implode().unwrap();
+        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        assert!(write_df_by_extension(&mut df, &p).is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "precious\n");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no temp left"
+        );
+        let mut ok = df!("a" => [1, 2]).unwrap();
+        write_df_by_extension(&mut ok, &p).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "a\n1\n2\n");
     }
 }
