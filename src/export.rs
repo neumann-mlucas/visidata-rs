@@ -12,7 +12,9 @@ use std::path::Path;
 use polars::prelude::DataType;
 
 use crate::reader::SourceKind;
-use crate::sheet::{Derivation, Lineage, Origin, PlanStep, Sheet, SortOrder, freq_stat_names};
+use crate::sheet::{
+    DIFF_LEFT, DIFF_RIGHT, Derivation, Lineage, Origin, PlanStep, Sheet, SortOrder, freq_stat_names,
+};
 
 /// Script for `sheet`, language picked by `path`'s extension.
 pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
@@ -313,20 +315,40 @@ impl Script {
                         .iter()
                         .map(|(n, t)| format!("{n} AS (SELECT * FROM {t})"))
                         .collect();
-                    format!(
-                        "WITH {}\n{}",
-                        ctes.join(", "),
-                        query.trim().trim_end_matches(';')
-                    )
+                    let query = query.trim().trim_end_matches(';');
+                    // Only one WITH per query: the user's joins ours.
+                    let word = query.split_whitespace().next().unwrap_or_default();
+                    if word.eq_ignore_ascii_case("with") {
+                        format!("WITH {},\n{}", ctes.join(", "), &query[4..])
+                    } else {
+                        format!("WITH {}\n{query}", ctes.join(", "))
+                    }
                 }
             }
             Derivation::Join { right, keys, how } => {
                 let r = self.view(right, false)?;
-                join_code(py, &p, &r, &l.parent, right, keys, how)?
+                join_code(py, &p, &r, &l.parent, right, keys, how, None)?
             }
             Derivation::Diff { other, keys } => {
                 let r = self.view(other, false)?;
-                let j = join_code(py, &p, &r, &l.parent, other, keys, "full")?;
+                let flag = |t: &str, f: &str| {
+                    if py {
+                        format!("{t}.with_columns(pl.lit(True).alias({}))", py_str(f))
+                    } else {
+                        format!("(SELECT *, TRUE AS {f} FROM {t})")
+                    }
+                };
+                let (fp, fr) = (flag(&p, DIFF_LEFT), flag(&r, DIFF_RIGHT));
+                let j = join_code(
+                    py,
+                    &fp,
+                    &fr,
+                    &l.parent,
+                    other,
+                    keys,
+                    "full",
+                    Some(DIFF_RIGHT),
+                )?;
                 diff_code(py, &j, &l.parent, other, keys)?
             }
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
@@ -546,6 +568,8 @@ fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
 }
 
 /// `:join` of view `p` (sheet `left`) with view `r` (sheet `right`).
+/// `flag`: one more right column to carry through (row diff).
+#[allow(clippy::too_many_arguments)]
 fn join_code(
     py: bool,
     p: &str,
@@ -554,6 +578,7 @@ fn join_code(
     right: &Sheet,
     keys: &[String],
     how: &str,
+    flag: Option<&str>,
 ) -> Result<String, String> {
     let names = |s| -> Result<Vec<String>, String> {
         Ok(columns(s)?.into_iter().map(|(n, _)| n).collect())
@@ -620,6 +645,7 @@ fn join_code(
                         q_ident(n)
                     }
                 })
+                .chain(flag.map(q_ident))
                 .collect();
             let using: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
             let mut q = format!(
@@ -662,34 +688,20 @@ fn diff_code(
     other: &Sheet,
     keys: &[String],
 ) -> Result<String, String> {
-    let schema_a = left
-        .view_plan()
-        .collect_schema()
-        .map_err(|e| e.to_string())?;
     let (a, b) = (columns(left)?, columns(other)?);
-    let non_key = |cols: &[(String, DataType)]| {
-        cols.iter()
-            .map(|(n, _)| n.clone())
-            .find(|n| !keys.contains(n))
-    };
-    let probe_a = non_key(&a);
-    let probe_b = non_key(&b).map(|c| crate::sheet::diff_right_name(&c, &schema_a));
     let shared: Vec<&String> = a
         .iter()
         .map(|(n, _)| n)
         .filter(|n| !keys.contains(n) && b.iter().any(|(m, _)| m == *n))
         .collect();
     Ok(if py {
-        let null = |c: &Option<String>| match c {
-            Some(c) => format!("pl.col({}).is_null()", py_str(c)),
-            None => "pl.lit(False)".into(),
-        };
-        let (only_a, only_b) = (null(&probe_b), null(&probe_a));
+        let null = |c: &str| format!("pl.col({}).is_null()", py_str(c));
+        let (only_a, only_b) = (null(DIFF_RIGHT), null(DIFF_LEFT));
         let mismatch: Vec<String> = shared
             .iter()
             .map(|c| {
                 format!(
-                    "(pl.col({}) != pl.col({}))",
+                    "pl.col({}).ne_missing(pl.col({}))",
                     py_str(c),
                     py_str(&format!("{c}_right"))
                 )
@@ -702,17 +714,25 @@ fn diff_code(
         };
         format!(
             "{j}.with_columns(pl.when({only_a}).then(pl.lit(\"only_a\")).when({only_b}).then(pl.lit(\"only_b\"))\
-             .otherwise(pl.lit(\"changed\")).alias(\"__diff\")).filter({only_a} | {only_b} | {mismatch})"
+             .otherwise(pl.lit(\"changed\")).alias(\"__diff\")).filter({only_a} | {only_b} | {mismatch})\
+             .drop([{}, {}])",
+            py_str(DIFF_LEFT),
+            py_str(DIFF_RIGHT)
         )
     } else {
-        let null = |c: &Option<String>| match c {
-            Some(c) => format!("{} IS NULL", q_ident(c)),
-            None => "FALSE".into(),
-        };
-        let (only_a, only_b) = (null(&probe_b), null(&probe_a));
+        let (only_a, only_b) = (
+            format!("{DIFF_RIGHT} IS NULL"),
+            format!("{DIFF_LEFT} IS NULL"),
+        );
         let mismatch: Vec<String> = shared
             .iter()
-            .map(|c| format!("{} <> {}", q_ident(c), q_ident(&format!("{c}_right"))))
+            .map(|c| {
+                format!(
+                    "{} IS DISTINCT FROM {}",
+                    q_ident(c),
+                    q_ident(&format!("{c}_right"))
+                )
+            })
             .collect();
         let mismatch = if mismatch.is_empty() {
             "FALSE".into()
@@ -720,7 +740,7 @@ fn diff_code(
             mismatch.join(" OR ")
         };
         format!(
-            "SELECT *, CASE WHEN {only_a} THEN 'only_a' WHEN {only_b} THEN 'only_b' ELSE 'changed' END AS __diff\n\
+            "SELECT * EXCLUDE ({DIFF_LEFT}, {DIFF_RIGHT}), CASE WHEN {only_a} THEN 'only_a' WHEN {only_b} THEN 'only_b' ELSE 'changed' END AS __diff\n\
              FROM ({j})\nWHERE {only_a} OR {only_b} OR {mismatch}"
         )
     })
@@ -802,7 +822,7 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             "{t} = {t}.with_columns(pl.col({c}).cast(pl.Utf8).str.replace_all(r\"[^0-9.\\-]\", \"\").cast(pl.Float64))",
             c = py_str(column)
         ),
-        PlanStep::Derive { name, expr } => format!(
+        PlanStep::Derive { name, expr, .. } => format!(
             "{t} = {t}.with_columns(pl.sql_expr({}).alias({}))",
             py_str(expr),
             py_str(name)
@@ -833,7 +853,15 @@ fn sql_step(q: String, step: &PlanStep) -> String {
             "SELECT * REPLACE (TRY_CAST(regexp_replace(CAST({c} AS VARCHAR), '[^0-9.\\-]', '', 'g') AS DOUBLE) AS {c}) FROM ({q})",
             c = q_ident(column)
         ),
-        PlanStep::Derive { name, expr } => {
+        PlanStep::Derive {
+            name,
+            expr,
+            replaces: true,
+        } => format!(
+            "SELECT * REPLACE (({expr}) AS {}) FROM ({q})",
+            q_ident(name)
+        ),
+        PlanStep::Derive { name, expr, .. } => {
             format!("SELECT *, ({expr}) AS {} FROM ({q})", q_ident(name))
         }
         PlanStep::SetCol {
@@ -857,7 +885,20 @@ fn sql_step(q: String, step: &PlanStep) -> String {
 
 /// Python string literal.
 fn py_str(s: &str) -> String {
-    format!("{s:?}") // Rust's escaping is valid Python for these strings
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out += &format!("\\x{:02x}", c as u32),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn py_dtype(dt: &DataType) -> &'static str {
@@ -1015,8 +1056,8 @@ mod tests {
             ),
             (
                 Sheet::row_diff_from(&s, 10, &right, &["name".into()]).unwrap(),
-                "pl.col(\"extra\").is_null()",
-                "WHEN \"extra\" IS NULL THEN 'only_a'",
+                "pl.col(\"__vdrs_right\").is_null()",
+                "WHEN __vdrs_right IS NULL THEN 'only_a'",
             ),
         ];
         for (sheet, py, sql) in cases {
@@ -1035,5 +1076,13 @@ mod tests {
         let copy = Sheet::copy_from(&parent, 7);
         parent.view.filter = None;
         assert!(to_sql(&copy).unwrap().contains("regexp_matches"));
+    }
+
+    #[test]
+    fn python_strings_escape_control_characters() {
+        assert_eq!(
+            py_str("a\u{1f}\"b\\\n\u{301}"),
+            "\"a\\x1f\\\"b\\\\\\n\u{301}\""
+        );
     }
 }

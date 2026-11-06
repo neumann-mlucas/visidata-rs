@@ -2139,4 +2139,111 @@ mod scenario {
         h.keys("<CR>").await;
         assert!(title(&h).contains("row 1/1"), "{}", title(&h));
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn row_diff_tells_null_cells_from_missing_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = dir.path().join("b.csv");
+        std::fs::write(&b, "id,v,w\n1,z,1\n2,,1\n3,y,1\n4,y,\n6,y,1\n").unwrap();
+        let mut h = csv(b"id,v,w\n1,,1\n2,x,1\n3,y,1\n4,y,9\n5,y,1\n").await;
+        h.keys(":").await;
+        h.type_(&format!("diff {} id", b.display())).await;
+        let mut df = h.app.sheets.active().view_plan().collect().unwrap();
+        df = df.sort(["id"], Default::default()).unwrap();
+        let tags: Vec<_> = df
+            .column("__diff")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        assert_eq!(tags, ["changed", "changed", "changed", "only_a", "only_b"]);
+        assert!(
+            !df.get_column_names()
+                .iter()
+                .any(|n| n.starts_with("__vdrs"))
+        );
+    }
+
+    async fn tail_sheet(h: &mut Harness, path: &std::path::Path) {
+        h.keys(":").await;
+        h.type_(&format!("tail {}", path.display())).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_keeps_edits_when_rows_arrive_and_undo_keeps_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "a,b\n1,2\n").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        h.keys("^").await;
+        h.type_("renamed").await;
+        h.keys(":").await;
+        h.type_("derive c = renamed + 1").await;
+        std::fs::write(&f, "a,b\n1,2\n3,4\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert_eq!(h.app.toast, None);
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+        assert!(h.screen().contains("renamed"), "{}", h.screen());
+        h.keys("U").await; // undo derive: the new row stays
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+        assert!(!h.screen().contains(" c "), "{}", h.screen());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_of_gz_survives_a_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv.gz");
+        let gz = |rows: &str| {
+            let file = std::fs::File::create(&f).unwrap();
+            let mut e = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            e.write_all(rows.as_bytes()).unwrap();
+            e.finish().unwrap();
+        };
+        gz("a\n1\n");
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        gz("a\n1\n2\n");
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert_eq!(h.app.toast, None);
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_shows_an_unterminated_last_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "a\n1\n2").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+        std::fs::write(&f, "a\n1\n23\n4").unwrap(); // the partial row grew, then a new one
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+        assert!(h.screen().contains("23"), "{}", h.screen());
+
+        let g = dir.path().join("u.csv");
+        std::fs::write(&g, "a,b").unwrap(); // header only, no newline
+        tail_sheet(&mut h, &g).await;
+        assert_eq!(h.app.toast, None);
+        std::fs::write(&g, "a,b\n1,2\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn derive_over_the_filtered_column_recounts() {
+        let mut h = csv(b"n\n1\n1\n2\n").await;
+        h.keys("z |").await;
+        h.type_("^1$").await;
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+        h.keys(":").await;
+        h.type_("derive n = n + 1").await;
+        assert!(title(&h).contains("/0 "), "{}", title(&h));
+    }
 }

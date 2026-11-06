@@ -42,6 +42,8 @@ pub struct SheetState {
     pub redo: Vec<Snapshot>,
     /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
     pub tail: Option<TailCache>,
+    /// `:tail`: size + mtime at the last refresh; unchanged means nothing to do.
+    pub tail_stamp: Option<(u64, Option<std::time::SystemTime>)>,
     /// Derived sheets: the parent as it was + how this was made (`:export`).
     pub lineage: Option<Box<Lineage>>,
 }
@@ -100,20 +102,19 @@ pub enum Derivation {
     },
 }
 
-/// Name of `other`'s column `c` after a row-diff join with columns `a`.
-pub fn diff_right_name(c: &str, a: &Schema) -> String {
-    if a.get(c).is_some() {
-        format!("{c}_right")
-    } else {
-        c.to_string()
-    }
-}
+/// Row-diff flags: set on each side before the join, so a null here means the
+/// row is missing on that side (null data cells can't be mistaken for it).
+pub const DIFF_LEFT: &str = "__vdrs_left";
+pub const DIFF_RIGHT: &str = "__vdrs_right";
 
 /// Incremental tail: only bytes past `consumed` are parsed on refresh.
 #[derive(Clone)]
 pub struct TailCache {
     pub consumed: u64,
     pub df: DataFrame,
+    /// Bytes after the last newline, parsed as one more row: the file may end
+    /// there for good. Re-read each refresh until its newline arrives.
+    pub partial: Option<DataFrame>,
 }
 
 /// A change made to a sheet's base `plan` (as opposed to `View` state).
@@ -127,10 +128,11 @@ pub enum PlanStep {
     Currency {
         column: String,
     },
-    /// `:derive name = <sql expr>`.
+    /// `:derive name = <sql expr>`; `replaces`: `name` already existed.
     Derive {
         name: String,
         expr: String,
+        replaces: bool,
     },
     /// `:setcol`: `column` := `value` on rows `rids`.
     SetCol {
@@ -139,6 +141,43 @@ pub enum PlanStep {
         dtype: DataType,
         rids: Vec<u64>,
     },
+}
+
+impl PlanStep {
+    /// This edit on top of `plan`. The one definition: edits run through here
+    /// when made and again when `:tail` swaps in a grown base table.
+    fn apply(&self, plan: LazyFrame) -> PolarsResult<LazyFrame> {
+        Ok(match self {
+            PlanStep::Rename { old, new } => plan.rename([old.as_str()], [new.as_str()], true),
+            PlanStep::Currency { column } => plan.with_columns([col(column.as_str())
+                .cast(DataType::String)
+                .str()
+                .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
+                .cast(DataType::Float64)
+                .alias(column.as_str())]),
+            PlanStep::Derive { name, expr, .. } => {
+                plan.with_column(polars::sql::sql_expr(expr)?.alias(name.as_str()))
+            }
+            PlanStep::SetCol {
+                column,
+                value,
+                dtype,
+                rids,
+            } => plan
+                .with_row_index("__vdrs_set", None)
+                .with_column(
+                    when(
+                        col("__vdrs_set")
+                            .cast(DataType::UInt64)
+                            .is_in(lit(Series::new("ids".into(), rids))),
+                    )
+                    .then(lit(value.to_string()).strict_cast(dtype.clone()))
+                    .otherwise(col(column.as_str()))
+                    .alias(column.as_str()),
+                )
+                .drop(["__vdrs_set"]),
+        })
+    }
 }
 
 /// Everything `U` restores.
@@ -576,8 +615,12 @@ impl Sheet {
             state: Default::default(),
             origin: Origin::Tail { path, follow },
         };
+        if let Origin::Tail { path, .. } = &sheet.origin {
+            sheet.state.tail_stamp = tail_stamp(path);
+        }
         if sheet.tails_incrementally() {
             sheet.reload_tail_cache()?;
+            sheet.rebuild_tail_plan()?;
         }
         Ok(sheet)
     }
@@ -597,28 +640,77 @@ impl Sheet {
                 .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
     }
 
-    /// Bytes `[from..]` of the tail file up to its last newline (a partial
-    /// last line waits for the next refresh).
-    fn tail_bytes(&self, from: u64) -> std::io::Result<Vec<u8>> {
+    /// Bytes `[from..]` of the tail file: `(lines, text after the last newline)`.
+    fn tail_bytes(&self, from: u64) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
         use std::io::{Read, Seek, SeekFrom};
         let Origin::Tail { path, .. } = &self.origin else {
-            return Ok(Vec::new());
+            return Ok(Default::default());
         };
         let mut f = std::fs::File::open(path)?;
         f.seek(SeekFrom::Start(from))?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf)?;
-        buf.truncate(buf.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1));
-        Ok(buf)
+        let cut = buf.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+        let rest = buf.split_off(cut);
+        Ok((buf, rest))
+    }
+
+    /// `partial` bytes as a row of `df`'s shape; None when they don't parse yet.
+    fn parse_partial(&self, mut partial: Vec<u8>, df: &DataFrame) -> Option<DataFrame> {
+        if partial.is_empty() {
+            return None;
+        }
+        partial.push(b'\n');
+        crate::reader::parse_chunk(self.kind, partial, Some(Arc::new(df.schema()))).ok()
     }
 
     /// Read the whole tail file into the cache (first load, or after truncation).
     fn reload_tail_cache(&mut self) -> Result<(), crate::reader::OpenError> {
-        let bytes = self.tail_bytes(0)?;
-        let consumed = bytes.len() as u64;
-        let df = crate::reader::parse_chunk(self.kind, bytes, None)?;
-        self.plan = df.clone().lazy();
-        self.state.tail = Some(TailCache { consumed, df });
+        let (mut lines, mut rest) = self.tail_bytes(0)?;
+        if lines.is_empty() {
+            // A lone header without its newline yet.
+            lines = std::mem::take(&mut rest);
+            lines.push(b'\n');
+        }
+        let consumed = lines.len().min(self.tail_len()?) as u64;
+        let df = crate::reader::parse_chunk(self.kind, lines, None)?;
+        let partial = self.parse_partial(rest, &df);
+        self.state.tail = Some(TailCache {
+            consumed,
+            df,
+            partial,
+        });
+        Ok(())
+    }
+
+    fn tail_len(&self) -> std::io::Result<usize> {
+        let Origin::Tail { path, .. } = &self.origin else {
+            return Ok(0);
+        };
+        Ok(std::fs::metadata(path)?.len() as usize)
+    }
+
+    /// The table `state.steps` apply to: rows read so far, or the reopened source.
+    fn tail_base(&self) -> PolarsResult<LazyFrame> {
+        match &self.state.tail {
+            Some(c) => {
+                let mut df = c.df.clone();
+                if let Some(p) = &c.partial {
+                    df.vstack_mut(p)?;
+                }
+                Ok(df.lazy())
+            }
+            None => Ok(self.source.lazy.clone()),
+        }
+    }
+
+    /// Plan = current tail rows + this sheet's edits.
+    fn rebuild_tail_plan(&mut self) -> PolarsResult<()> {
+        let mut plan = self.tail_base()?;
+        for step in &self.state.steps {
+            plan = step.apply(plan)?;
+        }
+        self.plan = plan;
         Ok(())
     }
 
@@ -628,32 +720,43 @@ impl Sheet {
         let Origin::Tail { path, .. } = &self.origin else {
             return Ok(false);
         };
-        let Some(cache) = &self.state.tail else {
-            let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
-            self.plan = loaded.lazy;
-            self.view.count_key = None;
-            return Ok(true);
-        };
-        let len = std::fs::metadata(path)?.len();
-        if len < cache.consumed {
-            self.reload_tail_cache()?; // truncated or rotated: start over
-        } else {
-            let new = self.tail_bytes(cache.consumed)?;
-            if new.is_empty() {
-                return Ok(false);
+        let path = path.clone();
+        let stamp = tail_stamp(&path);
+        if stamp == self.state.tail_stamp {
+            return Ok(false);
+        }
+        self.state.tail_stamp = stamp;
+        match &self.state.tail {
+            None => {
+                let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
+                self.source = Arc::new(loaded); // keeps a decompressed tempfile alive
             }
-            let added = new.len() as u64;
-            let schema = Arc::new(cache.df.schema());
-            match crate::reader::parse_chunk(self.kind, new, Some(schema)) {
-                Ok(more) => {
-                    let cache = self.state.tail.as_mut().expect("checked above");
-                    cache.df.vstack_mut(&more)?;
-                    cache.consumed += added;
-                    self.plan = cache.df.clone().lazy();
+            Some(cache) if std::fs::metadata(&path)?.len() < cache.consumed => {
+                self.reload_tail_cache()?; // truncated or rotated: start over
+            }
+            Some(cache) => {
+                let (new, rest) = self.tail_bytes(cache.consumed)?;
+                let added = new.len() as u64;
+                let schema = Arc::new(cache.df.schema());
+                let more = (!new.is_empty())
+                    .then(|| crate::reader::parse_chunk(self.kind, new, Some(schema)))
+                    .transpose();
+                match more {
+                    Ok(more) => {
+                        let cache = self.state.tail.as_mut().expect("checked above");
+                        if let Some(more) = more {
+                            cache.df.vstack_mut(&more)?;
+                            cache.consumed += added;
+                        }
+                        let df = cache.df.clone();
+                        let partial = self.parse_partial(rest, &df);
+                        self.state.tail.as_mut().expect("checked above").partial = partial;
+                    }
+                    Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
                 }
-                Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
             }
         }
+        self.rebuild_tail_plan()?;
         self.view.count_key = None;
         Ok(true)
     }
@@ -765,16 +868,14 @@ impl Sheet {
             return Err("row_diff needs at least one key column".into());
         }
         let key_exprs: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-        let a = parent.view_plan();
-        let b = other.view_plan();
+        let a = parent.view_plan().with_column(lit(true).alias(DIFF_LEFT));
+        let b = other.view_plan().with_column(lit(true).alias(DIFF_RIGHT));
         let joined = a.join(
             b,
             key_exprs.clone(),
             key_exprs,
             JoinArgs::new(JoinType::Full).with_coalesce(JoinCoalesce::CoalesceColumns),
         );
-        // Pick a non-key column from each side to detect side presence. If none, the whole
-        // row is key-only; we treat that as always-matching.
         let schema_a = parent
             .view_plan()
             .collect_schema()
@@ -783,24 +884,9 @@ impl Sheet {
             .view_plan()
             .collect_schema()
             .map_err(|e| e.to_string())?;
-        let probe_a = schema_a
-            .iter_names()
-            .find(|n| !keys.iter().any(|k| k == n.as_str()))
-            .map(|n| n.to_string());
-        let probe_b = schema_b
-            .iter_names()
-            .find(|n| !keys.iter().any(|k| k == n.as_str()))
-            .map(|n| n.to_string());
 
-        // __diff classifier
-        let only_a = match &probe_b {
-            Some(c) => col(diff_right_name(c, &schema_a).as_str()).is_null(),
-            None => lit(false),
-        };
-        let only_b = match &probe_a {
-            Some(c) => col(c.as_str()).is_null(),
-            None => lit(false),
-        };
+        let only_a = col(DIFF_RIGHT).is_null();
+        let only_b = col(DIFF_LEFT).is_null();
         let diff_col = when(only_a.clone())
             .then(lit("only_a"))
             .when(only_b.clone())
@@ -808,26 +894,23 @@ impl Sheet {
             .otherwise(lit("changed"))
             .alias("__diff");
 
-        // Build value-mismatch predicate across shared columns
+        // A shared column differs, null vs value included.
         let shared: Vec<String> = schema_a
             .iter_names()
             .filter(|n| schema_b.get(n.as_str()).is_some() && !keys.iter().any(|k| k == n.as_str()))
             .map(|n| n.to_string())
             .collect();
-        let mismatch_expr = if shared.is_empty() {
-            lit(false)
-        } else {
-            shared
-                .iter()
-                .map(|c| col(c.as_str()).neq(col(format!("{c}_right").as_str())))
-                .reduce(|a, b| a.or(b))
-                .unwrap()
-        };
+        let mismatch_expr = shared
+            .iter()
+            .map(|c| col(c.as_str()).neq_missing(col(format!("{c}_right").as_str())))
+            .reduce(|a, b| a.or(b))
+            .unwrap_or(lit(false));
 
         // Final: only_a OR only_b OR mismatch
         let plan = joined
             .with_column(diff_col)
-            .filter(only_a.or(only_b).or(mismatch_expr));
+            .filter(only_a.or(only_b).or(mismatch_expr))
+            .drop([DIFF_LEFT, DIFF_RIGHT]);
 
         let other_name = other.name.clone();
         let how = Derivation::Diff {
@@ -1417,20 +1500,36 @@ impl Sheet {
             steps: std::mem::replace(&mut self.state.steps, snap.steps),
         });
         self.view.count_key = None; // plan may differ: recount
+        if matches!(self.origin, Origin::Tail { .. }) {
+            // Snapshots predate rows that arrived since; keep the rows, undo the edit.
+            if let Err(e) = self.rebuild_tail_plan() {
+                debug_assert!(false, "steps applied before: {e}");
+            }
+        }
         true
+    }
+
+    /// Bake `step` into the plan and remember it for `:export` and `:tail`.
+    pub fn apply_step(&mut self, step: PlanStep) -> PolarsResult<()> {
+        self.plan = step.apply(self.plan.clone())?;
+        self.state.steps.push(step);
+        self.view.count_key = None; // a filter on the column may match differently
+        Ok(())
     }
 
     /// `:derive name = <sql expr>` on the base plan. Validated against the schema.
     pub fn derive(&mut self, name: &str, expr: &str) -> Result<(), String> {
-        let e = polars::sql::sql_expr(expr).map_err(|e| e.to_string())?;
-        let plan = self.plan.clone().with_column(e.alias(name));
+        let step = PlanStep::Derive {
+            name: name.to_string(),
+            expr: expr.to_string(),
+            replaces: self.has_column(name),
+        };
+        let plan = step.apply(self.plan.clone()).map_err(|e| e.to_string())?;
         plan.clone().collect_schema().map_err(|e| e.to_string())?;
         self.checkpoint();
         self.plan = plan;
-        self.state.steps.push(PlanStep::Derive {
-            name: name.to_string(),
-            expr: expr.to_string(),
-        });
+        self.state.steps.push(step);
+        self.view.count_key = None; // a filter on `name` may match differently now
         Ok(())
     }
 
@@ -1456,27 +1555,16 @@ impl Sheet {
                     .collect()
             })
             .map_err(|_| format!("{value:?} doesn't fit {column} ({dtype})"))?;
-        let ids = Series::new("ids".into(), &rids);
-        self.checkpoint();
-        self.plan = self
-            .plan
-            .clone()
-            .with_row_index("__vdrs_set", None)
-            .with_column(
-                when(col("__vdrs_set").cast(DataType::UInt64).is_in(lit(ids)))
-                    .then(lit(value.to_string()).strict_cast(dtype.clone()))
-                    .otherwise(col(column))
-                    .alias(column),
-            )
-            .drop(["__vdrs_set"]);
-        self.state.steps.push(PlanStep::SetCol {
+        let step = PlanStep::SetCol {
             column: column.to_string(),
             value: value.to_string(),
-            dtype: dtype.clone(),
-            rids: rids.clone(),
-        });
-        self.view.count_key = None;
-        Ok(rids.len())
+            dtype,
+            rids,
+        };
+        self.checkpoint();
+        let n = self.view.selected.len();
+        self.apply_step(step).map_err(|e| e.to_string())?;
+        Ok(n)
     }
 
     /// Whether the base plan has `name` (hidden columns count: filter/sort may use them).
@@ -1608,6 +1696,11 @@ fn lenient_date(name: &str) -> Expr {
         })
         .collect();
     coalesce(&tries).alias(name)
+}
+
+fn tail_stamp(path: &std::path::Path) -> Option<(u64, Option<std::time::SystemTime>)> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.len(), m.modified().ok()))
 }
 
 /// `column` equals one of `values`, compared as text (how freq groups print);
@@ -1901,14 +1994,15 @@ mod tests {
         let after = s.plan.clone().collect().unwrap();
         assert_eq!(after.height(), 4);
         assert!(!s.refresh_tail().unwrap(), "unchanged file → no reload");
-        // a partial last line waits; truncation starts over
+        // an unparsable partial line waits; truncation starts over
         let mut handle = std::fs::OpenOptions::new()
             .append(true)
             .open(tmp.path())
             .unwrap();
         write!(handle, r#"{{"a":5"#).unwrap();
         drop(handle);
-        assert!(!s.refresh_tail().unwrap());
+        s.refresh_tail().unwrap();
+        assert_eq!(s.plan.clone().collect().unwrap().height(), 4);
         std::fs::write(tmp.path(), "{\"a\":9}\n").unwrap();
         assert!(s.refresh_tail().unwrap());
         assert_eq!(s.plan.clone().collect().unwrap().height(), 1);

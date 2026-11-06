@@ -139,14 +139,14 @@ impl App {
                 }
                 let s = self.sheets.active_mut();
                 s.checkpoint();
-                s.plan = s
-                    .plan
-                    .clone()
-                    .rename([old.as_str()], [new_name.as_str()], true);
-                s.state.steps.push(crate::sheet::PlanStep::Rename {
+                let step = crate::sheet::PlanStep::Rename {
                     old: old.clone(),
                     new: new_name.clone(),
-                });
+                };
+                if let Err(e) = s.apply_step(step) {
+                    self.toast = Some(format!("rename: {e}"));
+                    return;
+                }
                 if s.view.hidden.remove(&old) {
                     s.view.hidden.insert(new_name.clone());
                 }
@@ -440,16 +440,11 @@ impl App {
             return;
         };
         let s = self.sheets.active_mut();
-        s.plan = s.plan.clone().with_columns([col(name.as_str())
-            .cast(DataType::String)
-            .str()
-            .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
-            .cast(DataType::Float64)
-            .alias(name.as_str())]);
-        s.view.count_key = None; // a filter on this column may now match differently
-        s.state
-            .steps
-            .push(crate::sheet::PlanStep::Currency { column: name });
+        let step = crate::sheet::PlanStep::Currency { column: name };
+        if let Err(e) = s.apply_step(step) {
+            self.toast = Some(format!("currency: {e}"));
+            return;
+        }
         self.spawn_materialize();
     }
 
@@ -630,6 +625,8 @@ impl App {
             }
         };
         match built {
+            // A full join has no fixed row order: collect once, like `:join`.
+            Ok(s) if !keys.is_empty() => self.push_collected("diff", s),
             Ok(s) => {
                 self.sheets.push(s);
                 self.spawn_materialize();
