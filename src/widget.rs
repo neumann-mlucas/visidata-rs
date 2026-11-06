@@ -330,9 +330,10 @@ fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
         | AnyValue::UInt8(_)
         | AnyValue::UInt16(_)
         | AnyValue::UInt32(_)
-        | AnyValue::UInt64(_)
-        | AnyValue::Float32(_)
-        | AnyValue::Float64(_) => (av.to_string(), DtypeHint::Numeric),
+        | AnyValue::UInt64(_) => (av.to_string(), DtypeHint::Numeric),
+        // `Display` rounds to a few digits (1.2346e8); show the value itself.
+        AnyValue::Float32(f) => (format!("{f:?}"), DtypeHint::Numeric),
+        AnyValue::Float64(f) => (format!("{f:?}"), DtypeHint::Numeric),
         AnyValue::Date(_) | AnyValue::Datetime(_, _, _) | AnyValue::Duration(_, _) => {
             (av.to_string(), DtypeHint::Date)
         }
