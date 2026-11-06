@@ -201,5 +201,5 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — the `app::scenario` Harness drives the UI without a TTY but is test-only; add a bench target when scroll speed regresses
 - [ ] `rust-toolchain.toml` only when a nightly is needed
-- [ ] Release path (cargo-dist or similar)
+- [x] Release path: `cargo install --path . --locked` from a checkout (decision 2026-11-05); no prebuilt binaries or crates.io until the name is settled
 - [x] Refactor: dispatch + action handlers moved to `src/app/actions.rs` (`app.rs` keeps loop, jobs, prompts, render, tests)
