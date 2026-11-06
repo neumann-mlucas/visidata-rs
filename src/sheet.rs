@@ -328,8 +328,12 @@ pub struct View {
     pub search: Option<SearchState>,
     pub filter: Option<FilterState>,
     pub sort: Vec<SortKey>,
-    /// Selected rows by [`ROW_ID`]; survive sort and filter.
-    pub selected: std::collections::BTreeSet<u64>,
+    /// Selected rows by [`ROW_ID`]; survive sort and filter. Shared: every
+    /// undo snapshot and job clones the view; only a selection change copies.
+    // ponytail: selection-changing steps each keep their own copy in the undo
+    // stack, so 100 `s` on a million-row selection hold 100 sets. A delta log
+    // fixes that if it ever shows up.
+    pub selected: Arc<std::collections::BTreeSet<u64>>,
     /// Hidden columns — projected out at window_plan time.
     pub hidden: std::collections::BTreeSet<String>,
     /// Key columns (VisiData `!`). Reordered to the front of the visible output.
@@ -358,7 +362,7 @@ impl Default for View {
             search: None,
             filter: None,
             sort: Vec::new(),
-            selected: std::collections::BTreeSet::new(),
+            selected: Default::default(),
             hidden: std::collections::BTreeSet::new(),
             keys: Vec::new(),
             type_casts: Vec::new(),
@@ -569,7 +573,7 @@ impl Sheet {
             Origin::Selected { parent: parent.id },
         )
         .with_window(out)
-        .derived(parent, Derivation::Rids(parent.view.selected.clone())))
+        .derived(parent, Derivation::Rids((*parent.view.selected).clone())))
     }
 
     /// Open a tail-mode sheet; `refresh_tail` picks up what the file gains.
@@ -2043,7 +2047,7 @@ mod tests {
             column: "n".into(),
             order: SortOrder::Asc,
         });
-        s.view.selected.insert(1); // row id 1 = bob (base order), first in the sorted view
+        Arc::make_mut(&mut s.view.selected).insert(1); // row id 1 = bob (base order), first in the sorted view
         let dup = Sheet::dup_selected_from(&s, 1).unwrap();
         let df = dup.plan.collect().unwrap();
         let name = df.column("name").unwrap().get(0).unwrap();

@@ -351,7 +351,7 @@ impl App {
             }
             Ok(JobDone::Select { rids, note }) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
-                    s.view.selected.extend(rids);
+                    std::sync::Arc::make_mut(&mut s.view.selected).extend(rids);
                     self.toast = Some(note);
                 }
             }

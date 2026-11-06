@@ -237,7 +237,7 @@ impl App {
             Action::UnselectRow => self.set_select_current(false),
             Action::SelectAll => self.select_all(),
             Action::UnselectAll => {
-                self.sheets.active_mut().view.selected.clear();
+                self.sheets.active_mut().view.selected = Default::default();
             }
             Action::StartSelectInput => self.start_input(Prompt::Select),
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
@@ -795,9 +795,10 @@ impl App {
         let Some(rid) = self.rid_at_cursor() else {
             return;
         };
-        let v = &mut self.sheets.active_mut().view;
-        if !v.selected.remove(&rid) {
-            v.selected.insert(rid);
+        let selected = &mut self.sheets.active_mut().view.selected;
+        let selected = std::sync::Arc::make_mut(selected);
+        if !selected.remove(&rid) {
+            selected.insert(rid);
         }
     }
 
@@ -805,11 +806,12 @@ impl App {
         let Some(rid) = self.rid_at_cursor() else {
             return;
         };
-        let v = &mut self.sheets.active_mut().view;
+        let selected = &mut self.sheets.active_mut().view.selected;
+        let selected = std::sync::Arc::make_mut(selected);
         if select {
-            v.selected.insert(rid);
+            selected.insert(rid);
         } else {
-            v.selected.remove(&rid);
+            selected.remove(&rid);
         }
     }
 

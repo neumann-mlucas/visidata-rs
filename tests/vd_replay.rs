@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use polars::prelude::*;
 use visidata_rs::reader;
@@ -554,12 +555,12 @@ impl Replay {
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?
             .height();
-        s.view.selected = (0..n as u64).collect();
+        s.view.selected = Arc::new((0..n as u64).collect());
         Ok(())
     }
 
     fn unselect_all(&mut self) -> Result<(), StepErr> {
-        self.current_slot_mut()?.sheet.view.selected.clear();
+        self.current_slot_mut()?.sheet.view.selected = Default::default();
         Ok(())
     }
 
@@ -585,9 +586,9 @@ impl Replay {
             let val = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
             if re.is_match(&val) {
                 if add {
-                    s.view.selected.insert(i as u64);
+                    Arc::make_mut(&mut s.view.selected).insert(i as u64);
                 } else {
-                    s.view.selected.remove(&(i as u64));
+                    Arc::make_mut(&mut s.view.selected).remove(&(i as u64));
                 }
             }
         }
@@ -632,7 +633,7 @@ impl Replay {
         for i in 0..col.len() {
             let v = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
             if v == target {
-                s.view.selected.insert(i as u64);
+                Arc::make_mut(&mut s.view.selected).insert(i as u64);
             }
         }
         Ok(())
@@ -677,13 +678,13 @@ impl Replay {
         let idx = resolve_row(&df, &keys, row_key)?;
         let idx64 = idx as u64;
         if toggle {
-            if !s.view.selected.remove(&idx64) {
-                s.view.selected.insert(idx64);
+            if !Arc::make_mut(&mut s.view.selected).remove(&idx64) {
+                Arc::make_mut(&mut s.view.selected).insert(idx64);
             }
         } else if select {
-            s.view.selected.insert(idx64);
+            Arc::make_mut(&mut s.view.selected).insert(idx64);
         } else {
-            s.view.selected.remove(&idx64);
+            Arc::make_mut(&mut s.view.selected).remove(&idx64);
         }
         Ok(())
     }

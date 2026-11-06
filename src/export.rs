@@ -1156,7 +1156,7 @@ mod tests {
         writeln!(r, "name,extra\nalice,x").unwrap();
         let right = Sheet::from_source(5, crate::reader::open(r.path().as_os_str(), None).unwrap());
         let mut sel = s.clone();
-        sel.view.selected = [0u64].into_iter().collect();
+        sel.view.selected = std::sync::Arc::new([0u64].into());
         let freq_of_copy = Sheet::freq_from(&Sheet::copy_from(&s, 1), 2, "name");
         let cases = [
             (freq_of_copy, "group_by(\"name\")", "GROUP BY \"name\""),
