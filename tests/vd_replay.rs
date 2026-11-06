@@ -38,6 +38,8 @@ struct ColMeta {
 }
 
 const CORPUS: &str = "../visidata/tests";
+/// Raise when coverage grows; never lower without saying why.
+const MIN_PASS: usize = 21;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -1425,4 +1427,6 @@ fn vd_replay_corpus() {
         }
     }
     assert!(fail.is_empty(), "{} replay regressions", fail.len());
+    // A runtime error buckets a file as SKIP, so FAIL=0 alone can hide regressions.
+    assert!(pass >= MIN_PASS, "PASS fell to {pass}, floor {MIN_PASS}");
 }
