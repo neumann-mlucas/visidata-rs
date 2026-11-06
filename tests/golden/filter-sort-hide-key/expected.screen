@@ -1,0 +1,12 @@
+ tests/golden/filter-sort-hide-key/input.csv  row 1/4 · col 3/4 (amt) · sel 0  Csv · sheets 1
+name str  id i  amt f      day date
+bob       2     2.25       2024-01-03
+eve       5     1234567.89 2024-01-06
+ann       1     1.5        2024-01-02
+cid       3     ·          2024-01-04
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

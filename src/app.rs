@@ -33,6 +33,8 @@ use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view};
 
 mod actions;
+#[cfg(test)]
+mod golden;
 
 /// Data rows assumed visible before the first draw measures the real area.
 const DEFAULT_VIEWPORT_ROWS: usize = 20;
@@ -465,6 +467,9 @@ impl App {
                     Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
                     Err(_) => (Vec::new(), df), // pre-built windows carry no ids
                 };
+                // Polars 0.44 returns every scan column when only the row index
+                // is selected, i.e. when all columns are hidden.
+                let df = df.drop_many(s.view.hidden.iter().map(String::as_str));
                 s.state.window_rids = rids;
                 s.window = Some(df);
                 if sheet_id == self.sheets.active().id {
@@ -1353,7 +1358,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod scenario {
+pub(crate) mod scenario {
     //! End-to-end: real keymap + dispatch + background Polars tasks + render.
     use super::*;
     use std::io::Write;
@@ -1469,6 +1474,17 @@ mod scenario {
         tmp.flush().unwrap();
         let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
         Harness::with_source(loaded, tmp).await
+    }
+
+    /// Every row of `sheet`'s view as delimited text.
+    pub fn csv_text(sheet: &Sheet, sep: u8) -> String {
+        let mut df = sheet.view_plan().collect().unwrap();
+        let mut out = Vec::new();
+        CsvWriter::new(&mut out)
+            .with_separator(sep)
+            .finish(&mut df)
+            .unwrap();
+        String::from_utf8(out).unwrap()
     }
 
     fn title(h: &Harness) -> String {

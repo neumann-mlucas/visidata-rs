@@ -1,0 +1,12 @@
+ grp in 2 values: tests/golden/freq-dive/input.csv  row 1/4 · col 1/5 (id) · sel 0  Csv · sheets 3
+id i  name str  grp str  amt f      day date
+1     ann       a        1.5        2024-01-02
+2     bob       b        2.25       2024-01-03
+3     cid       a        ·          2024-01-04
+5     eve       b        1234567.89 2024-01-06
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

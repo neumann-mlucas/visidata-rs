@@ -1626,32 +1626,37 @@ impl Sheet {
     }
 }
 
+/// Layouts `@` tries, each with the exact shape it applies to.
+pub const DATE_LAYOUTS: [(&str, &str); 12] = [
+    ("%Y-%m-%d", r"^\d{4}-\d{1,2}-\d{1,2}$"),
+    ("%Y/%m/%d", r"^\d{4}/\d{1,2}/\d{1,2}$"),
+    ("%m/%d/%Y", r"^\d{1,2}/\d{1,2}/\d{4}$"),
+    ("%m/%d/%y", r"^\d{1,2}/\d{1,2}/\d{2}$"),
+    ("%d.%m.%Y", r"^\d{1,2}\.\d{1,2}\.\d{4}$"),
+    ("%d.%m.%y", r"^\d{1,2}\.\d{1,2}\.\d{2}$"),
+    ("%Y%m%d", r"^\d{8}$"),
+    ("%d %b %Y", r"^\d{1,2} [A-Za-z]{3} \d{4}$"),
+    ("%b %d %Y", r"^[A-Za-z]{3} \d{1,2} \d{4}$"),
+    ("%b %d, %Y", r"^[A-Za-z]{3} \d{1,2}, \d{4}$"),
+    ("%B %d, %Y", r"^[A-Za-z]+ \d{1,2}, \d{4}$"),
+    ("%d %B %Y", r"^\d{1,2} [A-Za-z]+ \d{4}$"),
+];
+/// A trailing time part, dropped before parsing.
+pub const DATE_TIME_PART: &str = r"(T| +)\d{1,2}:\d{2}.*$";
+
 /// Text → Date trying common layouts in turn; a trailing time part is ignored
 /// (`7/3/2018 1:47p` → 2018-07-03). Unparseable values become null.
 /// chrono's `%Y` takes any digit count, so numeric layouts only apply to
 /// strings of their exact shape (regex guard): `7/3/18` isn't year 7.
 fn lenient_date(name: &str) -> Expr {
-    const LAYOUTS: [(&str, &str); 12] = [
-        ("%Y-%m-%d", r"^\d{4}-\d{1,2}-\d{1,2}$"),
-        ("%Y/%m/%d", r"^\d{4}/\d{1,2}/\d{1,2}$"),
-        ("%m/%d/%Y", r"^\d{1,2}/\d{1,2}/\d{4}$"),
-        ("%m/%d/%y", r"^\d{1,2}/\d{1,2}/\d{2}$"),
-        ("%d.%m.%Y", r"^\d{1,2}\.\d{1,2}\.\d{4}$"),
-        ("%d.%m.%y", r"^\d{1,2}\.\d{1,2}\.\d{2}$"),
-        ("%Y%m%d", r"^\d{8}$"),
-        ("%d %b %Y", r"^\d{1,2} [A-Za-z]{3} \d{4}$"),
-        ("%b %d %Y", r"^[A-Za-z]{3} \d{1,2} \d{4}$"),
-        ("%b %d, %Y", r"^[A-Za-z]{3} \d{1,2}, \d{4}$"),
-        ("%B %d, %Y", r"^[A-Za-z]+ \d{1,2}, \d{4}$"),
-        ("%d %B %Y", r"^\d{1,2} [A-Za-z]+ \d{4}$"),
-    ];
     // drop a time part: "2018-07-03T10:00", "7/3/2018 1:47p"
-    let day = col(name).str().strip_chars(lit(NULL)).str().replace(
-        lit(r"(T| +)\d{1,2}:\d{2}.*$"),
-        lit(""),
-        false,
-    );
-    let tries: Vec<Expr> = LAYOUTS
+    let day =
+        col(name)
+            .str()
+            .strip_chars(lit(NULL))
+            .str()
+            .replace(lit(DATE_TIME_PART), lit(""), false);
+    let tries: Vec<Expr> = DATE_LAYOUTS
         .iter()
         .map(|(layout, shape)| {
             let parsed = day.clone().str().to_date(StrptimeOptions {

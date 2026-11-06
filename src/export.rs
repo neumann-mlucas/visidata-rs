@@ -13,7 +13,8 @@ use polars::prelude::DataType;
 
 use crate::reader::SourceKind;
 use crate::sheet::{
-    DIFF_LEFT, DIFF_RIGHT, Derivation, Lineage, Origin, PlanStep, Sheet, SortOrder, freq_stat_names,
+    DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, Lineage, Origin, PlanStep,
+    Sheet, SortOrder, freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -31,9 +32,10 @@ pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
 
 pub fn to_python(sheet: &Sheet) -> Result<String, String> {
     let mut sc = Script::new(Lang::Py);
+    sc.need("import polars as pl");
     let v = sc.view(sheet, false)?;
     let mut out = sc.head;
-    out.extend(["import polars as pl".to_string(), String::new()]);
+    out.push(String::new());
     out.extend(sc.defs);
     out.push(String::new());
     out.push(format!("print({v}.collect())"));
@@ -160,11 +162,11 @@ impl Script {
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
                 Ok(match (kind, gz) {
-                    (SourceKind::Csv, false) => format!("pl.scan_csv({p})"),
-                    (SourceKind::Csv, true) => format!("pl.read_csv({p}).lazy()"),
-                    (SourceKind::Tsv, false) => format!("pl.scan_csv({p}, separator=\"\\t\")"),
-                    (SourceKind::Tsv, true) => {
-                        format!("pl.read_csv({p}, separator=\"\\t\").lazy()")
+                    (SourceKind::Csv | SourceKind::Tsv, false) => {
+                        format!("pl.scan_csv({p}{})", py_csv_args(s)?)
+                    }
+                    (SourceKind::Csv | SourceKind::Tsv, true) => {
+                        format!("pl.read_csv({p}{}).lazy()", py_csv_args(s)?)
                     }
                     (SourceKind::Parquet, _) => format!("pl.scan_parquet({p})"),
                     (SourceKind::Arrow, _) => format!("pl.scan_ipc({p})"),
@@ -191,8 +193,20 @@ impl Script {
             Lang::Sql => {
                 let p = q_str(&shown);
                 Ok(match kind {
-                    SourceKind::Csv => format!("SELECT * FROM read_csv_auto({p})"),
-                    SourceKind::Tsv => format!("SELECT * FROM read_csv_auto({p}, delim = '\\t')"),
+                    SourceKind::Csv | SourceKind::Tsv => {
+                        // Polars keeps the header's columns; null_padding can add more.
+                        let schema = s.source.lazy.clone().collect_schema();
+                        let names: Vec<String> = schema
+                            .map_err(|e| e.to_string())?
+                            .iter_names()
+                            .map(|n| q_ident(n))
+                            .collect();
+                        format!(
+                            "SELECT {} FROM read_csv_auto({p}{})",
+                            names.join(", "),
+                            sql_csv_args(s)?
+                        )
+                    }
                     SourceKind::Parquet => format!("SELECT * FROM read_parquet({p})"),
                     SourceKind::Jsonl | SourceKind::Json => {
                         format!("SELECT * FROM read_json_auto({p})")
@@ -371,22 +385,7 @@ impl Script {
                          .pivot(on={on_py}, index=\"__k\", values=\"len\").drop(\"__k\").lazy()\
                          .select(pl.all().cast(pl.Int64))"
                     ),
-                    (false, _) => {
-                        // PIVOT groups by every column it isn't told about
-                        let k: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
-                        let by = if k.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" GROUP BY {}", k.join(", "))
-                        };
-                        let on = q_ident(on);
-                        let cols: Vec<&str> =
-                            k.iter().map(String::as_str).chain([on.as_str()]).collect();
-                        format!(
-                            "SELECT * FROM (PIVOT (SELECT {} FROM {p}) ON coalesce(CAST({on} AS VARCHAR), 'null') USING count(*){by})",
-                            cols.join(", ")
-                        )
-                    }
+                    (false, _) => sql_pivot(&p, keys, on, "count(*)"),
                 }
             }
             Derivation::Unpivot { on, index } if py => format!(
@@ -416,14 +415,17 @@ impl Script {
                 values,
                 agg,
             } => {
+                // Aggregate first, as the app's numbers come out: an absent
+                // cell stays null; a sum over only nulls is 0.
+                let v = q_ident(values);
                 let (py_agg, sql_agg) = match agg.as_str() {
-                    "sum" => ("sum", "sum"),
-                    "mean" | "avg" | "average" => ("mean", "avg"),
-                    "count" | "len" => ("len", "count"),
-                    "max" => ("max", "max"),
-                    "min" => ("min", "min"),
-                    "first" => ("first", "first"),
-                    "last" => ("last", "last"),
+                    "sum" => ("sum", format!("coalesce(sum({v}), 0)")),
+                    "mean" | "avg" | "average" => ("mean", format!("avg({v})")),
+                    "count" | "len" => ("len", "count(*)".to_string()),
+                    "max" => ("max", format!("max({v})")),
+                    "min" => ("min", format!("min({v})")),
+                    "first" => ("first", format!("first({v})")),
+                    "last" => ("last", format!("last({v})")),
                     other => {
                         return Err(format!(
                             "export: Lua aggregator {other:?} can't be exported"
@@ -432,19 +434,14 @@ impl Script {
                 };
                 if py {
                     format!(
-                        "{p}.collect().pivot(on={}, index={}, values={}, aggregate_function={}).lazy()",
-                        py_str(on),
-                        py_str(index),
-                        py_str(values),
-                        py_str(py_agg)
+                        "{p}.group_by([{i}, {o}], maintain_order=True).agg(pl.col({vs}).{py_agg}()).collect()\
+                         .pivot(on={o}, index={i}, values={vs}, aggregate_function=\"first\").lazy()",
+                        o = py_str(on),
+                        i = py_str(index),
+                        vs = py_str(values),
                     )
                 } else {
-                    format!(
-                        "SELECT * FROM (PIVOT {p} ON coalesce(CAST({} AS VARCHAR), 'null') USING {sql_agg}({}) GROUP BY {})",
-                        q_ident(on),
-                        q_ident(values),
-                        q_ident(index)
-                    )
+                    sql_pivot(&p, std::slice::from_ref(index), on, &sql_agg)
                 }
             }
         })
@@ -458,6 +455,11 @@ impl Script {
             ops.push(".with_row_index(\"__rid\")".to_string());
         }
         for (c, dt) in &v.type_casts {
+            if *dt == DataType::Date && is_text(s, c) {
+                self.need(&py_lenient_date());
+                ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
+                continue;
+            }
             ops.push(format!(
                 ".with_columns(pl.col({c}).cast({}, strict=False))",
                 py_dtype(dt),
@@ -516,7 +518,15 @@ impl Script {
             let casts: Vec<String> = v
                 .type_casts
                 .iter()
-                .map(|(c, dt)| format!("TRY_CAST({c} AS {}) AS {c}", sql_dtype(dt), c = q_ident(c)))
+                .map(|(c, dt)| {
+                    let i = q_ident(c);
+                    if *dt == DataType::Date && is_text(s, c) {
+                        self.need(&sql_lenient_date());
+                        format!("lenient_date({i}) AS {i}")
+                    } else {
+                        format!("TRY_CAST({i} AS {}) AS {i}", sql_dtype(dt))
+                    }
+                })
                 .collect();
             q = format!("SELECT * REPLACE ({}) FROM ({q})", casts.join(", "));
         }
@@ -883,6 +893,128 @@ fn sql_step(q: String, step: &PlanStep) -> String {
     }
 }
 
+/// Pivot `p` on `on`, one cell per `keys` × value holding aggregate `agg`.
+/// Grouped first so an absent cell is null, not `agg` over nothing.
+fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
+    let k: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
+    let on = q_ident(on);
+    let select = k.iter().map(|c| format!("{c}, ")).collect::<String>();
+    let by: Vec<String> = (1..=k.len() + 1).map(|i| i.to_string()).collect();
+    let group = if k.is_empty() {
+        String::new()
+    } else {
+        format!(" GROUP BY {}", k.join(", "))
+    };
+    format!(
+        "SELECT * FROM (PIVOT (SELECT {select}coalesce(CAST({on} AS VARCHAR), 'null') AS {on}, {agg} AS __v \
+         FROM {p} GROUP BY {}) ON {on} USING first(__v){group})",
+        by.join(", ")
+    )
+}
+
+/// Base column `c` holds text, so `@` parses it leniently (see `Sheet::view_plan`).
+fn is_text(s: &Sheet, c: &str) -> bool {
+    let schema = s.plan.clone().collect_schema();
+    schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::String))
+}
+
+/// CSV columns that loaded as dates (only ISO does; `reader::scan_csv`).
+fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
+    if matches!(s.origin, Origin::Tail { .. }) {
+        return Ok(Vec::new()); // tail chunks are read without date parsing
+    }
+    let schema = s.source.lazy.clone().collect_schema();
+    let schema = schema.map_err(|e| e.to_string())?;
+    Ok(schema
+        .iter()
+        .filter(|(_, d)| matches!(d, DataType::Date | DataType::Datetime(..)))
+        .map(|(n, d)| (n.to_string(), d.clone()))
+        .collect())
+}
+
+/// `pl.scan_csv` arguments matching how vdrs read this file.
+fn py_csv_args(s: &Sheet) -> Result<String, String> {
+    let mut args =
+        ", infer_schema_length=None, truncate_ragged_lines=True, encoding=\"utf8-lossy\""
+            .to_string();
+    if s.kind == SourceKind::Tsv {
+        args += ", separator=\"\\t\"";
+    }
+    let dates: Vec<String> = csv_dates(s)?
+        .iter()
+        .map(|(n, d)| format!("{}: pl.{}", py_str(n), py_temporal(d)))
+        .collect();
+    if !dates.is_empty() {
+        args += &format!(", schema_overrides={{{}}}", dates.join(", "));
+    }
+    Ok(args)
+}
+
+fn py_temporal(d: &DataType) -> &'static str {
+    if *d == DataType::Date {
+        "Date"
+    } else {
+        "Datetime"
+    }
+}
+
+/// `read_csv_auto` arguments matching how vdrs read this file: DuckDB must not
+/// sniff `7/3/2018` as a date.
+fn sql_csv_args(s: &Sheet) -> Result<String, String> {
+    let mut args = ", sample_size = -1, null_padding = true, \
+                    auto_type_candidates = ['BOOLEAN', 'BIGINT', 'DOUBLE', 'VARCHAR']"
+        .to_string();
+    if s.kind == SourceKind::Tsv {
+        args += ", delim = '\\t'";
+    }
+    let dates: Vec<String> = csv_dates(s)?
+        .iter()
+        .map(|(n, d)| format!("{}: '{}'", q_str(n), sql_dtype(d)))
+        .collect();
+    if !dates.is_empty() {
+        args += &format!(", types = {{{}}}", dates.join(", "));
+    }
+    Ok(args)
+}
+
+/// Python twin of `sheet::lenient_date`.
+fn py_lenient_date() -> String {
+    let tries: Vec<String> = DATE_LAYOUTS
+        .iter()
+        .map(|(layout, shape)| {
+            format!(
+                "        pl.when(d.str.contains({})).then(d.str.strptime(pl.Date, {}, strict=False)),",
+                py_str(shape),
+                py_str(layout)
+            )
+        })
+        .collect();
+    format!(
+        "\ndef lenient_date(c):\n    d = pl.col(c).str.strip_chars().str.replace({}, \"\")\n    return pl.coalesce([\n{}\n    ]).alias(c)",
+        py_str(DATE_TIME_PART),
+        tries.join("\n")
+    )
+}
+
+/// SQL twin of `sheet::lenient_date`.
+fn sql_lenient_date() -> String {
+    let tries: Vec<String> = DATE_LAYOUTS
+        .iter()
+        .map(|(layout, shape)| {
+            format!(
+                "CASE WHEN regexp_matches(d, {}) THEN CAST(try_strptime(d, {}) AS DATE) END",
+                q_str(shape),
+                q_str(layout)
+            )
+        })
+        .collect();
+    format!(
+        "CREATE TEMP MACRO lenient_date(s) AS (\n  SELECT coalesce({})\n  FROM (SELECT regexp_replace(trim(CAST(s AS VARCHAR)), {}, '') AS d)\n);",
+        tries.join(",\n    "),
+        q_str(DATE_TIME_PART)
+    )
+}
+
 /// Python string literal.
 fn py_str(s: &str) -> String {
     let mut out = String::from("\"");
@@ -1018,7 +1150,7 @@ mod tests {
 
     #[test]
     fn derived_sheets_export_their_lineage() {
-        // Verified by hand 2026-11-05: DuckDB 1.5 and Polars run these scripts and
+        // String checks only; `app::golden` runs scripts through DuckDB and Polars.
         // reproduce the vdrs rows (join/diff row order, pivot 0-vs-null aside).
         let (s, _t) = sheet();
         let mut r = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
@@ -1052,7 +1184,7 @@ mod tests {
             (
                 Sheet::pivot_current_from(&s, 9, &["name".into()], "qty").unwrap(),
                 "index=[\"name\"], values=\"len\"",
-                "USING count(*) GROUP BY \"name\"",
+                "USING first(__v) GROUP BY \"name\"",
             ),
             (
                 Sheet::row_diff_from(&s, 10, &right, &["name".into()]).unwrap(),

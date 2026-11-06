@@ -20,4 +20,13 @@ jobs:
           git init -q ../visidata
           git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata dd1a9f0a53fe4bf030db939b06c73cb665406d4a
           git -C ../visidata checkout -q FETCH_HEAD
+      - name: Export round-trip tools (golden cases run the generated scripts)
+        run: |
+          python3 -m venv "$HOME/rt"
+          "$HOME/rt/bin/pip" install -q polars
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
       - run: cargo test --no-fail-fast
+        env:
+          VDRS_PYTHON: /home/runner/rt/bin/python
+          VDRS_REQUIRE_ROUNDTRIP: "1"

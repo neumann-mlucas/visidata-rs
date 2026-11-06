@@ -1,0 +1,2 @@
+:
+> sql SELECT grp, count(*) AS n FROM self GROUP BY grp ORDER BY grp

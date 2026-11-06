@@ -1,0 +1,12 @@
+ describe: tests/golden/describe/input.csv  row 1/5 · col 1/9 (column) · sel 0  Csv · sheets 2
+column str  type str  count u  nulls u  distinct u  min str    max str    mean f    median f
+id          i64       5        0        5           1          5          3.0       3.0
+name        str       5        0        5           ann        eve        ·         ·
+grp         str       5        0        3           a          c          ·         ·
+amt         f64       4        1        5           1.5        1234567.89 308643.91 3.125
+day         date      4        1        5           2024-01-02 2024-01-06 ·         ·
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

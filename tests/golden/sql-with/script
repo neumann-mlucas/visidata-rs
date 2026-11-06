@@ -1,0 +1,2 @@
+:
+> sql WITH t AS (SELECT * FROM self WHERE id > 2) SELECT id, name FROM t ORDER BY id

@@ -1,0 +1,12 @@
+ …lls/input.csv ↔ tests/golden/diff-nulls/right.csv  row 1/5 · col 1/6 (id) · sel 0  Csv · sheets 2
+id i  v str  w i  v_right str  w_right i  __diff str
+1     ·      1    z            1          changed
+2     x      1    ·            1          changed
+4     y      9    y            ·          changed
+5     y      1    ·            ·          only_a
+6     ·      ·    y            1          only_b
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

@@ -1,0 +1,9 @@
+l
+:
+> type currency
+^
+> cost
+:
+> derive cost = cost * 2
+:
+> derive tax = cost / 10

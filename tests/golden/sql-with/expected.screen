@@ -1,0 +1,12 @@
+ … WHERE id > 2) SELECT id, name FROM t ORDER BY id  row 1/3 · col 1/2 (id) · sel 0  Csv · sheets 2
+id i  name str
+3     cid
+4     dee
+5     eve
+
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
