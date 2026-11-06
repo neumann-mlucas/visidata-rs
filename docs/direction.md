@@ -8,7 +8,7 @@ Everything below is a proposal, not a commitment. Open questions at the bottom n
 
 ## 1. Current VisiData — what to keep, replace, cut
 
-Source: `/home/neumann/Desktop/Projects/visidata` (v3.4).
+Source: [saulpw/visidata](https://github.com/saulpw/visidata) (v3.4).
 
 ### Core abstractions (worth preserving in shape)
 

@@ -5,6 +5,10 @@ edition = "2024"
 description = "Modal terminal data explorer. Polars + Ratatui + mlua. Pre-alpha."
 license = "GPL-3.0-or-later"
 rust-version = "1.88"
+repository = "https://github.com/neumann-mlucas/visidata-rs"
+readme = "README.md"
+keywords = ["tui", "data", "polars", "csv", "parquet"]
+categories = ["command-line-utilities", "visualization"]
 
 [[bin]]
 name = "vdrs"

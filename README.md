@@ -4,10 +4,10 @@ Modal terminal data explorer with VisiData's taste: Polars + Ratatui + mlua,
 Lua-extensible like Neovim. Pre-alpha.
 
 ```
-cargo install --path . --locked              # installs `vdrs`; --locked = tested dep versions
-cargo run --release -- data.parquet          # TUI
-cargo run --release -- --headless data.csv   # schema + first rows, no TUI
-cat data.csv | cargo run --release -- -      # stdin, format sniffed
+cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked   # installs `vdrs`; needs Rust 1.88+
+vdrs data.parquet          # TUI
+vdrs --headless data.csv   # schema + first rows, no TUI
+cat data.csv | vdrs -      # stdin, format sniffed
 ```
 
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
@@ -38,3 +38,8 @@ Development: `cargo test` runs unit tests, end-to-end UI scenarios
 (`app::scenario`) and, when a VisiData checkout sits at `../visidata`, its
 golden-corpus replay (`tests/vd_replay.rs`; CI pins the commit). Without the
 checkout that test skips.
+
+## License
+
+[GPL-3.0-or-later](LICENSE). Independent project, not affiliated with
+[VisiData](https://github.com/saulpw/visidata).
