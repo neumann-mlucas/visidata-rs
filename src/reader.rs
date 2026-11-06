@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use polars::prelude::*;
 
@@ -140,7 +141,7 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
     // Preserve empty header names as empty strings (matches VisiData); don't
     // auto-generate col{i} — that pollutes diffs against xlsx goldens where
     // merged cells legitimately produce blank headers.
-    let headers: Vec<String> = rows[0].iter().map(cell_string).collect();
+    let headers = unique_headers(rows[0].iter().map(cell_string));
     // Column-major fill, all String.
     let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::with_capacity(height - 1)).collect();
     for row in rows.iter().skip(1) {
@@ -160,6 +161,22 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
         .map(|(name, data)| Column::new(name.into(), data))
         .collect();
     DataFrame::new(series).map_err(OpenError::from)
+}
+
+/// Repeats (blank cells above all) get `_duplicated_<i>`, as Polars names CSV
+/// repeats; a DataFrame can't hold two columns of one name.
+fn unique_headers(names: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    names
+        .enumerate()
+        .map(|(i, n)| {
+            if seen.insert(n.clone()) {
+                n
+            } else {
+                format!("{n}_duplicated_{i}")
+            }
+        })
+        .collect()
 }
 
 fn cell_string(c: &calamine::Data) -> String {
@@ -296,13 +313,16 @@ pub fn parse_chunk(
         }
         SourceKind::Csv | SourceKind::Tsv => {
             let sep = if kind == SourceKind::Tsv { b'\t' } else { b',' };
+            // No date parsing: a chunk can't tell ISO columns from ambiguous ones.
             CsvReadOptions::default()
                 .with_has_header(schema.is_none())
                 .with_schema(schema)
+                .with_infer_schema_length(None)
                 .with_parse_options(
                     CsvParseOptions::default()
                         .with_separator(sep)
-                        .with_try_parse_dates(true),
+                        .with_truncate_ragged_lines(true)
+                        .with_encoding(CsvEncoding::LossyUtf8),
                 )
                 .into_reader_with_file_handle(cursor)
                 .finish()
@@ -375,15 +395,8 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
 /// `Json` falls back to `Jsonl` when the file isn't a JSON array.
 fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenError> {
     let lazy = match kind {
-        SourceKind::Csv => LazyCsvReader::new(path)
-            .with_has_header(true)
-            .with_try_parse_dates(true)
-            .finish()?,
-        SourceKind::Tsv => LazyCsvReader::new(path)
-            .with_has_header(true)
-            .with_try_parse_dates(true)
-            .with_separator(b'\t')
-            .finish()?,
+        SourceKind::Csv => scan_csv(path, b',')?,
+        SourceKind::Tsv => scan_csv(path, b'\t')?,
         SourceKind::Parquet => LazyFrame::scan_parquet(path, ScanArgsParquet::default())?,
         SourceKind::Arrow => LazyFrame::scan_ipc(path, ScanArgsIpc::default())?,
         SourceKind::Jsonl => LazyJsonLineReader::new(path).finish()?,
@@ -400,6 +413,68 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
         SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
     };
     Ok((lazy, kind))
+}
+
+/// CSVs at most this big have every row inspected for column types.
+const CSV_FULL_INFER_BYTES: u64 = 256 << 20;
+const CSV_INFER_ROWS: usize = 100_000;
+/// Rows that must look ISO for an inferred date column to stay a date.
+const DATE_SAMPLE_ROWS: u32 = 1000;
+
+/// Reader settings that keep real-world files open: ragged rows are padded or
+/// cut, bad UTF-8 is replaced, and types come from the whole file.
+// ponytail: past CSV_FULL_INFER_BYTES a late type change still fails at
+// materialize; a per-column retry as text would lift that.
+fn csv_reader(path: &Path, sep: u8) -> LazyCsvReader {
+    let whole = std::fs::metadata(path).is_ok_and(|m| m.len() <= CSV_FULL_INFER_BYTES);
+    LazyCsvReader::new(path)
+        .with_has_header(true)
+        .with_separator(sep)
+        .with_infer_schema_length((!whole).then_some(CSV_INFER_ROWS))
+        .with_truncate_ragged_lines(true)
+        .with_encoding(CsvEncoding::LossyUtf8)
+}
+
+/// Scan a CSV. Only ISO dates become date columns: `7/3/2018` is ambiguous
+/// and Polars would guess day-first, so other layouts stay text until `@`.
+fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
+    let inferred = csv_reader(path, sep)
+        .with_try_parse_dates(true)
+        .finish()?
+        .collect_schema()?;
+    let is_date = |d: &DataType| matches!(d, DataType::Date | DataType::Datetime(..));
+    let mut schema = (*inferred).clone();
+    if schema.iter().any(|(_, d)| is_date(d)) {
+        let text: Schema = schema
+            .iter()
+            .map(|(n, d)| {
+                let d = if is_date(d) {
+                    DataType::String
+                } else {
+                    d.clone()
+                };
+                (n.clone(), d)
+            })
+            .collect();
+        let sample = csv_reader(path, sep)
+            .with_schema(Some(Arc::new(text)))
+            .finish()?
+            .limit(DATE_SAMPLE_ROWS)
+            .collect()?;
+        let iso = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex");
+        for (name, dtype) in schema.iter_mut() {
+            if is_date(dtype) {
+                let col = sample.column(name)?.str()?;
+                if !col.into_iter().flatten().all(|v| iso.is_match(v)) {
+                    *dtype = DataType::String;
+                }
+            }
+        }
+    }
+    Ok(csv_reader(path, sep)
+        .with_try_parse_dates(true)
+        .with_schema(Some(Arc::new(schema)))
+        .finish()?)
 }
 
 /// First non-whitespace byte (after an optional UTF-8 BOM) is `[`.
@@ -576,5 +651,56 @@ mod tests {
         let src = open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
         let df = src.lazy.collect().unwrap();
         assert_eq!(df.shape(), (2, 2));
+    }
+
+    fn scan_bytes(bytes: &[u8]) -> DataFrame {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.csv");
+        std::fs::write(&p, bytes).unwrap();
+        open(p.as_os_str(), None).unwrap().lazy.collect().unwrap()
+    }
+
+    #[test]
+    fn late_type_change_widens_the_column() {
+        let mut csv = String::from("a\n");
+        for i in 0..300 {
+            csv += &format!("{i}\n");
+        }
+        csv += "abc\n";
+        let df = scan_bytes(csv.as_bytes());
+        assert_eq!(df.column("a").unwrap().dtype(), &DataType::String);
+        assert_eq!(df.height(), 301);
+    }
+
+    #[test]
+    fn ragged_rows_and_bad_utf8_still_open() {
+        assert_eq!(scan_bytes(b"a,b\n1,2\n3,4,5\n6\n").height(), 3);
+        assert_eq!(scan_bytes(b"a,b\n1,caf\xe9\n").height(), 1);
+    }
+
+    #[test]
+    fn only_iso_dates_become_dates() {
+        let df = scan_bytes(b"n,iso,us,mixed,ts\n1,2024-01-02,7/3/2018,2024-01-02,2024-01-02 03:04:05\n2,2024-01-03,7/4/2018,7/3/2018,2024-01-03 03:04:05\n");
+        assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
+        assert_eq!(df.column("iso").unwrap().dtype(), &DataType::Date);
+        assert!(matches!(
+            df.column("ts").unwrap().dtype(),
+            DataType::Datetime(..)
+        ));
+        assert_eq!(df.column("us").unwrap().dtype(), &DataType::String);
+        assert_eq!(df.column("mixed").unwrap().dtype(), &DataType::String);
+        assert_eq!(
+            df.column("us").unwrap().str().unwrap().get(0),
+            Some("7/3/2018")
+        );
+    }
+
+    #[test]
+    fn repeated_headers_get_unique_names() {
+        let names = ["a", "", "b", "", "a"].map(String::from);
+        assert_eq!(
+            unique_headers(names.into_iter()),
+            ["a", "", "b", "_duplicated_3", "a_duplicated_4"]
+        );
     }
 }
