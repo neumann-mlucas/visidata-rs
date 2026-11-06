@@ -685,7 +685,8 @@ fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
                         v.type_name()
                     )));
                 }
-                v => Cell::Text(text(v)?),
+                LuaValue::String(s) => Cell::Text(s.to_string_lossy()),
+                v => Cell::Text(v.to_string()?),
             };
         }
     }

@@ -562,13 +562,12 @@ impl App {
         if !matches!(active.origin, Origin::Tail { .. }) {
             return;
         }
-        if self.busy.contains(&"tail") {
-            return; // one reopen at a time; a change meanwhile is seen next tick
-        }
+        // One reopen at a time: a change meanwhile is seen on a later tick.
+        let reopening = self.busy.contains(&"tail reopen");
         let active = self.sheets.active_mut();
-        if let Some(path) = active.tail_needs_reopen() {
+        if !reopening && let Some(path) = active.tail_needs_reopen() {
             let kind = active.kind;
-            self.spawn_job("tail", move || {
+            self.spawn_job("tail reopen", move || {
                 let loaded = crate::reader::open(path.as_os_str(), Some(kind));
                 let loaded = loaded.map_err(|e| e.to_string())?;
                 Ok(JobDone::TailSource(Box::new(loaded)))

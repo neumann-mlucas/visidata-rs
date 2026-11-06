@@ -660,14 +660,7 @@ impl Sheet {
             lines = std::mem::take(&mut rest);
             lines.push(b'\n');
         }
-        let Origin::Tail { path, .. } = &self.origin else {
-            return Ok(());
-        };
-        let schema = crate::reader::tail_schema(path, self.kind)?;
-        // Past the size limit the schema has only seen a head of the file; what
-        // it can't parse is inferred from these bytes instead.
-        let df = crate::reader::parse_chunk(self.kind, lines.clone(), schema, true)
-            .or_else(|_| crate::reader::parse_chunk(self.kind, lines, None, true))?;
+        let df = crate::reader::parse_chunk(self.kind, lines, None, true)?;
         let partial = self.parse_partial(rest, &df);
         self.state.tail = Some(TailCache {
             consumed,
@@ -1757,9 +1750,10 @@ pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
 /// Write a DataFrame to disk, picking the writer by file extension.
 /// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
 /// An existing file is replaced by rename from a temp file beside it, so a
-/// failed save (unsupported column type, full disk) leaves it untouched. In a
-/// directory we may not create in, the data is rendered first and then written
-/// in place, so only a failure during that last write can damage the file.
+/// failed save (unsupported column type, full disk) leaves it untouched. Where
+/// that's not allowed the data is rendered first and then written in place, so
+/// only a failure during that last write can damage the file. A rename gives
+/// the file to the saver and detaches hard links.
 pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
     let ext = path
         .extension()
@@ -1790,9 +1784,14 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
     let ext = ext.as_deref();
     let Ok(target) = std::fs::canonicalize(path) else {
         // New file: nothing to protect, and the umask sets its mode. A dangling
-        // symlink resolves here too; the link itself stays.
+        // symlink lands here too: render first, so a failure creates nothing.
+        if std::fs::symlink_metadata(path).is_ok() {
+            let mut rendered = Vec::new();
+            write_df(df, &mut rendered, ext)?;
+            return Ok(std::fs::write(path, rendered)?);
+        }
         let result = write_df(df, std::fs::File::create(path)?, ext);
-        if result.is_err() && std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
+        if result.is_err() {
             let _ = std::fs::remove_file(path);
         }
         return result;
@@ -1816,8 +1815,15 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
     tmp.as_file()
         .set_permissions(std::fs::metadata(&target)?.permissions())?;
     write_df(df, tmp.as_file(), ext)?;
-    tmp.persist(&target).map_err(|e| e.error)?;
-    Ok(())
+    match tmp.persist(&target) {
+        Ok(_) => Ok(()),
+        // Sticky directory: we may write the file but not replace it.
+        Err(e) if e.error.kind() == std::io::ErrorKind::PermissionDenied => {
+            std::fs::copy(e.file.path(), &target)?;
+            Ok(())
+        }
+        Err(e) => Err(e.error.into()),
+    }
 }
 
 fn write_df<W: std::io::Write>(df: &mut DataFrame, file: W, ext: Option<&str>) -> PolarsResult<()> {
@@ -2285,5 +2291,6 @@ mod tests {
         let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
         assert!(write_df_by_extension(&mut df, &link).is_err());
         assert!(std::fs::symlink_metadata(&link).is_ok());
+        assert!(!dir.path().join("later.csv").exists());
     }
 }

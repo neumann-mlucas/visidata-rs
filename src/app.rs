@@ -2431,4 +2431,19 @@ pub(crate) mod scenario {
         assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
         assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_half_written_last_row_does_not_set_column_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "d,n\n2024-01-02,5\n2024-0").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        std::fs::write(&f, "d,n\n2024-01-02,5\n2024-01-03,6\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.height(), 2);
+        assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+    }
 }

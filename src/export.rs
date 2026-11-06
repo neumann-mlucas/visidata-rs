@@ -196,8 +196,7 @@ impl Script {
                     SourceKind::Csv | SourceKind::Tsv => {
                         // Polars' names, and only the header's columns:
                         // null_padding can add more.
-                        let schema = s.source.lazy.clone().collect_schema();
-                        let schema = schema.map_err(|e| e.to_string())?;
+                        let schema = csv_columns(s)?;
                         // SQL has no blank identifiers; such a column becomes `column<i>`.
                         let names: Vec<String> = schema
                             .iter_names()
@@ -936,19 +935,25 @@ fn is_text(s: &Sheet, c: &str) -> bool {
     schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::String))
 }
 
+/// A CSV's columns as vdrs read them. A tail's can change after opening; its
+/// rows know them.
+fn csv_columns(s: &Sheet) -> Result<std::sync::Arc<polars::prelude::Schema>, String> {
+    match &s.state.tail {
+        Some(cache) => Ok(std::sync::Arc::new(cache.df.schema())),
+        None => s
+            .source
+            .lazy
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string()),
+    }
+}
+
 /// CSV columns that loaded as dates (only ISO does; `reader::scan_csv`).
 fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
-    // A tail's types can change after opening; its rows know them.
-    let schema = match &s.state.tail {
-        Some(cache) => std::sync::Arc::new(cache.df.schema()),
-        None => {
-            let schema = s.source.lazy.clone().collect_schema();
-            schema.map_err(|e| e.to_string())?
-        }
-    };
-    Ok(schema
+    Ok(csv_columns(s)?
         .iter()
-        .filter(|(_, d)| matches!(d, DataType::Date | DataType::Datetime(..)))
+        .filter(|(_, d)| crate::reader::is_date(d))
         .map(|(n, d)| (n.to_string(), d.clone()))
         .collect())
 }

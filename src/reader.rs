@@ -285,8 +285,9 @@ pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSour
 
 /// Parse a chunk of CSV/TSV/JSONL bytes (`:tail`). `header`: the bytes start
 /// with the header row. `schema` fixes column types, and a value that doesn't
-/// fit is an error. Date columns must hold ISO text: left to Polars, a chunk
-/// would guess its own pattern and read `7/3/2018` day-first.
+/// fit is an error; without one, types come from these bytes alone (never the
+/// file: its last line may be half written). Dates must be ISO text: left to
+/// Polars, a chunk would guess its own pattern and read `7/3/2018` day-first.
 pub fn parse_chunk(
     kind: SourceKind,
     bytes: Vec<u8>,
@@ -304,23 +305,7 @@ pub fn parse_chunk(
         }
         SourceKind::Csv | SourceKind::Tsv => {
             let sep = if kind == SourceKind::Tsv { b'\t' } else { b',' };
-            let dates: Vec<(PlSmallStr, DataType)> = schema
-                .iter()
-                .flat_map(|s| s.iter())
-                .filter(|(_, d)| is_date(d))
-                .map(|(n, d)| (n.clone(), d.clone()))
-                .collect();
-            let text = schema.map(|s| {
-                let text = s.iter().map(|(n, d)| {
-                    let d = if is_date(d) {
-                        DataType::String
-                    } else {
-                        d.clone()
-                    };
-                    (n.clone(), d)
-                });
-                Arc::new(text.collect::<Schema>())
-            });
+            let text = schema.as_deref().map(|s| Arc::new(dates_as_text(s)));
             let df = CsvReadOptions::default()
                 .with_has_header(header)
                 .with_schema(text)
@@ -333,45 +318,46 @@ pub fn parse_chunk(
                 )
                 .into_reader_with_file_handle(cursor)
                 .finish()?;
-            if dates.is_empty() {
-                return Ok(df);
-            }
-            for (name, _) in &dates {
-                if !all_iso(df.column(name)?.str()?) {
-                    polars_bail!(ComputeError: "{name}: not an ISO date");
+            match schema {
+                Some(s) => {
+                    let dates: Vec<_> = s.iter().filter(|(_, d)| is_date(d)).collect();
+                    for (name, _) in &dates {
+                        if !all_iso(df.column(name)?.str()?) {
+                            polars_bail!(ComputeError: "{name}: not an ISO date");
+                        }
+                    }
+                    let parsed = dates
+                        .iter()
+                        .map(|(n, d)| parse_iso(n, d))
+                        .collect::<Vec<_>>();
+                    df.lazy().with_columns(parsed).collect()
+                }
+                None => {
+                    let mut parsed = Vec::new();
+                    for c in df.get_columns() {
+                        let Ok(text) = c.str() else { continue };
+                        if text.into_iter().flatten().next().is_some() && all_iso(text) {
+                            let date = text.into_iter().flatten().all(|v| v.len() == 10);
+                            let d = if date {
+                                DataType::Date
+                            } else {
+                                DataType::Datetime(TimeUnit::Microseconds, None)
+                            };
+                            parsed.push(parse_iso(c.name(), &d));
+                        }
+                    }
+                    // Rows mixing dates and datetimes stay text.
+                    Ok(df
+                        .clone()
+                        .lazy()
+                        .with_columns(parsed)
+                        .collect()
+                        .unwrap_or(df))
                 }
             }
-            let strict = StrptimeOptions {
-                format: None,
-                strict: true,
-                exact: true,
-                cache: true,
-            };
-            let parsed: Vec<Expr> = dates
-                .iter()
-                .map(|(n, d)| match d {
-                    DataType::Datetime(unit, tz) => col(n.clone()).str().to_datetime(
-                        Some(*unit),
-                        tz.clone(),
-                        strict.clone(),
-                        lit("raise"),
-                    ),
-                    _ => col(n.clone()).str().to_date(strict.clone()),
-                })
-                .collect();
-            df.lazy().with_columns(parsed).collect()
         }
         other => polars_bail!(ComputeError: "{other:?} can't be read incrementally"),
     }
-}
-
-/// Column types of a tail file, by the rules of a plain open.
-pub fn tail_schema(path: &Path, kind: SourceKind) -> Result<Option<SchemaRef>, OpenError> {
-    Ok(match kind {
-        SourceKind::Csv => Some(csv_schema(path, b',')?),
-        SourceKind::Tsv => Some(csv_schema(path, b'\t')?),
-        _ => None,
-    })
 }
 
 pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
@@ -462,14 +448,48 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
 const CSV_FULL_INFER_BYTES: u64 = 256 << 20;
 const CSV_INFER_ROWS: usize = 100_000;
 
-fn is_date(d: &DataType) -> bool {
+pub(crate) fn is_date(d: &DataType) -> bool {
     matches!(d, DataType::Date | DataType::Datetime(..))
+}
+
+fn dates_as_text(schema: &Schema) -> Schema {
+    schema
+        .iter()
+        .map(|(n, d)| {
+            let d = if is_date(d) {
+                DataType::String
+            } else {
+                d.clone()
+            };
+            (n.clone(), d)
+        })
+        .collect()
 }
 
 /// Every value is an ISO date or datetime.
 fn all_iso(values: &StringChunked) -> bool {
-    let iso = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex");
-    values.into_iter().flatten().all(|v| iso.is_match(v))
+    static ISO: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex")
+    });
+    values.into_iter().flatten().all(|v| ISO.is_match(v))
+}
+
+/// Text column `name` (checked by `all_iso`) as date type `dtype`.
+fn parse_iso(name: &str, dtype: &DataType) -> Expr {
+    let strict = StrptimeOptions {
+        format: None,
+        strict: true,
+        exact: true,
+        cache: true,
+    };
+    match dtype {
+        DataType::Datetime(unit, tz) => {
+            col(name)
+                .str()
+                .to_datetime(Some(*unit), tz.clone(), strict, lit("raise"))
+        }
+        _ => col(name).str().to_date(strict),
+    }
 }
 
 fn file_is_small(path: &Path) -> bool {
@@ -512,20 +532,9 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
     if dated.is_empty() {
         return Ok(inferred);
     }
-    let text: Schema = inferred
-        .iter()
-        .map(|(n, d)| {
-            let d = if is_date(d) {
-                DataType::String
-            } else {
-                d.clone()
-            };
-            (n.clone(), d)
-        })
-        .collect();
     // Every row inference saw: one stray layout makes the column text.
     let values = csv_reader(path, sep)
-        .with_schema(Some(Arc::new(text)))
+        .with_schema(Some(Arc::new(dates_as_text(&inferred))))
         .finish()?
         .select(dated)
         .limit(if file_is_small(path) {
