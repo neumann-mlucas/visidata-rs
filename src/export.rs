@@ -1151,7 +1151,6 @@ mod tests {
     #[test]
     fn derived_sheets_export_their_lineage() {
         // String checks only; `app::golden` runs scripts through DuckDB and Polars.
-        // reproduce the vdrs rows (join/diff row order, pivot 0-vs-null aside).
         let (s, _t) = sheet();
         let mut r = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
         writeln!(r, "name,extra\nalice,x").unwrap();

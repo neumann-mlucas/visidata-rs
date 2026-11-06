@@ -24,19 +24,6 @@ use polars::prelude::*;
 use visidata_rs::reader;
 use visidata_rs::sheet::{Origin, Sheet, SheetId, SortKey, SortOrder};
 
-/// Driver-local column metadata that doesn't belong on `Sheet` yet.
-/// hide/key semantics are Phase 1.5 production work (S-13 #2); until then we
-/// track them in the test driver to unlock golden coverage.
-#[derive(Default)]
-struct ColMeta {
-    hidden: HashSet<String>,
-    keys: Vec<String>, // VisiData key-col order, preserved
-    /// Non-key column order hint. Overrides schema order in serialize when set.
-    /// Used after multi-sheet appends to match VisiData's enumerate-reverse-selection
-    /// convention. Empty = fall back to schema order.
-    col_order: Vec<String>,
-}
-
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
 const MIN_PASS: usize = 21;
@@ -116,7 +103,9 @@ fn parse_vdj(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
 struct SheetSlot {
     name: String,
     sheet: Sheet,
-    meta: ColMeta,
+    /// Non-key column order after multi-sheet appends (VisiData's
+    /// enumerate-reverse-selection convention). Empty = schema order.
+    col_order: Vec<String>,
 }
 
 /// Multi-sheet replay driver (iteration 5). `loaded` grows as `open-file`
@@ -251,7 +240,7 @@ impl Replay {
         self.loaded.push(SheetSlot {
             name,
             sheet,
-            meta: ColMeta::default(),
+            col_order: Vec::new(),
         });
         self.set_current(self.loaded.len() - 1);
         self.meta_mode = None;
@@ -317,7 +306,7 @@ impl Replay {
                 self.next_id += 1;
                 let (name, new) = {
                     let parent_slot = self.current_slot()?;
-                    let keys = parent_slot.meta.keys.clone();
+                    let keys = parent_slot.sheet.view.keys.clone();
                     if keys.is_empty() {
                         return Err(Runtime("melt: no key columns on parent".into()));
                     }
@@ -370,10 +359,10 @@ impl Replay {
                 let old = r.col.as_str();
                 let new = r.input.as_str();
                 slot.sheet.plan = slot.sheet.plan.clone().rename([old], [new], true);
-                if slot.meta.hidden.remove(old) {
-                    slot.meta.hidden.insert(new.to_string());
+                if slot.sheet.view.hidden.remove(old) {
+                    slot.sheet.view.hidden.insert(new.to_string());
                 }
-                for k in slot.meta.keys.iter_mut() {
+                for k in slot.sheet.view.keys.iter_mut() {
                     if k == old {
                         *k = new.to_string();
                     }
@@ -381,22 +370,30 @@ impl Replay {
                 Ok(())
             }
             "hide-col" => {
-                self.current_slot_mut()?.meta.hidden.insert(r.col.clone());
+                self.current_slot_mut()?
+                    .sheet
+                    .view
+                    .hidden
+                    .insert(r.col.clone());
                 Ok(())
             }
             "key-col" => {
                 // VisiData `!` is TOGGLE, not add. Repeated key-col on the
                 // same col removes it (seen in inner-join / full-join tests).
                 let slot = self.current_slot_mut()?;
-                if let Some(i) = slot.meta.keys.iter().position(|k| k == &r.col) {
-                    slot.meta.keys.remove(i);
+                if let Some(i) = slot.sheet.view.keys.iter().position(|k| k == &r.col) {
+                    slot.sheet.view.keys.remove(i);
                 } else {
-                    slot.meta.keys.push(r.col.clone());
+                    slot.sheet.view.keys.push(r.col.clone());
                 }
                 Ok(())
             }
             "unkey-col" => {
-                self.current_slot_mut()?.meta.keys.retain(|k| k != &r.col);
+                self.current_slot_mut()?
+                    .sheet
+                    .view
+                    .keys
+                    .retain(|k| k != &r.col);
                 Ok(())
             }
             "type-int" => self.cast(&r.col, DataType::Int64),
@@ -492,11 +489,11 @@ impl Replay {
 
     fn sort_keys(&mut self, order: SortOrder) -> Result<(), StepErr> {
         let slot = self.current_slot_mut()?;
-        if slot.meta.keys.is_empty() {
+        if slot.sheet.view.keys.is_empty() {
             return Err(StepErr::Runtime("sort-keys with no key columns".into()));
         }
         slot.sheet.view.sort.clear();
-        for k in &slot.meta.keys {
+        for k in &slot.sheet.view.keys {
             slot.sheet.view.sort.push(SortKey {
                 column: k.clone(),
                 order,
@@ -604,7 +601,7 @@ impl Replay {
     ///   2. Else: scan for the row where any key col string-equals row_key.
     ///   3. Else: Runtime error (test skips with a reason).
     fn select_equal_cell(&mut self, col_name: &str, row_key: &str) -> Result<(), StepErr> {
-        let keys = self.current_slot()?.meta.keys.clone();
+        let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
             .plan
@@ -670,7 +667,7 @@ impl Replay {
         if matches!(self.meta_mode, Some(MetaMode::ColumnsSheet)) {
             return Ok(());
         }
-        let keys = self.current_slot()?.meta.keys.clone();
+        let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
             .plan
@@ -695,7 +692,7 @@ impl Replay {
     /// Applies to a single row at (col, row). Phase 1.5: literal strings only;
     /// VisiData's "input" expression form hooks into Phase 3 Lua eval.
     fn setcol_input(&mut self, col_name: &str, row_key: &str, value: &str) -> Result<(), StepErr> {
-        let keys = self.current_slot()?.meta.keys.clone();
+        let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
             .plan
@@ -774,7 +771,7 @@ impl Replay {
             // n_unique counts null as one value; treat all-null + 1 real = 2.
             // Fast path: ≤1 distinct value means hide.
             if unique_count <= 1 {
-                slot.meta.hidden.insert(name);
+                slot.sheet.view.hidden.insert(name);
             }
         }
         Ok(())
@@ -936,7 +933,7 @@ impl Replay {
             // sheets whose key columns have different names.
             _ => {
                 let first = &self.loaded[slot_idxs[0]];
-                let left_keys = first.meta.keys.clone();
+                let left_keys = first.sheet.view.keys.clone();
                 if left_keys.is_empty() {
                     return Err(StepErr::Runtime(format!(
                         "join-sheets {jt}: first sheet has no key columns"
@@ -955,7 +952,7 @@ impl Replay {
                 let left_exprs: Vec<_> = left_keys.iter().map(|k| col(k.as_str())).collect();
                 let mut acc = first.sheet.plan.clone();
                 for &i in slot_idxs.iter().skip(1) {
-                    let right_keys = &self.loaded[i].meta.keys;
+                    let right_keys = &self.loaded[i].sheet.view.keys;
                     if right_keys.len() < left_keys.len() {
                         return Err(StepErr::Runtime(format!(
                             "join-sheets {jt}: sheet '{}' has {} key(s), need ≥{}",
@@ -1019,7 +1016,7 @@ impl Replay {
         let source = first.sheet.source.clone();
         // VisiData's join keeps first-sheet's keys on the result so subsequent
         // sort-keys / column-order reflect them. Inherit here.
-        let inherited_keys = first.meta.keys.clone();
+        let inherited_keys = first.sheet.view.keys.clone();
         let joined = Sheet {
             id,
             name: joined_name.clone(),
@@ -1034,7 +1031,7 @@ impl Replay {
         };
         self.push_sheet(joined_name, joined);
         if let Some(slot) = self.loaded.last_mut() {
-            slot.meta.keys = inherited_keys;
+            slot.sheet.view.keys = inherited_keys;
         }
         // For append: enumerate non-key cols in REVERSE selection order to
         // match VisiData output (data1's cols appear before data2's when
@@ -1045,7 +1042,8 @@ impl Replay {
                 .loaded
                 .last()
                 .unwrap()
-                .meta
+                .sheet
+                .view
                 .keys
                 .iter()
                 .map(String::as_str)
@@ -1064,7 +1062,7 @@ impl Replay {
                 }
             }
             if let Some(slot) = self.loaded.last_mut() {
-                slot.meta.col_order = col_order;
+                slot.col_order = col_order;
             }
         }
         Ok(())
@@ -1075,64 +1073,32 @@ impl Replay {
             StepErr::Runtime(m) => m,
             _ => "no active sheet".into(),
         })?;
-        let s = &slot.sheet;
-        let mut plan = s.plan.clone();
-        if !s.view.sort.is_empty() {
-            let by: Vec<&str> = s.view.sort.iter().map(|k| k.column.as_str()).collect();
-            let desc: Vec<bool> = s
-                .view
-                .sort
-                .iter()
-                .map(|k| k.order == SortOrder::Desc)
-                .collect();
-            // VisiData's sort is stable; Polars default is unstable. Stable is
-            // required for golden parity when sort keys have ties.
-            let opts = SortMultipleOptions::default()
-                .with_order_descending_multi(desc)
-                .with_maintain_order(true);
-            plan = plan.sort(by, opts);
-        }
-        let mut df = plan.collect().map_err(|e| e.to_string())?;
-
-        // Apply visible-column projection: key columns first (in key-col order),
-        // then remaining in schema order, dropping any in `hidden`.
-        let all_names: Vec<String> = df
+        // The app's own query: casts, filter, stable sort, hide, keys first.
+        let mut df = slot
+            .sheet
+            .view_plan()
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let shown: Vec<String> = df
             .get_column_names()
             .into_iter()
             .map(|s| s.to_string())
             .collect();
-        let mut order: Vec<String> = Vec::with_capacity(all_names.len());
-        for k in &slot.meta.keys {
-            if all_names.iter().any(|n| n == k) && !slot.meta.hidden.contains(k) {
-                order.push(k.clone());
-            }
-        }
-        // VisiData convention: `origin_sheet` (added by `append` jointype)
-        // sorts right after the key columns.
-        if all_names.iter().any(|n| n == "origin_sheet")
-            && !order.iter().any(|n| n == "origin_sheet")
-            && !slot.meta.hidden.contains("origin_sheet")
+        // VisiData's join columns: keys, then `origin_sheet`, then the
+        // col_order hint, then the rest.
+        let keys = slot.sheet.view.keys.iter();
+        let mut order: Vec<String> = Vec::with_capacity(shown.len());
+        for n in keys
+            .chain(std::iter::once(&"origin_sheet".to_string()))
+            .chain(&slot.col_order)
+            .chain(&shown)
         {
-            order.push("origin_sheet".into());
-        }
-        // Apply col_order hint before schema order (used by append).
-        for n in &slot.meta.col_order {
-            if all_names.iter().any(|x| x == n)
-                && !order.contains(n)
-                && !slot.meta.hidden.contains(n)
-            {
+            if shown.contains(n) && !order.contains(n) {
                 order.push(n.clone());
             }
         }
-        for n in &all_names {
-            if !order.contains(n) && !slot.meta.hidden.contains(n) {
-                order.push(n.clone());
-            }
-        }
-        if order != all_names {
-            df = df
-                .select(order.iter().cloned())
-                .map_err(|e| e.to_string())?;
+        if order != shown {
+            df = df.select(order).map_err(|e| e.to_string())?;
         }
 
         let mut buf = Vec::new();
