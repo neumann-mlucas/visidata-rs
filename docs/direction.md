@@ -1,8 +1,8 @@
 # VisiData → Rust Refactor: Direction Doc
 
-Research synthesis for a Rust rewrite of VisiData using Ratatui + Polars + mlua, leaning harder into vim/neovim philosophy. Based on local codebase read, GitHub issue scan, and tool-landscape survey (Oct 2026).
+Original design notes for a Rust take on VisiData using Ratatui + Polars + mlua, leaning harder into vim/neovim philosophy. Based on a read of the VisiData source, a GitHub issue scan, and a tool-landscape survey (Oct 2026).
 
-Everything below is a proposal, not a commitment. Open questions at the bottom need your call before anything gets built.
+Kept for context: this is the plan as written, not current status. §9 records the decisions taken. For what ships today see [S-15](specs/S-15-feature-inventory.md).
 
 ---
 
@@ -152,14 +152,14 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 - **"Rewrite in Rust" fatigue (2026).** Don't frame the project as a rewrite; frame it as the modal pivot/plan/Lua tool. VisiData comparison is subhead, not headline.
 - **Audience small anyway.** polars-gui exists and is barely alive. VisiData has 9k stars after a decade. This is a niche in a niche. OK — but means distribution, docs, and demo videos are 50% of the project, not 10%.
 - **mlua version churn / Lua 5.1 vs 5.4 vs Luau split.** Pick one (5.4), freeze, document. Don't support three.
-- **ponytail**: this doc assumes "yazi architecture" is the right lift. Pay down by actually reading yazi's source before Phase 1 locks in — don't commit to a pattern we've only read about in a landscape report.
+- **Unproven architecture**: this doc assumes "yazi architecture" is the right lift. Pay down by actually reading yazi's source before Phase 1 locks in — don't commit to a pattern we've only read about in a landscape report.
 
 ---
 
 ## 9. Decisions (locked 2026-10-08)
 
 1. **Scope**: new product with VisiData's **shape**. Not feature-parity, not a blank-slate "what if a spreadsheet in a terminal?" — the modal flow, g/z prefixes, and command vocabulary are the taste we keep.
-2. **Audience**: primary user is a heavy VisiData user (the person commissioning this). Build-for-me first; broader terminal-data users are secondary. **Implication**: default keymap must feel like VisiData from keystroke 1 even without a compat layer — muscle memory is the UX contract, which is stricter than "generic vim-ish."
+2. **Audience**: primary user is a heavy VisiData user (the author). Build-for-me first; broader terminal-data users are secondary. **Implication**: default keymap must feel like VisiData from keystroke 1 even without a compat layer — muscle memory is the UX contract, which is stricter than "generic vim-ish."
 3. **Engine**: Polars only, all phases. DuckDB backend dropped. Revisit only if we hit a Polars OOC wall we can't engineer around.
 4. **Config**: pure `init.lua`. No TOML/KDL layer.
 5. **Compat**: zero. No `.vdj`, no `.visidatarc` import, no reading VisiData state files. Data files are shared; everything else starts fresh.

@@ -3,6 +3,18 @@
 Modal terminal data explorer with VisiData's taste: Polars + Ratatui + mlua,
 Lua-extensible like Neovim. Pre-alpha.
 
+A pivot sheet, from the test suite (`:pivot grp name amt sum`):
+
+```
+ …(grp×name→amt): tests/golden/pivot-sum/input.csv  row 1/3 · col 1/6 (grp) · sel 0  Csv · sheets 2
+grp str  ann f  bob f  cid f  dee f  eve f
+a        1.5    ·      0.0    ·      ·
+b        ·      2.25   ·      ·      1234567.89
+c        ·      ·      ·      4.0    ·
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+```
+
 ```
 cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked   # installs `vdrs`; needs Rust 1.88+
 vdrs data.parquet          # TUI
@@ -25,8 +37,7 @@ commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
 `:export` writes a Polars or DuckDB script that rebuilds the view, including
 derived sheets.
 
-- **User guide**: [`docs/index.html`](docs/index.html) — publish it with GitHub Pages
-  (Settings → Pages → Deploy from a branch → `master`, folder `/docs`)
+- **User guide**: <https://neumann-mlucas.github.io/visidata-rs/>
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
 - Punchlist: [`docs/tasks.md`](docs/tasks.md)

@@ -97,8 +97,8 @@ td:first-child { white-space: nowrap; }
 <p class="lede">vdrs (visidata-rs) is a modal terminal data explorer. It reads CSV, Parquet, JSON, Excel and SQLite through Polars, shows them in a keyboard-driven table, and lets you sort, filter, pivot, join and query without leaving the terminal. If you know VisiData, most keys will feel familiar.</p>
 
 <h2 id="install">Install</h2>
-<p>You need a Rust toolchain (1.85 or newer). From a checkout of the repository:</p>
-<pre><code>cargo install --path . --locked</code></pre>
+<p>You need a Rust toolchain (1.88 or newer):</p>
+<pre><code>cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked</code></pre>
 <p>This installs the <code>vdrs</code> binary. <code>--locked</code> builds with the dependency versions the project is tested with; without it Cargo may pick newer, incompatible releases.</p>
 
 <h2 id="open">Opening data</h2>
