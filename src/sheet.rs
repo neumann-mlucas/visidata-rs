@@ -899,10 +899,7 @@ impl Sheet {
     ) -> Self {
         let pred = values_predicate(column, values);
         let label = match values {
-            [one] => format!(
-                "{column}={}",
-                one.get_str().map_or_else(|| one.to_string(), String::from)
-            ),
+            [one] => format!("{column}={}", any_text(one)),
             many => format!("{column} in {} values", many.len()),
         };
         let origin = Origin::Selected { parent: parent.id };
@@ -1639,9 +1636,15 @@ pub fn freq_stat_names(column: &str) -> (&'static str, &'static str) {
     }
 }
 
-/// A value as the text `values_predicate` compares.
-fn any_text(v: &AnyValue) -> String {
-    v.get_str().map_or_else(|| v.to_string(), String::from)
+/// A value as `cast(String)` prints it: the text `values_predicate` compares.
+/// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
+pub fn any_text(v: &AnyValue) -> String {
+    let cast = Series::from_any_values("v".into(), std::slice::from_ref(v), true)
+        .and_then(|s| s.cast(&DataType::String));
+    let text = cast
+        .ok()
+        .and_then(|s| s.str().ok()?.get(0).map(String::from));
+    text.unwrap_or_else(|| v.to_string())
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.

@@ -1452,6 +1452,15 @@ mod scenario {
         }
     }
 
+    /// Harness over a CSV holding exactly `bytes`.
+    async fn csv(bytes: &[u8]) -> Harness {
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        tmp.write_all(bytes).unwrap();
+        tmp.flush().unwrap();
+        let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+        Harness::with_source(loaded, tmp).await
+    }
+
     fn title(h: &Harness) -> String {
         h.screen().lines().next().unwrap_or_default().to_string()
     }
@@ -2098,5 +2107,36 @@ mod scenario {
             "{}",
             h.screen()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn floats_show_exactly_and_select_equal_compares_them_exactly() {
+        let mut h = csv(b"x,y\n1.00000001,a\n1.0,b\n123456789.125,c\n").await;
+        assert!(h.screen().contains("1.00000001"), "{}", h.screen());
+        assert!(h.screen().contains("123456789.125"), "{}", h.screen());
+        h.keys(",").await;
+        let rid = |h: &Harness| {
+            h.app
+                .sheets
+                .active()
+                .view
+                .selected
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rid(&h), vec![0], "cursor row only, not the row holding 1.0");
+        h.keys("g u j j ,").await;
+        assert_eq!(rid(&h), vec![2]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn select_equal_and_freq_dive_match_datetimes() {
+        let mut h = csv(b"t,y\n2024-01-02 03:04:05,a\n2024-01-03 03:04:05,b\n").await;
+        h.keys(",").await;
+        assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+        h.keys("F").await;
+        h.keys("<CR>").await;
+        assert!(title(&h).contains("row 1/1"), "{}", title(&h));
     }
 }

@@ -343,7 +343,8 @@ impl App {
                     let rids = sheet
                         .rids_with_values(&column, std::slice::from_ref(&value))
                         .map_err(|e| e.to_string())?;
-                    let note = format!("selected {} rows where {column} = {value}", rids.len());
+                    let text = crate::sheet::any_text(&value);
+                    let note = format!("selected {} rows where {column} = {text}", rids.len());
                     Ok(JobDone::Select { rids, note })
                 });
             }

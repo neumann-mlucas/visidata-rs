@@ -217,7 +217,8 @@ impl Plugins {
     /// Renderers are assumed pure: results are memoized per distinct value.
     pub fn render(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<String> {
         let dt = crate::widget::dtype_badge(dtype);
-        let key = (column.to_string(), dt.clone(), value.to_string());
+        // `Debug`, not `Display`: Display rounds floats, merging distinct cells.
+        let key = (column.to_string(), dt.clone(), format!("{value:?}"));
         if let Some(hit) = self.rendered.borrow().get(&key) {
             return hit.clone();
         }
@@ -1037,5 +1038,16 @@ mod tests {
                 .call(0, &ctx)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn renderer_memo_keeps_close_floats_apart() {
+        let p = Plugins::load_from_source(
+            r#"vd.register_renderer{column="x",render=function(v) return string.format("%.8f",v) end}"#,
+        )
+        .unwrap();
+        let r = |f| p.render("x", &DataType::Float64, &AnyValue::Float64(f));
+        assert_eq!(r(1.00000001).as_deref(), Some("1.00000001"));
+        assert_eq!(r(1.00000002).as_deref(), Some("1.00000002"));
     }
 }
