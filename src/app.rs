@@ -2398,4 +2398,37 @@ pub(crate) mod scenario {
             assert_eq!(h.app.sheets.len(), 1);
         }
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_turns_a_date_column_to_text_when_an_ambiguous_date_arrives() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "d\n2024-01-02\n").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        std::fs::write(&f, "d\n2024-01-02\n7/3/2018\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.column("d").unwrap().dtype(), &DataType::String);
+        assert_eq!(
+            df.column("d").unwrap().str().unwrap().get(1),
+            Some("7/3/2018")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_learns_types_from_the_first_rows_after_a_bare_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "d,n\n").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        std::fs::write(&f, "d,n\n2024-01-02,5\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+        assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
+    }
 }

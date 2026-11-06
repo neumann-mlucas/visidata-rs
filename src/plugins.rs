@@ -626,7 +626,8 @@ fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
     };
     let text = |v: LuaValue| match v {
         LuaValue::String(s) => Ok(s.to_string_lossy()),
-        other => other.to_string(),
+        v @ (LuaValue::Integer(_) | LuaValue::Number(_)) => v.to_string(),
+        other => Err(bad(format!("expected text, not {}", other.type_name()))),
     };
     let name = match spec.get::<LuaValue>("name")? {
         LuaValue::Nil => None,
@@ -1157,6 +1158,8 @@ mod tests {
             ),
             (r#"columns={"__vdrs_rid"}, rows={{1}}"#, "reserved"),
             (r#"rows={{1}}"#, "columns must be a table"),
+            (r#"columns={{"a"}}, rows={}"#, "expected text"),
+            (r#"name={}, columns={"a"}, rows={}"#, "expected text"),
             (r#"columns={"a"}"#, "rows must be a table"),
             (r#"columns={"a"}, rows={1}"#, "row 1 isn't a table"),
         ] {

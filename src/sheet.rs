@@ -664,7 +664,10 @@ impl Sheet {
             return Ok(());
         };
         let schema = crate::reader::tail_schema(path, self.kind)?;
-        let df = crate::reader::parse_chunk(self.kind, lines, schema, true)?;
+        // Past the size limit the schema has only seen a head of the file; what
+        // it can't parse is inferred from these bytes instead.
+        let df = crate::reader::parse_chunk(self.kind, lines.clone(), schema, true)
+            .or_else(|_| crate::reader::parse_chunk(self.kind, lines, None, true))?;
         let partial = self.parse_partial(rest, &df);
         self.state.tail = Some(TailCache {
             consumed,
@@ -736,8 +739,9 @@ impl Sheet {
             return Ok(false);
         }
         self.state.tail_stamp = stamp;
-        if std::fs::metadata(path)?.len() < cache.consumed || cache.consumed == 0 {
-            self.reload_tail_cache()?; // truncated, rotated or header-only: start over
+        let header_only = cache.consumed == 0 || cache.df.height() == 0;
+        if std::fs::metadata(path)?.len() < cache.consumed || header_only {
+            self.reload_tail_cache()?; // truncated, rotated, or types still unknown
         } else {
             let (new, rest) = self.tail_bytes(cache.consumed)?;
             let added = new.len() as u64;
@@ -1753,8 +1757,9 @@ pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
 /// Write a DataFrame to disk, picking the writer by file extension.
 /// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
 /// An existing file is replaced by rename from a temp file beside it, so a
-/// failed save (unsupported column type, full disk) leaves it untouched; a
-/// directory we can't create in falls back to writing the file directly.
+/// failed save (unsupported column type, full disk) leaves it untouched. In a
+/// directory we may not create in, the data is rendered first and then written
+/// in place, so only a failure during that last write can damage the file.
 pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
     let ext = path
         .extension()
@@ -1784,9 +1789,10 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
     }
     let ext = ext.as_deref();
     let Ok(target) = std::fs::canonicalize(path) else {
-        // New file: nothing to protect, and the umask sets its mode.
+        // New file: nothing to protect, and the umask sets its mode. A dangling
+        // symlink resolves here too; the link itself stays.
         let result = write_df(df, std::fs::File::create(path)?, ext);
-        if result.is_err() {
+        if result.is_err() && std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
             let _ = std::fs::remove_file(path);
         }
         return result;
@@ -1794,20 +1800,27 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
     // Same refusal as writing in place: a read-only file stays read-only.
     drop(std::fs::OpenOptions::new().write(true).open(&target)?);
     let dir = target.parent().unwrap_or(std::path::Path::new("."));
-    let Ok(tmp) = tempfile::Builder::new()
+    let tmp = tempfile::Builder::new()
         .prefix(".vdrs-save")
-        .tempfile_in(dir)
-    else {
-        return write_df(df, std::fs::File::create(&target)?, ext);
+        .tempfile_in(dir);
+    let tmp = match tmp {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            let mut rendered = Vec::new();
+            write_df(df, &mut rendered, ext)?;
+            std::fs::write(&target, rendered)?;
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
     };
     tmp.as_file()
         .set_permissions(std::fs::metadata(&target)?.permissions())?;
-    write_df(df, tmp.as_file().try_clone()?, ext)?;
+    write_df(df, tmp.as_file(), ext)?;
     tmp.persist(&target).map_err(|e| e.error)?;
     Ok(())
 }
 
-fn write_df(df: &mut DataFrame, file: std::fs::File, ext: Option<&str>) -> PolarsResult<()> {
+fn write_df<W: std::io::Write>(df: &mut DataFrame, file: W, ext: Option<&str>) -> PolarsResult<()> {
     match ext {
         Some("tsv" | "tab") => CsvWriter::new(file).with_separator(b'\t').finish(df),
         Some("parquet" | "pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
@@ -2261,5 +2274,16 @@ mod tests {
         let keys = vec!["a".to_string()];
         let w = Sheet::pivot_current_from(&s, 1, &keys, "b").unwrap();
         assert_eq!(w.plan.clone().collect().unwrap().height(), 1);
+    }
+
+    #[test]
+    fn failed_save_through_a_dangling_symlink_keeps_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("out.csv");
+        std::os::unix::fs::symlink(dir.path().join("later.csv"), &link).unwrap();
+        let list = Series::new("l".into(), [1i32]).implode().unwrap();
+        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        assert!(write_df_by_extension(&mut df, &link).is_err());
+        assert!(std::fs::symlink_metadata(&link).is_ok());
     }
 }

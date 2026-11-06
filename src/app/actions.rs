@@ -562,6 +562,10 @@ impl App {
         if !matches!(active.origin, Origin::Tail { .. }) {
             return;
         }
+        if self.busy.contains(&"tail") {
+            return; // one reopen at a time; a change meanwhile is seen next tick
+        }
+        let active = self.sheets.active_mut();
         if let Some(path) = active.tail_needs_reopen() {
             let kind = active.kind;
             self.spawn_job("tail", move || {
@@ -677,9 +681,11 @@ impl App {
             })
             .map(|(id, _, _)| id);
         let right = open_sheet.and_then(|id| Some(self.sheets.find_by_id_mut(id)?.clone()));
-        let Ok(opened) = self.open_with_loader("join", source) else {
-            return;
+        let opened = match right {
+            Some(_) => Ok(None), // already open: no file to read
+            None => self.open_with_loader("join", source),
         };
+        let Ok(opened) = opened else { return };
         let id = self.sheets.alloc_id();
         let left = self.sheets.active().clone();
         let (source, keys, how) = (source.to_string(), keys.to_vec(), how.to_string());

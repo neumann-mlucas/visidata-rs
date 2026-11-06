@@ -938,8 +938,14 @@ fn is_text(s: &Sheet, c: &str) -> bool {
 
 /// CSV columns that loaded as dates (only ISO does; `reader::scan_csv`).
 fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
-    let schema = s.source.lazy.clone().collect_schema();
-    let schema = schema.map_err(|e| e.to_string())?;
+    // A tail's types can change after opening; its rows know them.
+    let schema = match &s.state.tail {
+        Some(cache) => std::sync::Arc::new(cache.df.schema()),
+        None => {
+            let schema = s.source.lazy.clone().collect_schema();
+            schema.map_err(|e| e.to_string())?
+        }
+    };
     Ok(schema
         .iter()
         .filter(|(_, d)| matches!(d, DataType::Date | DataType::Datetime(..)))
@@ -976,7 +982,7 @@ fn py_temporal(d: &DataType) -> &'static str {
 /// `read_csv_auto` arguments matching how vdrs read this file: DuckDB must not
 /// sniff `7/3/2018` as a date.
 fn sql_csv_args(s: &Sheet) -> Result<String, String> {
-    let mut args = ", sample_size = -1, null_padding = true, \
+    let mut args = ", header = true, sample_size = -1, null_padding = true, \
                     auto_type_candidates = ['BOOLEAN', 'BIGINT', 'DOUBLE', 'VARCHAR']"
         .to_string();
     if s.kind == SourceKind::Tsv {
