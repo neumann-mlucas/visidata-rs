@@ -757,11 +757,24 @@ impl App {
                 .and_then(|df| df.get_columns().get(v.col_cursor)?.get(v.row_cursor).ok())
                 .unwrap_or(AnyValue::Null),
         };
-        self.toast = Some(match p.call(id, &ctx) {
-            Ok(toasts) if toasts.is_empty() => return,
-            Ok(toasts) => toasts.join(" · "),
-            Err(e) => format!("{e}"),
-        });
+        let out = match p.call(id, &ctx) {
+            Ok(out) => out,
+            Err(e) => {
+                self.toast = Some(format!("{e}"));
+                return;
+            }
+        };
+        for (name, df) in out.sheets {
+            let id = self.sheets.alloc_id();
+            let parent = self.sheets.active();
+            let origin = Origin::Lua { parent: parent.id };
+            let child = Sheet::child(parent, id, name, df.lazy(), origin);
+            self.sheets.push(child);
+            self.spawn_materialize();
+        }
+        if !out.toasts.is_empty() {
+            self.toast = Some(out.toasts.join(" · "));
+        }
     }
 
     fn current_column_name(&self) -> Option<String> {
@@ -2009,6 +2022,27 @@ mod scenario {
         // vd.toast outside a binding is a load error, not a silent queue
         let err = crate::plugins::Plugins::load_from_source(r#"vd.toast("hi")"#);
         assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn lua_push_sheet_opens_a_sheet() {
+        let mut h = Harness::new(5).await;
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"vd.bind("sheet", "X", function()
+                     local rows = {}
+                     for i, c in ipairs(vd.sheet().column_names) do rows[#rows + 1] = { i, c } end
+                     vd.push_sheet { name = "cols", columns = { "n", "name" }, rows = rows }
+                   end)"#,
+            )
+            .unwrap(),
+        );
+        (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+        h.keys("X").await;
+        assert!(title(&h).contains("cols"), "{}", title(&h));
+        assert_eq!(first_cell(&h), "1");
+        h.keys("q").await;
+        assert!(!title(&h).contains("cols"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

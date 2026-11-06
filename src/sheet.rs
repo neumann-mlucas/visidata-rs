@@ -187,6 +187,10 @@ pub enum Origin {
     Describe {
         parent: SheetId,
     },
+    /// `vd.push_sheet` from a Lua binding run on `parent`.
+    Lua {
+        parent: SheetId,
+    },
     /// `g"` / `:dup`: copy of `parent`'s view.
     Copy {
         parent: SheetId,

@@ -24,7 +24,8 @@ Still open (see S-15 §10.1):
 
 - [x] Live pivot preview while typing `:pivot` (hints → pivot of first 10k rows)
 - [x] Lua function bindings + `vd.toast` + `vd.sheet()` (api_version 2)
-- [ ] Rest of S-10 (`vd.frame`, push/pop sheet, sandbox, coroutines, deprecate registry) — when a Lua user asks
+- [x] `vd.push_sheet { name?, columns, rows }` (api_version 3)
+- [ ] Rest of S-10 (`vd.frame`, pop sheet, sandbox, coroutines, deprecate registry) — when a Lua user asks
 - [x] Renderer output memoized per value and counted in column widths
 - [x] Lua aggregators off the UI thread: `:pivot` and its preview run them on a background job (mlua `send`; VM lock per cell)
 - [x] Deterministic row order for joins / `:sql`: result collected once in the background

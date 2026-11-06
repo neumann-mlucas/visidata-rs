@@ -395,8 +395,19 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 <h3>vd.sheet(), vd.toast(message)</h3>
 <p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
 
+<h3>vd.push_sheet { name, columns, rows }</h3>
+<p>Only inside a function bound with <code>vd.bind</code>. Opens a new sheet from Lua data once the function returns; <kbd>q</kbd> closes it like any other. <code>columns</code> lists the column names in order; <code>rows</code> is an array of rows, each an array of values in that order (<code>nil</code> is an empty cell). <code>name</code> is optional. Each column's type follows its values: all integers → integer, any other number → float, all booleans → boolean, anything else → text.</p>
+<pre><code>vd.bind("sheet", "&lt;F3&gt;", function()        -- a sheet listing the columns
+  local rows = {}
+  for i, name in ipairs(vd.sheet().column_names) do
+    rows[#rows + 1] = { i, name, #name }
+  end
+  vd.push_sheet { name = "columns", columns = { "n", "name", "length" }, rows = rows }
+end, "list columns")</code></pre>
+<p>A row with more values than <code>columns</code>, a duplicate column name, or a table or function as a value is an error shown in the status line. These sheets can't be exported with <code>:export</code>.</p>
+
 <h3>vd.set_theme(name), vd.api_version</h3>
-<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>.</p>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>.</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>

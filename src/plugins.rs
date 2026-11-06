@@ -12,7 +12,7 @@ use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Keymap, Layer};
 use crate::reader::{LoadedSource, OpenError, SourceKind};
-use polars::prelude::{AnyValue, DataType, Series};
+use polars::prelude::{AnyValue, Column, DataFrame, DataType, NamedFrom, Series};
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
@@ -34,6 +34,14 @@ struct Registry {
     /// While a callback runs: what `vd.sheet()` returns, and `vd.toast` messages.
     current: Option<LuaTable>,
     toasts: Vec<String>,
+    pushed: Vec<(String, DataFrame)>,
+}
+
+/// What a `vd.bind` function asked for: status messages and new sheets.
+#[derive(Default)]
+pub struct LuaOutput {
+    pub toasts: Vec<String>,
+    pub sheets: Vec<(String, DataFrame)>,
 }
 
 /// What a `vd.bind` function sees through `vd.sheet()`.
@@ -88,7 +96,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 2; // 2: function bindings, vd.toast, vd.sheet
+pub const API_VERSION: i64 = 3; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -238,7 +246,7 @@ impl Plugins {
 
     /// Run `vd.bind` function `id` with `vd.sheet()` = `ctx`. Returns the
     /// `vd.toast` messages; a Lua error comes back as Err.
-    pub fn call(&self, id: usize, ctx: &SheetCtx) -> Result<Vec<String>, PluginError> {
+    pub fn call(&self, id: usize, ctx: &SheetCtx) -> Result<LuaOutput, PluginError> {
         let lua = &self.lua;
         let t = lua.create_table()?;
         t.set("name", ctx.name)?;
@@ -265,9 +273,12 @@ impl Plugins {
         let r = registry(lua)?;
         let mut reg = r.borrow_mut();
         reg.current = None;
-        let toasts = std::mem::take(&mut reg.toasts);
+        let out = LuaOutput {
+            toasts: std::mem::take(&mut reg.toasts),
+            sheets: std::mem::take(&mut reg.pushed),
+        };
         result?;
-        Ok(toasts)
+        Ok(out)
     }
 
     /// Theme picked by `vd.set_theme`, if any.
@@ -359,6 +370,20 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set(
         "sheet",
         lua.create_function(|lua, ()| Ok(registry(lua)?.borrow().current.clone()))?,
+    )?;
+    vd.set(
+        "push_sheet",
+        lua.create_function(|lua, spec: LuaTable| {
+            let r = registry(lua)?;
+            if r.borrow().current.is_none() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.push_sheet works inside a vd.bind function".into(),
+                ));
+            }
+            let sheet = sheet_from_lua(&spec)?;
+            r.borrow_mut().pushed.push(sheet);
+            Ok(())
+        })?,
     )?;
     vd.set(
         "register_aggregator",
@@ -548,6 +573,73 @@ fn to_lua(lua: &Lua, v: &AnyValue) -> mlua::Result<LuaValue> {
         AnyValue::String(s) => LuaValue::String(lua.create_string(s)?),
         other => LuaValue::String(lua.create_string(other.to_string())?),
     })
+}
+
+/// `{ name?, columns = {…}, rows = { {…}, … } }` → a DataFrame. Per column:
+/// all integers → i64, numbers → f64, all booleans → bool, else text; nil = null.
+fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
+    let bad = |m: String| mlua::Error::RuntimeError(format!("vd.push_sheet: {m}"));
+    let name: Option<String> = spec.get("name")?;
+    let columns: Vec<String> = spec.get("columns")?;
+    if columns.is_empty() {
+        return Err(bad("columns is empty".into()));
+    }
+    if let Some(d) = columns
+        .iter()
+        .enumerate()
+        .find(|(i, c)| columns[..*i].contains(c))
+    {
+        return Err(bad(format!("duplicate column {:?}", d.1)));
+    }
+    let rows: Vec<LuaTable> = spec.get("rows")?;
+    let mut cells: Vec<Vec<LuaValue>> = vec![Vec::with_capacity(rows.len()); columns.len()];
+    for (i, row) in rows.iter().enumerate() {
+        if row.raw_len() > columns.len() {
+            return Err(bad(format!("row {} has more values than columns", i + 1)));
+        }
+        for (j, col) in cells.iter_mut().enumerate() {
+            col.push(row.raw_get(j + 1)?);
+        }
+    }
+    let mut out = Vec::with_capacity(columns.len());
+    for (name, vals) in columns.iter().zip(cells) {
+        let set = |f: fn(&LuaValue) -> bool| vals.iter().all(|v| v.is_nil() || f(v));
+        let n = name.as_str().into();
+        let col =
+            if vals.iter().all(LuaValue::is_nil) || !set(|v| !v.is_table() && !v.is_function()) {
+                if let Some(v) = vals.iter().find(|v| v.is_table() || v.is_function()) {
+                    return Err(bad(format!(
+                        "column {name:?}: can't show a {}",
+                        v.type_name()
+                    )));
+                }
+                Series::full_null(n, vals.len(), &DataType::String)
+            } else if set(LuaValue::is_integer) {
+                Series::new(n, vals.iter().map(LuaValue::as_i64).collect::<Vec<_>>())
+            } else if set(|v| v.is_number() || v.is_integer()) {
+                let num = |v: &LuaValue| match v {
+                    LuaValue::Integer(i) => Some(*i as f64),
+                    LuaValue::Number(f) => Some(*f),
+                    _ => None,
+                };
+                Series::new(n, vals.iter().map(num).collect::<Vec<_>>())
+            } else if set(LuaValue::is_boolean) {
+                Series::new(n, vals.iter().map(LuaValue::as_boolean).collect::<Vec<_>>())
+            } else {
+                let text: Vec<Option<String>> = vals
+                    .iter()
+                    .map(|v| match v {
+                        LuaValue::Nil => Ok(None),
+                        LuaValue::String(s) => Ok(Some(s.to_str()?.to_string())),
+                        other => Ok(Some(other.to_string()?)),
+                    })
+                    .collect::<mlua::Result<_>>()?;
+                Series::new(n, text)
+            };
+        out.push(Column::from(col));
+    }
+    let df = DataFrame::new(out).map_err(|e| bad(e.to_string()))?;
+    Ok((name.unwrap_or_else(|| "lua".into()), df))
 }
 
 fn registry(lua: &Lua) -> mlua::Result<mlua::AppDataRef<'_, RefCell<Registry>>> {
@@ -903,5 +995,47 @@ mod tests {
         let price = |v| p.render("price", &DataType::Float64, &v);
         assert_eq!(price(AnyValue::Float64(2.5)), Some("$2.50".into()));
         assert_eq!(price(AnyValue::Null), None);
+    }
+
+    #[test]
+    fn push_sheet_infers_types_and_rejects_bad_input() {
+        let src = |rows: &str| {
+            format!(
+                r#"vd.bind("sheet", "x", function()
+                     vd.push_sheet {{ name = "t", columns = {{ "i", "f", "b", "s", "e" }}, rows = {rows} }}
+                   end)"#
+            )
+        };
+        let ctx = SheetCtx {
+            name: "s",
+            row: 1,
+            col: 1,
+            column_names: vec![],
+            value: AnyValue::Null,
+        };
+        let p =
+            Plugins::load_from_source(&src(r#"{ { 1, 1.5, true, "a" }, { nil, 2, false, 3 } }"#))
+                .unwrap();
+        let mut out = p.call(0, &ctx).unwrap();
+        let (name, df) = out.sheets.pop().unwrap();
+        assert_eq!(name, "t");
+        let types: Vec<String> = df.dtypes().iter().map(|d| d.to_string()).collect();
+        assert_eq!(types, ["i64", "f64", "bool", "str", "str"]);
+        assert_eq!(df.column("i").unwrap().null_count(), 1);
+        assert_eq!(df.column("s").unwrap().str().unwrap().get(1), Some("3"));
+        for bad in [r#"{ { 1, 2, 3, 4, 5, 6 } }"#, r#"{ { {} } }"#] {
+            let p = Plugins::load_from_source(&src(bad)).unwrap();
+            assert!(p.call(0, &ctx).is_err(), "{bad}");
+        }
+        assert!(
+            Plugins::load_from_source("vd.push_sheet { columns = { 'a' }, rows = {} }").is_err()
+        );
+        let dup = r#"vd.bind("sheet", "x", function() vd.push_sheet { columns = { "a", "a" }, rows = {} } end)"#;
+        assert!(
+            Plugins::load_from_source(dup)
+                .unwrap()
+                .call(0, &ctx)
+                .is_err()
+        );
     }
 }

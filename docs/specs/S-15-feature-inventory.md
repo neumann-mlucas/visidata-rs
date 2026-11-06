@@ -248,7 +248,7 @@ vd.register_loader {
 
 Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEFORE `reader::open()`. First rule whose extensions list contains the path's extension (case-insensitive) wins; its `open(path)` is called and its string return is handed to the native reader.
 
-**By design NOT supported**: returning a Polars DataFrame directly from Lua. Marshalling Lua tables → `Series` with per-value dtype inference is a plumbing swamp. Formats that can't convert to CSV/TSV/Parquet/Arrow/Jsonl in Lua belong in a `vdrs-ext-<fmt>` Rust crate per S-09 extension ADR.
+**By design NOT supported**: loaders returning data from Lua. They return a path; Lua tables → `Series` (per-column inference, `vd.push_sheet`) is only for small results built in a binding. Formats that can't convert to CSV/TSV/Parquet/Arrow/Jsonl in Lua belong in a `vdrs-ext-<fmt>` Rust crate per S-09 extension ADR.
 
 **Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
 
@@ -259,10 +259,13 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 2
+vd.api_version                                  -- 3
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
+vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; inside a bound function; opens after it returns.
+                                                -- per column: all ints → i64, numbers → f64, all bools → bool, else str; nil = null.
+                                                -- Origin::Lua; not exportable
 ```
 
 `init.lua` reloads when its mtime changes (polled on the 2 s tick; no `notify` dependency). A failing `init.lua` keeps registrations made before the error and reports it. Input-layer action names: `submit_input`, `cancel_input`, `input_backspace`.
@@ -298,7 +301,8 @@ Enumerated here so no one re-asks:
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Rest of S-10**: `vd.frame`, `Series` methods, `vd.push_sheet`/`pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet` and function bindings shipped.
+- **Rest of S-10**: `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
+- **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
 - **Export**: schema diff and Lua-aggregator pivots.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
 
