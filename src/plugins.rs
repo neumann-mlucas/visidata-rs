@@ -503,10 +503,10 @@ fn unbind_fn(lua: &Lua, (layer_s, keys_val): (String, LuaValue)) -> mlua::Result
         run: vec![Action::Redraw],
         desc: "unbound".into(),
     };
-    let reg = lua
-        .app_data_ref::<RefCell<Registry>>()
-        .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))?;
-    reg.borrow_mut().patches.push(KeymapPatch { layer, chord });
+    registry(lua)?
+        .borrow_mut()
+        .patches
+        .push(KeymapPatch { layer, chord });
     Ok(())
 }
 
@@ -549,10 +549,7 @@ fn register_loader_fn(lua: &Lua, spec: LuaTable) -> mlua::Result<()> {
         extensions,
         open,
     };
-    let reg = lua
-        .app_data_ref::<RefCell<Registry>>()
-        .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))?;
-    reg.borrow_mut().loaders.push(rule);
+    registry(lua)?.borrow_mut().loaders.push(rule);
     Ok(())
 }
 

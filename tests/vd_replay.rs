@@ -269,10 +269,11 @@ impl Replay {
         // Honor cmdlog's `sheet` field: switch current to the named sheet so
         // commands land on the right one in multi-sheet workflows. `sheets`
         // is the meta-view's own name — don't switch to it.
-        if !r.sheet.is_empty() && r.sheet != "sheets" {
-            if let Some(i) = self.find_sheet_by_name(&r.sheet) {
-                self.set_current(i);
-            }
+        if !r.sheet.is_empty()
+            && r.sheet != "sheets"
+            && let Some(i) = self.find_sheet_by_name(&r.sheet)
+        {
+            self.set_current(i);
         }
         match r.longname.as_str() {
             "open-file" => {
@@ -1195,15 +1196,15 @@ fn resolve_row(df: &DataFrame, keys: &[String], target: &str) -> Result<usize, S
     if target.is_empty() {
         return Ok(0);
     }
-    if !keys.is_empty() {
-        if let Ok(i) = find_by_key(df, keys, target) {
-            return Ok(i);
-        }
+    if !keys.is_empty()
+        && let Ok(i) = find_by_key(df, keys, target)
+    {
+        return Ok(i);
     }
-    if let Ok(i) = target.parse::<usize>() {
-        if i < df.height() {
-            return Ok(i);
-        }
+    if let Ok(i) = target.parse::<usize>()
+        && i < df.height()
+    {
+        return Ok(i);
     }
     Err(StepErr::Runtime(format!(
         "cannot locate row '{target}' (keys={keys:?})"

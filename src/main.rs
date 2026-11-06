@@ -34,6 +34,9 @@ enum Format {
     Parquet,
     Arrow,
     Jsonl,
+    Json,
+    Xlsx,
+    Sqlite,
 }
 impl From<Format> for SourceKind {
     fn from(f: Format) -> Self {
@@ -43,6 +46,9 @@ impl From<Format> for SourceKind {
             Format::Parquet => SourceKind::Parquet,
             Format::Arrow => SourceKind::Arrow,
             Format::Jsonl => SourceKind::Jsonl,
+            Format::Json => SourceKind::Json,
+            Format::Xlsx => SourceKind::Xlsx,
+            Format::Sqlite => SourceKind::Sqlite,
         }
     }
 }

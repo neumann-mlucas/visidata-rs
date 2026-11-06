@@ -1,9 +1,4 @@
 //! Ex-line parser. `:cmd arg1 arg2 …` → one or more Actions.
-//!
-//! Phase 1 subset: `:q`/`:quit`, `:qa`/`:quit!`, `:filter <col> <regex>`,
-//! `:unfilter`, `:sort [+|-]<col>`, `:unsort`, `:ls` (sheet switcher),
-//! `:pivot <index> <on> <values> [agg]`, `:unpivot <on1,on2> -- <idx1,idx2>`.
-//! `:derive` is deferred — needs a real expression parser; comes with S-06.
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -72,10 +67,11 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "ls" | "sheets" => Ok(vec![Action::OpenSheetSwitcher]),
         "pivot" => {
             // :pivot <index> <on> <values> [agg]
-            let parts = split_args(rest, ":pivot <index> <on> <values> [agg]")?;
+            const USAGE: &str = ":pivot <index> <on> <values> [agg]";
+            let parts = split_args(rest, USAGE)?;
             let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
             if parts.len() < 3 {
-                return Err(ExError::Usage(":pivot <index> <on> <values> [agg]"));
+                return Err(ExError::Usage(USAGE));
             }
             let agg = parts.get(3).copied().unwrap_or("sum").to_string();
             Ok(vec![Action::Pivot {
@@ -114,15 +110,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 ));
             }
             let path = parts[0].to_string();
-            let keys = parts
-                .get(1)
-                .map(|s| {
-                    s.split(',')
-                        .map(|k| k.trim().to_string())
-                        .filter(|k| !k.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default();
+            let keys = parts.get(1).map(|s| comma_list(s)).unwrap_or_default();
             Ok(vec![Action::Diff { path, keys }])
         }
         "unpivot" | "melt" => {
@@ -136,16 +124,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 Some((a, b)) => (a, b),
                 None => (rest, ""),
             };
-            let on: Vec<String> = on_part
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let index: Vec<String> = index_part
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let (on, index) = (comma_list(on_part), comma_list(index_part));
             if on.is_empty() {
                 return Err(ExError::Usage(
                     ":unpivot <on1,on2,...> [-- <index1,index2,...>]",
@@ -354,11 +333,11 @@ impl History {
         if line.is_empty() {
             return;
         }
+        self.cursor = None;
         if self.lines.last().is_some_and(|l| l == line) {
             return;
         }
         self.lines.push(line.to_string());
-        self.cursor = None;
         if let Some(parent) = self.path.parent() {
             let _ = fs::create_dir_all(parent);
         }

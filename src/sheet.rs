@@ -1,7 +1,4 @@
 //! Sheet = Source + LazyFrame plan + View + materialized `window`. See S-01.
-//!
-//! Phase 0 keeps this narrow: no derived columns, no filters-as-expressions,
-//! no sort state yet. Those land as the UI needs them.
 
 use std::sync::Arc;
 
@@ -468,21 +465,16 @@ impl Sheet {
                     .with_order_descending_multi([true, false])
                     .with_nulls_last(true),
             );
-        Sheet {
+        Sheet::child(
+            parent,
             id,
-            name: format!("freq({}): {}", col_name, parent.name),
-            kind: parent.kind,
-            source: parent.source.clone(),
+            format!("freq({}): {}", col_name, parent.name),
             plan,
-            view: View::default(),
-            window: None,
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Freq {
+            Origin::Freq {
                 parent: parent.id,
                 column: col_name.to_string(),
             },
-        }
+        )
         .derived(
             parent,
             Derivation::Freq {
@@ -525,18 +517,14 @@ impl Sheet {
         )
         .map_err(|e| e.to_string())?;
         let plan = out.clone().lazy();
-        Ok(Sheet {
+        Ok(Sheet::child(
+            parent,
             id,
-            name: format!("pivot({index}×{on}→{values}): {}", parent.name),
-            kind: parent.kind,
-            source: parent.source.clone(),
+            format!("pivot({index}×{on}→{values}): {}", parent.name),
             plan,
-            view: View::default(),
-            window: Some(out),
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Pivot { parent: parent.id },
-        }
+            Origin::Pivot { parent: parent.id },
+        )
+        .with_window(out)
         .derived(
             parent,
             Derivation::Pivot {
@@ -569,27 +557,22 @@ impl Sheet {
             .and_then(|d| d.drop(ROW_ID))
             .map_err(|e| e.to_string())?;
         let plan = out.clone().lazy();
-        Ok(Sheet {
+        Ok(Sheet::child(
+            parent,
             id,
-            name: format!(
+            format!(
                 "selected ({} rows): {}",
                 parent.view.selected.len(),
                 parent.name
             ),
-            kind: parent.kind,
-            source: parent.source.clone(),
             plan,
-            view: View::default(),
-            window: Some(out),
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Selected { parent: parent.id },
-        }
+            Origin::Selected { parent: parent.id },
+        )
+        .with_window(out)
         .derived(parent, Derivation::Rids(parent.view.selected.clone())))
     }
 
-    /// Open a tail-mode sheet. The path is re-scanned on each tail tick to pick up appended rows.
-    /// Phase 4 minimum: full re-read each tick (ok for small/medium files; incremental read later).
+    /// Open a tail-mode sheet; `refresh_tail` picks up what the file gains.
     pub fn tail_from(
         id: SheetId,
         loaded: LoadedSource,
@@ -839,21 +822,12 @@ impl Sheet {
         .map_err(|e| e.to_string())?;
         let plan = df.clone().lazy();
         let other_name = other.display_name.clone();
-        Ok(Sheet {
-            id,
-            name: format!("schemadiff: {} ↔ {}", parent.name, other_name),
-            kind: parent.kind,
-            source: parent.source.clone(),
-            plan,
-            view: View::default(),
-            window: Some(df),
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Diff {
-                left: parent.id,
-                right_name: other_name,
-            },
-        })
+        let name = format!("schemadiff: {} ↔ {}", parent.name, other_name);
+        let origin = Origin::Diff {
+            left: parent.id,
+            right_name: other_name,
+        };
+        Ok(Sheet::child(parent, id, name, plan, origin).with_window(df))
     }
 
     /// Row-diff sheet. Full outer join on `keys`; a `__diff` column tags each row.
@@ -917,26 +891,21 @@ impl Sheet {
             other: Box::new(other.clone()),
             keys: keys.to_vec(),
         };
-        Ok(Sheet {
+        Ok(Sheet::child(
+            parent,
             id,
-            name: format!(
+            format!(
                 "rowdiff({}): {} ↔ {}",
                 keys.join(","),
                 parent.name,
                 other_name
             ),
-            kind: parent.kind,
-            source: parent.source.clone(),
             plan,
-            view: View::default(),
-            window: None,
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Diff {
+            Origin::Diff {
                 left: parent.id,
                 right_name: other_name,
             },
-        }
+        )
         .derived(parent, how))
     }
 
@@ -960,6 +929,12 @@ impl Sheet {
             state: Default::default(),
             origin,
         }
+    }
+
+    /// Already-computed rows, so the sheet draws before its first materialize.
+    fn with_window(mut self, df: DataFrame) -> Self {
+        self.window = Some(df);
+        self
     }
 
     /// Record how `self` was derived from `parent` (snapshot without history).
@@ -1293,21 +1268,16 @@ impl Sheet {
             }
             joined
         };
-        Ok(Sheet {
+        Ok(Sheet::child(
+            left,
             id,
-            name: format!("{}&{} ({how})", left.name, right_name),
-            kind: left.kind,
-            source: left.source.clone(),
+            format!("{}&{} ({how})", left.name, right_name),
             plan,
-            view: View::default(),
-            window: None,
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Join {
+            Origin::Join {
                 left: left.id,
                 right_name: right_name.to_string(),
             },
-        }
+        )
         .derived(
             left,
             Derivation::Join {
@@ -1334,18 +1304,13 @@ impl Sheet {
             value_name: None,
         };
         let plan = parent.view_plan().unpivot(args);
-        Sheet {
+        Sheet::child(
+            parent,
             id,
-            name: format!("unpivot({}): {}", on.join(","), parent.name),
-            kind: parent.kind,
-            source: parent.source.clone(),
+            format!("unpivot({}): {}", on.join(","), parent.name),
             plan,
-            view: View::default(),
-            window: None,
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Unpivot { parent: parent.id },
-        }
+            Origin::Unpivot { parent: parent.id },
+        )
         .derived(
             parent,
             Derivation::Unpivot {
@@ -1361,7 +1326,7 @@ impl Sheet {
             .slice(self.view.window_offset as i64, self.view.window_rows)
     }
 
-    /// `window_plan` plus a trailing [`ROW_ID`] column (split off by the app
+    /// `window_plan` plus a [`ROW_ID`] column (split off by the app
     /// into `state.window_rids` when the window lands).
     pub fn window_plan_with_rids(&self) -> LazyFrame {
         self.view_plan_rid(true)
@@ -1374,7 +1339,8 @@ impl Sheet {
         self.view_plan_rid(false)
     }
 
-    /// `view_plan`, optionally carrying each row's [`ROW_ID`] as the last column.
+    /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
+    /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
         let mut lf = self.filtered_plan(with_rid);
         if !self.view.sort.is_empty() {
@@ -1392,32 +1358,32 @@ impl Sheet {
         }
         // Visible-column projection: keys first (in key-col order), then schema
         // order for the rest; drop hidden. Skipped when nothing to project.
-        if !self.view.hidden.is_empty() || !self.view.keys.is_empty() {
-            if let Ok(schema) = lf.clone().collect_schema() {
-                let mut all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
-                all.retain(|n| n != ROW_ID);
-                let mut order: Vec<String> = Vec::with_capacity(all.len());
-                for k in &self.view.keys {
-                    if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) {
-                        order.push(k.clone());
-                    }
+        if (!self.view.hidden.is_empty() || !self.view.keys.is_empty())
+            && let Ok(schema) = lf.clone().collect_schema()
+        {
+            let mut all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
+            all.retain(|n| n != ROW_ID);
+            let mut order: Vec<String> = Vec::with_capacity(all.len());
+            for k in &self.view.keys {
+                if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) {
+                    order.push(k.clone());
                 }
-                for n in &all {
-                    if !order.contains(n) && !self.view.hidden.contains(n) {
-                        order.push(n.clone());
-                    }
+            }
+            for n in &all {
+                if !order.contains(n) && !self.view.hidden.contains(n) {
+                    order.push(n.clone());
                 }
-                if order != all {
-                    if with_rid {
-                        order.push(ROW_ID.to_string());
-                    }
-                    lf = lf.select(
-                        order
-                            .into_iter()
-                            .map(|s| col(s.as_str()))
-                            .collect::<Vec<_>>(),
-                    );
+            }
+            if order != all {
+                if with_rid {
+                    order.push(ROW_ID.to_string());
                 }
+                lf = lf.select(
+                    order
+                        .into_iter()
+                        .map(|s| col(s.as_str()))
+                        .collect::<Vec<_>>(),
+                );
             }
         }
         lf
@@ -1580,7 +1546,6 @@ impl Sheet {
             .is_ok_and(|s| s.contains(name))
     }
 
-    /// View rows whose `column` (as text) matches regex `pattern`, in view order.
     /// Row ids of view rows whose `column` (as text) matches `pattern`.
     pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
         let df = self

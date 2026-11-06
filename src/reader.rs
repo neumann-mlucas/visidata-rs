@@ -101,6 +101,7 @@ fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, Open
     DataFrame::new(series).map_err(OpenError::from)
 }
 
+/// Int-valued floats as "N", not "N.0" — matches VisiData's xlsx/sqlite read.
 fn float_cell_string(f: f64) -> String {
     if f.fract() == 0.0 && f.is_finite() && f.abs() < 1e18 {
         format!("{}", f as i64)
@@ -109,14 +110,8 @@ fn float_cell_string(f: f64) -> String {
     }
 }
 
-/// Read the first non-empty worksheet of an xlsx workbook into an eager
-/// DataFrame of all-String columns. VisiData-shaped behavior: open yields a
-/// *meta-sheet* listing all worksheets and dive-row enters one; we skip the
-/// meta-sheet and open the first worksheet directly. Multi-sheet workbooks
-/// need a `?sheet=name` URL param — not yet implemented (Phase 1.5 ceiling).
-///
-/// All cells come back as strings so downstream `type-*` operations do the
-/// casting. Matches VisiData's xlsx loader behavior.
+/// Read a worksheet (default: the first) into an eager DataFrame of all-String
+/// columns, so downstream `type-*` operations do the casting (as VisiData does).
 fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
     use calamine::{Data, Reader, open_workbook_auto};
     let mut wb = open_workbook_auto(path).map_err(|e| OpenError::Xlsx(e.to_string()))?;
@@ -184,14 +179,7 @@ fn cell_string(c: &calamine::Data) -> String {
     match c {
         Data::Empty => String::new(),
         Data::String(s) => s.clone(),
-        Data::Float(f) => {
-            // Int-valued floats as "N", not "N.0" — matches VisiData's xlsx read.
-            if f.fract() == 0.0 && f.is_finite() && f.abs() < 1e18 {
-                format!("{}", *f as i64)
-            } else {
-                format!("{f}")
-            }
-        }
+        Data::Float(f) => float_cell_string(*f),
         Data::Int(i) => i.to_string(),
         Data::Bool(b) => b.to_string(),
         Data::DateTime(dt) => dt.to_string(),
@@ -337,10 +325,10 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         .and_then(OsStr::to_str)
         .map(str::to_ascii_lowercase);
     // `.gz` → look at the stem's extension. e.g. `foo.json.gz` → json.
-    if ext.as_deref() == Some("gz") {
-        if let Some(stem) = path.file_stem().map(Path::new) {
-            return detect(stem);
-        }
+    if ext.as_deref() == Some("gz")
+        && let Some(stem) = path.file_stem().map(Path::new)
+    {
+        return detect(stem);
     }
     match ext.as_deref() {
         Some("csv") => Ok(SourceKind::Csv),

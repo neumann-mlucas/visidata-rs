@@ -1,9 +1,6 @@
 //! Action enum. See S-02. Phase 0 slice.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     // cursor / scroll — cosmetic
     CursorDown {
@@ -43,9 +40,6 @@ pub enum Action {
     // search / filter / sort
     SearchNext,
     SearchPrev,
-    FilterCurrentColumn {
-        regex: String,
-    },
     SetFilter {
         column: String,
         regex: String,
@@ -80,7 +74,6 @@ pub enum Action {
         path: String,
         follow: bool,
     },
-    SwitchToSheet(u32),
     SubmitRow,
     /// `g<CR>`: like `SubmitRow` for every selected row (freq dive).
     SubmitSelected,
@@ -145,7 +138,6 @@ pub enum Action {
     StartFilterInput,
     SubmitInput,
     CancelInput,
-    InputChar(char),
     InputBackspace,
 
     // sheet stack
@@ -163,8 +155,7 @@ impl Action {
     pub fn affects_data(&self) -> bool {
         matches!(
             self,
-            Action::FilterCurrentColumn { .. }
-                | Action::SetFilter { .. }
+            Action::SetFilter { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -190,7 +181,6 @@ impl Action {
                 | Action::TypeCastCurrency
                 | Action::FreezeColumn
                 | Action::UnfreezeAll
-                | Action::FilterCurrentColumn { .. }
                 | Action::SetFilter { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
@@ -216,10 +206,10 @@ impl Action {
             Quit | PopSheet | Redraw | RepeatLast | Save { .. } | Export { .. } | Undo | Redo => {
                 false
             }
-            OpenSheetSwitcher | SwitchToSheet(_) => false,
+            OpenSheetSwitcher => false,
             StartSearchInput | StartFilterInput | StartExInput | StartSelectInput
             | StartDiffInput | StartRenameColInput => false,
-            SubmitInput | CancelInput | InputChar(_) | InputBackspace => false,
+            SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
             | CursorLeft { .. }
@@ -238,11 +228,7 @@ impl Action {
             | UnkeyAll
             | RenameCol { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
-            SearchNext
-            | SearchPrev
-            | SetFilter { .. }
-            | ClearFilter
-            | FilterCurrentColumn { .. } => true,
+            SearchNext | SearchPrev | SetFilter { .. } | ClearFilter => true,
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
             OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
             SubmitRow | SubmitSelected | TogglePlanPanel => true,

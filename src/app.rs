@@ -284,8 +284,9 @@ impl App {
     }
 
     /// Run `work` on the blocking pool; its result lands in `on_job_done`.
-    /// Polars collects can't be interrupted, so there's no cancel: a result
-    /// for a sheet that's gone is dropped.
+    /// Polars collects can't be interrupted, so there's no cancel: a selection
+    /// or jump for a sheet that's gone is dropped, while a finished `PushSheet`
+    /// still opens on top of whatever is active.
     fn spawn_job(
         &mut self,
         label: &'static str,
@@ -526,20 +527,18 @@ impl App {
         }
         // Count prefix: digits accumulate when no chord is pending and the digit
         // isn't bound. `0` is bound to goto_leftmost, so it only extends a count.
-        if self.pending.is_empty() {
-            if let KeyCode::Char(c) = key.code {
-                if c.is_ascii_digit() {
-                    let d = c.to_digit(10).unwrap() as usize;
-                    // A bound digit fires (`0`, `vd.bind`) unless a count is underway.
-                    let unbound =
-                        matches!(self.keymap.resolve(Layer::Sheet, &[], key), Dispatch::Miss);
-                    let accumulate = unbound || self.pending_count.is_some();
-                    if accumulate {
-                        let cur = self.pending_count.unwrap_or(0);
-                        self.pending_count = Some(cur.saturating_mul(10).saturating_add(d));
-                        return;
-                    }
-                }
+        if self.pending.is_empty()
+            && let KeyCode::Char(c) = key.code
+            && c.is_ascii_digit()
+        {
+            let d = c.to_digit(10).unwrap() as usize;
+            // A bound digit fires (`0`, `vd.bind`) unless a count is underway.
+            let unbound = matches!(self.keymap.resolve(Layer::Sheet, &[], key), Dispatch::Miss);
+            let accumulate = unbound || self.pending_count.is_some();
+            if accumulate {
+                let cur = self.pending_count.unwrap_or(0);
+                self.pending_count = Some(cur.saturating_mul(10).saturating_add(d));
+                return;
             }
         }
         match self.keymap.resolve(Layer::Sheet, &self.pending, key) {
@@ -699,14 +698,14 @@ impl App {
         match prompt {
             Prompt::Search => {
                 self.sheets.active_mut().view.search = Some(SearchState { needle: text });
-                self.dispatch(Action::SearchNext);
+                self.dispatch_sequence(vec![Action::SearchNext]);
             }
             Prompt::Filter => {
                 if let Some(column) = self.current_column_name() {
-                    self.dispatch(Action::SetFilter {
+                    self.dispatch_sequence(vec![Action::SetFilter {
                         column,
                         regex: text,
-                    });
+                    }]);
                 } else {
                     self.toast = Some("no column to filter".into());
                 }
@@ -718,11 +717,11 @@ impl App {
                     Err(e) => self.toast = Some(format!("{e}")),
                 }
             }
-            Prompt::Select => self.dispatch(Action::SelectByRegex { regex: text }),
-            Prompt::Rename => self.dispatch(Action::RenameCol { new_name: text }),
+            Prompt::Select => self.dispatch_sequence(vec![Action::SelectByRegex { regex: text }]),
+            Prompt::Rename => self.dispatch_sequence(vec![Action::RenameCol { new_name: text }]),
             Prompt::Diff => {
                 let keys = self.sheets.active().view.keys.clone();
-                self.dispatch(Action::Diff { path: text, keys });
+                self.dispatch_sequence(vec![Action::Diff { path: text, keys }]);
             }
         }
     }
@@ -2321,6 +2320,10 @@ mod scenario {
         let mut h = csv(b"a\nx\ny\n").await;
         h.keys("|").await;
         h.type_("x").await;
+        assert_eq!(
+            h.app.last_action,
+            Some(vec![Action::SelectByRegex { regex: "x".into() }])
+        );
         h.keys(".").await;
         assert!(h.app.input.is_none());
     }

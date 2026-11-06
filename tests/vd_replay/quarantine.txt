@@ -1,6 +1,6 @@
 # S-14 quarantine list: files whose longnames are implemented but whose golden
 # we deliberately don't match (float formatting drift, VisiData oddities, ...).
-# One stem per line. Keep this list under 10 — more = the strategy is wrong.
+# One stem per line. Sections below: permanent format gaps vs. fixable entries.
 
 # numeric_binning: `set-option` configures bin edges for freq-col, which we
 # treat as no-op. Promoting set-option from no-op to real would unlock this one
@@ -19,9 +19,8 @@ xlsx-color-cells
 join-extend-mult
 
 # load-sqlite-view: VisiData opens sqlite as a meta-sheet-of-tables, then
-# `open-row キemp_view` enters that specific table. Our sqlite reader loads
-# first-table-only to match the xlsx pattern. Add table-switching when a
-# user actually asks for multi-table sqlite workflows.
+# `open-row キemp_view` enters that table. The app has this (parts list); the
+# sheet-level replay driver doesn't.
 load-sqlite-view
 
 # issue964-inner-join: VisiData reads CSV as all-string, we auto-infer, so
@@ -30,8 +29,7 @@ load-sqlite-view
 # many currently-passing tests. Revisit when the Tier 1 Options chunk lands.
 issue964-inner-join
 
-# freq-fmtstr: VisiData's freq-col emits a `percent` column alongside `count`.
-# Our Sheet::freq_from only counts. Add when freq spec extends.
+# freq-fmtstr: output differs in VisiData's percent/histogram columns.
 freq-fmtstr
 
 # sortorder: output is the columns-sheet CONTENTS (name/width/type/fmtstr/...),

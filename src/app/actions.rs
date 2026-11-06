@@ -18,17 +18,17 @@ impl App {
         if !matches!(action, Action::GotoBottom) {
             self.sheets.active_mut().view.jump_bottom = false;
         }
-        if let Action::SetFilter { regex, .. } | Action::FilterCurrentColumn { regex } = &action {
-            if let Err(e) = regex::Regex::new(regex) {
-                self.toast = Some(format!("bad regex: {e}"));
-                return;
-            }
+        if let Action::SetFilter { regex, .. } = &action
+            && let Err(e) = regex::Regex::new(regex)
+        {
+            self.toast = Some(format!("bad regex: {e}"));
+            return;
         }
-        if let Action::SetFilter { column, .. } | Action::SetSort { column, .. } = &action {
-            if !self.sheets.active().has_column(column) {
-                self.toast = Some(format!("no column: {column}"));
-                return;
-            }
+        if let Action::SetFilter { column, .. } | Action::SetSort { column, .. } = &action
+            && !self.sheets.active().has_column(column)
+        {
+            self.toast = Some(format!("no column: {column}"));
+            return;
         }
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
@@ -71,10 +71,10 @@ impl App {
             }
             Action::GotoRightmost => {
                 let s = self.sheets.active_mut();
-                if let Some(df) = &s.window {
-                    if df.width() > 0 {
-                        s.view.col_cursor = df.width() - 1;
-                    }
+                if let Some(df) = &s.window
+                    && df.width() > 0
+                {
+                    s.view.col_cursor = df.width() - 1;
                 }
             }
             Action::FreezeColumn => {
@@ -182,11 +182,6 @@ impl App {
             },
             Action::SearchNext => self.search_jump(true),
             Action::SearchPrev => self.search_jump(false),
-            Action::FilterCurrentColumn { regex } => {
-                if let Some(column) = self.current_column_name() {
-                    self.dispatch(Action::SetFilter { column, regex });
-                }
-            }
             Action::SetFilter { column, regex } => {
                 let s = self.sheets.active_mut();
                 s.view.filter = Some(FilterState { column, regex });
@@ -236,11 +231,6 @@ impl App {
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::Save { path } => self.save_active(&path),
-            Action::SwitchToSheet(id) => {
-                if !self.sheets.switch_to(id) {
-                    self.toast = Some(format!("no sheet with id {id}"));
-                }
-            }
             Action::SubmitRow => self.submit_row(),
             Action::ToggleSelectRow => self.toggle_select_current(),
             Action::SelectRow => self.set_select_current(true),
@@ -349,10 +339,7 @@ impl App {
                 });
             }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
-            Action::SubmitInput
-            | Action::CancelInput
-            | Action::InputChar(_)
-            | Action::InputBackspace => {}
+            Action::SubmitInput | Action::CancelInput | Action::InputBackspace => {}
         }
         if affects && self.sheets.active().revision == before_rev {
             self.spawn_materialize();
@@ -412,8 +399,7 @@ impl App {
         s.view.col_cursor = new;
     }
 
-    /// Half-window jump. `move_cursor_rows` slides the window when needed.
-    /// One screen of data rows.
+    /// One screen of data rows. `move_cursor_rows` slides the window when needed.
     fn page(&mut self, dir: isize) {
         self.move_cursor_rows(dir * self.viewport_rows.max(1) as isize);
     }
@@ -540,13 +526,13 @@ impl App {
     fn open_tail(&mut self, path: &str, follow: bool) {
         use std::ffi::OsString;
         // A loader converts once; refreshes would re-scan that stale snapshot.
-        if let Some(p) = &self.plugins {
-            if p.resolve_loader(std::path::Path::new(path)).is_some() {
-                self.toast = Some(format!(
-                    "tail: {path} needs a plugin loader; can't follow it"
-                ));
-                return;
-            }
+        if let Some(p) = &self.plugins
+            && p.resolve_loader(std::path::Path::new(path)).is_some()
+        {
+            self.toast = Some(format!(
+                "tail: {path} needs a plugin loader; can't follow it"
+            ));
+            return;
         }
         let loaded = match crate::reader::open(&OsString::from(path), None) {
             Ok(l) => l,
@@ -689,14 +675,12 @@ impl App {
                     v.get_str().map(String::from)
                 });
                 let Some(part) = part else { return };
-                match crate::reader::open_part(&path, kind, &part) {
-                    Ok(loaded) => {
-                        let id = self.sheets.alloc_id();
-                        self.sheets.push(Sheet::from_source(id, loaded));
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(format!("open {part}: {e}")),
-                }
+                let id = self.sheets.alloc_id();
+                self.spawn_job("open", move || {
+                    let loaded = crate::reader::open_part(&path, kind, &part)
+                        .map_err(|e| format!("{part}: {e}"))?;
+                    Ok(JobDone::PushSheet(Box::new(Sheet::from_source(id, loaded))))
+                });
             }
             _ => self.toast = Some("<CR>: nothing to open here".into()),
         }
