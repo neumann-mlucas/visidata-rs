@@ -770,11 +770,11 @@ impl App {
                 return;
             }
         };
+        let parent = s.id;
         for (name, df) in out.sheets {
             let id = self.sheets.alloc_id();
-            let parent = self.sheets.active();
-            let origin = Origin::Lua { parent: parent.id };
-            let child = Sheet::child(parent, id, name, df.lazy(), origin);
+            let origin = Origin::Lua { parent };
+            let child = Sheet::child(self.sheets.active(), id, name, df.lazy(), origin);
             self.sheets.push(child);
             self.spawn_materialize();
         }

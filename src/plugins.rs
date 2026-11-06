@@ -245,8 +245,8 @@ impl Plugins {
         f.call::<Option<String>>(v).ok().flatten()
     }
 
-    /// Run `vd.bind` function `id` with `vd.sheet()` = `ctx`. Returns the
-    /// `vd.toast` messages; a Lua error comes back as Err.
+    /// Run `vd.bind` function `id` with `vd.sheet()` = `ctx`. Returns its toasts
+    /// and pushed sheets; a Lua error comes back as Err and discards both.
     pub fn call(&self, id: usize, ctx: &SheetCtx) -> Result<LuaOutput, PluginError> {
         let lua = &self.lua;
         let t = lua.create_table()?;
@@ -573,12 +573,70 @@ fn to_lua(lua: &Lua, v: &AnyValue) -> mlua::Result<LuaValue> {
     })
 }
 
+/// One cell of a pushed sheet. Held as plain data: keeping a `LuaValue` per
+/// cell would exhaust mlua's reference stack on a big sheet, and that panics.
+enum Cell {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Num(f64),
+    Text(String),
+}
+
+impl Cell {
+    fn text(&self) -> Option<String> {
+        match self {
+            Cell::Null => None,
+            Cell::Bool(b) => Some(b.to_string()),
+            Cell::Int(i) => Some(i.to_string()),
+            Cell::Num(f) => Some(format!("{f:?}")),
+            Cell::Text(t) => Some(t.clone()),
+        }
+    }
+}
+
+/// Length of array `t`: every key an integer 1..=n, with no gaps (`ipairs` and
+/// raw length both stop quietly at a gap, losing whatever follows).
+fn array_len(t: &LuaTable) -> Result<usize, String> {
+    let (mut n, mut max) = (0usize, 0i64);
+    for pair in t.pairs::<LuaValue, LuaValue>() {
+        let (k, _) = pair.map_err(|e| e.to_string())?;
+        let Some(i) = k.as_integer().filter(|i| *i >= 1) else {
+            return Err(format!("key {k:?} isn't a position"));
+        };
+        n += 1;
+        max = max.max(i);
+    }
+    if max as usize != n {
+        return Err(format!("has gaps (position {max} of {n} values)"));
+    }
+    Ok(n)
+}
+
 /// `{ name?, columns = {…}, rows = { {…}, … } }` → a DataFrame. Per column:
 /// all integers → i64, numbers → f64, all booleans → bool, else text; nil = null.
 fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
     let bad = |m: String| mlua::Error::RuntimeError(format!("vd.push_sheet: {m}"));
-    let name: Option<String> = spec.get("name")?;
-    let columns: Vec<String> = spec.get("columns")?;
+    let table = |key: &str| match spec.get::<LuaValue>(key)? {
+        LuaValue::Table(t) => Ok(t),
+        other => Err(bad(format!(
+            "{key} must be a table, not {}",
+            other.type_name()
+        ))),
+    };
+    let text = |v: LuaValue| match v {
+        LuaValue::String(s) => Ok(s.to_string_lossy()),
+        other => other.to_string(),
+    };
+    let name = match spec.get::<LuaValue>("name")? {
+        LuaValue::Nil => None,
+        v => Some(text(v)?),
+    };
+    let cols = table("columns")?;
+    let width = array_len(&cols).map_err(|e| bad(format!("columns {e}")))?;
+    let columns: Vec<String> = (1..=width)
+        .map(|i| text(cols.raw_get(i)?))
+        .collect::<mlua::Result<_>>()?;
     if columns.is_empty() {
         return Err(bad("columns is empty".into()));
     }
@@ -589,52 +647,76 @@ fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
     {
         return Err(bad(format!("duplicate column {:?}", d.1)));
     }
-    let rows: Vec<LuaTable> = spec.get("rows")?;
-    let mut cells: Vec<Vec<LuaValue>> = vec![Vec::with_capacity(rows.len()); columns.len()];
-    for (i, row) in rows.iter().enumerate() {
-        if row.raw_len() > columns.len() {
-            return Err(bad(format!("row {} has more values than columns", i + 1)));
-        }
-        for (j, col) in cells.iter_mut().enumerate() {
-            col.push(row.raw_get(j + 1)?);
-        }
+    if columns.iter().any(|c| c == crate::sheet::ROW_ID) {
+        return Err(bad(format!("{} is reserved", crate::sheet::ROW_ID)));
     }
-    let mut out = Vec::with_capacity(columns.len());
-    for (name, vals) in columns.iter().zip(cells) {
-        let set = |f: fn(&LuaValue) -> bool| vals.iter().all(|v| v.is_nil() || f(v));
-        let n = name.as_str().into();
-        let col =
-            if vals.iter().all(LuaValue::is_nil) || !set(|v| !v.is_table() && !v.is_function()) {
-                if let Some(v) = vals.iter().find(|v| v.is_table() || v.is_function()) {
+    let rows = table("rows")?;
+    let height = array_len(&rows).map_err(|e| bad(format!("rows {e}")))?;
+    let mut cells: Vec<Vec<Cell>> = (0..width)
+        .map(|_| (0..height).map(|_| Cell::Null).collect())
+        .collect();
+    #[allow(clippy::needless_range_loop)] // `r` also addresses the Lua table
+    for r in 0..height {
+        let LuaValue::Table(row) = rows.raw_get(r + 1)? else {
+            return Err(bad(format!("row {} isn't a table", r + 1)));
+        };
+        for pair in row.pairs::<LuaValue, LuaValue>() {
+            let (k, v) = pair?;
+            let Some(c) = k.as_integer().filter(|c| *c >= 1) else {
+                return Err(bad(format!(
+                    "row {}: values go by position, found key {k:?}",
+                    r + 1
+                )));
+            };
+            let c = c as usize - 1;
+            if c >= width {
+                return Err(bad(format!("row {} has more values than columns", r + 1)));
+            }
+            cells[c][r] = match v {
+                LuaValue::Nil => Cell::Null,
+                LuaValue::Boolean(b) => Cell::Bool(b),
+                LuaValue::Integer(i) => Cell::Int(i),
+                LuaValue::Number(f) => Cell::Num(f),
+                v @ (LuaValue::Table(_) | LuaValue::Function(_)) => {
+                    let name = &columns[c];
                     return Err(bad(format!(
                         "column {name:?}: can't show a {}",
                         v.type_name()
                     )));
                 }
-                Series::full_null(n, vals.len(), &DataType::String)
-            } else if set(LuaValue::is_integer) {
-                Series::new(n, vals.iter().map(LuaValue::as_i64).collect::<Vec<_>>())
-            } else if set(|v| v.is_number() || v.is_integer()) {
-                let num = |v: &LuaValue| match v {
-                    LuaValue::Integer(i) => Some(*i as f64),
-                    LuaValue::Number(f) => Some(*f),
-                    _ => None,
-                };
-                Series::new(n, vals.iter().map(num).collect::<Vec<_>>())
-            } else if set(LuaValue::is_boolean) {
-                Series::new(n, vals.iter().map(LuaValue::as_boolean).collect::<Vec<_>>())
-            } else {
-                let text: Vec<Option<String>> = vals
-                    .iter()
-                    .map(|v| match v {
-                        LuaValue::Nil => Ok(None),
-                        LuaValue::String(s) => Ok(Some(s.to_str()?.to_string())),
-                        other => Ok(Some(other.to_string()?)),
-                    })
-                    .collect::<mlua::Result<_>>()?;
-                Series::new(n, text)
+                v => Cell::Text(text(v)?),
             };
-        out.push(Column::from(col));
+        }
+    }
+    let mut out = Vec::with_capacity(width);
+    for (name, vals) in columns.iter().zip(&cells) {
+        let n = name.as_str().into();
+        let all = |f: fn(&Cell) -> bool| vals.iter().all(|v| matches!(v, Cell::Null) || f(v));
+        let series = if vals.iter().all(|v| matches!(v, Cell::Null)) {
+            Series::full_null(n, vals.len(), &DataType::String)
+        } else if all(|v| matches!(v, Cell::Int(_))) {
+            let int = |v: &Cell| if let Cell::Int(i) = v { Some(*i) } else { None };
+            Series::new(n, vals.iter().map(int).collect::<Vec<_>>())
+        } else if all(|v| matches!(v, Cell::Int(_) | Cell::Num(_))) {
+            let num = |v: &Cell| match v {
+                Cell::Int(i) => Some(*i as f64),
+                Cell::Num(f) => Some(*f),
+                _ => None,
+            };
+            Series::new(n, vals.iter().map(num).collect::<Vec<_>>())
+        } else if all(|v| matches!(v, Cell::Bool(_))) {
+            let flag = |v: &Cell| {
+                if let Cell::Bool(b) = v {
+                    Some(*b)
+                } else {
+                    None
+                }
+            };
+            Series::new(n, vals.iter().map(flag).collect::<Vec<_>>())
+        } else {
+            Series::new(n, vals.iter().map(Cell::text).collect::<Vec<_>>())
+        };
+        out.push(Column::from(series));
     }
     let df = DataFrame::new(out).map_err(|e| bad(e.to_string()))?;
     Ok((name.unwrap_or_else(|| "lua".into()), df))
@@ -1046,5 +1128,71 @@ mod tests {
         let r = |f| p.render("x", &DataType::Float64, &AnyValue::Float64(f));
         assert_eq!(r(1.00000001).as_deref(), Some("1.00000001"));
         assert_eq!(r(1.00000002).as_deref(), Some("1.00000002"));
+    }
+
+    fn push_error(body: &str) -> String {
+        let src = format!(r#"vd.bind("sheet", "x", function() vd.push_sheet {{ {body} }} end)"#);
+        let p = Plugins::load_from_source(&src).unwrap();
+        let ctx = SheetCtx {
+            name: "s",
+            row: 1,
+            col: 1,
+            column_names: vec![],
+            value: AnyValue::Null,
+        };
+        p.call(0, &ctx)
+            .err()
+            .map_or(String::new(), |e| e.to_string())
+    }
+
+    #[test]
+    fn push_sheet_rejects_quiet_data_loss() {
+        for (body, want) in [
+            (r#"columns={"a"}, rows={{1},nil,{3}}"#, "rows has gaps"),
+            (r#"columns={"a",nil,"c"}, rows={}"#, "columns has gaps"),
+            (r#"columns={"a"}, rows={{a=1}}"#, "values go by position"),
+            (
+                r#"columns={"a","b"}, rows={{1,2,[5]=9}}"#,
+                "more values than columns",
+            ),
+            (r#"columns={"__vdrs_rid"}, rows={{1}}"#, "reserved"),
+            (r#"rows={{1}}"#, "columns must be a table"),
+            (r#"columns={"a"}"#, "rows must be a table"),
+            (r#"columns={"a"}, rows={1}"#, "row 1 isn't a table"),
+        ] {
+            let got = push_error(body);
+            assert!(got.contains(want), "{body}: {got}");
+        }
+    }
+
+    #[test]
+    fn push_sheet_takes_bad_utf8_and_big_sheets() {
+        assert_eq!(push_error(r#"columns={"a"}, rows={{"caf\xe9"}}"#), "");
+        // More cells than mlua has reference slots if each were held as a value.
+        let big = r#"columns={"a","b"}, rows=(function()
+            local r = {}
+            for i = 1, 600000 do r[i] = {"x" .. i, "y" .. i} end
+            return r
+        end)()"#;
+        assert_eq!(push_error(big), "");
+    }
+
+    #[test]
+    fn a_failing_binding_discards_its_pushed_sheets() {
+        let p = Plugins::load_from_source(
+            r#"vd.bind("sheet", "x", function()
+                vd.push_sheet { columns = {"a"}, rows = {{1}} }
+                error("boom")
+            end)"#,
+        )
+        .unwrap();
+        let ctx = SheetCtx {
+            name: "s",
+            row: 1,
+            col: 1,
+            column_names: vec![],
+            value: AnyValue::Null,
+        };
+        assert!(p.call(0, &ctx).is_err());
     }
 }

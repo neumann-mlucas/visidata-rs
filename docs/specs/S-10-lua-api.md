@@ -35,7 +35,7 @@ Series:collect() -> table                                  -- since 0.3.0 (be ca
 vd.toast(msg)                                              -- since 0.3.0
 vd.sheet() -> Sheet                                        -- since 0.3.0
 Sheet.name, Sheet.cursor, Sheet.column_names               -- since 0.3.0
-vd.push_sheet(sheet_table)                                 -- since 0.3.0
+vd.push_sheet { name?, columns, rows }      -- api_version 3
 vd.pop_sheet()                                             -- since 0.3.0
 
 -- config
