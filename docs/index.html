@@ -109,7 +109,7 @@ vdrs --format tsv export.txt       # force a format when the extension is wrong
 vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
 <table>
 <tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
-<tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates load as dates; other layouts (<code>7/3/2018</code> is ambiguous) stay text until <kbd>@</kbd>. Column types come from the whole file (first 100,000 rows above 256 MB). Rows with too few fields are padded, extra fields dropped; invalid UTF-8 is replaced.<code>2024-01-31</code>) are read as dates.</td></tr>
+<tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates load as dates; other layouts (<code>7/3/2018</code> is ambiguous) stay text until <kbd>@</kbd>. Column types come from the whole file (first 100,000 rows above 256 MB). Rows with too few fields are padded, extra fields dropped; invalid UTF-8 is replaced.</td></tr>
 <tr><td>Parquet</td><td><code>.parquet</code>, <code>.pq</code>, a directory</td><td>A directory means all its <code>*.parquet</code> files.</td></tr>
 <tr><td>Arrow IPC</td><td><code>.arrow</code>, <code>.ipc</code>, <code>.feather</code></td><td></td></tr>
 <tr><td>JSON Lines</td><td><code>.jsonl</code>, <code>.ndjson</code></td><td>One record per line.</td></tr>

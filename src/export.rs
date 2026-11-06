@@ -194,16 +194,34 @@ impl Script {
                 let p = q_str(&shown);
                 Ok(match kind {
                     SourceKind::Csv | SourceKind::Tsv => {
-                        // Polars keeps the header's columns; null_padding can add more.
+                        // Polars' names, and only the header's columns:
+                        // null_padding can add more.
                         let schema = s.source.lazy.clone().collect_schema();
+                        let schema = schema.map_err(|e| e.to_string())?;
+                        // SQL has no blank identifiers; such a column becomes `column<i>`.
                         let names: Vec<String> = schema
-                            .map_err(|e| e.to_string())?
                             .iter_names()
-                            .map(|n| q_ident(n))
+                            .enumerate()
+                            .map(|(i, n)| match n.as_str() {
+                                "" => format!("column{i}"),
+                                n => n.to_string(),
+                            })
                             .collect();
+                        let mut folded: Vec<String> =
+                            names.iter().map(|n| n.to_lowercase()).collect();
+                        folded.sort();
+                        if let Some(d) = folded.windows(2).find(|w| w[0] == w[1]) {
+                            return Err(format!(
+                                "export: DuckDB can't hold columns differing only by case: {:?}",
+                                d[0]
+                            ));
+                        }
+                        let quoted: Vec<String> = names.iter().map(|n| q_str(n)).collect();
+                        let cols: Vec<String> = names.iter().map(|n| q_ident(n)).collect();
                         format!(
-                            "SELECT {} FROM read_csv_auto({p}{})",
-                            names.join(", "),
+                            "SELECT {} FROM read_csv_auto({p}, names = [{}]{})",
+                            cols.join(", "),
+                            quoted.join(", "),
                             sql_csv_args(s)?
                         )
                     }
@@ -829,7 +847,7 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             format!("{t} = {t}.rename({{{}: {}}})", py_str(old), py_str(new))
         }
         PlanStep::Currency { column } => format!(
-            "{t} = {t}.with_columns(pl.col({c}).cast(pl.Utf8).str.replace_all(r\"[^0-9.\\-]\", \"\").cast(pl.Float64))",
+            "{t} = {t}.with_columns(pl.col({c}).cast(pl.Utf8).str.replace_all(r\"[^0-9.\\-]\", \"\").cast(pl.Float64, strict=False))",
             c = py_str(column)
         ),
         PlanStep::Derive { name, expr, .. } => format!(
@@ -920,9 +938,6 @@ fn is_text(s: &Sheet, c: &str) -> bool {
 
 /// CSV columns that loaded as dates (only ISO does; `reader::scan_csv`).
 fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
-    if matches!(s.origin, Origin::Tail { .. }) {
-        return Ok(Vec::new()); // tail chunks are read without date parsing
-    }
     let schema = s.source.lazy.clone().collect_schema();
     let schema = schema.map_err(|e| e.to_string())?;
     Ok(schema
@@ -1215,5 +1230,15 @@ mod tests {
             py_str("a\u{1f}\"b\\\n\u{301}"),
             "\"a\\x1f\\\"b\\\\\\n\u{301}\""
         );
+    }
+
+    #[test]
+    fn sql_refuses_columns_differing_only_by_case() {
+        let t = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        std::fs::write(t.path(), "a,A\n1,2\n").unwrap();
+        let loaded = crate::reader::open(t.path().as_os_str(), None).unwrap();
+        let s = Sheet::from_source(0, loaded);
+        assert!(to_sql(&s).unwrap_err().contains("only by case"));
+        assert!(to_python(&s).is_ok());
     }
 }

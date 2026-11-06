@@ -1,8 +1,8 @@
- tests/golden/rename-currency-derive/input.csv  row 1/2 · col 2/3 (cost) · sel 0  Csv · sheets 1
+ tests/golden/rename-currency-derive/input.csv  row 1/3 · col 2/3 (cost) · sel 0  Csv · sheets 1
 name str  cost f  tax f
 a         3.0     0.30000000000000004
 b         40.0    4.0
-
+c         ·       ·
 
 
 

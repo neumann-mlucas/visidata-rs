@@ -140,6 +140,8 @@ enum JobDone {
         note: String,
     },
     Toast(String),
+    /// A tail that can't append, reopened.
+    TailSource(Box<crate::reader::LoadedSource>),
     /// `:pivot` preview for the ex-line text it was computed from.
     PivotPreview {
         text: String,
@@ -330,6 +332,7 @@ impl App {
                     p.body = result.map_err(|e| format!("{e}\n\n{}", PIVOT_USAGE));
                 }
             }
+            Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
             Ok(JobDone::PushSheet(sheet)) => {
                 self.sheets.push(*sheet);
                 self.spawn_materialize();
@@ -2344,5 +2347,55 @@ pub(crate) mod scenario {
         );
         h.keys(".").await;
         assert!(h.app.input.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_of_a_lone_single_column_header_gains_no_phantom_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "a").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        std::fs::write(&f, "a\n1\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tail_reads_iso_dates_like_a_plain_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.csv");
+        std::fs::write(&f, "d,u\n2024-01-02,7/3/2018\n").unwrap();
+        let mut h = csv(b"x\n1\n").await;
+        tail_sheet(&mut h, &f).await;
+        std::fs::write(&f, "d,u\n2024-01-02,7/3/2018\n2024-01-03,7/4/2018\n").unwrap();
+        h.app.on_tail_tick();
+        h.pump().await;
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        assert_eq!(df.height(), 2);
+        assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+        assert_eq!(df.column("u").unwrap().dtype(), &DataType::String);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_file_open_is_reported_and_keeps_the_sheet() {
+        let mut h = csv(b"a\n1\n").await;
+        for cmd in [
+            "tail /no/such.csv",
+            "diff /no/such.csv a",
+            "join /no/such.csv a",
+        ] {
+            h.keys(":").await;
+            h.type_(cmd).await;
+            assert!(
+                h.app
+                    .toast
+                    .as_deref()
+                    .is_some_and(|t| t.contains("/no/such")),
+                "{cmd}"
+            );
+            assert_eq!(h.app.sheets.len(), 1);
+        }
     }
 }

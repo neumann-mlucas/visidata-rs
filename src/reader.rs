@@ -283,12 +283,13 @@ pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSour
     })
 }
 
-/// Parse a chunk of CSV/TSV/JSONL bytes (`:tail` increments). `schema` =
-/// continue an existing table: no header row, same column types.
+/// Parse a chunk of CSV/TSV/JSONL bytes (`:tail`). `header`: the bytes start
+/// with the header row. `schema` fixes column types when given.
 pub fn parse_chunk(
     kind: SourceKind,
     bytes: Vec<u8>,
     schema: Option<SchemaRef>,
+    header: bool,
 ) -> PolarsResult<DataFrame> {
     let cursor = io::Cursor::new(bytes);
     match kind {
@@ -301,14 +302,14 @@ pub fn parse_chunk(
         }
         SourceKind::Csv | SourceKind::Tsv => {
             let sep = if kind == SourceKind::Tsv { b'\t' } else { b',' };
-            // No date parsing: a chunk can't tell ISO columns from ambiguous ones.
             CsvReadOptions::default()
-                .with_has_header(schema.is_none())
+                .with_has_header(header)
                 .with_schema(schema)
                 .with_infer_schema_length(None)
                 .with_parse_options(
                     CsvParseOptions::default()
                         .with_separator(sep)
+                        .with_try_parse_dates(true)
                         .with_truncate_ragged_lines(true)
                         .with_encoding(CsvEncoding::LossyUtf8),
                 )
@@ -317,6 +318,15 @@ pub fn parse_chunk(
         }
         other => polars_bail!(ComputeError: "{other:?} can't be read incrementally"),
     }
+}
+
+/// Column types of a tail file, by the rules of a plain open.
+pub fn tail_schema(path: &Path, kind: SourceKind) -> Result<Option<SchemaRef>, OpenError> {
+    Ok(match kind {
+        SourceKind::Csv => Some(csv_schema(path, b',')?),
+        SourceKind::Tsv => Some(csv_schema(path, b'\t')?),
+        _ => None,
+    })
 }
 
 pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
@@ -406,63 +416,79 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
 /// CSVs at most this big have every row inspected for column types.
 const CSV_FULL_INFER_BYTES: u64 = 256 << 20;
 const CSV_INFER_ROWS: usize = 100_000;
-/// Rows that must look ISO for an inferred date column to stay a date.
-const DATE_SAMPLE_ROWS: u32 = 1000;
+
+fn file_is_small(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.len() <= CSV_FULL_INFER_BYTES)
+}
 
 /// Reader settings that keep real-world files open: ragged rows are padded or
 /// cut, bad UTF-8 is replaced, and types come from the whole file.
 // ponytail: past CSV_FULL_INFER_BYTES a late type change still fails at
 // materialize; a per-column retry as text would lift that.
 fn csv_reader(path: &Path, sep: u8) -> LazyCsvReader {
-    let whole = std::fs::metadata(path).is_ok_and(|m| m.len() <= CSV_FULL_INFER_BYTES);
     LazyCsvReader::new(path)
         .with_has_header(true)
         .with_separator(sep)
-        .with_infer_schema_length((!whole).then_some(CSV_INFER_ROWS))
+        .with_infer_schema_length((!file_is_small(path)).then_some(CSV_INFER_ROWS))
         .with_truncate_ragged_lines(true)
         .with_encoding(CsvEncoding::LossyUtf8)
 }
 
-/// Scan a CSV. Only ISO dates become date columns: `7/3/2018` is ambiguous
-/// and Polars would guess day-first, so other layouts stay text until `@`.
+/// Scan a CSV under `csv_schema`'s types.
 fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
+    Ok(csv_reader(path, sep)
+        .with_try_parse_dates(true)
+        .with_schema(Some(csv_schema(path, sep)?))
+        .finish()?)
+}
+
+/// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
+/// and Polars would guess day-first, so other layouts stay text until `@`.
+fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
     let inferred = csv_reader(path, sep)
         .with_try_parse_dates(true)
         .finish()?
         .collect_schema()?;
     let is_date = |d: &DataType| matches!(d, DataType::Date | DataType::Datetime(..));
+    let dated: Vec<Expr> = inferred
+        .iter()
+        .filter(|(_, d)| is_date(d))
+        .map(|(n, _)| col(n.clone()))
+        .collect();
+    if dated.is_empty() {
+        return Ok(inferred);
+    }
+    let text: Schema = inferred
+        .iter()
+        .map(|(n, d)| {
+            let d = if is_date(d) {
+                DataType::String
+            } else {
+                d.clone()
+            };
+            (n.clone(), d)
+        })
+        .collect();
+    // Every row inference saw: one stray layout makes the column text.
+    let values = csv_reader(path, sep)
+        .with_schema(Some(Arc::new(text)))
+        .finish()?
+        .select(dated)
+        .limit(if file_is_small(path) {
+            u32::MAX
+        } else {
+            CSV_INFER_ROWS as u32
+        })
+        .collect()?;
+    let iso = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex");
     let mut schema = (*inferred).clone();
-    if schema.iter().any(|(_, d)| is_date(d)) {
-        let text: Schema = schema
-            .iter()
-            .map(|(n, d)| {
-                let d = if is_date(d) {
-                    DataType::String
-                } else {
-                    d.clone()
-                };
-                (n.clone(), d)
-            })
-            .collect();
-        let sample = csv_reader(path, sep)
-            .with_schema(Some(Arc::new(text)))
-            .finish()?
-            .limit(DATE_SAMPLE_ROWS)
-            .collect()?;
-        let iso = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex");
-        for (name, dtype) in schema.iter_mut() {
-            if is_date(dtype) {
-                let col = sample.column(name)?.str()?;
-                if !col.into_iter().flatten().all(|v| iso.is_match(v)) {
-                    *dtype = DataType::String;
-                }
-            }
+    for c in values.get_columns() {
+        let has_value = c.str()?.into_iter().flatten().next().is_some();
+        if !has_value || !c.str()?.into_iter().flatten().all(|v| iso.is_match(v)) {
+            schema.set_dtype(c.name(), DataType::String);
         }
     }
-    Ok(csv_reader(path, sep)
-        .with_try_parse_dates(true)
-        .with_schema(Some(Arc::new(schema)))
-        .finish()?)
+    Ok(Arc::new(schema))
 }
 
 /// First non-whitespace byte (after an optional UTF-8 BOM) is `[`.
@@ -615,11 +641,12 @@ mod tests {
         let df = open(csv.as_os_str(), None).unwrap().lazy.collect().unwrap();
         assert_eq!(df.column("day").unwrap().dtype(), &DataType::Date);
         // chunks continue an existing schema without a header
-        let first = parse_chunk(SourceKind::Csv, b"a,b\n1,x\n".to_vec(), None).unwrap();
+        let first = parse_chunk(SourceKind::Csv, b"a,b\n1,x\n".to_vec(), None, true).unwrap();
         let more = parse_chunk(
             SourceKind::Csv,
             b"2,y\n".to_vec(),
             Some(std::sync::Arc::new(first.schema())),
+            false,
         )
         .unwrap();
         assert_eq!(more.shape(), (1, 2));
@@ -690,5 +717,18 @@ mod tests {
             unique_headers(names.into_iter()),
             ["a", "", "b", "_duplicated_3", "a_duplicated_4"]
         );
+    }
+
+    #[test]
+    fn a_stray_layout_anywhere_keeps_a_column_text() {
+        let mut csv = String::from("late,blank\n");
+        for i in 0..1500 {
+            csv += &format!("2024-01-{:02},\n", i % 28 + 1);
+        }
+        csv += "7/3/2018,7/3/2018\n";
+        let df = scan_bytes(csv.as_bytes());
+        assert_eq!(df.column("late").unwrap().dtype(), &DataType::String);
+        assert_eq!(df.column("blank").unwrap().dtype(), &DataType::String);
+        assert_eq!(df.height(), 1501);
     }
 }

@@ -648,19 +648,23 @@ impl Sheet {
             return None;
         }
         partial.push(b'\n');
-        crate::reader::parse_chunk(self.kind, partial, Some(Arc::new(df.schema()))).ok()
+        crate::reader::parse_chunk(self.kind, partial, Some(Arc::new(df.schema())), false).ok()
     }
 
     /// Read the whole tail file into the cache (first load, or after truncation).
     fn reload_tail_cache(&mut self) -> Result<(), crate::reader::OpenError> {
         let (mut lines, mut rest) = self.tail_bytes(0)?;
+        // `consumed` 0 = a lone header without its newline: reread it all later.
+        let consumed = lines.len() as u64;
         if lines.is_empty() {
-            // A lone header without its newline yet.
             lines = std::mem::take(&mut rest);
             lines.push(b'\n');
         }
-        let consumed = lines.len().min(self.tail_len()?) as u64;
-        let df = crate::reader::parse_chunk(self.kind, lines, None)?;
+        let Origin::Tail { path, .. } = &self.origin else {
+            return Ok(());
+        };
+        let schema = crate::reader::tail_schema(path, self.kind)?;
+        let df = crate::reader::parse_chunk(self.kind, lines, schema, true)?;
         let partial = self.parse_partial(rest, &df);
         self.state.tail = Some(TailCache {
             consumed,
@@ -668,13 +672,6 @@ impl Sheet {
             partial,
         });
         Ok(())
-    }
-
-    fn tail_len(&self) -> std::io::Result<usize> {
-        let Origin::Tail { path, .. } = &self.origin else {
-            return Ok(0);
-        };
-        Ok(std::fs::metadata(path)?.len() as usize)
     }
 
     /// The table `state.steps` apply to: rows read so far, or the reopened source.
@@ -701,46 +698,65 @@ impl Sheet {
         Ok(())
     }
 
-    /// Pick up appended rows. Returns whether anything changed (an unchanged
-    /// file isn't re-materialized or recounted).
+    /// A tail that can't append (Parquet dir, gzip) whose file changed: the
+    /// path to reopen off the UI thread, then hand to `set_tail_source`.
+    pub fn tail_needs_reopen(&mut self) -> Option<std::path::PathBuf> {
+        let Origin::Tail { path, .. } = &self.origin else {
+            return None;
+        };
+        let path = path.clone();
+        let stamp = tail_stamp(&path);
+        if self.state.tail.is_some() || stamp == self.state.tail_stamp {
+            return None;
+        }
+        self.state.tail_stamp = stamp;
+        Some(path)
+    }
+
+    /// The reopened source of a tail that can't append. Holding it keeps a
+    /// decompressed tempfile alive.
+    pub fn set_tail_source(&mut self, loaded: LoadedSource) -> PolarsResult<()> {
+        self.source = Arc::new(loaded);
+        self.rebuild_tail_plan()?;
+        self.view.count_key = None;
+        Ok(())
+    }
+
+    /// Pick up rows appended to a CSV/TSV/JSONL tail. Returns whether anything
+    /// changed (an unchanged file isn't re-materialized or recounted).
     pub fn refresh_tail(&mut self) -> Result<bool, crate::reader::OpenError> {
         let Origin::Tail { path, .. } = &self.origin else {
             return Ok(false);
         };
-        let path = path.clone();
-        let stamp = tail_stamp(&path);
+        let Some(cache) = &self.state.tail else {
+            return Ok(false);
+        };
+        let stamp = tail_stamp(path);
         if stamp == self.state.tail_stamp {
             return Ok(false);
         }
         self.state.tail_stamp = stamp;
-        match &self.state.tail {
-            None => {
-                let loaded = crate::reader::open(path.as_os_str(), Some(self.kind))?;
-                self.source = Arc::new(loaded); // keeps a decompressed tempfile alive
-            }
-            Some(cache) if std::fs::metadata(&path)?.len() < cache.consumed => {
-                self.reload_tail_cache()?; // truncated or rotated: start over
-            }
-            Some(cache) => {
-                let (new, rest) = self.tail_bytes(cache.consumed)?;
-                let added = new.len() as u64;
-                let schema = Arc::new(cache.df.schema());
-                let more = (!new.is_empty())
-                    .then(|| crate::reader::parse_chunk(self.kind, new, Some(schema)))
-                    .transpose();
-                match more {
-                    Ok(more) => {
-                        let cache = self.state.tail.as_mut().expect("checked above");
-                        if let Some(more) = more {
-                            cache.df.vstack_mut(&more)?;
-                            cache.consumed += added;
-                        }
-                        let df = cache.df.clone();
-                        let partial = self.parse_partial(rest, &df);
-                        self.state.tail.as_mut().expect("checked above").partial = partial;
+        if std::fs::metadata(path)?.len() < cache.consumed || cache.consumed == 0 {
+            self.reload_tail_cache()?; // truncated, rotated or header-only: start over
+        } else {
+            let (new, rest) = self.tail_bytes(cache.consumed)?;
+            let added = new.len() as u64;
+            let schema = Arc::new(cache.df.schema());
+            let more = (!new.is_empty())
+                .then(|| crate::reader::parse_chunk(self.kind, new, Some(schema), false))
+                .transpose();
+            match more {
+                Ok(more) => {
+                    let cache = self.state.tail.as_mut().expect("checked above");
+                    if let Some(more) = more {
+                        cache.df.vstack_mut(&more)?;
+                        cache.consumed += added;
                     }
-                    Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
+                    let df = cache.df.clone();
+                    let partial = self.parse_partial(rest, &df);
+                    self.state.tail.as_mut().expect("checked above").partial = partial;
                 }
+                Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
             }
         }
         self.rebuild_tail_plan()?;
@@ -1134,7 +1150,16 @@ impl Sheet {
         let origin = Origin::Pivot { parent: parent.id };
         // The cursor may sit on a key column; a null and the text "null" are
         // one column header, so they are one group.
-        let keys: Vec<String> = keys.iter().filter(|k| *k != on).cloned().collect();
+        // Hidden key columns are out of the view too.
+        let shown = parent
+            .view_plan()
+            .collect_schema()
+            .map_err(|e| e.to_string())?;
+        let keys: Vec<String> = keys
+            .iter()
+            .filter(|k| *k != on && shown.contains(k.as_str()))
+            .cloned()
+            .collect();
         let keys = &keys[..];
         let value_text = col(on).cast(DataType::String).fill_null(lit("null"));
         let counted = parent
@@ -1727,10 +1752,10 @@ pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
 
 /// Write a DataFrame to disk, picking the writer by file extension.
 /// Supported: csv (default), tsv/tab, parquet/pq, ipc/arrow/feather, jsonl/ndjson, json.
-/// Writes a temp file beside `path` and renames it over, so a failed save
-/// (unsupported column type, full disk) leaves an existing file untouched.
+/// An existing file is replaced by rename from a temp file beside it, so a
+/// failed save (unsupported column type, full disk) leaves it untouched; a
+/// directory we can't create in falls back to writing the file directly.
 pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> PolarsResult<()> {
-    use std::os::unix::fs::PermissionsExt;
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -1757,16 +1782,33 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
             format!("save: unknown extension '.{other}'").into(),
         ));
     }
-    // A symlink keeps pointing at the data; an existing file keeps its mode.
-    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let dir = target.parent().filter(|d| !d.as_os_str().is_empty());
-    let mode = std::fs::metadata(&target).map_or(0o666, |m| m.permissions().mode());
-    let tmp = tempfile::Builder::new()
+    let ext = ext.as_deref();
+    let Ok(target) = std::fs::canonicalize(path) else {
+        // New file: nothing to protect, and the umask sets its mode.
+        let result = write_df(df, std::fs::File::create(path)?, ext);
+        if result.is_err() {
+            let _ = std::fs::remove_file(path);
+        }
+        return result;
+    };
+    // Same refusal as writing in place: a read-only file stays read-only.
+    drop(std::fs::OpenOptions::new().write(true).open(&target)?);
+    let dir = target.parent().unwrap_or(std::path::Path::new("."));
+    let Ok(tmp) = tempfile::Builder::new()
         .prefix(".vdrs-save")
-        .permissions(std::fs::Permissions::from_mode(mode))
-        .tempfile_in(dir.unwrap_or(std::path::Path::new(".")))?;
-    let file = tmp.as_file().try_clone()?;
-    match ext.as_deref() {
+        .tempfile_in(dir)
+    else {
+        return write_df(df, std::fs::File::create(&target)?, ext);
+    };
+    tmp.as_file()
+        .set_permissions(std::fs::metadata(&target)?.permissions())?;
+    write_df(df, tmp.as_file().try_clone()?, ext)?;
+    tmp.persist(&target).map_err(|e| e.error)?;
+    Ok(())
+}
+
+fn write_df(df: &mut DataFrame, file: std::fs::File, ext: Option<&str>) -> PolarsResult<()> {
+    match ext {
         Some("tsv" | "tab") => CsvWriter::new(file).with_separator(b'\t').finish(df),
         Some("parquet" | "pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
         Some("ipc" | "arrow" | "feather") => IpcWriter::new(file).finish(df),
@@ -1777,15 +1819,20 @@ pub fn write_df_by_extension(df: &mut DataFrame, path: &std::path::Path) -> Pola
             .with_json_format(JsonFormat::Json)
             .finish(df),
         _ => CsvWriter::new(file).finish(df),
-    }?;
-    tmp.persist(&target).map_err(|e| e.error)?;
-    Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::reader::{self, SourceKind};
+
+    fn sheet_of(csv: &str) -> (Sheet, tempfile::NamedTempFile) {
+        let t = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        std::fs::write(t.path(), csv).unwrap();
+        let loaded = reader::open(t.path().as_os_str(), None).unwrap();
+        (Sheet::from_source(0, loaded), t)
+    }
     use std::io::Write;
 
     fn make_sheet() -> (Sheet, tempfile::NamedTempFile) {
@@ -2177,5 +2224,42 @@ mod tests {
         let mut ok = df!("a" => [1, 2]).unwrap();
         write_df_by_extension(&mut ok, &p).unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "a\n1\n2\n");
+    }
+
+    #[test]
+    fn save_keeps_mode_and_refuses_read_only_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.csv");
+        let mode = |m| std::fs::Permissions::from_mode(m);
+        std::fs::write(&p, "old\n").unwrap();
+        std::fs::set_permissions(&p, mode(0o664)).unwrap();
+        let mut df = df!("a" => [1]).unwrap();
+        write_df_by_extension(&mut df, &p).unwrap();
+        let got = std::fs::metadata(&p).unwrap().permissions().mode();
+        assert_eq!(got & 0o777, 0o664);
+        std::fs::set_permissions(&p, mode(0o444)).unwrap();
+        if !std::fs::OpenOptions::new().write(true).open(&p).is_ok() {
+            assert!(write_df_by_extension(&mut df, &p).is_err());
+        } // root ignores modes
+    }
+
+    #[test]
+    fn failed_save_to_a_new_path_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("new.csv");
+        let list = Series::new("l".into(), [1i32]).implode().unwrap();
+        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        assert!(write_df_by_extension(&mut df, &p).is_err());
+        assert!(!p.exists());
+    }
+
+    #[test]
+    fn w_ignores_hidden_key_columns() {
+        let (mut s, _t) = sheet_of("a,b\nx,1\ny,2\n");
+        s.view.hidden.insert("a".into());
+        let keys = vec!["a".to_string()];
+        let w = Sheet::pivot_current_from(&s, 1, &keys, "b").unwrap();
+        assert_eq!(w.plan.clone().collect().unwrap().height(), 1);
     }
 }

@@ -534,21 +534,14 @@ impl App {
             ));
             return;
         }
-        let loaded = match crate::reader::open(&OsString::from(path), None) {
-            Ok(l) => l,
-            Err(e) => {
-                self.toast = Some(format!("tail load: {e}"));
-                return;
-            }
-        };
         let id = self.sheets.alloc_id();
-        match Sheet::tail_from(id, loaded, follow) {
-            Ok(s) => {
-                self.sheets.push(s);
-                self.spawn_materialize();
-            }
-            Err(e) => self.toast = Some(format!("tail: {e}")),
-        }
+        let path = path.to_string();
+        self.spawn_job("tail", move || {
+            let loaded =
+                crate::reader::open(&OsString::from(path), None).map_err(|e| e.to_string())?;
+            let s = Sheet::tail_from(id, loaded, follow).map_err(|e| e.to_string())?;
+            Ok(JobDone::PushSheet(Box::new(s)))
+        });
     }
 
     /// Hot reload: `init.lua` edited/created/deleted → fresh VM, keymap, theme.
@@ -566,10 +559,30 @@ impl App {
         // Only refresh the active sheet's tail if any. Dormant tail sheets are reactivated
         // via sheet-switcher; refreshing all of them per tick would be wasteful.
         let active = self.sheets.active_mut();
-        let is_tail = matches!(active.origin, Origin::Tail { .. });
-        if !is_tail {
+        if !matches!(active.origin, Origin::Tail { .. }) {
             return;
         }
+        if let Some(path) = active.tail_needs_reopen() {
+            let kind = active.kind;
+            self.spawn_job("tail", move || {
+                let loaded = crate::reader::open(path.as_os_str(), Some(kind));
+                let loaded = loaded.map_err(|e| e.to_string())?;
+                Ok(JobDone::TailSource(Box::new(loaded)))
+            });
+            return;
+        }
+        // Reads only appended bytes, so the UI thread can afford it; rotation
+        // rereads the whole file.
+        // ponytail: move to a job if a rotated giant log ever stalls a tick.
+        self.after_tail_change(Sheet::refresh_tail);
+    }
+
+    /// Run `change` on the active tail; keep following the bottom if the cursor was there.
+    fn after_tail_change(
+        &mut self,
+        change: impl FnOnce(&mut Sheet) -> Result<bool, crate::reader::OpenError>,
+    ) {
+        let active = self.sheets.active_mut();
         let follow = matches!(active.origin, Origin::Tail { follow: true, .. });
         let v = &active.view;
         let abs = v.window_offset + v.row_cursor as u64;
@@ -578,9 +591,7 @@ impl App {
             (None, Some(df)) => v.row_cursor + 1 >= df.height(),
             (None, None) => true,
         };
-        // ponytail: on the UI thread; it reads only new bytes, so a slow tick
-        // needs a huge burst or a rotated file. Move to a job if that shows.
-        match active.refresh_tail() {
+        match change(active) {
             Ok(true) => {}
             Ok(false) => return, // nothing new
             Err(e) => {
@@ -593,34 +604,65 @@ impl App {
         self.spawn_materialize();
     }
 
+    pub(super) fn apply_tail_source(
+        &mut self,
+        sheet_id: SheetId,
+        loaded: crate::reader::LoadedSource,
+    ) {
+        if self.sheets.active().id == sheet_id {
+            self.after_tail_change(|s| {
+                s.set_tail_source(loaded)?;
+                Ok(true)
+            });
+        } else if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+            // Shown next time it's raised and something re-materializes.
+            let _ = s.set_tail_source(loaded);
+        }
+    }
+
+    /// Whether a Lua loader claims `path`: those run here, on the VM's thread.
+    fn lua_loader_for(&self, path: &str) -> bool {
+        let p = self.plugins.as_ref();
+        p.is_some_and(|p| p.resolve_loader(std::path::Path::new(path)).is_some())
+    }
+
+    /// Open `path` now through a Lua loader, or return None for `job` to read it.
+    fn open_with_loader(
+        &mut self,
+        label: &str,
+        path: &str,
+    ) -> Result<Option<crate::reader::LoadedSource>, ()> {
+        if !self.lua_loader_for(path) {
+            return Ok(None);
+        }
+        crate::plugins::open(self.plugins.as_ref(), path.as_ref(), None)
+            .map(Some)
+            .map_err(|e| self.toast = Some(format!("{label}: {e}")))
+    }
+
     fn open_diff(&mut self, path: &str, keys: &[String]) {
-        use std::ffi::OsString;
-        let loaded = match crate::plugins::open(self.plugins.as_ref(), &OsString::from(path), None)
-        {
-            Ok(l) => l,
-            Err(e) => {
-                self.toast = Some(format!("diff load: {e}"));
-                return;
-            }
+        let Ok(opened) = self.open_with_loader("diff", path) else {
+            return;
         };
         let id = self.sheets.alloc_id();
-        let built = {
-            let parent = self.sheets.active();
-            if keys.is_empty() {
-                Sheet::schema_diff_from(parent, id, &loaded)
+        let parent = self.sheets.active().clone();
+        let (path, keys) = (path.to_string(), keys.to_vec());
+        self.spawn_job("diff", move || {
+            let loaded = match opened {
+                Some(l) => l,
+                None => crate::reader::open(path.as_ref(), None).map_err(|e| e.to_string())?,
+            };
+            let mut s = if keys.is_empty() {
+                Sheet::schema_diff_from(&parent, id, &loaded)?
             } else {
-                Sheet::row_diff_from(parent, id, &Sheet::from_source(0, loaded), keys)
-            }
-        };
-        match built {
+                Sheet::row_diff_from(&parent, id, &Sheet::from_source(0, loaded), &keys)?
+            };
             // A full join has no fixed row order: collect once, like `:join`.
-            Ok(s) if !keys.is_empty() => self.push_collected("diff", s),
-            Ok(s) => {
-                self.sheets.push(s);
-                self.spawn_materialize();
+            if !keys.is_empty() {
+                s.plan = s.plan.clone().collect().map_err(|e| e.to_string())?.lazy();
             }
-            Err(e) => self.toast = Some(format!("diff: {e}")),
-        }
+            Ok(JobDone::PushSheet(Box::new(s)))
+        });
     }
 
     /// `:join` source: `#<id>` or the exact name of an open sheet, else a file.
@@ -634,25 +676,26 @@ impl App {
                     && (*name == source || source.strip_prefix('#') == Some(&id.to_string()))
             })
             .map(|(id, _, _)| id);
-        let right = match open_sheet {
-            Some(id) => self
-                .sheets
-                .find_by_id_mut(id)
-                .expect("id from summaries")
-                .clone(),
-            None => match crate::plugins::open(self.plugins.as_ref(), source.as_ref(), None) {
-                Ok(l) => Sheet::from_source(0, l),
-                Err(e) => {
-                    self.toast = Some(format!("join: {e}"));
-                    return;
-                }
-            },
+        let right = open_sheet.and_then(|id| Some(self.sheets.find_by_id_mut(id)?.clone()));
+        let Ok(opened) = self.open_with_loader("join", source) else {
+            return;
         };
         let id = self.sheets.alloc_id();
-        match Sheet::join_from(self.sheets.active(), id, &right, keys, how) {
-            Ok(s) => self.push_collected("join", s),
-            Err(e) => self.toast = Some(format!("join: {e}")),
-        }
+        let left = self.sheets.active().clone();
+        let (source, keys, how) = (source.to_string(), keys.to_vec(), how.to_string());
+        self.spawn_job("join", move || {
+            let right = match (right, opened) {
+                (Some(sheet), _) => sheet,
+                (None, Some(l)) => Sheet::from_source(0, l),
+                (None, None) => {
+                    let l = crate::reader::open(source.as_ref(), None);
+                    Sheet::from_source(0, l.map_err(|e| e.to_string())?)
+                }
+            };
+            let mut s = Sheet::join_from(&left, id, &right, &keys, &how)?;
+            s.plan = s.plan.clone().collect().map_err(|e| e.to_string())?.lazy();
+            Ok(JobDone::PushSheet(Box::new(s)))
+        });
     }
 
     fn open_unpivot(&mut self, on: &[String], index: &[String]) {
