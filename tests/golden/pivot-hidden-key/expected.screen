@@ -1,6 +1,6 @@
- pivot(b): tests/golden/pivot-hidden-key/input.csv  row 1/1 · col 1/1 (1) · sel 0  Csv · sheets 2
-1 i
-2
+ pivot(b): tests/golden/pivot-hidden-key/input.csv  csv · sheets 2            1 1/1  row 1/1 · 100%
+ 1 i
+   2
 
 
 

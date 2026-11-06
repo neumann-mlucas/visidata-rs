@@ -1,6 +1,6 @@
- tests/golden/numeric-headers/input.csv  row 1/1 · col 1/2 (2023) · sel 0  Csv · sheets 1
-2023 i  2024 i
-5       6
+ tests/golden/numeric-headers/input.csv  csv                               2023 1/2  row 1/1 · 100%
+ 2023 i  2024 i
+      5       6
 
 
 

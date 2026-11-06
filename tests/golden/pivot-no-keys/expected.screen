@@ -1,6 +1,6 @@
- pivot(grp): tests/golden/pivot-no-keys/input.csv  row 1/1 · col 1/3 (a) · sel 0  Csv · sheets 2
-a i  b i  c i
-2    2    1
+ pivot(grp): tests/golden/pivot-no-keys/input.csv  csv · sheets 2             a 1/3  row 1/1 · 100%
+ a i  b i  c i
+   2    2    1
 
 
 

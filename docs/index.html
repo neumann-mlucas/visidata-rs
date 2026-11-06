@@ -132,11 +132,11 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <p>Nothing you do changes <code>sales.csv</code>.</p>
 
 <h2 id="screen">The screen</h2>
-<pre class="screen"><span class="t"> sales.csv  row 12/48210 · col 3/7 (region) · sel 0  Csv · sheets 1 </span>
-id i   date date    <span class="c">region str</span>  qty i  price f
-11     2024-01-03   north       4      12.5
-12     2024-01-03   <span class="c">south     </span>  1      80.0
-13     2024-01-04   north       2      19.9
+<pre class="screen"><span class="t"> sales.csv  csv                      region 3/7  row 12/48,210 · 0% </span>
+  id i date date    <span class="c">region str</span>  qty i price f
+    11 2024-01-03   north         4    12.5
+    12 2024-01-03   <span class="c">south     </span>    1    80.0
+    13 2024-01-04   north         2    19.9
 <span class="s"> hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q </span></pre>
 <ul>
 <li><strong>Title bar</strong>: the sheet name; your position as <code>row N/total</code> (<code>?</code> while rows are still being counted) and <code>col N/total (name)</code>; how many rows are selected; the source format; how many sheets are open. Long names are shortened from the left so the position stays visible.</li>

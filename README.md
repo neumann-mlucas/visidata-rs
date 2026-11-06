@@ -6,11 +6,11 @@ Lua-extensible like Neovim. Pre-alpha.
 A pivot sheet, from the test suite (`:pivot grp name amt sum`):
 
 ```
- …(grp×name→amt): tests/golden/pivot-sum/input.csv  row 1/3 · col 1/6 (grp) · sel 0  Csv · sheets 2
-grp str  ann f  bob f  cid f  dee f  eve f
-a        1.5    ·      0.0    ·      ·
-b        ·      2.25   ·      ·      1234567.89
-c        ·      ·      ·      4.0    ·
+ pivot(grp×name→amt): tests/golden/pivot-sum/input.csv  csv · sheets 2       grp 1/6  row 1/3 · 33%
+grp str   ann f  bob f  cid f  dee f      eve f
+a           1.5      ·    0.0      ·          ·
+b             ·   2.25      ·      · 1234567.89
+c             ·      ·      ·    4.0          ·
 
  hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
 ```

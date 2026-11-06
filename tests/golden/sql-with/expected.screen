@@ -1,8 +1,8 @@
- … WHERE id > 2) SELECT id, name FROM t ORDER BY id  row 1/3 · col 1/2 (id) · sel 0  Csv · sheets 2
-id i  name str
-3     cid
-4     dee
-5     eve
+ …FROM self WHERE id > 2) SELECT id, name FROM t ORDER BY id  csv · sheets 2  id 1/2  row 1/3 · 33%
+ id i name str
+    3 cid
+    4 dee
+    5 eve
 
 
 

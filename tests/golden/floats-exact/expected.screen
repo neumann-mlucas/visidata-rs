@@ -1,6 +1,6 @@
- …cted (2 rows): tests/golden/floats-exact/input.csv  row 1/2 · col 1/1 (x) · sel 0  Csv · sheets 2
-x f
-1.00000001
+ selected (2 rows): tests/golden/floats-exact/input.csv  csv · sheets 2        x 1/1  row 1/2 · 50%
+          x f
+   1.00000001
 123456789.125
 
 

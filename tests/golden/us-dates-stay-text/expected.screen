@@ -1,7 +1,7 @@
- tests/golden/us-dates-stay-text/input.csv  row 1/2 · col 1/2 (d) · sel 0  Csv · sheets 1
-d str    n i
-7/3/2018 1
-7/4/2018 2
+ tests/golden/us-dates-stay-text/input.csv  csv                                d 1/2  row 1/2 · 50%
+d str     n i
+7/3/2018    1
+7/4/2018    2
 
 
 

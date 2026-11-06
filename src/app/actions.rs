@@ -552,6 +552,7 @@ impl App {
         };
         self.plugins = Some(fresh);
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
+        self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
     }
 

@@ -99,7 +99,9 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match rt.block_on(app::run(sheet, plugins, plugin_warning)) {
+    let result = rt.block_on(app::run(sheet, plugins, plugin_warning));
+    rt.shutdown_background(); // or quitting waits for running sorts and loads
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("vdrs: {e:#}"); // `:#` = include the cause chain

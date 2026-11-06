@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::event::{Event as CtEvent, EventStream, KeyCode, KeyEventKind};
@@ -13,7 +13,7 @@ use polars::prelude::*;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use tokio::sync::mpsc;
@@ -30,7 +30,7 @@ use crate::sheet::{
     FilterState, Origin, ROW_ID, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
 };
 use crate::theme::Theme;
-use crate::widget::{SheetWidget, clamp_view};
+use crate::widget::{SheetWidget, clamp_view, refresh_widths};
 
 mod actions;
 #[cfg(test)]
@@ -140,6 +140,8 @@ enum JobDone {
         note: String,
     },
     Toast(String),
+    /// The job's source, read into memory.
+    Loaded(DataFrame),
     /// A tail that can't append, reopened.
     TailSource(Box<crate::reader::LoadedSource>),
     /// `:pivot` preview for the ex-line text it was computed from.
@@ -201,6 +203,10 @@ pub struct App {
     viewport_rows: usize,
     /// Labels of background jobs in flight, shown in the status bar.
     busy: Vec<&'static str>,
+    /// When the current stretch of background work started.
+    working_since: Option<Instant>,
+    /// Spinner frame on screen, so ticks redraw only when it changes.
+    drawn_spin: Option<usize>,
     quit: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
     materialize_rx: mpsc::Receiver<MaterializeResult>,
@@ -232,6 +238,8 @@ impl App {
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             busy: Vec::new(),
+            working_since: None,
+            drawn_spin: None,
             quit: false,
             materialize_tx: tx,
             materialize_rx: rx,
@@ -250,6 +258,9 @@ impl App {
         tail_tick.tick().await;
         self.draw(term)?;
 
+        // Biased: everything queued is handled before the draw arm runs, so a
+        // held key costs one draw per burst, not one per repeat.
+        let mut dirty = false;
         loop {
             tokio::select! {
                 biased;
@@ -257,23 +268,27 @@ impl App {
                     Some(Ok(CtEvent::Key(ke))) if ke.kind != KeyEventKind::Release => {
                         let key: Key = ke.into();
                         self.on_key(key);
-                        self.draw(term)?;
+                        dirty = true;
                     }
-                    Some(Ok(CtEvent::Resize(_, _))) => { self.draw(term)?; }
+                    Some(Ok(CtEvent::Resize(_, _))) => dirty = true,
                     Some(Ok(_)) => {}
                     Some(Err(e)) => return Err(e).context("event stream"),
                     None => break,
                 },
                 Some(res) = self.materialize_rx.recv() => {
                     self.on_materialize(res);
-                    self.draw(term)?;
+                    dirty = true;
                 }
                 _ = tail_tick.tick() => {
                     self.reload_plugins_if_changed();
                     self.on_tail_tick();
-                    self.draw(term)?;
+                    dirty = true;
                 }
-                _ = tick.tick() => {}
+                _ = std::future::ready(()), if dirty && !self.quit => {
+                    self.draw(term)?;
+                    dirty = false;
+                }
+                _ = tick.tick() => dirty = self.spin() != self.drawn_spin,
             }
             if self.quit {
                 break;
@@ -330,6 +345,13 @@ impl App {
             Ok(JobDone::PivotPreview { text, result }) => {
                 if let Some(p) = self.pivot_preview.as_mut().filter(|p| p.text == text) {
                     p.body = result.map_err(|e| format!("{e}\n\n{}", PIVOT_USAGE));
+                }
+            }
+            Ok(JobDone::Loaded(df)) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id)
+                    && s.state.steps.is_empty()
+                {
+                    s.plan = df.lazy();
                 }
             }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
@@ -454,6 +476,21 @@ impl App {
         }
     }
 
+    /// First window is up: read the source into RAM behind the user's back.
+    /// Undo snapshots keep their scan plans; they stay correct, just slower.
+    fn load_into_memory(&mut self) {
+        let s = self.sheets.active_mut();
+        if std::mem::replace(&mut s.state.load_tried, true) {
+            return;
+        }
+        if let Some(plan) = s.memory_plan() {
+            self.spawn_job("load into memory", move || {
+                let df = plan.collect().map_err(|e| e.to_string())?;
+                Ok(JobDone::Loaded(df))
+            });
+        }
+    }
+
     fn on_materialize(&mut self, res: MaterializeResult) {
         match res {
             MaterializeResult::Ok {
@@ -479,6 +516,7 @@ impl App {
                 s.window = Some(df);
                 if sheet_id == self.sheets.active().id {
                     self.settle_jump_bottom();
+                    self.load_into_memory();
                 }
             }
             MaterializeResult::Job {
@@ -807,8 +845,18 @@ impl App {
     }
 
     fn draw<B: ratatui::backend::Backend>(&mut self, term: &mut Terminal<B>) -> Result<()> {
+        let s = self.sheets.active();
+        let working = s.state.loaded_rev != s.revision || s.state.counting || !self.busy.is_empty();
+        self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
+        self.drawn_spin = self.spin();
         term.draw(|f| self.render(f))?;
         Ok(())
+    }
+
+    /// Spinner frame once background work has lasted long enough to mention.
+    fn spin(&self) -> Option<usize> {
+        let ms = self.working_since?.elapsed().as_millis();
+        (ms >= SPIN_AFTER_MS).then_some((ms / 100) as usize % SPINNER.len())
     }
 
     /// `&mut` only to clamp the view to the sheet area measured here.
@@ -847,8 +895,9 @@ impl App {
             |c: &str, d: &DataType, v: &AnyValue| lua_render.and_then(|p| p.render(c, d, v));
         let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
         let s = self.sheets.active_mut();
+        refresh_widths(s, render);
         if let Some(df) = &s.window {
-            clamp_view(&mut s.view, df, sheet_area, render);
+            clamp_view(&mut s.view, df, sheet_area, &s.state.widths);
         }
 
         self.render_titlebar(f, chunks[0]);
@@ -860,6 +909,12 @@ impl App {
             },
             sheet_area,
         );
+        // Rows from the old window, while a slow new one is on its way.
+        let s = self.sheets.active();
+        if s.state.loaded_rev != s.revision && self.spin().is_some() {
+            f.buffer_mut()
+                .set_style(sheet_area, Style::default().add_modifier(Modifier::DIM));
+        }
         if let Some(area) = plan_area {
             match self.pivot_preview.as_ref().filter(|_| self.input.is_some()) {
                 Some(p) => self.render_pivot_preview(f, area, p),
@@ -911,7 +966,7 @@ impl App {
         let block = ratatui::widgets::Block::default()
             .title(format!(" {title} "))
             .borders(ratatui::widgets::Borders::ALL)
-            .style(Style::default().fg(Color::Green));
+            .style(Style::default().fg(self.theme.plan_border_fg));
         let p = Paragraph::new(text)
             .block(block)
             .wrap(ratatui::widgets::Wrap { trim: false });
@@ -929,7 +984,7 @@ impl App {
                     Span::styled(
                         format!(" {k:>6} "),
                         Style::default()
-                            .fg(Color::Yellow)
+                            .fg(self.theme.which_key_fg)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("→ "),
@@ -957,12 +1012,18 @@ impl App {
                     .join("")
             ))
             .borders(ratatui::widgets::Borders::ALL)
-            .style(Style::default().bg(Color::Black).fg(Color::White));
+            .style(
+                Style::default()
+                    .bg(self.theme.overlay_bg)
+                    .fg(self.theme.overlay_fg),
+            );
         let p = Paragraph::new(lines).block(block);
         f.render_widget(ratatui::widgets::Clear, rect);
         f.render_widget(p, rect);
     }
 
+    /// `name | kind · what shapes the view …| column | row`. The position
+    /// on the right always shows; the name gives up its head, the chips their tail.
     fn render_titlebar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
         let s = self.sheets.active();
         let View {
@@ -976,30 +1037,68 @@ impl App {
             .as_ref()
             .map(|df| (df.height(), df.width()))
             .unwrap_or((0, 0));
-        let abs_row = window_offset as usize + row_cursor + usize::from(rows > 0); // 1-based
+        let abs_row = window_offset + row_cursor as u64 + u64::from(rows > 0); // 1-based
         let col = col_cursor + usize::from(cols > 0); // 1-based
-        let total = s
-            .view
-            .total_rows
-            .map_or_else(|| "?".to_string(), |n| n.to_string());
-        let stack_pos = self.sheets.len();
-        let sel = s.view.selected.len();
+        let total = s.view.total_rows;
+        let percent = total
+            .filter(|t| *t > 0)
+            .map_or_else(String::new, |t| format!(" · {}%", abs_row * 100 / t));
+        let total = total.map_or_else(|| "?".to_string(), grouped);
+        let position = format!(" row {}/{total}{percent} ", grouped(abs_row));
         let col_name = s
             .window
             .as_ref()
             .and_then(|df| df.get_column_names().get(col_cursor).map(|n| n.to_string()))
             .unwrap_or_default();
-        let center =
-            format!(" row {abs_row}/{total} · col {col}/{cols} ({col_name}) · sel {sel} ",);
-        let right = format!(" {kind:?} · sheets {stack_pos} ", kind = s.kind);
-        // Position info wins over the sheet name: the name gives up its head.
-        let room = (area.width as usize).saturating_sub(center.width() + right.width() + 2);
-        let left = format!(" {} ", truncate_head(&s.name, room));
+        let column = format!(" {} {col}/{cols} ", truncate_head(&col_name, 24));
+
+        let mut chips: Vec<String> = self
+            .spin()
+            .map(|i| SPINNER[i].to_string())
+            .into_iter()
+            .collect();
+        chips.push(format!("{:?}", s.kind).to_lowercase());
+        if self.sheets.len() > 1 {
+            chips.push(format!("sheets {}", self.sheets.len()));
+        }
+        if let Some(fl) = &s.view.filter {
+            chips.push(format!("filter {}~{}", fl.column, fl.regex));
+        }
+        if !s.view.sort.is_empty() {
+            let keys: Vec<String> = s
+                .view
+                .sort
+                .iter()
+                .map(|k| {
+                    let arrow = if k.order == SortOrder::Asc {
+                        '▲'
+                    } else {
+                        '▼'
+                    };
+                    format!("{}{arrow}", k.column)
+                })
+                .collect();
+            chips.push(format!("sort {}", keys.join(" ")));
+        }
+        if !s.view.selected.is_empty() {
+            chips.push(format!("sel {}", grouped(s.view.selected.len() as u64)));
+        }
+        if !s.view.hidden.is_empty() {
+            chips.push(format!("hidden {}", s.view.hidden.len()));
+        }
+        let chips = format!(" {} ", chips.join(" · "));
+
+        let room = (area.width as usize).saturating_sub(position.width() + column.width());
+        // Chips get at most a third of the room from a long name.
+        let name_room = room.saturating_sub(chips.width().min(room / 3) + 2);
+        let name = format!(" {} ", truncate_head(&s.name, name_room));
+        let chips = fit(&chips, room.saturating_sub(name.width()));
         let th = &self.theme;
         let line = Line::from(vec![
-            Span::styled(left, th.titlebar_left()),
-            Span::styled(center, th.titlebar_mid()),
-            Span::styled(right, th.titlebar_right()),
+            Span::styled(name, th.titlebar_left()),
+            Span::styled(chips, th.titlebar_mid()),
+            Span::styled(column, th.titlebar_mid().add_modifier(Modifier::BOLD)),
+            Span::styled(position, th.titlebar_right()),
         ]);
         f.render_widget(Paragraph::new(line), area);
     }
@@ -1017,7 +1116,7 @@ impl App {
                 let mut rest = after.chars();
                 let at = rest.next().map_or(" ".to_string(), String::from);
                 Line::from(vec![
-                    Span::styled(prompt.label(), Style::default().fg(Color::Yellow)),
+                    Span::styled(prompt.label(), Style::default().fg(self.theme.which_key_fg)),
                     Span::raw(before.to_string()),
                     Span::styled(at, Style::default().add_modifier(Modifier::REVERSED)),
                     Span::raw(rest.as_str().to_string()),
@@ -1121,6 +1220,38 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme = p.theme().unwrap_or(theme);
     }
     (keymap, theme)
+}
+
+const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPIN_AFTER_MS: u128 = 150;
+
+/// `1234567` as `1,234,567`.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Exactly `width` display cells of `s`: cut at the end, or padded.
+fn fit(s: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut used = 0;
+    let mut out: String = s
+        .chars()
+        .take_while(|c| {
+            used += c.width().unwrap_or(0);
+            used <= width
+        })
+        .collect();
+    let pad = width.saturating_sub(out.width());
+    out.extend(std::iter::repeat_n(' ', pad));
+    out
 }
 
 /// Keep the tail of `s` within `max` display cells, marking the cut with `…`.
@@ -1493,7 +1624,96 @@ pub(crate) mod scenario {
     }
 
     fn title(h: &Harness) -> String {
-        h.screen().lines().next().unwrap_or_default().to_string()
+        // Thousands separators aside, tests read plain numbers.
+        h.screen()
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .replace(',', "")
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn title_shows_what_shapes_the_view_and_always_the_position() {
+        let mut h = Harness::new(5000).await;
+        assert!(!title(&h).contains("sel "), "{}", title(&h));
+        h.keys("l [ s -").await;
+        let line = h.screen().lines().next().unwrap().to_string();
+        assert!(line.contains("row 1/5,000 · 0%"), "{line}");
+        for chip in ["csv", "sort name▲", "sel 1", "hidden 1"] {
+            assert!(line.contains(chip), "{chip}: {line}");
+        }
+        assert_eq!(line.width(), 99, "the row block ends the bar: {line:?}");
+
+        h.app.sheets.active_mut().name = "x".repeat(300);
+        h.pump().await;
+        let line = h.screen().lines().next().unwrap().to_string();
+        assert!(line.contains("row 1/5,000") && line.contains('…'), "{line}");
+        assert_eq!(line.width(), 99, "{line:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
+        let mut h = Harness::new(3).await;
+        h.app.busy.push("x");
+        h.app.working_since = Some(Instant::now() - Duration::from_secs(1));
+        h.app.sheets.active_mut().revision += 1;
+        h.app.draw(&mut h.term).unwrap();
+        assert!(
+            title(&h).contains(|c| SPINNER.contains(&c)),
+            "{}",
+            title(&h)
+        );
+        let buf = h.term.backend().buffer();
+        assert!(buf[(1, 3)].modifier.contains(Modifier::DIM));
+
+        h.app.busy.clear();
+        h.app.sheets.active_mut().state.loaded_rev += 1;
+        h.app.draw(&mut h.term).unwrap();
+        assert!(h.app.working_since.is_none());
+        assert!(!title(&h).contains(|c| SPINNER.contains(&c)));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn csv_moves_into_memory_after_opening() {
+        let mut h = Harness::new(5000).await;
+        let path = h.app.sheets.active().source.path.clone().unwrap();
+        std::fs::remove_file(path).unwrap();
+        h.keys("G").await;
+        assert!(title(&h).contains("row 5000/5000"), "{}", title(&h));
+        assert!(h.app.toast.is_none(), "{:?}", h.app.toast);
+        h.keys("]").await;
+        assert_eq!(first_cell(&h), "5000", "{}", h.screen());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn columns_keep_their_width_while_scrolling() {
+        let mut csv = b"id,note\n".to_vec();
+        for i in 0..5000 {
+            let note = if i >= 4900 {
+                "x".repeat(30)
+            } else {
+                "y".into()
+            };
+            csv.extend(format!("{i},{note}\n").bytes());
+        }
+        let mut h = super::scenario::csv(&csv).await;
+        let width = |h: &Harness| h.app.sheets.active().state.widths[1];
+        h.keys("G").await;
+        let wide = width(&h);
+        assert!(wide >= 30, "{wide}");
+        h.keys("g g").await;
+        assert_eq!(width(&h), wide);
+    }
+
+    #[test]
+    fn grouped_and_fit() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1000), "1,000");
+        assert_eq!(grouped(1234567), "1,234,567");
+        assert_eq!(fit("abc", 5), "abc  ");
+        assert_eq!(fit("abcdef", 3), "abc");
+        assert_eq!(fit("日本", 3), "日 ");
     }
 
     /// First data row (below the header), first cell.
@@ -1513,7 +1733,7 @@ pub(crate) mod scenario {
 
         h.keys("G").await;
         assert!(title(&h).contains("row 5000/5000"), "{}", title(&h));
-        assert!(h.screen().contains("5000  name_5000"), "{}", h.screen());
+        assert!(h.screen().contains("5000 name_5000"), "{}", h.screen());
 
         // :save writes every row of the view, not just the loaded window
         let dir = tempfile::tempdir().unwrap();
@@ -1568,9 +1788,9 @@ pub(crate) mod scenario {
     async fn key_col_keeps_cursor_on_column() {
         let mut h = Harness::new(10).await;
         h.keys("l l !").await; // key grp → moves to the front
-        assert!(title(&h).contains("col 1/4 (grp)"), "{}", title(&h));
+        assert!(title(&h).contains("grp 1/4"), "{}", title(&h));
         h.keys("!").await; // unkey → back to its place
-        assert!(title(&h).contains("col 3/4 (grp)"), "{}", title(&h));
+        assert!(title(&h).contains("grp 3/4"), "{}", title(&h));
     }
 
     fn status(h: &Harness) -> String {
@@ -1708,7 +1928,7 @@ pub(crate) mod scenario {
         ] {
             h.keys(k).await;
             assert!(
-                title(&h).contains("row 0/0") && title(&h).contains("sel 0"),
+                title(&h).contains("row 0/0") && !title(&h).contains("sel "),
                 "{k}: {}",
                 title(&h)
             );
@@ -2134,7 +2354,12 @@ pub(crate) mod scenario {
         );
         h.keys("0").await;
         assert!(
-            h.screen().lines().nth(1).unwrap().starts_with("id"),
+            h.screen()
+                .lines()
+                .nth(1)
+                .unwrap()
+                .trim_start()
+                .starts_with("id"),
             "{}",
             h.screen()
         );
@@ -2275,7 +2500,7 @@ pub(crate) mod scenario {
         assert!(title(&h).contains("row 1/2"), "{}", title(&h));
         h.keys(":").await;
         h.type_("derive n = n + 1").await;
-        assert!(title(&h).contains("/0 "), "{}", title(&h));
+        assert!(title(&h).contains("row 0/0"), "{}", title(&h));
     }
 
     #[tokio::test(flavor = "multi_thread")]

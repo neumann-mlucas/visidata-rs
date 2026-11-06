@@ -1,8 +1,8 @@
- …ount(*) AS n FROM self GROUP BY grp ORDER BY grp  row 1/3 · col 1/2 (grp) · sel 0  Csv · sheets 2
-grp str  n u
-a        2
-b        2
-c        1
+ …CT grp, count(*) AS n FROM self GROUP BY grp ORDER BY grp  csv · sheets 2  grp 1/2  row 1/3 · 33%
+grp str   n u
+a           2
+b           2
+c           1
 
 
 

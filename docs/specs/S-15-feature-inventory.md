@@ -274,6 +274,12 @@ vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; insid
 
 `Theme::dark()` / `Theme::light()` in `src/theme.rs` drive the table, title bar, status bar and toasts; `vd.set_theme` picks one. No per-colour override.
 
+Colours are 24-bit RGB. Numbers are right-aligned; a sorted column's header shows ▲/▼ in place of its type (with its rank under a multi-column sort); a `│` follows the pinned columns.
+
+The title bar reads name, then file kind and what shapes the view (`sheets`, `filter`, `sort`, `sel`, `hidden`; each only when in use), then the cursor column and row with percent. A spinner joins it after 150 ms of background work, and rows from a window that's still loading dim.
+
+CSV and TSV files up to 1 GiB move into memory in the background after opening, unless edited first; compressed files stay on disk.
+
 ## 9. Testing
 
 - `cargo test --lib` — unit tests over sheet/keymap/widget/exline/action/plugins, plus `app::scenario` end-to-end tests: real keymap → dispatch → background Polars tasks → TestBackend render (never touches the user's ex history)

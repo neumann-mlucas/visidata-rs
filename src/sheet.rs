@@ -43,6 +43,12 @@ pub struct SheetState {
     pub tail_stamp: Option<(u64, Option<std::time::SystemTime>)>,
     /// Derived sheets: the parent as it was + how this was made (`:export`).
     pub lineage: Option<Box<Lineage>>,
+    /// Column widths of `window`, and what they were measured for.
+    pub widths: Vec<u16>,
+    pub widths_key: Option<(u64, usize, usize, bool)>,
+    pub widths_view: String,
+    /// `memory_plan` has had its one chance.
+    pub load_tried: bool,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent
@@ -397,6 +403,10 @@ pub struct SortKey {
 }
 
 pub const DEFAULT_WINDOW_ROWS: u32 = 1024;
+/// CSVs at most this big move into RAM after opening.
+// ponytail: fixed cap, no look at free memory; `/proc/meminfo` or a setting if
+// it ever pushes a small machine into swap.
+const CSV_MEMORY_BYTES: u64 = 1 << 30;
 
 /// Stable row identity: the row's position in the sheet's base `plan`. Sorting,
 /// filtering and casts don't change it, so selections key on it.
@@ -1347,6 +1357,21 @@ impl Sheet {
     }
 
     /// Build the lazy query for the current `window`: `view_plan` + slice.
+    /// A CSV can't seek, so deep windows and sorts rescan it. This plan reads
+    /// the source into memory; `None` when that doesn't apply. Edited sheets
+    /// stay on disk, and so do compressed files, whose size says nothing.
+    pub fn memory_plan(&self) -> Option<LazyFrame> {
+        let path = self.source.path.as_ref()?;
+        let plain_csv = matches!(self.kind, SourceKind::Csv | SourceKind::Tsv)
+            && matches!(self.origin, Origin::File)
+            && path.extension().is_none_or(|e| e != "gz");
+        let unedited = self.state.steps.is_empty()
+            && self.state.tail.is_none()
+            && self.state.tail_stamp.is_none();
+        let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= CSV_MEMORY_BYTES);
+        (plain_csv && unedited && small).then(|| self.source.lazy.clone())
+    }
+
     pub fn window_plan(&self) -> LazyFrame {
         self.view_plan()
             .slice(self.view.window_offset as i64, self.view.window_rows)

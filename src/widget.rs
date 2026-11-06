@@ -1,6 +1,6 @@
 //! Scrollable table widget. Reads straight off `Sheet.window`.
 //!
-//! Phase 0: fixed column widths derived from first-N-rows sampling; left-frozen cols stay pinned.
+//! Column widths are measured once per window (`refresh_widths`); left-frozen cols stay pinned.
 //! Colour decisions live in `theme::Theme`; this file maps `AnyValue` → display + style hint.
 
 use polars::prelude::*;
@@ -11,7 +11,7 @@ use ratatui::widgets::Widget;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::sheet::{Sheet, View};
+use crate::sheet::{Sheet, SortOrder, View};
 use crate::theme::Theme;
 
 /// Custom cell text (Lua renderers): `(column, dtype, value) -> text`.
@@ -27,17 +27,12 @@ impl<'a> SheetWidget<'a> {
     const MIN_COL_WIDTH: u16 = 4;
     const MAX_COL_WIDTH: u16 = 40;
     const CELL_PAD: u16 = 1;
-    const WIDTH_SAMPLE: usize = 64;
+    const WIDTH_ROWS: usize = 256;
 
-    /// Column widths from the window's first `sample` rows plus the rows on
-    /// screen (from `first_visible`), so scrolled-to long values aren't cut.
-    fn col_widths(
-        df: &DataFrame,
-        sample: usize,
-        first_visible: usize,
-        render: Option<CellRenderer>,
-    ) -> Vec<u16> {
-        let rows = (0..sample).chain(first_visible..first_visible + sample);
+    /// Column widths from rows spread evenly through the window.
+    fn col_widths(df: &DataFrame, render: Option<CellRenderer>) -> Vec<u16> {
+        let step = (df.height() / Self::WIDTH_ROWS).max(1);
+        let rows = (0..df.height()).step_by(step);
         df.get_columns()
             .iter()
             .map(|s| {
@@ -83,13 +78,14 @@ impl<'a> Widget for SheetWidget<'a> {
             return;
         }
         let view = &self.sheet.view;
-        let widths = Self::col_widths(
-            df,
-            Self::WIDTH_SAMPLE,
-            self.sheet.view.row_offset,
-            self.render,
-        );
         let cols = df.get_columns();
+        let measured;
+        let widths: &[u16] = if self.sheet.state.widths.len() == cols.len() {
+            &self.sheet.state.widths
+        } else {
+            measured = Self::col_widths(df, self.render);
+            &measured
+        };
         if cols.is_empty() {
             let msg = "<empty>";
             paint_run(
@@ -134,10 +130,13 @@ impl<'a> Widget for SheetWidget<'a> {
             visible.push(i);
         }
 
-        // Header: name + dim dtype badge
+        // Header: name + dim dtype badge, or the sort arrow while sorted by it
+        buf.set_style(
+            Rect { height: 1, ..area },
+            Style::default().bg(th.header_bg),
+        );
         for (slot, &ci) in visible.iter().enumerate() {
             let name = cols[ci].name();
-            let dtype_s = dtype_badge(cols[ci].dtype());
             let x = col_x[slot];
             let w = widths[ci];
             let hi = ci == view.col_cursor;
@@ -149,43 +148,49 @@ impl<'a> Widget for SheetWidget<'a> {
             } else {
                 Style::default()
                     .fg(th.header_fg)
+                    .bg(th.header_bg)
                     .add_modifier(Modifier::BOLD)
             };
-            let badge_style = if hi {
-                Style::default()
-                    .fg(th.header_cursor_fg)
-                    .bg(th.header_cursor_bg)
+            let sorted = view.sort.iter().position(|k| k.column == name.as_str());
+            let badge_style = if hi || sorted.is_some() {
+                name_style
             } else {
-                Style::default().fg(th.dtype_badge_fg)
+                Style::default().fg(th.dtype_badge_fg).bg(th.header_bg)
             };
-            // Lay out "name  dtype" within w: name on left, badge right-trailing if room.
-            let badge_text = format!(" {dtype_s}");
+            let badge_text = match sorted {
+                Some(i) => {
+                    let arrow = match view.sort[i].order {
+                        SortOrder::Asc => '▲',
+                        SortOrder::Desc => '▼',
+                    };
+                    let rank = if view.sort.len() > 1 {
+                        (i + 1).to_string()
+                    } else {
+                        String::new()
+                    };
+                    format!(" {arrow}{rank}")
+                }
+                None => format!(" {}", dtype_badge(cols[ci].dtype())),
+            };
+            // Numbers sit right, so the header does too; a tight column drops the badge.
             let name_width = name.width() as u16;
             let badge_width = badge_text.width() as u16;
+            let right = cols[ci].dtype().is_numeric();
             if name_width + badge_width <= w {
-                paint_run(buf, x, area.y, name_width, name, name_style);
+                paint_run(buf, x, area.y, w, &" ".repeat(w as usize), name_style);
+                let pad = w - name_width - badge_width;
+                let start = if right { x + pad } else { x };
+                paint_run(buf, start, area.y, name_width, name, name_style);
                 paint_run(
                     buf,
-                    x + name_width,
+                    start + name_width,
                     area.y,
                     badge_width,
                     &badge_text,
                     badge_style,
                 );
-                let pad = w.saturating_sub(name_width + badge_width);
-                if pad > 0 {
-                    paint_run(
-                        buf,
-                        x + name_width + badge_width,
-                        area.y,
-                        pad,
-                        &" ".repeat(pad as usize),
-                        name_style,
-                    );
-                }
             } else {
-                // No room for badge; just paint the (possibly truncated) name
-                paint_cell(buf, x, area.y, w, name, name_style);
+                paint_cell(buf, x, area.y, w, name, name_style, right);
             }
         }
 
@@ -203,6 +208,15 @@ impl<'a> Widget for SheetWidget<'a> {
                 .get(ri)
                 .is_some_and(|rid| view.selected.contains(rid));
             let stripe = ri % 2 == 1;
+            // The whole line, so highlights don't break at column gaps.
+            buf.set_style(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                row_style(th, row_hi, selected, stripe),
+            );
             for (slot, &ci) in visible.iter().enumerate() {
                 let x = col_x[slot];
                 let w = widths[ci];
@@ -216,9 +230,32 @@ impl<'a> Widget for SheetWidget<'a> {
                 }
                 let col_hi = ci == view.col_cursor;
                 let style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
-                paint_cell(buf, x, y, w, &text, style);
+                paint_cell(buf, x, y, w, &text, style, cols[ci].dtype().is_numeric());
             }
         }
+
+        // Divider between pinned and scrolled columns.
+        if frozen > 0 && frozen < visible.len() {
+            let x = col_x[frozen] - Self::CELL_PAD;
+            for y in area.y..(area.y + 1 + (row_end - row_start) as u16).min(area.y + area.height) {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_symbol("│").set_fg(th.overlay_border_fg);
+                }
+            }
+        }
+    }
+}
+
+/// Background a data row has before its cells paint over it.
+fn row_style(th: &Theme, row_hi: bool, selected: bool, stripe: bool) -> Style {
+    if row_hi {
+        Style::default().bg(th.row_cursor_bg)
+    } else if selected {
+        Style::default().bg(th.selected_bg)
+    } else if stripe {
+        Style::default().bg(th.row_stripe_bg)
+    } else {
+        Style::default()
     }
 }
 
@@ -276,7 +313,7 @@ enum DtypeHint {
     Date,
 }
 
-fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style) {
+fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style, right: bool) {
     let truncated: String = if text.width() > w as usize {
         // Keep whole characters that fit in w-1 cells, then the ellipsis.
         let mut used = 0;
@@ -293,11 +330,10 @@ fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style
         text.to_string()
     };
     let used = truncated.width() as u16;
-    paint_run(buf, x, y, used, &truncated, style);
-    if used < w {
-        let pad = " ".repeat((w - used) as usize);
-        paint_run(buf, x + used, y, w - used, &pad, style);
-    }
+    let pad = w.saturating_sub(used);
+    let (text_x, pad_x) = if right { (x + pad, x) } else { (x, x + used) };
+    paint_run(buf, text_x, y, used, &truncated, style);
+    paint_run(buf, pad_x, y, pad, &" ".repeat(pad as usize), style);
 }
 
 /// Paint up to `w` chars of `text` at `(x, y)`. Does not pad.
@@ -375,7 +411,32 @@ pub fn dtype_badge(dt: &DataType) -> String {
 /// Clamp cursor + scroll after a window-size or data-size change.
 /// Keep the cursor inside the loaded window and on screen for a sheet drawn
 /// into `area` (header row included). Scrolls rows and non-frozen columns.
-pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, render: Option<CellRenderer>) {
+/// Column widths of the loaded window, measured once per window. Scrolling
+/// through one view only widens them, so columns don't jump.
+pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
+    let Some(df) = &s.window else { return };
+    let key = (
+        s.state.loaded_rev,
+        df.width(),
+        df.height(),
+        render.is_some(),
+    );
+    if s.state.widths_key == Some(key) {
+        return;
+    }
+    let mut widths = SheetWidget::col_widths(df, render);
+    let view = format!("{}|{:?}", s.count_key(), df.get_column_names());
+    if view == s.state.widths_view {
+        for (w, old) in widths.iter_mut().zip(&s.state.widths) {
+            *w = (*w).max(*old);
+        }
+    }
+    s.state.widths = widths;
+    s.state.widths_key = Some(key);
+    s.state.widths_view = view;
+}
+
+pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
     let (rows, cols) = (df.height(), df.width());
     let data_rows = (area.height as usize).saturating_sub(1).max(1); // minus header
     if rows == 0 {
@@ -408,7 +469,6 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, render: Option<Ce
             .map(|w| (w + SheetWidget::CELL_PAD) as usize)
             .sum::<usize>()
     };
-    let widths = SheetWidget::col_widths(df, SheetWidget::WIDTH_SAMPLE, view.row_offset, render);
     let room = (area.width as usize).saturating_sub(span(&widths[..frozen]));
     while frozen + view.col_offset < view.col_cursor
         && span(&widths[frozen + view.col_offset..=view.col_cursor]) > room
@@ -468,6 +528,10 @@ mod tests {
         assert!(dump.contains("bob"));
         // dtype badge rendered
         assert!(dump.contains("str"), "str badge absent: {dump}");
+        // numbers sit right, under a right-aligned header
+        let lines: Vec<&str> = dump.lines().collect();
+        let end = |line: &str, text: &str| line.find(text).map(|i| i + text.len());
+        assert_eq!(end(lines[1], "1"), end(lines[2], "2"), "{dump}");
         assert!(dump.contains("i"), "int badge absent: {dump}");
     }
 }

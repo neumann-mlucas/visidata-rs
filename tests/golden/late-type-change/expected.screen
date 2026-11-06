@@ -1,4 +1,4 @@
- tests/golden/late-type-change/input.csv  row 151/151 · col 1/2 (a) · sel 0  Csv · sheets 1
+ tests/golden/late-type-change/input.csv  csv                             a 1/2  row 151/151 · 100%
 a str  b str
 142    x
 143    x

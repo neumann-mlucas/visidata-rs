@@ -1,6 +1,6 @@
- tests/golden/latin1/input.csv  row 1/1 · col 1/2 (a) · sel 0  Csv · sheets 1
-a i  b str
-1    caf�
+ tests/golden/latin1/input.csv  csv                                           a 1/2  row 1/1 · 100%
+ a i b str
+   1 caf�
 
 
 
