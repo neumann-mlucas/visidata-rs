@@ -11,10 +11,8 @@
 //!   QUARANTINED  — stem listed in `tests/vd_replay/quarantine.txt`.
 //!   NO_GOLDEN    — cmdlog has no paired golden (interactive-only features, side-effects).
 //!
-//! The driver is intentionally sheet-level, not App-level: Phase 1.5 wants fast
-//! iteration on command semantics without threading a tokio runtime through tests.
-//! Divergence between this driver and `App::dispatch` is a bug on the driver side;
-//! covered by `cargo test --lib` for App dispatch, by this harness for semantics.
+//! The driver is sheet-level but serializes through `Sheet::view_plan`, the
+//! app's own query. Key-by-key behaviour is `src/app/golden.rs`'s job.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

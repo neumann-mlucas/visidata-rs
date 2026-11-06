@@ -33,6 +33,14 @@ Still open (see S-15 §10.1):
 - [x] `:export` for describe/row diff/`W`; Arrow/Excel in `.sql` (DuckDB extensions), SQLite in `.py` (stdlib `sqlite3`) — schema diff stays out
 - [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
 
+## Test layout
+
+- `src/app.rs` `scenario`: hand-written end-to-end tests.
+- `src/app/golden.rs` + `tests/golden/<case>/`: key script → expected TSV + screen; exported `.sql`/`.py` run through DuckDB and Polars (`VDRS_PYTHON`, `VDRS_REQUIRE_ROUNDTRIP` in CI). `UPDATE_GOLDEN=1` rewrites expectations.
+- `src/app/monkey.rs`: seeded random keys, undo/redo round trip.
+- `tests/cli.rs`: the binary (arguments, stdin, exit codes).
+- `tests/vd_replay.rs`: VisiData corpus; `MIN_PASS` floor.
+
 ## Phase 0 — viewer parity (csvlens++)
 - [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) — _deferred: the baked-in table covers the shipped features; extract only when a user asks for VisiData parity on a key we lack (overrides go through `vd.bind`)_
 - [x] CSV/TSV reader via Polars `scan_csv` (S-03)

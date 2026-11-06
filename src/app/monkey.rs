@@ -2,7 +2,6 @@
 //! invariant; the assertion message gives the seed and the key tail to replay.
 
 use super::scenario::{Harness, csv_text};
-use super::*;
 
 const KEYS: &[&str] = &[
     "j", "k", "h", "l", "G", "g g", "0", "$", "<C-d>", "<C-u>", "-", "g -", "!", "z !", "[", "]",

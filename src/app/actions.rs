@@ -578,6 +578,8 @@ impl App {
             (None, Some(df)) => v.row_cursor + 1 >= df.height(),
             (None, None) => true,
         };
+        // ponytail: on the UI thread; it reads only new bytes, so a slow tick
+        // needs a huge burst or a rotated file. Move to a job if that shows.
         match active.refresh_tail() {
             Ok(true) => {}
             Ok(false) => return, // nothing new
