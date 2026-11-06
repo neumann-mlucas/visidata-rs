@@ -22,6 +22,9 @@ vdrs --headless data.csv   # schema + first rows, no TUI
 cat data.csv | vdrs -      # stdin, format sniffed
 ```
 
+The install compiles Polars with release optimizations: expect a long build (about
+45 minutes in one test) and over 1 GB of disk while it runs.
+
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
 arrays, Excel/ODS and SQLite (several sheets/tables → a list; `book.xlsx:Sheet2`
 opens one), and any of these gzipped; Lua loaders add more. Files are scanned
