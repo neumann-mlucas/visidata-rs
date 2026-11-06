@@ -191,15 +191,13 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "join" => {
             const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|append|merge]";
             let a = split_args(rest, USAGE)?;
-            let (source, keys) = match a.as_slice() {
-                [s, k] | [s, k, _] => (s.clone(), comma_list(k)),
-                [s] => (s.clone(), Vec::new()), // append needs no keys
+            let (source, keys, how) = match a.as_slice() {
+                [s, k, h] => (s.clone(), comma_list(k), h.clone()),
+                [s, h] if h == "append" => (s.clone(), Vec::new(), h.clone()),
+                [s, k] => (s.clone(), comma_list(k), "inner".to_string()),
+                [s] => (s.clone(), Vec::new(), "append".to_string()), // append needs no keys
                 _ => return Err(ExError::Usage(USAGE)),
             };
-            let how = a
-                .get(2)
-                .cloned()
-                .unwrap_or_else(|| if keys.is_empty() { "append" } else { "inner" }.to_string());
             if !matches!(how.as_str(), "inner" | "left" | "full" | "append" | "merge")
                 || (keys.is_empty() && how != "append")
             {
@@ -557,5 +555,14 @@ mod tests {
     fn rejects_bad_usage() {
         assert!(matches!(parse("filter justone"), Err(ExError::Usage(_))));
         assert!(matches!(parse("sort"), Err(ExError::Usage(_))));
+    }
+
+    #[test]
+    fn join_append_needs_no_key_argument() {
+        let [Action::Join { keys, how, .. }] = &parse("join b.csv append").unwrap()[..] else {
+            panic!("not a join");
+        };
+        assert!(keys.is_empty());
+        assert_eq!(how, "append");
     }
 }

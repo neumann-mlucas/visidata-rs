@@ -524,20 +524,16 @@ impl App {
             self.refresh_pivot_preview();
             return;
         }
-        // Count prefix: digits accumulate when no pending chord AND the digit
-        // isn't the start of a bound chord. "0" is bound to goto_leftmost so
-        // only accumulates when a non-zero count is already building.
+        // Count prefix: digits accumulate when no chord is pending and the digit
+        // isn't bound. `0` is bound to goto_leftmost, so it only extends a count.
         if self.pending.is_empty() {
             if let KeyCode::Char(c) = key.code {
                 if c.is_ascii_digit() {
                     let d = c.to_digit(10).unwrap() as usize;
-                    let is_zero = c == '0';
-                    let already = self.pending_count.is_some();
-                    let digit_is_bound_leaf = matches!(
-                        self.keymap.resolve(Layer::Sheet, &[], key),
-                        Dispatch::Fire(_)
-                    );
-                    let accumulate = (!digit_is_bound_leaf) || (is_zero && already) || (!is_zero);
+                    // A bound digit fires (`0`, `vd.bind`) unless a count is underway.
+                    let unbound =
+                        matches!(self.keymap.resolve(Layer::Sheet, &[], key), Dispatch::Miss);
+                    let accumulate = unbound || self.pending_count.is_some();
                     if accumulate {
                         let cur = self.pending_count.unwrap_or(0);
                         self.pending_count = Some(cur.saturating_mul(10).saturating_add(d));
@@ -599,6 +595,7 @@ impl App {
                                 l.backspace();
                             }
                         }
+                        other @ (Action::Lua(_) | Action::ExCommand(_)) => self.dispatch(other),
                         _ => {}
                     }
                 }
@@ -777,13 +774,27 @@ impl App {
         }
     }
 
+    /// Column under the cursor. While a new window is on its way the loaded one
+    /// is out of date (a key hit right after `-`), so ask the plan instead.
     fn current_column_name(&self) -> Option<String> {
         let s = self.sheets.active();
-        s.window.as_ref().and_then(|df| {
-            df.get_column_names()
-                .get(s.view.col_cursor)
+        let names: Vec<String> = match &s.window {
+            Some(df) if s.state.loaded_rev == s.revision => df
+                .get_column_names()
+                .iter()
                 .map(|n| n.to_string())
-        })
+                .collect(),
+            _ => s
+                .view_plan()
+                .collect_schema()
+                .ok()?
+                .iter_names()
+                .map(|n| n.to_string())
+                .collect(),
+        };
+        names
+            .get(s.view.col_cursor.min(names.len().saturating_sub(1)))
+            .cloned()
     }
 
     fn draw<B: ratatui::backend::Backend>(&mut self, term: &mut Terminal<B>) -> Result<()> {
@@ -2245,5 +2256,72 @@ mod scenario {
         h.keys(":").await;
         h.type_("derive n = n + 1").await;
         assert!(title(&h).contains("/0 "), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn keys_during_a_pending_window_act_on_the_new_columns() {
+        let mut h = csv(b"a,b,c\n1,2,3\n").await;
+        h.keys("- -").await; // no pump between: both must land
+        assert_eq!(h.app.sheets.active().view.hidden.len(), 2);
+        h.keys("g -").await;
+        h.keys("- F").await; // freq on the column now under the cursor
+        assert!(title(&h).contains("freq(b)"), "{}", title(&h));
+        assert_eq!(h.app.toast, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lua_bound_digit_and_input_function_fire() {
+        let mut h = csv(b"a\n1\n2\n3\n").await;
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"vd.bind("sheet", "1", function() vd.toast("one") end)
+                   vd.bind("input", "<C-t>", function() vd.toast("hi") end)"#,
+            )
+            .unwrap(),
+        );
+        (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+        h.keys("1").await;
+        assert_eq!(h.app.toast.as_deref(), Some("one"));
+        h.keys("2 j").await; // unbound digits still count
+        assert!(title(&h).contains("row 3/3"), "{}", title(&h));
+        h.keys(": <C-t>").await;
+        assert_eq!(h.app.toast.as_deref(), Some("hi"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn w_works_on_a_key_column_and_with_text_null() {
+        let mut h = csv(b"a,b\nx,1\ny,2\n").await;
+        h.keys("! W").await;
+        assert_eq!(h.app.toast, None);
+        assert!(title(&h).contains("pivot(a)"), "{}", title(&h));
+        let mut h = csv(b"a,b\nnull,1\n,2\n").await;
+        h.keys("W").await;
+        assert_eq!(h.app.toast, None);
+        assert!(h.screen().contains("null"), "{}", h.screen());
+        assert!(
+            h.screen().contains('2'),
+            "two rows count as null: {}",
+            h.screen()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn freq_dive_survives_renaming_the_value_column() {
+        let mut h = csv(b"a\nx\ny\nx\n").await;
+        h.keys("F ").await;
+        h.keys("^").await;
+        h.type_("val").await;
+        h.keys("<CR>").await;
+        assert_eq!(h.app.toast, None);
+        assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn repeat_does_not_reopen_a_prompt() {
+        let mut h = csv(b"a\nx\ny\n").await;
+        h.keys("|").await;
+        h.type_("x").await;
+        h.keys(".").await;
+        assert!(h.app.input.is_none());
     }
 }

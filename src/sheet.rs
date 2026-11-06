@@ -1153,8 +1153,14 @@ impl Sheet {
     ) -> Result<Self, String> {
         let name = format!("pivot({on}): {}", parent.name);
         let origin = Origin::Pivot { parent: parent.id };
+        // The cursor may sit on a key column; a null and the text "null" are
+        // one column header, so they are one group.
+        let keys: Vec<String> = keys.iter().filter(|k| *k != on).cloned().collect();
+        let keys = &keys[..];
+        let value_text = col(on).cast(DataType::String).fill_null(lit("null"));
         let counted = parent
             .view_plan()
+            .with_column(value_text)
             .group_by_stable(
                 keys.iter()
                     .chain([&on.to_string()])
@@ -1162,7 +1168,6 @@ impl Sheet {
                     .collect::<Vec<_>>(),
             )
             .agg([len().alias("__vdrs_n")])
-            .with_column(col(on).cast(DataType::String))
             .collect()
             .map_err(|e| e.to_string())?;
         let out = if keys.is_empty() {
@@ -1181,7 +1186,7 @@ impl Sheet {
             let cols: Vec<Column> = vals
                 .into_iter()
                 .zip(ns)
-                .map(|(v, n)| Column::new(v.unwrap_or("null").into(), [n.unwrap_or(0)]))
+                .map(|(v, n)| Column::new(v.unwrap_or_default().into(), [n.unwrap_or(0)]))
                 .collect();
             DataFrame::new(cols).map_err(|e| e.to_string())?
         } else {

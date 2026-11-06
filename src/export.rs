@@ -356,8 +356,8 @@ impl Script {
                 let on_py = py_str(on);
                 match (py, keys.is_empty()) {
                     (true, false) => format!(
-                        "{p}.group_by([{k}, {on_py}], maintain_order=True).len()\
-                         .with_columns(pl.col({on_py}).cast(pl.Utf8)).collect()\
+                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"))\
+                         .group_by([{k}, {on_py}], maintain_order=True).len().collect()\
                          .pivot(on={on_py}, index=[{k}], values=\"len\", aggregate_function=\"first\").lazy()",
                         k = keys
                             .iter()
@@ -366,8 +366,8 @@ impl Script {
                             .join(", ")
                     ),
                     (true, true) => format!(
-                        "{p}.group_by({on_py}, maintain_order=True).len()\
-                         .with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"), pl.lit(0).alias(\"__k\")).collect()\
+                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"))\
+                         .group_by({on_py}, maintain_order=True).len().with_columns(pl.lit(0).alias(\"__k\")).collect()\
                          .pivot(on={on_py}, index=\"__k\", values=\"len\").drop(\"__k\").lazy()\
                          .select(pl.all().cast(pl.Int64))"
                     ),

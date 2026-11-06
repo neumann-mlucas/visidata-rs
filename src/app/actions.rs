@@ -738,28 +738,25 @@ impl App {
             self.toast = Some("no rows selected".into());
             return;
         }
-        // Values by row id = position in the freq sheet's base plan.
-        let values = match s.plan.clone().select([col(column.as_str())]).collect() {
-            Ok(df) => df,
-            Err(e) => {
-                self.toast = Some(format!("dive: {e}"));
-                return;
-            }
-        };
-        let vals = values.column(&column).expect("selected column");
-        let picked: Vec<AnyValue> = rids
-            .iter()
-            .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
-            .collect();
-        let Some(parent_sheet) = self.sheets.find_by_id_mut(parent) else {
+        let plan = s.plan.clone();
+        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
         };
-        let parent_sheet = parent_sheet.clone();
         let id = self.sheets.alloc_id();
-        let child = Sheet::rows_with_values(&parent_sheet, id, &column, &picked);
-        self.sheets.push(child);
-        self.spawn_materialize();
+        self.spawn_job("dive", move || {
+            // Values by row id = position in the freq sheet's base plan; the
+            // value column is first even if renamed here. `column` names it in
+            // the parent.
+            let values = plan.select([nth(0)]).collect().map_err(|e| e.to_string())?;
+            let vals = &values.get_columns()[0];
+            let picked: Vec<AnyValue> = rids
+                .iter()
+                .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
+                .collect();
+            let child = Sheet::rows_with_values(&parent, id, &column, &picked);
+            Ok(JobDone::PushSheet(Box::new(child)))
+        });
     }
 
     /// `:sql`: `self` = this view; every open sheet is also `s<id>` (see `S`).

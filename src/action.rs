@@ -208,29 +208,57 @@ impl Action {
         )
     }
 
-    /// Whether `.` should repeat this action.
+    /// Whether `.` should repeat this action. No wildcard: a new action must
+    /// say. Prompts stay out: what `.` repeats is the submitted result.
     pub fn repeatable(&self) -> bool {
-        !matches!(
-            self,
-            Action::Quit
-                | Action::PopSheet
-                | Action::Redraw
-                | Action::RepeatLast
-                | Action::StartSearchInput
-                | Action::StartFilterInput
-                | Action::StartExInput
-                | Action::SubmitInput
-                | Action::CancelInput
-                | Action::InputChar(_)
-                | Action::InputBackspace
-                | Action::OpenSheetSwitcher
-                | Action::StartRenameColInput
-                | Action::Save { .. }
-                | Action::Export { .. }
-                | Action::Undo
-                | Action::Redo
-                | Action::StartDiffInput
-        )
+        use Action::*;
+        match self {
+            Quit | PopSheet | Redraw | RepeatLast | Save { .. } | Export { .. } | Undo | Redo => {
+                false
+            }
+            OpenSheetSwitcher | SwitchToSheet(_) => false,
+            StartSearchInput | StartFilterInput | StartExInput | StartSelectInput
+            | StartDiffInput | StartRenameColInput => false,
+            SubmitInput | CancelInput | InputChar(_) | InputBackspace => false,
+            CursorDown { .. }
+            | CursorUp { .. }
+            | CursorLeft { .. }
+            | CursorRight { .. }
+            | PageDown
+            | PageUp
+            | GotoTop
+            | GotoBottom
+            | GotoLeftmost
+            | GotoRightmost => true,
+            FreezeColumn
+            | UnfreezeAll
+            | HideCol
+            | UnhideAll
+            | KeyCol
+            | UnkeyAll
+            | RenameCol { .. } => true,
+            TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
+            SearchNext
+            | SearchPrev
+            | SetFilter { .. }
+            | ClearFilter
+            | FilterCurrentColumn { .. } => true,
+            SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
+            OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
+            SubmitRow | SubmitSelected | TogglePlanPanel => true,
+            ToggleSelectRow
+            | SelectRow
+            | UnselectRow
+            | SelectAll
+            | UnselectAll
+            | SelectByRegex { .. }
+            | SelectEqualCell
+            | DupSelected => true,
+            ExCommand(_) | Lua(_) | Join { .. } | Derive { .. } | Sql { .. } | SetCol { .. } => {
+                true
+            }
+            HideUniform | DupSheet | Describe | PivotCurrent => true,
+        }
     }
 }
 
