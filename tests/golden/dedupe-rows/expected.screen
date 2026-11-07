@@ -1,0 +1,12 @@
+ dedupe (4 rows): tests/golden/dedupe-rows/input.csv  csv · sheets 2         grp 1/2  row 1/4 · 25%
+grp str  name str
+a        x
+b        y
+c        z
+b        w
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

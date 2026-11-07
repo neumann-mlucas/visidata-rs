@@ -9,6 +9,10 @@
 //! The sheet opens `input.csv`/`input.jsonl`. `UPDATE_GOLDEN=1` rewrites the
 //! expected files; read the diff before committing it.
 //!
+//! `docs-*` cases open `docs/fixtures/sales.csv` on a 100x8 screen; each one
+//! renders, as HTML, the `<pre>` between `<!-- golden:<case> -->` and
+//! `<!-- /golden -->` in `docs/index.html`, so the guide shows real screens.
+//!
 //! Each case's exported scripts then run through DuckDB and Polars
 //! (`VDRS_PYTHON` = an interpreter with polars) and must print the same table.
 //! Missing tools skip that step, unless `VDRS_REQUIRE_ROUNDTRIP` is set (CI).
@@ -18,18 +22,41 @@ use std::process::Command;
 
 use super::scenario::{Harness, csv_text};
 use super::*;
+use unicode_width::UnicodeWidthStr;
 
 const ROOT: &str = "tests/golden";
 
+const GUIDE: &str = "docs/index.html";
+
+fn is_docs(dir: &Path) -> bool {
+    dir.file_name()
+        .unwrap()
+        .to_string_lossy()
+        .starts_with("docs-")
+}
+
 async fn play(dir: &Path) -> Harness {
-    let input = ["input.csv", "input.jsonl"]
-        .iter()
-        .map(|f| dir.join(f))
-        .find(|p| p.exists())
-        .expect("case has an input file");
-    let loaded = crate::reader::open(input.as_os_str(), None).unwrap();
+    let docs = is_docs(dir);
+    let input = if docs {
+        PathBuf::from("docs/fixtures/sales.csv")
+    } else {
+        ["input.csv", "input.jsonl"]
+            .iter()
+            .map(|f| dir.join(f))
+            .find(|p| p.exists())
+            .expect("case has an input file")
+    };
+    let mut loaded = crate::reader::open(input.as_os_str(), None).unwrap();
+    if docs {
+        // as if run from docs/fixtures: `vdrs sales.csv`
+        loaded.display_name = "sales.csv".into();
+    }
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let mut h = Harness::with_source(loaded, tmp).await;
+    if docs {
+        h.term.backend_mut().resize(100, 8);
+        h.pump().await;
+    }
     let script = std::fs::read_to_string(dir.join("script")).unwrap_or_default();
     for line in script.lines() {
         let line = line.replace("{dir}", &dir.display().to_string());
@@ -54,6 +81,81 @@ fn check(path: PathBuf, got: &str, fails: &mut Vec<String>) {
             path.display()
         ));
     }
+}
+
+/// The screen as the guide's `<pre class="screen">`: one `.l` span per line,
+/// runs of equal style as inline-styled spans.
+fn screen_html(h: &Harness) -> String {
+    use ratatui::style::{Color, Modifier};
+    let hex = |c: Color| match c {
+        Color::Rgb(r, g, b) => Some(format!("#{r:02x}{g:02x}{b:02x}")),
+        _ => None,
+    };
+    let buf = h.term.backend().buffer();
+    let mut out =
+        String::from(r#"<pre class="screen" role="img" aria-label="vdrs terminal screen">"#);
+    for y in 0..buf.area.height {
+        let mut runs: Vec<(String, String)> = Vec::new();
+        let mut x = 0;
+        while x < buf.area.width {
+            let cell = &buf[(x, y)];
+            let mut css = Vec::new();
+            if let Some(c) = hex(cell.bg) {
+                css.push(format!("background:{c}"));
+            }
+            if let Some(c) = hex(cell.fg) {
+                css.push(format!("color:{c}"));
+            }
+            if cell.modifier.contains(Modifier::BOLD) {
+                css.push("font-weight:700".into());
+            }
+            let css = css.join(";");
+            let sym = cell.symbol();
+            let text = sym
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            match runs.last_mut() {
+                Some((c, t)) if *c == css => t.push_str(&text),
+                _ => runs.push((css, text)),
+            }
+            x += sym.width().max(1) as u16;
+        }
+        out.push_str(r#"<span class="l">"#);
+        for (css, text) in runs {
+            if css.is_empty() {
+                out.push_str(&text);
+            } else {
+                out.push_str(&format!(r#"<span style="{css}">{text}</span>"#));
+            }
+        }
+        out.push_str("</span>");
+    }
+    out + "</pre>"
+}
+
+/// `docs/index.html` with every `<!-- golden:<case> -->` block re-rendered.
+fn render_guide(guide: &str, html: &std::collections::BTreeMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut rest = guide;
+    let mut used = std::collections::BTreeSet::new();
+    while let Some(i) = rest.find("<!-- golden:") {
+        let (head, tail) = rest.split_at(i);
+        out.push_str(head);
+        let end = tail.find(" -->").expect("golden marker closes");
+        let case = &tail["<!-- golden:".len()..end];
+        let close = tail.find("<!-- /golden -->").expect("golden block closes");
+        let screen = html
+            .get(case)
+            .unwrap_or_else(|| panic!("{GUIDE}: no golden case {case}"));
+        used.insert(case.to_string());
+        out.push_str(&format!("<!-- golden:{case} -->\n{screen}\n"));
+        rest = &tail[close..];
+    }
+    out.push_str(rest);
+    let unused: Vec<_> = html.keys().filter(|k| !used.contains(*k)).collect();
+    assert!(unused.is_empty(), "{GUIDE} shows no screen for {unused:?}");
+    out
 }
 
 /// CSV → sorted rows of normalized cells, header first: scripts may order
@@ -173,8 +275,13 @@ async fn golden_cases() {
     cases.sort();
     assert!(!cases.is_empty());
     let mut fails = Vec::new();
+    let mut html = std::collections::BTreeMap::new();
     for dir in &cases {
         let mut h = play(dir).await;
+        if is_docs(dir) {
+            let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+            html.insert(name, screen_html(&h));
+        }
         let tsv = csv_text(h.app.sheets.active(), b'\t');
         check(dir.join("expected.tsv"), &tsv, &mut fails);
         check(
@@ -187,6 +294,15 @@ async fn golden_cases() {
             roundtrip(&h, dir, &csv, &mut fails);
         }
         h.app.quit = true;
+    }
+    let guide = std::fs::read_to_string(GUIDE).unwrap();
+    let rendered = render_guide(&guide, &html);
+    if std::env::var_os("UPDATE_GOLDEN").is_some() {
+        std::fs::write(GUIDE, rendered).unwrap();
+    } else if rendered != guide {
+        fails.push(format!(
+            "{GUIDE}: screens are stale; rerun with UPDATE_GOLDEN=1"
+        ));
     }
     assert!(fails.is_empty(), "{}", fails.join("\n\n"));
 }

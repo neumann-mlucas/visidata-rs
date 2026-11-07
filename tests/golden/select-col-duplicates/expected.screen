@@ -1,0 +1,12 @@
+ tests/golden/select-col-duplicates/input.csv  csv · sel 3                   grp 1/2  row 1/6 · 16%
+grp str  name str
+a        x
+b        y
+a        x
+c        z
+b        w
+a        x
+
+
+
+selected 3 repeated grp values
