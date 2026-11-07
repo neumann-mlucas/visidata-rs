@@ -379,12 +379,19 @@ fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
         | AnyValue::UInt64(_) => (av.to_string(), DtypeHint::Numeric),
         // `Display` rounds to a few digits (1.2346e8); show the value itself.
         AnyValue::Float32(f) => (format!("{f:?}"), DtypeHint::Numeric),
-        AnyValue::Float64(f) => (format!("{f:?}"), DtypeHint::Numeric),
+        AnyValue::Float64(f) => (float_text(*f), DtypeHint::Numeric),
         AnyValue::Date(_) | AnyValue::Datetime(_, _, _) | AnyValue::Duration(_, _) => {
             (av.to_string(), DtypeHint::Date)
         }
         other => (printable(&other.to_string()), DtypeHint::None),
     }
+}
+
+/// Shortest text for `f` at 15 significant digits, like a spreadsheet: sums
+/// show `0.3`, not `0.30000000000000004`.
+fn float_text(f: f64) -> String {
+    let r: f64 = format!("{f:.14e}").parse().unwrap_or(f);
+    format!("{r:?}")
 }
 
 /// Cell text must stay on one terminal line: show line breaks/tabs as glyphs
@@ -495,6 +502,16 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::io::Write;
+
+    #[test]
+    fn floats_show_15_significant_digits() {
+        assert_eq!(float_text(0.1 + 0.2), "0.3");
+        assert_eq!(float_text(22827.670000000002), "22827.67");
+        assert_eq!(float_text(1.00000001), "1.00000001");
+        assert_eq!(float_text(123456789.125), "123456789.125");
+        assert_eq!(float_text(1e300), "1e300");
+        assert_eq!(float_text(f64::NAN), "NaN");
+    }
 
     #[test]
     fn renders_header_and_cells() {
