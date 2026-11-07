@@ -1,7 +1,8 @@
 //! Golden cases: `tests/golden/<case>/` holds input files plus
 //!
 //! - `script`: one step per line. `> text` types `text` and Enter into the open
-//!   prompt; anything else is space-separated keys. `{dir}` = the case's folder.
+//!   prompt, `>> text` types it without Enter; anything else is space-separated
+//!   keys. `{dir}` = the case's folder.
 //! - `expected.tsv`: the final view, every row.
 //! - `expected.screen`: the final screen.
 //! - `no-export` (optional): why `:export` can't reproduce this case.
@@ -60,9 +61,12 @@ async fn play(dir: &Path) -> Harness {
     let script = std::fs::read_to_string(dir.join("script")).unwrap_or_default();
     for line in script.lines() {
         let line = line.replace("{dir}", &dir.display().to_string());
-        match line.strip_prefix("> ") {
-            Some(text) => h.type_(text).await,
-            None => h.keys(&line).await,
+        if let Some(text) = line.strip_prefix(">> ") {
+            h.type_no_enter(text).await;
+        } else if let Some(text) = line.strip_prefix("> ") {
+            h.type_(text).await;
+        } else {
+            h.keys(&line).await;
         }
     }
     h

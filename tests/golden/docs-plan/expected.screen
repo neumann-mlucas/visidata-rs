@@ -1,0 +1,8 @@
+ sales.csv  csv                                                              id 1/5  row 1/300 · 0%
+ id i date date  region str   qty i  price f                     ┌ plan ───────────────────────────┐
+33352 2024-10-05 south            3  1176.47                     │SLICE[offset: 0, len: 1024]      │
+38834 2024-12-28 south            4   405.75                     │  DF ["id", "date", "region",    │
+23982 2024-06-06 east             5   882.27                     │"qty", ...]; PROJECT */5 COLUMNS │
+24036 2024-04-22 north            5   198.31                     │                                 │
+26692 2024-06-24 north            1   137.04                     └─────────────────────────────────┘
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

@@ -1,0 +1,8 @@
+ describe: sales.csv  csv · sheets 2                                      column 1/9  row 1/5 · 20%
+column str  type str   count u  nulls u  distinct u min str    max str                mean f
+id          i64            300        0         300 1171       49828       24767.06333333333
+date        date           300        0         195 2024-01-02 2024-12-31                  ·
+region      str            300        0           4 east       west                        ·
+qty         i64            283       17           6 1          5          3.1307420494699647
+price       f64            300        0         299 7.66       1299.72     660.2023999999999 667.319
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

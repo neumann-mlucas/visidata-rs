@@ -1,0 +1,8 @@
+ sales.csv  csv · filter region~^n · sort price▼                          price 5/5  row 1/116 · 0%
+ id i date date  region str   qty i  price ▼
+ 5119 2024-12-25 north            4   1296.7
+ 9373 2024-02-08 north            1  1294.58
+ 6440 2024-06-18 north            1  1285.12
+10727 2024-01-20 north            1  1273.41
+12429 2024-03-18 north            3  1269.11
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

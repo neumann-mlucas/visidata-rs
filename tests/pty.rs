@@ -106,13 +106,28 @@ impl Drop for Vdrs {
     }
 }
 
-/// `l l ]` → `ll]`: the docs scripts use single-key tokens only.
+/// A golden script as typed bytes: `>> text` as is, `> text` plus Enter, other
+/// lines are space-separated keys (one character, `<CR>` or `<Esc>`).
 fn keys(script: &str) -> Vec<u8> {
-    script
-        .split_whitespace()
-        .inspect(|k| assert_eq!(k.len(), 1, "pty test types plain keys only: {k}"))
-        .collect::<String>()
-        .into_bytes()
+    let mut out = String::new();
+    for line in script.lines() {
+        if let Some(text) = line.strip_prefix(">> ") {
+            out.push_str(text);
+        } else if let Some(text) = line.strip_prefix("> ") {
+            out.push_str(text);
+            out.push('\r');
+        } else {
+            for k in line.split_whitespace() {
+                match k {
+                    "<CR>" => out.push('\r'),
+                    "<Esc>" => out.push('\x1b'),
+                    k if k.chars().count() == 1 => out.push_str(k),
+                    k => panic!("pty test can't type {k}"),
+                }
+            }
+        }
+    }
+    out.into_bytes()
 }
 
 #[test]
