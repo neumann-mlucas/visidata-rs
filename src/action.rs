@@ -103,6 +103,11 @@ pub enum Action {
     ExCommand(String), // raw command text, parsed at dispatch
     /// `vd.bind(layer, keys, function() … end)`: index of the Lua callback.
     Lua(usize),
+    /// `:name args` for a `vd.command`: its callback and the argument text.
+    LuaCommand {
+        id: usize,
+        args: String,
+    },
 
     // persist current sheet to disk; extension decides writer
     Save {
@@ -246,11 +251,104 @@ impl Action {
             | SelectEqualCell
             | SelectColDuplicates
             | DupSelected => true,
-            ExCommand(_) | Lua(_) | Join { .. } | Derive { .. } | Sql { .. } | SetCol { .. } => {
-                true
-            }
+            ExCommand(_)
+            | Lua(_)
+            | LuaCommand { .. }
+            | Join { .. }
+            | Derive { .. }
+            | Sql { .. }
+            | SetCol { .. } => true,
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
         }
+    }
+}
+
+impl Action {
+    /// Every action with a name, at its default arguments. The name is the
+    /// Lua API's (`vd.bind`, S-10: locked) and, kebab-cased, an ex command
+    /// (`:select-all`). Input-layer actions only make sense inside a prompt.
+    #[rustfmt::skip]
+    pub const NAMED: &[(&'static str, Action)] = {
+        use Action::*;
+        &[
+        ("cursor_down", CursorDown { count: None }),
+        ("cursor_up", CursorUp { count: None }),
+        ("cursor_left", CursorLeft { count: None }),
+        ("cursor_right", CursorRight { count: None }),
+        ("page_down", PageDown),
+        ("page_up", PageUp),
+        ("goto_top", GotoTop),
+        ("goto_bottom", GotoBottom),
+        ("goto_leftmost", GotoLeftmost),
+        ("goto_rightmost", GotoRightmost),
+        ("freeze_column", FreezeColumn),
+        ("unfreeze_all", UnfreezeAll),
+        ("hide_col", HideCol),
+        ("unhide_all", UnhideAll),
+        ("key_col", KeyCol),
+        ("unkey_all", UnkeyAll),
+        ("start_rename_col_input", StartRenameColInput),
+        ("type_cast_int", TypeCastInt),
+        ("type_cast_float", TypeCastFloat),
+        ("type_cast_string", TypeCastString),
+        ("type_cast_date", TypeCastDate),
+        ("type_cast_currency", TypeCastCurrency),
+        ("start_search_input", StartSearchInput),
+        ("start_filter_input", StartFilterInput),
+        ("start_ex_input", StartExInput),
+        ("submit_input", SubmitInput),
+        ("cancel_input", CancelInput),
+        ("input_backspace", InputBackspace),
+        ("search_next", SearchNext),
+        ("search_prev", SearchPrev),
+        ("clear_filter", ClearFilter),
+        ("clear_sort", ClearSort),
+        ("sort_asc", SortAsc),
+        ("sort_desc", SortDesc),
+        ("open_freq_table", OpenFreqTable),
+        ("open_sheet_switcher", OpenSheetSwitcher),
+        ("submit_row", SubmitRow),
+        ("submit_selected", SubmitSelected),
+        ("toggle_plan_panel", TogglePlanPanel),
+        ("pop_sheet", PopSheet),
+        ("quit", Quit),
+        ("redraw", Redraw),
+        ("repeat_last", RepeatLast),
+        ("toggle_select_row", ToggleSelectRow),
+        ("select_row", SelectRow),
+        ("unselect_row", UnselectRow),
+        ("select_all", SelectAll),
+        ("unselect_all", UnselectAll),
+        ("start_select_input", StartSelectInput),
+        ("dup_selected", DupSelected),
+        ("dup_sheet", DupSheet),
+        ("select_equal_cell", SelectEqualCell),
+        ("select_col_duplicates", SelectColDuplicates),
+        ("dedupe_rows", DedupeRows),
+        ("hide_uniform", HideUniform),
+        ("describe", Describe),
+        ("pivot_current", PivotCurrent),
+        ("start_diff_input", StartDiffInput),
+        ("undo", Undo),
+        ("redo", Redo),
+        ]
+    };
+
+    /// Look up `name` in [`Action::NAMED`]; `-` and `_` are interchangeable.
+    pub fn from_name(name: &str) -> Option<Action> {
+        let name = name.replace('-', "_");
+        Self::NAMED
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, a)| a.clone())
+    }
+
+    /// Prompt editing actions: bindable in the input layer, not ex commands.
+    pub fn is_input_layer(&self) -> bool {
+        matches!(
+            self,
+            Action::SubmitInput | Action::CancelInput | Action::InputBackspace
+        )
     }
 }
 

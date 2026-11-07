@@ -631,6 +631,12 @@ impl App {
                 return;
             }
         }
+        self.toast = None;
+        if *prompt == Prompt::Ex && key.code == KeyCode::Tab {
+            let lua = self.plugins.as_ref().map(|p| p.command_names());
+            self.toast = complete_command(line, lua.unwrap_or_default());
+            return;
+        }
         if line.edit(key) {
             return;
         }
@@ -763,10 +769,7 @@ impl App {
             }
             Prompt::Ex => {
                 self.ex_history.push(&text);
-                match crate::exline::parse(&text) {
-                    Ok(actions) => self.dispatch_sequence(actions),
-                    Err(e) => self.toast = Some(format!("{e}")),
-                }
+                self.run_ex(&text);
             }
             Prompt::Select => self.dispatch_sequence(vec![Action::SelectByRegex { regex: text }]),
             Prompt::Rename => self.dispatch_sequence(vec![Action::RenameCol { new_name: text }]),
@@ -782,8 +785,27 @@ impl App {
         self.ex_history.reset_cursor();
     }
 
-    /// A `vd.bind` function: `vd.sheet()` describes the active sheet's cursor.
-    fn run_lua_binding(&mut self, id: usize) {
+    /// Run an ex command: a built-in or named action, else a `vd.command`.
+    fn run_ex(&mut self, text: &str) {
+        match crate::exline::parse(text) {
+            Ok(actions) => self.dispatch_sequence(actions),
+            Err(crate::exline::ExError::Unknown(name)) => {
+                match self.plugins.as_ref().and_then(|p| p.command(&name)) {
+                    Some(id) => {
+                        let line = text.trim().trim_start_matches(':').trim_start();
+                        let args = line[name.len()..].trim().to_string();
+                        self.dispatch(Action::LuaCommand { id, args });
+                    }
+                    None => self.toast = Some(format!("unknown command: :{name}")),
+                }
+            }
+            Err(e) => self.toast = Some(format!("{e}")),
+        }
+    }
+
+    /// A Lua callback (`vd.bind`, or `vd.command` with `args`): `vd.sheet()`
+    /// describes the active sheet's cursor.
+    fn run_lua(&mut self, id: usize, args: Option<&str>) {
         let Some(p) = self.plugins.as_ref() else {
             return;
         };
@@ -804,7 +826,7 @@ impl App {
                 .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
                 .unwrap_or(AnyValue::Null),
         };
-        let out = match p.call(id, &ctx) {
+        let out = match p.call(id, &ctx, args) {
             Ok(out) => out,
             Err(e) => {
                 self.toast = Some(format!("{e}"));
@@ -1126,6 +1148,13 @@ impl App {
                     Span::raw(before.to_string()),
                     Span::styled(at, Style::default().add_modifier(Modifier::REVERSED)),
                     Span::raw(rest.as_str().to_string()),
+                    // Tab-completion candidates, after the text.
+                    Span::styled(
+                        self.toast
+                            .as_ref()
+                            .map_or(String::new(), |t| format!("   {t}")),
+                        Style::default().add_modifier(Modifier::DIM),
+                    ),
                 ])
             }
             // Polars errors span lines (plan dumps); the bar shows the first.
@@ -1206,6 +1235,45 @@ fn lua_pivot(
     .map_err(|e| e.to_string())?;
     crate::sheet::pivot_df(&long, on, &[index.to_string()], values, element().first())
         .map_err(|e| e.to_string())
+}
+
+/// Tab in the `:` prompt: complete the command name under the cursor, vim
+/// style. One match → the name and a space; several → their common prefix,
+/// with the candidates as the returned toast. Arguments aren't completed.
+fn complete_command(line: &mut LineEdit, lua: Vec<String>) -> Option<String> {
+    let (before, after) = line.split();
+    if !after.is_empty() || before.contains(char::is_whitespace) {
+        return None;
+    }
+    let mut names: Vec<String> = crate::exline::command_names()
+        .into_iter()
+        .chain(lua)
+        .filter(|n| n.starts_with(before))
+        .collect();
+    names.sort();
+    names.dedup();
+    match names.as_slice() {
+        [] => Some(format!("no command starts with {before:?}")),
+        [one] => {
+            line.set(&format!("{one} "));
+            None
+        }
+        many => {
+            let first = &many[0];
+            let common = many.iter().fold(first.len(), |n, s| {
+                first
+                    .bytes()
+                    .zip(s.bytes())
+                    .take(n)
+                    .take_while(|(a, b)| a == b)
+                    .count()
+            });
+            line.set(&first[..common]);
+            const SHOWN: usize = 12;
+            let more = if many.len() > SHOWN { " …" } else { "" };
+            Some(many[..many.len().min(SHOWN)].join(" ") + more)
+        }
+    }
 }
 
 /// Default keymap plus Lua patches, and the theme `init.lua` picked.
@@ -2272,6 +2340,74 @@ pub(crate) mod scenario {
         assert!(status(&h).contains("boom"), "{}", status(&h));
         // vd.toast outside a binding is a load error, not a silent queue
         let err = crate::plugins::Plugins::load_from_source(r#"vd.toast("hi")"#);
+        assert!(err.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_named_action_is_an_ex_command() {
+        let mut h = Harness::new(30).await;
+        h.keys(":").await;
+        h.type_("select-all").await;
+        assert_eq!(h.app.sheets.active().view.selected.len(), 30);
+        h.keys(":").await;
+        h.type_("unselect_all").await; // snake case, as in vd.bind
+        assert!(h.app.sheets.active().view.selected.is_empty());
+        // :N → row N
+        h.keys(":").await;
+        h.type_("25").await;
+        assert!(title(&h).contains("row 25/30"), "{}", title(&h));
+        // a named action takes no arguments
+        h.keys(":").await;
+        h.type_("select-all now").await;
+        assert!(
+            h.screen().contains(":select-all takes no arguments"),
+            "{}",
+            h.screen()
+        );
+        assert!(h.app.sheets.active().view.selected.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tab_completes_ex_command_names() {
+        let mut h = Harness::new(5).await;
+        h.keys(":").await;
+        h.type_no_enter("dedu").await;
+        h.keys("<Tab>").await;
+        assert_eq!(h.app.input.as_ref().unwrap().1.text(), "dedupe-rows ");
+        h.keys("<C-u>").await;
+        h.type_no_enter("unse").await;
+        h.keys("<Tab>").await; // unselect-all, unselect-row → common prefix
+        assert_eq!(h.app.input.as_ref().unwrap().1.text(), "unselect-");
+        assert!(
+            h.screen().contains("unselect-all unselect-row"),
+            "{}",
+            h.screen()
+        );
+        h.keys("<Esc>").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lua_command_runs_with_its_arguments() {
+        let mut h = Harness::new(5).await;
+        h.app.plugins = Some(
+            crate::plugins::Plugins::load_from_source(
+                r#"vd.command("hello", function(args) vd.toast("hi " .. args .. " on " .. vd.sheet().column) end)
+                   vd.bind("sheet", "X", ":hello key")"#,
+            )
+            .unwrap(),
+        );
+        (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+        h.keys(":").await;
+        h.type_no_enter("hel").await;
+        h.keys("<Tab>").await; // Lua commands complete too
+        h.type_("you").await;
+        assert!(h.screen().contains("hi you on id"), "{}", h.screen());
+        h.keys("X").await;
+        assert!(h.screen().contains("hi key on id"), "{}", h.screen());
+        // a Lua command can't shadow a built-in
+        let err = crate::plugins::Plugins::load_from_source(
+            r#"vd.command("select-all", function() end)"#,
+        );
         assert!(err.is_err());
     }
 

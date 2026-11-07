@@ -14,6 +14,8 @@ pub enum ExError {
     Unknown(String),
     #[error("empty command")]
     Empty,
+    #[error(":{0} takes no arguments")]
+    NoArgs(String),
 }
 
 pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
@@ -225,8 +227,78 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "describe" => Ok(vec![Action::Describe]),
         "undo" => Ok(vec![Action::Undo]),
         "redo" => Ok(vec![Action::Redo]),
-        other => Err(ExError::Unknown(other.to_string())),
+        // `:42` → row 42, as in vim.
+        n if n.bytes().all(|b| b.is_ascii_digit()) && rest.is_empty() => {
+            let row: usize = n.parse().map_err(|_| ExError::Unknown(n.to_string()))?;
+            Ok(vec![
+                Action::GotoTop,
+                Action::CursorDown {
+                    count: Some(row.saturating_sub(1)),
+                },
+            ])
+        }
+        // Any named action: `:select-all`, `:dedupe_rows`.
+        other => match Action::from_name(other).filter(|a| !a.is_input_layer()) {
+            Some(_) if !rest.is_empty() => Err(ExError::NoArgs(other.to_string())),
+            Some(a) => Ok(vec![a]),
+            None => Err(ExError::Unknown(other.to_string())),
+        },
     }
+}
+
+/// Built-in ex command names (aliases included), for completion.
+pub const COMMANDS: &[&str] = &[
+    "clear-filter",
+    "clear-sort",
+    "derive",
+    "describe",
+    "diff",
+    "dup",
+    "export",
+    "filter",
+    "hide",
+    "hide-uniform",
+    "join",
+    "key",
+    "ls",
+    "melt",
+    "pivot",
+    "q",
+    "qa",
+    "quit",
+    "quit!",
+    "redo",
+    "rename",
+    "save",
+    "setcol",
+    "sheets",
+    "sort",
+    "sql",
+    "tail",
+    "type",
+    "undo",
+    "unfilter",
+    "unhide",
+    "unhide-cols",
+    "uniform",
+    "unkey",
+    "unpivot",
+    "unsort",
+    "w",
+    "write",
+];
+
+/// Every command name `:` accepts: built-ins, then named actions (kebab-case).
+pub fn command_names() -> Vec<String> {
+    let actions = Action::NAMED
+        .iter()
+        .filter(|(_, a)| !a.is_input_layer())
+        .map(|(n, _)| n.replace('_', "-"));
+    COMMANDS
+        .iter()
+        .map(|c| c.to_string())
+        .chain(actions)
+        .collect()
 }
 
 /// Lines kept in the history file; older ones are dropped on load.
@@ -398,6 +470,17 @@ fn history_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `COMMANDS` (what Tab completes) names only commands `parse` knows.
+    #[test]
+    fn listed_commands_exist() {
+        for c in COMMANDS {
+            assert!(!matches!(parse(c), Err(ExError::Unknown(_))), ":{c}");
+        }
+        for n in command_names() {
+            assert!(!matches!(parse(&n), Err(ExError::Unknown(_))), ":{n}");
+        }
+    }
 
     #[test]
     fn parses_quit() {

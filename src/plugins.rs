@@ -29,8 +29,10 @@ struct Registry {
     theme: Option<String>,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
-    /// `vd.bind` functions, indexed by `Action::Lua`.
+    /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
     callbacks: Vec<LuaFunction>,
+    /// `vd.command` ex commands → callback index.
+    commands: Vec<(String, usize)>,
     /// While a callback runs: what `vd.sheet()` returns, and `vd.toast` messages.
     current: Option<LuaTable>,
     toasts: Vec<String>,
@@ -96,7 +98,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 3; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet
+pub const API_VERSION: i64 = 4; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -245,9 +247,33 @@ impl Plugins {
         f.call::<Option<String>>(v).ok().flatten()
     }
 
-    /// Run `vd.bind` function `id` with `vd.sheet()` = `ctx`. Returns its toasts
+    /// Callback index of the `vd.command` named `name`.
+    pub fn command(&self, name: &str) -> Option<usize> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        reg.borrow()
+            .commands
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, id)| *id)
+    }
+
+    /// Names of the `vd.command` ex commands.
+    pub fn command_names(&self) -> Vec<String> {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .map(|r| r.borrow().commands.iter().map(|(n, _)| n.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Run callback `id` with `vd.sheet()` = `ctx`; a `vd.command` function gets
+    /// the text after its name (`args`), a `vd.bind` one nil. Returns its toasts
     /// and pushed sheets; a Lua error comes back as Err and discards both.
-    pub fn call(&self, id: usize, ctx: &SheetCtx) -> Result<LuaOutput, PluginError> {
+    pub fn call(
+        &self,
+        id: usize,
+        ctx: &SheetCtx,
+        args: Option<&str>,
+    ) -> Result<LuaOutput, PluginError> {
         let lua = &self.lua;
         let t = lua.create_table()?;
         t.set("name", ctx.name)?;
@@ -268,7 +294,7 @@ impl Plugins {
             reg.callbacks.get(id).cloned()
         };
         let result = match f {
-            Some(f) => f.call::<()>(()),
+            Some(f) => f.call::<()>(args),
             None => Err(mlua::Error::RuntimeError(format!("no lua binding #{id}"))),
         };
         let r = registry(lua)?;
@@ -352,6 +378,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     let register_loader = lua.create_function(register_loader_fn)?;
     vd.set("bind", bind)?;
     vd.set("unbind", unbind)?;
+    vd.set("command", lua.create_function(command_fn)?)?;
     vd.set("register_loader", register_loader)?;
     vd.set("api_version", API_VERSION)?;
     vd.set(
@@ -426,6 +453,35 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     Ok(())
 }
 
+/// `vd.command(name, fn)`: `:name args` calls `fn(args)` ("" without args).
+/// Names are `[a-z0-9_-]`, and can't shadow a built-in or an action name.
+fn command_fn(lua: &Lua, (name, f): (String, LuaFunction)) -> mlua::Result<()> {
+    let ok = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
+    if !ok {
+        return Err(mlua::Error::RuntimeError(format!(
+            "vd.command: bad name {name:?} (use a-z, 0-9, - and _)"
+        )));
+    }
+    if crate::exline::command_names()
+        .iter()
+        .any(|c| c.replace('-', "_") == name.replace('-', "_"))
+    {
+        return Err(mlua::Error::RuntimeError(format!(
+            "vd.command: :{name} is built in"
+        )));
+    }
+    let r = registry(lua)?;
+    let mut reg = r.borrow_mut();
+    reg.callbacks.push(f);
+    let id = reg.callbacks.len() - 1;
+    reg.commands.retain(|(n, _)| *n != name); // redefining replaces
+    reg.commands.push((name, id));
+    Ok(())
+}
+
 /// `vd.bind(layer, keys, action, desc?)`
 fn bind_fn(
     lua: &Lua,
@@ -458,15 +514,24 @@ fn bind_fn(
             )));
         }
     };
-    // ":sort -id" binds an ex-command (validated now so typos fail at load).
+    // ":sort -id" binds an ex-command (validated now so typos fail at load;
+    // a `vd.command` must be defined before it is bound).
     let action = match action_s.strip_prefix(':') {
         Some(cmd) => {
-            crate::exline::parse(cmd).map_err(|e| {
-                mlua::Error::RuntimeError(format!("bad ex-command {action_s}: {e}"))
-            })?;
+            let name = cmd.split_whitespace().next().unwrap_or("");
+            let lua_cmd = registry(lua)?
+                .borrow()
+                .commands
+                .iter()
+                .any(|(n, _)| n == name);
+            if !lua_cmd {
+                crate::exline::parse(cmd).map_err(|e| {
+                    mlua::Error::RuntimeError(format!("bad ex-command {action_s}: {e}"))
+                })?;
+            }
             Action::ExCommand(cmd.to_string())
         }
-        None => action_from_name(&action_s)
+        None => Action::from_name(&action_s)
             .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}")))?,
     };
     let desc = desc.unwrap_or(action_s);
@@ -760,77 +825,6 @@ fn parse_keys(v: LuaValue) -> mlua::Result<Vec<Key>> {
         .map_err(|e| mlua::Error::RuntimeError(format!("bad key: {e}")))
 }
 
-/// Map a snake_case action name to its default-arg variant.
-///
-/// S-10 locks the names in the Lua API. Keep this match in sync when adding new actions.
-fn action_from_name(s: &str) -> Option<Action> {
-    use Action::*;
-    Some(match s {
-        "cursor_down" => CursorDown { count: None },
-        "cursor_up" => CursorUp { count: None },
-        "cursor_left" => CursorLeft { count: None },
-        "cursor_right" => CursorRight { count: None },
-        "page_down" => PageDown,
-        "page_up" => PageUp,
-        "goto_top" => GotoTop,
-        "goto_bottom" => GotoBottom,
-        "goto_leftmost" => GotoLeftmost,
-        "goto_rightmost" => GotoRightmost,
-        "freeze_column" => FreezeColumn,
-        "unfreeze_all" => UnfreezeAll,
-        "hide_col" => HideCol,
-        "unhide_all" => UnhideAll,
-        "key_col" => KeyCol,
-        "unkey_all" => UnkeyAll,
-        "start_rename_col_input" => StartRenameColInput,
-        "type_cast_int" => TypeCastInt,
-        "type_cast_float" => TypeCastFloat,
-        "type_cast_string" => TypeCastString,
-        "type_cast_date" => TypeCastDate,
-        "type_cast_currency" => TypeCastCurrency,
-        "start_search_input" => StartSearchInput,
-        "start_filter_input" => StartFilterInput,
-        "start_ex_input" => StartExInput,
-        // input layer (prompts)
-        "submit_input" => SubmitInput,
-        "cancel_input" => CancelInput,
-        "input_backspace" => InputBackspace,
-        "search_next" => SearchNext,
-        "search_prev" => SearchPrev,
-        "clear_filter" => ClearFilter,
-        "clear_sort" => ClearSort,
-        "sort_asc" => SortAsc,
-        "sort_desc" => SortDesc,
-        "open_freq_table" => OpenFreqTable,
-        "open_sheet_switcher" => OpenSheetSwitcher,
-        "submit_row" => SubmitRow,
-        "submit_selected" => SubmitSelected,
-        "toggle_plan_panel" => TogglePlanPanel,
-        "pop_sheet" => PopSheet,
-        "quit" => Quit,
-        "redraw" => Redraw,
-        "repeat_last" => RepeatLast,
-        "toggle_select_row" => ToggleSelectRow,
-        "select_row" => SelectRow,
-        "unselect_row" => UnselectRow,
-        "select_all" => SelectAll,
-        "unselect_all" => UnselectAll,
-        "start_select_input" => StartSelectInput,
-        "dup_selected" => DupSelected,
-        "dup_sheet" => DupSheet,
-        "select_equal_cell" => SelectEqualCell,
-        "select_col_duplicates" => SelectColDuplicates,
-        "dedupe_rows" => DedupeRows,
-        "hide_uniform" => HideUniform,
-        "describe" => Describe,
-        "pivot_current" => PivotCurrent,
-        "start_diff_input" => StartDiffInput,
-        "undo" => Undo,
-        "redo" => Redo,
-        _ => return None,
-    })
-}
-
 fn default_config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -1100,7 +1094,7 @@ mod tests {
         let p =
             Plugins::load_from_source(&src(r#"{ { 1, 1.5, true, "a" }, { nil, 2, false, 3 } }"#))
                 .unwrap();
-        let mut out = p.call(0, &ctx).unwrap();
+        let mut out = p.call(0, &ctx, None).unwrap();
         let (name, df) = out.sheets.pop().unwrap();
         assert_eq!(name, "t");
         let types: Vec<String> = df.dtypes().iter().map(|d| d.to_string()).collect();
@@ -1109,7 +1103,7 @@ mod tests {
         assert_eq!(df.column("s").unwrap().str().unwrap().get(1), Some("3"));
         for bad in [r#"{ { 1, 2, 3, 4, 5, 6 } }"#, r#"{ { {} } }"#] {
             let p = Plugins::load_from_source(&src(bad)).unwrap();
-            assert!(p.call(0, &ctx).is_err(), "{bad}");
+            assert!(p.call(0, &ctx, None).is_err(), "{bad}");
         }
         assert!(
             Plugins::load_from_source("vd.push_sheet { columns = { 'a' }, rows = {} }").is_err()
@@ -1118,7 +1112,7 @@ mod tests {
         assert!(
             Plugins::load_from_source(dup)
                 .unwrap()
-                .call(0, &ctx)
+                .call(0, &ctx, None)
                 .is_err()
         );
     }
@@ -1144,7 +1138,7 @@ mod tests {
             column_names: vec![],
             value: AnyValue::Null,
         };
-        p.call(0, &ctx)
+        p.call(0, &ctx, None)
             .err()
             .map_or(String::new(), |e| e.to_string())
     }
@@ -1199,6 +1193,6 @@ mod tests {
             column_names: vec![],
             value: AnyValue::Null,
         };
-        assert!(p.call(0, &ctx).is_err());
+        assert!(p.call(0, &ctx, None).is_err());
     }
 }

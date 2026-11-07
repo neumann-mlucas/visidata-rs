@@ -46,7 +46,8 @@ impl App {
                 }
             }
             Action::Redraw => {}
-            Action::Lua(id) => self.run_lua_binding(id),
+            Action::Lua(id) => self.run_lua(id, None),
+            Action::LuaCommand { id, args } => self.run_lua(id, Some(&args)),
             Action::RepeatLast => {
                 if let Some(last) = self.last_action.clone() {
                     for a in last {
@@ -176,10 +177,7 @@ impl App {
             Action::StartSearchInput => self.start_input(Prompt::Search),
             Action::StartFilterInput => self.start_input(Prompt::Filter),
             Action::StartExInput => self.start_input(Prompt::Ex),
-            Action::ExCommand(text) => match crate::exline::parse(&text) {
-                Ok(actions) => self.dispatch_sequence(actions),
-                Err(e) => self.toast = Some(format!("{e}")),
-            },
+            Action::ExCommand(text) => self.run_ex(&text),
             Action::SearchNext => self.search_jump(true),
             Action::SearchPrev => self.search_jump(false),
             Action::SetFilter { column, regex } => {
