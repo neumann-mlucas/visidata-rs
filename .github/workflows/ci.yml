@@ -21,7 +21,7 @@ jobs:
       - name: VisiData replay corpus (pinned; tests/vd_replay.rs reads ../visidata)
         run: |
           git init -q ../visidata
-          git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata dd1a9f0a53fe4bf030db939b06c73cb665406d4a
+          git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata 5f67ff8af28c59a8f7429e396601606f2ac8dd47
           git -C ../visidata checkout -q FETCH_HEAD
       - name: Export round-trip tools (golden cases run the generated scripts)
         run: |

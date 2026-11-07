@@ -1,6 +1,6 @@
 //! S-14 — Golden corpus replay harness.
 //!
-//! Walks `../visidata/tests/*.vd{,j}`, translates each cmdlog longname into a
+//! Walks `../visidata/tests/*.vd{,j,x}`, translates each cmdlog longname into a
 //! sheet-level operation, materializes, and diffs the TSV against the paired
 //! golden at `../visidata/tests/golden/<stem>.tsv`.
 //!
@@ -14,7 +14,7 @@
 //! The driver is sheet-level but serializes through `Sheet::view_plan`, the
 //! app's own query. Key-by-key behaviour is `src/app/golden.rs`'s job.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -25,7 +25,7 @@ use visidata_rs::sheet::{Origin, Sheet, SheetId, SortKey, SortOrder};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 21;
+const MIN_PASS: usize = 29;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -98,6 +98,46 @@ fn parse_vdj(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
     Ok(rows)
 }
 
+/// VisiData's minimal `.vdx` script (`visidata/loaders/vdx.py`): one
+/// `longname [input]` per line; `sheet`/`col`/`row X` lines position the next
+/// command only; `option scope name value` → `set-option`; `#` comments.
+/// Lines starting `{` or holding tabs are `.vdj`/`.vd` rows.
+fn parse_vdx(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
+    let text = fs::read_to_string(path)?;
+    let mut rows = Vec::new();
+    let mut ctx = CmdlogRow::default();
+    for line in text.lines() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('{') || line.contains('\t') {
+            anyhow::bail!("embedded .vd/.vdj row: {line}");
+        }
+        let (longname, rest) = line.split_once(' ').unwrap_or((line, ""));
+        match longname {
+            "sheet" => ctx.sheet = rest.into(),
+            "col" => ctx.col = rest.into(),
+            "row" => ctx.row = rest.into(),
+            "option" => {
+                let mut p = rest.splitn(3, ' ');
+                rows.push(CmdlogRow {
+                    sheet: p.next().unwrap_or("global").into(),
+                    row: p.next().unwrap_or("").into(),
+                    longname: "set-option".into(),
+                    input: p.next().unwrap_or("").into(),
+                    ..Default::default()
+                });
+            }
+            _ => rows.push(CmdlogRow {
+                longname: longname.into(),
+                input: rest.into(),
+                ..std::mem::take(&mut ctx)
+            }),
+        }
+    }
+    Ok(rows)
+}
+
 /// A loaded sheet, its name, and driver-local column metadata.
 struct SheetSlot {
     name: String,
@@ -122,6 +162,9 @@ struct Replay {
     /// root, so inputs like `tests/sort-levels.tsv` resolve relative to there.
     root: PathBuf,
     next_id: SheetId,
+    /// `.vdx` positions only the commands that need it; VisiData's cursor stays
+    /// put in between. Per-sheet (col, row) fills empty fields when set.
+    cursor: Option<HashMap<usize, (String, String)>>,
 }
 
 enum MetaMode {
@@ -213,6 +256,7 @@ impl Replay {
             meta_mode: None,
             root,
             next_id: 0,
+            cursor: None,
         }
     }
 
@@ -263,6 +307,30 @@ impl Replay {
         {
             self.set_current(i);
         }
+        let filled;
+        // A sheet's cursor starts on its first column.
+        let first_col = self.current_slot().ok().and_then(|s| {
+            let schema = s.sheet.view_plan().collect_schema().ok()?;
+            schema.iter_names().next().map(|n| n.to_string())
+        });
+        let r = match (&mut self.cursor, self.current) {
+            (Some(cursor), Some(cur)) => {
+                let (col, row) = cursor
+                    .entry(cur)
+                    .or_insert_with(|| (first_col.unwrap_or_default(), String::new()));
+                let mut f = r.clone();
+                for (field, pos) in [(&mut f.col, col), (&mut f.row, row)] {
+                    if field.is_empty() {
+                        field.clone_from(pos);
+                    } else {
+                        pos.clone_from(field);
+                    }
+                }
+                filled = f;
+                &filled
+            }
+            _ => r,
+        };
         match r.longname.as_str() {
             "open-file" => {
                 let path = self.root.join(&r.input);
@@ -387,6 +455,30 @@ impl Replay {
                 }
                 Ok(())
             }
+            "key-col-on" => {
+                let keys = &mut self.current_slot_mut()?.sheet.view.keys;
+                if !keys.contains(&r.col) {
+                    keys.push(r.col.clone());
+                }
+                Ok(())
+            }
+            "select-col-duplicates" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let rids = s
+                    .rids_col_duplicates(&r.col)
+                    .map_err(|e| Runtime(e.to_string()))?;
+                Arc::make_mut(&mut s.view.selected).extend(rids);
+                Ok(())
+            }
+            "dedupe-rows" => {
+                let id = self.next_id;
+                self.next_id += 1;
+                let slot = self.current_slot()?;
+                let name = format!("{}_deduped", slot.name);
+                let sheet = Sheet::dedupe_from(&slot.sheet, id).map_err(Runtime)?;
+                self.push_sheet(name, sheet);
+                Ok(())
+            }
             "unkey-col" => {
                 self.current_slot_mut()?
                     .sheet
@@ -438,7 +530,7 @@ impl Replay {
             // columns-sheet: enter a meta view listing parent sheet's columns.
             // ponytail: no-op mode; parent sheet is unchanged. edit-cell /
             // select-row / etc. while active become no-ops. quit-sheet exits.
-            "columns-sheet" => {
+            "columns-sheet" | "columns-all" => {
                 self.meta_mode = Some(MetaMode::ColumnsSheet);
                 Ok(())
             }
@@ -450,15 +542,52 @@ impl Replay {
             }
             // edit-cell / set-cell-input while in a meta view: no-op (we don't
             // model meta contents). Outside meta, edit-cell is a data edit.
+            // Columns sheet: a column's width 0 hides it, any other shows it.
+            "edit-cell"
+                if matches!(self.meta_mode, Some(MetaMode::ColumnsSheet)) && r.col == "width" =>
+            {
+                let key = r.row.strip_prefix('キ').unwrap_or(&r.row);
+                // `columns-all` rows are keyed `sheet,column`.
+                let (slot, name) = match key.split_once(',') {
+                    Some((sheet, c)) if self.find_sheet_by_name(sheet).is_some() => {
+                        (self.find_sheet_by_name(sheet).unwrap(), c.to_string())
+                    }
+                    _ => (
+                        self.current
+                            .ok_or_else(|| Runtime("no active sheet".into()))?,
+                        key.to_string(),
+                    ),
+                };
+                let hidden = &mut self.loaded[slot].sheet.view.hidden;
+                if r.input.trim() == "0" {
+                    hidden.insert(name);
+                } else {
+                    hidden.remove(&name);
+                }
+                Ok(())
+            }
             "edit-cell" if self.meta_mode.is_some() => Ok(()),
             "edit-cell" => self.setcol_input(&r.col, &r.row, &r.input),
             // join-sheets: consumes sheets-stack selection, builds a joined sheet
             // and makes it current. Input = jointype (append/inner/outer/full).
-            "join-sheets" => self.join_sheets(&r.input),
+            "join-sheets" => self.join_sheets(&r.input, true),
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" => Ok(()),
+            // Widening a column shows a hidden (width 0) one.
+            "resize-col-max" | "resize-col-input" => {
+                let col = r.col.clone();
+                self.current_slot_mut()?.sheet.view.hidden.remove(&col);
+                Ok(())
+            }
+            "jump-sheet" => {
+                let i = self
+                    .find_sheet_by_name(&r.input)
+                    .ok_or_else(|| Runtime(format!("jump-sheet: no sheet {}", r.input)))?;
+                self.set_current(i);
+                Ok(())
+            }
             // dive-row/open-row: VisiData pushes a sub-sheet. For xlsx/sqlite
             // loaded as first-sheet-directly, no sub-sheet to enter — noop.
             // For VisiData's columns-sheet / other meta-sheet workflows, this
@@ -861,7 +990,7 @@ impl Replay {
             self.loaded[prev].name.clone(),
         ];
         self.meta_mode = Some(MetaMode::SheetsStack { selected });
-        self.join_sheets(jointype)
+        self.join_sheets(jointype, false)
     }
 
     /// VisiData `&` join-sheets: consumes the sheets-stack selection and builds
@@ -872,7 +1001,9 @@ impl Replay {
     ///   - "inner" / "outer" / "full" / "left" → key-based join on current keys
     ///
     /// Not in sheets-stack mode → error.
-    fn join_sheets(&mut self, jointype: &str) -> Result<(), StepErr> {
+    /// `from_stack`: sheets picked on the sheets stack, whose appended columns
+    /// VisiData lists in reverse; `join-sheets-top2` keeps [current, previous].
+    fn join_sheets(&mut self, jointype: &str, from_stack: bool) -> Result<(), StepErr> {
         let selected = match self.meta_mode.take() {
             Some(MetaMode::SheetsStack { selected }) => selected,
             _ => {
@@ -929,6 +1060,46 @@ impl Replay {
                 )
                 .map_err(|e| StepErr::Runtime(e.to_string()))?
                 // ponytail: col_order hint set after push below; see outer scope
+            }
+            // VisiData `concat` (#3208): rows stacked, columns paired by
+            // position, names from the first sheet.
+            "concat" => {
+                let names = |i: usize| -> Result<Vec<String>, StepErr> {
+                    let schema = self.loaded[i]
+                        .sheet
+                        .plan
+                        .clone()
+                        .collect_schema()
+                        .map_err(|e| StepErr::Runtime(e.to_string()))?;
+                    Ok(schema.iter_names().map(|n| n.to_string()).collect())
+                };
+                let first = names(slot_idxs[0])?;
+                let mut plans = Vec::new();
+                for &i in &slot_idxs {
+                    let these = names(i)?;
+                    if these.len() != first.len() {
+                        return Err(StepErr::Runtime("concat: column counts differ".into()));
+                    }
+                    let renamed: Vec<Expr> = these
+                        .iter()
+                        .zip(&first)
+                        .map(|(t, f)| col(t.as_str()).alias(f.as_str()))
+                        .collect();
+                    let origin = lit(self.loaded[i].name.clone()).alias("origin_sheet");
+                    plans.push(
+                        self.loaded[i]
+                            .sheet
+                            .plan
+                            .clone()
+                            .select(renamed)
+                            .with_column(origin),
+                    );
+                }
+                let args = UnionArgs {
+                    to_supertypes: true,
+                    ..Default::default()
+                };
+                concat(&plans, args).map_err(|e| StepErr::Runtime(e.to_string()))?
             }
             // VisiData joins each sheet on its *own* key columns, pairing the
             // ith key of sheet N with the ith key of sheet N+1. Allows joining
@@ -1034,6 +1205,9 @@ impl Replay {
         self.push_sheet(joined_name, joined);
         if let Some(slot) = self.loaded.last_mut() {
             slot.sheet.view.keys = inherited_keys;
+            if jt == "append" || jt == "concat" {
+                slot.sheet.view.hidden.insert("origin_sheet".into()); // width 0 (#2929)
+            }
         }
         // For append: enumerate non-key cols in REVERSE selection order to
         // match VisiData output (data1's cols appear before data2's when
@@ -1050,7 +1224,12 @@ impl Replay {
                 .iter()
                 .map(String::as_str)
                 .collect();
-            for &i in slot_idxs.iter().rev() {
+            let order: Vec<usize> = if from_stack {
+                slot_idxs.iter().rev().copied().collect()
+            } else {
+                slot_idxs.clone()
+            };
+            for &i in &order {
                 let schema = match self.loaded[i].sheet.plan.clone().collect_schema() {
                     Ok(s) => s,
                     Err(_) => continue,
@@ -1277,7 +1456,7 @@ fn vd_replay_corpus() {
         .filter(|p| {
             matches!(
                 p.extension().and_then(|x| x.to_str()),
-                Some("vd") | Some("vdj")
+                Some("vd") | Some("vdj") | Some("vdx")
             )
         })
         .collect();
@@ -1295,10 +1474,11 @@ fn vd_replay_corpus() {
             continue;
         }
 
-        let rows = if cmd_path.extension().and_then(|x| x.to_str()) == Some("vdj") {
-            parse_vdj(&cmd_path)
-        } else {
-            parse_vd(&cmd_path)
+        let ext = cmd_path.extension().and_then(|x| x.to_str());
+        let rows = match ext {
+            Some("vdj") => parse_vdj(&cmd_path),
+            Some("vdx") => parse_vdx(&cmd_path),
+            _ => parse_vd(&cmd_path),
         };
         let rows = match rows {
             Ok(r) => r,
@@ -1309,6 +1489,9 @@ fn vd_replay_corpus() {
         };
 
         let mut rp = Replay::new(visidata_root.clone());
+        if ext == Some("vdx") {
+            rp.cursor = Some(HashMap::new());
+        }
         let mut outcome: Result<(), String> = Ok(());
         for row in &rows {
             match rp.step(row) {

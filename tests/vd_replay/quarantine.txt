@@ -158,3 +158,82 @@ edit-joinregular-2
 # plus VisiData-matched numeric display. Defer until Phase 2 Describe milestone.
 describe
 describe-error
+
+# --- .vdx corpus (VisiData develop 5f67ff8a, triaged 2026-11-07) ---
+
+# Backends / formats not in the core binary (PERMANENT, same policy as above):
+# DuckDB and Postgres databases, VisiData's own .vds sheet format, HTML,
+# fixed-width, XML.
+duckdb-commit-changes
+duckdb-commit-composite-pk
+duckdb-commit-no-pk
+duckdb-exec-sql
+duckdb-index
+duckdb-open-alt-schema
+duckdb-save-sheet
+load-duckdb
+load-duckdb-view
+postgres-exec-sql-pg
+postgres-open-table-pg
+postgres-quoted-pg
+postgres-readonly-pg
+postgres-tables-pg
+issue2309
+issue3146-vds
+issue3175-vds-concat
+issue3175-vds-full
+issue1308
+issue1346
+issue2227
+load-fixed-header0
+load-fixed-leadingspaces
+xml-table
+
+# GeoParquet: the WKB column loads (Binary), but VisiData shows it decoded.
+load-parquet-geo
+
+# Editing / commit workflows — deferred with cell editing (S-18).
+sqlite-commit
+issue3163
+issue3174-deepcopy-append
+issue3174-deepcopy-concat
+issue3174-deepcopy-full
+incr-key
+issue3103
+issue655
+
+# Mixed JSON types: VisiData keeps 1, 1.0 and "1" apart; Polars reads one
+# column type (1 and 1.0 merge). Freq histogram / dedupe themselves match.
+issue3219-freq
+issue3219-dedupe
+issue3219-dedupe-int
+
+# Output is the columns sheet's contents (as `sortorder`).
+issue3190
+
+# describe-sheet: our describe has its own stats/format (as `describe`).
+issue3223
+issue3223-distinct
+issue3223-dive
+issue3223-median
+issue3223-nostat
+
+# Duplicate column names after concat: Polars frames can't hold them.
+issue3208-duplicates
+
+# Not modelled by the sheet-level driver: join-selected across a sqlite
+# parts list, dive-except / dive-selected on a freq sheet, range select
+# (select-to-next-selected).
+issue3187
+freq-dive-except
+freqtbl-nested-dive-selected
+select-to-selected
+
+# issue2396: type-decimal then Python expressions (addcol-expr amt*3).
+issue2396
+# issue2988: xlsx_meta_columns option (as xlsx-color-cells).
+issue2988
+# issue3178: append after a rename makes two columns named B; Polars can't.
+issue3178
+# issue3195: open-new + add-row (editing, S-18) and locale-aware floats.
+issue3195

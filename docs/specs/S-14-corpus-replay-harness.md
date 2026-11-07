@@ -1,6 +1,6 @@
 # S-14 — Golden corpus replay harness (test strategy)
 
-Status: **landed and stable (2026-10-16 iteration 14)** — harness at `tests/vd_replay.rs` (~1230 LOC single file; the planned `vd_replay/{cmdlog,translate,headless,normalize}.rs` module split was cut as premature). Current counts: PASS=21, FAIL=0, SKIP=0, UNTESTABLE=48, QUARANTINED=70, NO_GOLDEN=25. Addressable ceiling = 21 tests, PASS/addressable = 100%. Classification taxonomy below.
+Status: **landed and stable (2026-10-16 iteration 14)** — harness at `tests/vd_replay.rs` (~1230 LOC single file; the planned `vd_replay/{cmdlog,translate,headless,normalize}.rs` module split was cut as premature). Current counts (2026-11-07, VisiData `5f67ff8a`, `.vd`/`.vdj`/`.vdx` = 240 files): PASS=29, FAIL=0, SKIP=0, UNTESTABLE=50, QUARANTINED=121, NO_GOLDEN=40. Addressable ceiling = 29 tests, PASS/addressable = 100%. `.vdx` = VisiData's minimal script (`longname input` per line; `col`/`row`/`sheet` lines position the next command; the driver keeps a per-sheet cursor between them). Classification taxonomy below.
 Phase: 1.5 (landed with S-13)
 Depends on: S-13 (Tier 1 feature target)
 Blocks: nothing — pure test infrastructure

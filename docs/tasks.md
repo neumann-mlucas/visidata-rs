@@ -84,7 +84,7 @@ Still open (see S-15 §10.1):
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-10-16 iteration 14, Phase 1.5 CLOSED): PASS=21, FAIL=0, SKIP=0, UNTESTABLE=48, QUARANTINED=70, NO_GOLDEN=25.**
+**Current state (2026-11-07, `.vdx` corpus added): PASS=29, FAIL=0, SKIP=0, UNTESTABLE=50, QUARANTINED=121, NO_GOLDEN=40.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling: 21 tests.** PASS/addressable = 21/21 (100%). All 164 corpus entries resolved. Addressable collapsed from 98 → 21 across iterations 10-14 via honest classification: longnames encoding Python expressions / clipboard / new-sheet / options-system workflows are UNTESTABLE (direction §9.5 compat ban + §1 options cut); format tests out of scope (xml/html/yaml/toml/zip/stata/npy/msgpack/etc.) are QUARANTINED. See [`specs/S-14-corpus-replay-harness.md`](specs/S-14-corpus-replay-harness.md) for the classification taxonomy.
 
@@ -108,7 +108,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **Harness bootstrap** — `tests/vd_replay.rs` + cmdlog parser (`.vd`/`.vdj`) + sheet-level `Replay` driver + numeric-aware diff + quote-style-never serialize + stable sort. `src/lib.rs` added so integration tests see internals.
 - [x] **In the `vdrs` binary (per S-15 §3)**: Column meta (hide/rename/key/unkey/freeze), Type coercion (int/float/string/date/currency), Selection (row/all/regex/dup-selected), Sort (multi-col asc/desc), Readers (CSV/TSV/Parquet/Arrow/Jsonl/JSON + xlsx via calamine + sqlite via rusqlite + gzip via flate2), Pivot with keys, unpivot/melt.
 - [x] **Harness-first, now also in the binary (2026-11-05)**: Joins (inner/outer/full/left/append/extend/merge → `:join`), pivot without keys (`W`), hide-uniform-cols (`:uniform`), setcol-input gang mode (`:setcol`), dup-rows (`g"`), select-equal-cell (`,`).
-- [x] **CI**: `ci.yml` fetches saulpw/visidata pinned at `dd1a9f0` (the local corpus) into `../visidata`; `cargo test` runs the replay and fails on any regression
+- [x] **CI**: `ci.yml` fetches saulpw/visidata pinned at `5f67ff8a` (was `dd1a9f0` until 2026-11-07) into `../visidata`; `cargo test` runs the replay and fails on any regression
 
 **Deferred (per iter 14 postmortem — explicit non-features; struck items shipped later):**
 - ~~**Describe-sheet**~~ — shipped as `I` / `:describe` (own stats, not VisiData's fmtstr output; golden tests stay quarantined).

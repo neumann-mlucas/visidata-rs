@@ -283,7 +283,7 @@ CSV and TSV files up to 1 GiB move into memory in the background after opening, 
 ## 9. Testing
 
 - `cargo test --lib` — unit tests over sheet/keymap/widget/exline/action/plugins, plus `app::scenario` end-to-end tests: real keymap → dispatch → background Polars tasks → TestBackend render (never touches the user's ex history)
-- `cargo test --test vd_replay` — golden corpus replay (S-14). Needs `../visidata` checked out alongside; skips cleanly otherwise. CI fetches it pinned at `dd1a9f0` and fails on any regression.
+- `cargo test --test vd_replay` — golden corpus replay (S-14). Needs `../visidata` checked out alongside; skips cleanly otherwise. CI fetches it pinned at `5f67ff8a` and fails on any regression.
 - Doc sync: tests fail if docs/index.html misses a default key (`keymap.rs`) or documents an unknown ex command (`exline.rs`), or if its `init.lua` example stops working (`plugins.rs`)
 - `cargo clippy --all-targets` — zero warnings
 - No benchmarks shipped; `hyperfine` harness is a tasks.md todo
