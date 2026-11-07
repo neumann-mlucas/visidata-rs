@@ -1,0 +1,54 @@
+ orders_raw.csv  csv                                                    order_id 1/5  row 1/89 · 1%
+ order_id i  customer_id i order_date str  amount str  status str
+       5001            101 4/17/2024       $1,350.59   paid
+       5002            102 2/5/2024        $1,763.84   paid
+       5003            113 2/17/2024       $1,080.15   paid
+       5004            102 5/11/2024       $594.67     paid
+       5004            102 5/11/2024       $594.67     paid
+       5005            106 6/13/2024       $2,369.08   pending
+       5006            110 3/30/2024       $1,722.40   paid
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ orders_raw.csv  csv                                                  order_date 3/5  row 1/89 · 1%
+ order_id i  customer_id i order_date date  amount str  status str
+       5001            101 2024-04-17       $1,350.59   paid
+       5002            102 2024-02-05       $1,763.84   paid
+       5003            113 2024-02-17       $1,080.15   paid
+       5004            102 2024-05-11       $594.67     paid
+       5004            102 2024-05-11       $594.67     paid
+       5005            106 2024-06-13       $2,369.08   pending
+       5006            110 2024-03-30       $1,722.40   paid
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ orders_raw.csv  csv                                                      amount 4/5  row 1/89 · 1%
+ order_id i  customer_id i order_date date     amount f status str
+       5001            101 2024-04-17           1350.59 paid
+       5002            102 2024-02-05           1763.84 paid
+       5003            113 2024-02-17           1080.15 paid
+       5004            102 2024-05-11            594.67 paid
+       5004            102 2024-05-11            594.67 paid
+       5005            106 2024-06-13           2369.08 pending
+       5006            110 2024-03-30            1722.4 paid
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ orders_raw.csv  csv · sel 9                                            order_id 1/5  row 1/89 · 1%
+ order_id i  customer_id i order_date date     amount f status str
+       5001            101 2024-04-17           1350.59 paid
+       5002            102 2024-02-05           1763.84 paid
+       5003            113 2024-02-17           1080.15 paid
+       5004            102 2024-05-11            594.67 paid
+       5004            102 2024-05-11            594.67 paid
+       5005            106 2024-06-13           2369.08 pending
+       5006            110 2024-03-30            1722.4 paid
+selected 9 repeated order_id values
+--- frame
+ dedupe (80 rows): orders_raw.csv  csv · sheets 2                       order_id 1/5  row 1/80 · 1%
+ order_id i  customer_id i order_date date   amount f status str
+       5001            101 2024-04-17         1350.59 paid
+       5002            102 2024-02-05         1763.84 paid
+       5003            113 2024-02-17         1080.15 paid
+       5004            102 2024-05-11          594.67 paid
+       5005            106 2024-06-13         2369.08 pending
+       5006            110 2024-03-30          1722.4 paid
+       5007            104 2024-01-02         2024.64 refunded
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

@@ -1,0 +1,34 @@
+ts	level	service	msg	latency_ms
+2024-06-03T09:40:31	ERROR	billing	card declined: gateway timeout	377
+2024-06-03T10:18:08	ERROR	billing	card declined: gateway timeout	376
+2024-06-03T10:19:59	ERROR	billing	upstream 503	361
+2024-06-03T11:59:53	ERROR	billing	card declined: gateway timeout	361
+2024-06-03T09:01:03	ERROR	billing	card declined: gateway timeout	350
+2024-06-03T11:00:04	ERROR	billing	card declined: gateway timeout	333
+2024-06-03T11:56:48	ERROR	billing	card declined: gateway timeout	330
+2024-06-03T08:17:53	ERROR	billing	card declined: gateway timeout	296
+2024-06-03T11:50:01	ERROR	api	upstream 503	292
+2024-06-03T10:24:18	ERROR	search	upstream 503	286
+2024-06-03T10:21:50	ERROR	billing	card declined: gateway timeout	281
+2024-06-03T09:12:09	ERROR	billing	card declined: gateway timeout	279
+2024-06-03T11:37:41	ERROR	billing	card declined: gateway timeout	265
+2024-06-03T09:14:00	ERROR	billing	card declined: gateway timeout	262
+2024-06-03T08:20:58	ERROR	billing	upstream 503	245
+2024-06-03T10:57:36	ERROR	billing	card declined: gateway timeout	243
+2024-06-03T08:30:50	ERROR	search	upstream 503	208
+2024-06-03T11:09:19	ERROR	billing	card declined: gateway timeout	203
+2024-06-03T10:47:07	ERROR	billing	card declined: gateway timeout	169
+2024-06-03T11:40:09	ERROR	billing	card declined: gateway timeout	166
+2024-06-03T12:06:03	ERROR	billing	card declined: gateway timeout	166
+2024-06-03T10:51:26	ERROR	api	upstream 503	137
+2024-06-03T09:39:54	ERROR	billing	card declined: gateway timeout	135
+2024-06-03T11:08:05	ERROR	billing	card declined: gateway timeout	128
+2024-06-03T11:08:42	ERROR	billing	card declined: gateway timeout	106
+2024-06-03T11:35:13	ERROR	billing	card declined: gateway timeout	103
+2024-06-03T09:33:44	ERROR	billing	card declined: gateway timeout	81
+2024-06-03T08:41:56	ERROR	billing	card declined: gateway timeout	76
+2024-06-03T11:01:55	ERROR	api	upstream 503	70
+2024-06-03T12:02:58	ERROR	billing	upstream 503	70
+2024-06-03T08:27:45	ERROR	search	upstream 503	32
+2024-06-03T08:32:41	ERROR	billing	card declined: gateway timeout	31
+2024-06-03T08:12:57	ERROR	billing	card declined: gateway timeout	21

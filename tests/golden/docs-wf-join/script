@@ -1,0 +1,7 @@
+# Orders carry a <code>customer_id</code> only.
+# Look up each customer's name, segment and country.
+:
+> join {fixtures}/customers.csv customer_id left
+# Revenue per segment and status.
+:
+> pivot segment status amount sum

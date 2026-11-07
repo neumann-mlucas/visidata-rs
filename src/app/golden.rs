@@ -10,9 +10,16 @@
 //! The sheet opens `input.csv`/`input.jsonl`. `UPDATE_GOLDEN=1` rewrites the
 //! expected files; read the diff before committing it.
 //!
-//! `docs-*` cases open `docs/fixtures/sales.csv` on a 100x8 screen; each one
-//! renders, as HTML, the `<pre>` between `<!-- golden:<case> -->` and
-//! `<!-- /golden -->` in `docs/index.html`, so the guide shows real screens.
+//! `docs-*` cases open a file from `docs/fixtures` (named in `open`, default
+//! `sales.csv`) on a 100x10 screen, as `vdrs <file>` run in that folder;
+//! `{fixtures}/` in a script is that folder. Each case renders, as HTML, the
+//! block between `<!-- golden:<case> -->` and `<!-- /golden -->` in
+//! `docs/index.html`, so the guide shows real screens. A script with
+//! `# caption` lines is a recording: one frame per caption, showing the screen
+//! after that step's lines, with the keys they type. `expected.screen` then
+//! holds every frame, split by `--- frame` lines; `tests/pty.rs` types each
+//! step into the real binary and waits for its frame, so a step may start at
+//! most one background job (sort, freq, join…), as its last key.
 //!
 //! Each case's exported scripts then run through DuckDB and Polars
 //! (`VDRS_PYTHON` = an interpreter with polars) and must print the same table.
@@ -36,10 +43,23 @@ fn is_docs(dir: &Path) -> bool {
         .starts_with("docs-")
 }
 
-async fn play(dir: &Path) -> Harness {
+/// Docs screens: what `tests/pty.rs` gives the real binary.
+pub const DOCS_SIZE: (u16, u16) = (100, 10);
+const FIXTURES: &str = "docs/fixtures";
+
+/// One recorded step: caption, the keys typed (HTML), the screen after.
+struct Frame {
+    caption: String,
+    keys: String,
+    screen: String,
+    text: String,
+}
+
+async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
     let docs = is_docs(dir);
     let input = if docs {
-        PathBuf::from("docs/fixtures/sales.csv")
+        let name = std::fs::read_to_string(dir.join("open")).unwrap_or("sales.csv".into());
+        PathBuf::from(FIXTURES).join(name.trim())
     } else {
         ["input.csv", "input.jsonl"]
             .iter()
@@ -50,17 +70,36 @@ async fn play(dir: &Path) -> Harness {
     let mut loaded = crate::reader::open(input.as_os_str(), None).unwrap();
     if docs {
         // as if run from docs/fixtures: `vdrs sales.csv`
-        loaded.display_name = "sales.csv".into();
+        loaded.display_name = input.file_name().unwrap().to_string_lossy().into();
     }
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let mut h = Harness::with_source(loaded, tmp).await;
     if docs {
-        h.term.backend_mut().resize(100, 8);
+        h.term.backend_mut().resize(DOCS_SIZE.0, DOCS_SIZE.1);
         h.pump().await;
     }
+    let mut frames: Vec<Frame> = Vec::new();
     let script = std::fs::read_to_string(dir.join("script")).unwrap_or_default();
     for line in script.lines() {
-        let line = line.replace("{dir}", &dir.display().to_string());
+        if let Some(caption) = line.strip_prefix("# ") {
+            if let Some(f) = frames.last_mut() {
+                (f.screen, f.text) = (screen_html(&h), h.screen());
+            }
+            frames.push(Frame {
+                caption: caption.to_string(), // authored HTML
+                keys: String::new(),
+                screen: String::new(),
+                text: String::new(),
+            });
+            continue;
+        }
+        if let Some(f) = frames.last_mut() {
+            let shown = line.replace("{fixtures}/", "");
+            f.keys.push_str(&keys_html(&shown));
+        }
+        let line = line
+            .replace("{dir}", &dir.display().to_string())
+            .replace("{fixtures}/", &format!("{FIXTURES}/"));
         if let Some(text) = line.strip_prefix(">> ") {
             h.type_no_enter(text).await;
         } else if let Some(text) = line.strip_prefix("> ") {
@@ -69,7 +108,51 @@ async fn play(dir: &Path) -> Harness {
             h.keys(&line).await;
         }
     }
-    h
+    if let Some(f) = frames.last_mut() {
+        (f.screen, f.text) = (screen_html(&h), h.screen());
+    }
+    (h, frames)
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// A script line as the reader types it: `<kbd>` keys, `<code>` prompt text.
+fn keys_html(line: &str) -> String {
+    let enter = "<kbd>Enter</kbd>";
+    if let Some(text) = line.strip_prefix(">> ") {
+        return format!("<code>{}</code> ", esc(text));
+    }
+    if let Some(text) = line.strip_prefix("> ") {
+        return format!("<code>{}</code> {enter} ", esc(text));
+    }
+    line.split_whitespace()
+        .map(|k| match k {
+            "<CR>" => enter.to_string(),
+            "<Esc>" => "<kbd>Esc</kbd>".into(),
+            k => format!("<kbd>{}</kbd>", esc(k)),
+        })
+        .map(|k| k + " ")
+        .collect()
+}
+
+/// A recording: every frame stays in the page (readable without JS); the
+/// guide's script turns it into a step player.
+fn recording_html(frames: &[Frame]) -> String {
+    let mut out = String::from("<figure class=\"rec\">\n<ol>\n");
+    for (i, f) in frames.iter().enumerate() {
+        out.push_str(&format!(
+            "<li><p class=\"cap\"><span class=\"no\">{}</span><span>{}</span><span class=\"keys\">{}</span></p>\n{}</li>\n",
+            i + 1,
+            f.caption,
+            f.keys.trim_end(),
+            f.screen
+        ));
+    }
+    out + "</ol>\n</figure>"
 }
 
 /// Compare `got` with the file, or rewrite it under `UPDATE_GOLDEN`.
@@ -115,10 +198,7 @@ fn screen_html(h: &Harness) -> String {
             }
             let css = css.join(";");
             let sym = cell.symbol();
-            let text = sym
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
+            let text = esc(sym);
             match runs.last_mut() {
                 Some((c, t)) if *c == css => t.push_str(&text),
                 _ => runs.push((css, text)),
@@ -281,18 +361,25 @@ async fn golden_cases() {
     let mut fails = Vec::new();
     let mut html = std::collections::BTreeMap::new();
     for dir in &cases {
-        let mut h = play(dir).await;
+        let (mut h, frames) = play(dir).await;
         if is_docs(dir) {
             let name = dir.file_name().unwrap().to_string_lossy().into_owned();
-            html.insert(name, screen_html(&h));
+            let block = if frames.is_empty() {
+                screen_html(&h)
+            } else {
+                recording_html(&frames)
+            };
+            html.insert(name, block);
         }
         let tsv = csv_text(h.app.sheets.active(), b'\t');
         check(dir.join("expected.tsv"), &tsv, &mut fails);
-        check(
-            dir.join("expected.screen"),
-            &(h.screen() + "\n"),
-            &mut fails,
-        );
+        let screens = if frames.is_empty() {
+            h.screen()
+        } else {
+            let texts: Vec<_> = frames.iter().map(|f| f.text.as_str()).collect();
+            texts.join("\n--- frame\n")
+        };
+        check(dir.join("expected.screen"), &(screens + "\n"), &mut fails);
         if !dir.join("no-export").exists() {
             let csv = csv_text(h.app.sheets.active(), b',');
             roundtrip(&h, dir, &csv, &mut fails);

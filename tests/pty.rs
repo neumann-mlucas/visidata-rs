@@ -1,6 +1,6 @@
 //! The real binary on a pseudo-terminal must draw what the in-process golden
 //! harness draws: each `tests/golden/docs-*` script is typed into `vdrs
-//! sales.csv` (100x8) and the vt100-parsed screen must reach
+//! <fixture>` (100x10) and the vt100-parsed screen must reach
 //! `expected.screen`, the colors included at the cursor cell.
 
 use std::io::{Read, Write};
@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
-const ROWS: u16 = 8;
+const ROWS: u16 = 10;
 const COLS: u16 = 100;
 
 struct Vdrs {
@@ -63,7 +63,13 @@ impl Vdrs {
         };
         // Keys before the columns are known have nothing to move over.
         let start = Instant::now();
-        while !vd.text().contains("row 1/300") {
+        // counted: "row 1/<digits>"
+        let counted = |t: &str| {
+            t.split("row 1/")
+                .nth(1)
+                .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+        };
+        while !counted(&vd.text()) {
             assert!(start.elapsed() < Duration::from_secs(20), "never loaded");
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -106,11 +112,22 @@ impl Drop for Vdrs {
     }
 }
 
-/// A golden script as typed bytes: `>> text` as is, `> text` plus Enter, other
-/// lines are space-separated keys (one character, `<CR>` or `<Esc>`).
-fn keys(script: &str) -> Vec<u8> {
-    let mut out = String::new();
+/// A golden script as typed bytes, one chunk per recorded frame (the whole
+/// script when it has no `# caption`): `>> text` as is, `> text` plus Enter,
+/// other lines space-separated keys (one character, `<CR>` or `<Esc>`).
+fn steps(script: &str) -> Vec<Vec<u8>> {
+    let mut steps = vec![String::new()];
+    let mut captions = 0;
     for line in script.lines() {
+        let line = line.replace("{fixtures}/", "");
+        if line.starts_with("# ") {
+            captions += 1;
+            if captions > 1 {
+                steps.push(String::new()); // lines before the first: setup
+            }
+            continue;
+        }
+        let out = steps.last_mut().unwrap();
         if let Some(text) = line.strip_prefix(">> ") {
             out.push_str(text);
         } else if let Some(text) = line.strip_prefix("> ") {
@@ -127,7 +144,7 @@ fn keys(script: &str) -> Vec<u8> {
             }
         }
     }
-    out.into_bytes()
+    steps.into_iter().map(String::into_bytes).collect()
 }
 
 #[test]
@@ -146,13 +163,25 @@ fn real_binary_draws_the_golden_screens() {
     cases.sort();
     assert!(!cases.is_empty());
     for dir in cases {
-        let want = std::fs::read_to_string(dir.join("expected.screen")).unwrap();
-        let want = want.trim_end_matches('\n');
-        let mut vd = Vdrs::open("sales.csv");
+        let screens = std::fs::read_to_string(dir.join("expected.screen")).unwrap();
+        let frames: Vec<&str> = screens
+            .trim_end_matches('\n')
+            .split("\n--- frame\n")
+            .collect();
+        let open = std::fs::read_to_string(dir.join("open")).unwrap_or("sales.csv".into());
+        let mut vd = Vdrs::open(open.trim());
         let script = std::fs::read_to_string(dir.join("script")).unwrap();
-        vd.send(&keys(&script));
-        if let Err(got) = vd.wait_for(want) {
-            panic!("{}\n--- want\n{want}\n--- got\n{got}", dir.display());
+        let steps = steps(&script);
+        assert_eq!(steps.len(), frames.len(), "{}", dir.display());
+        for (i, (keys, want)) in steps.iter().zip(&frames).enumerate() {
+            vd.send(keys);
+            if let Err(got) = vd.wait_for(want) {
+                panic!(
+                    "{} frame {}\n--- want\n{want}\n--- got\n{got}",
+                    dir.display(),
+                    i + 1
+                );
+            }
         }
         // the header row's cursor cell carries the theme's cursor colors
         let p = vd.screen.lock().unwrap();

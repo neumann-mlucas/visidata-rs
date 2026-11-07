@@ -1,8 +1,0 @@
- freq(region): sales.csv  csv · sheets 2                                  region 1/4  row 1/4 · 25%
-region str   count u  percent f histogram str
-north            116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-south             72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
-east              66       22.0 ■■■■■■■■■■■■■■■■■■■■■
-west              46      15.33 ■■■■■■■■■■■■■■■
-
- hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

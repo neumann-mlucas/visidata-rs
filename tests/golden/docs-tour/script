@@ -1,0 +1,10 @@
+# Open the file. Types come from the data: <code>i</code> integer, <code>date</code>, <code>str</code>, <code>f</code> float.
+# Move to <code>region</code> and open its frequency table.
+l l F
+# Dive into the <code>north</code> rows.
+<CR>
+# Go back two sheets and sort by <code>price</code>, most expensive first.
+q q l l ]
+# Add a computed column.
+:
+> derive total = qty * price

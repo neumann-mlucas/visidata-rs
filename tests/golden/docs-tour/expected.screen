@@ -1,0 +1,54 @@
+ sales.csv  csv                                                              id 1/5  row 1/300 · 0%
+ id i date date  region str   qty i  price f
+33352 2024-10-05 south            3  1176.47
+38834 2024-12-28 south            4   405.75
+23982 2024-06-06 east             5   882.27
+24036 2024-04-22 north            5   198.31
+26692 2024-06-24 north            1   137.04
+33137 2024-12-29 south            2  1149.49
+ 3146 2024-02-17 north            2  1239.61
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ freq(region): sales.csv  csv · sheets 2                                  region 1/4  row 1/4 · 25%
+region str   count u  percent f histogram str
+north            116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+south             72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
+east              66       22.0 ■■■■■■■■■■■■■■■■■■■■■
+west              46      15.33 ■■■■■■■■■■■■■■■
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ region=north: sales.csv  csv · sheets 3                                     id 1/5  row 1/116 · 0%
+ id i date date  region str   qty i  price f
+24036 2024-04-22 north            5   198.31
+26692 2024-06-24 north            1   137.04
+ 3146 2024-02-17 north            2  1239.61
+12361 2024-04-06 north            3   321.77
+16275 2024-03-29 north            2   993.99
+ 2059 2024-12-28 north            4   322.74
+18666 2024-09-04 north            5  1260.37
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ sales.csv  csv · sort price▼                                             price 5/5  row 1/300 · 0%
+ id i date date  region str   qty i  price ▼
+ 3477 2024-01-16 south            1  1299.72
+ 5119 2024-12-25 north            4   1296.7
+ 9373 2024-02-08 north            1  1294.58
+15814 2024-06-23 west             4  1293.02
+ 6440 2024-06-18 north            1  1285.12
+33826 2024-04-05 east             2  1284.71
+19436 2024-07-19 south            5  1273.52
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
+--- frame
+ sales.csv  csv · sort price▼                                             price 5/6  row 1/300 · 0%
+ id i date date  region str   qty i  price ▼  total f
+ 3477 2024-01-16 south            1  1299.72  1299.72
+ 5119 2024-12-25 north            4   1296.7   5186.8
+ 9373 2024-02-08 north            1  1294.58  1294.58
+15814 2024-06-23 west             4  1293.02  5172.08
+ 6440 2024-06-18 north            1  1285.12  1285.12
+33826 2024-04-05 east             2  1284.71  2569.42
+19436 2024-07-19 south            5  1273.52   6367.6
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

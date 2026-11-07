@@ -1,0 +1,26 @@
+customer_id,name,segment,country
+101,Acme Corp,SMB,BR
+102,Globex,SMB,JP
+103,Initech,SMB,US
+104,Umbrella,Enterprise,BR
+105,Hooli,Enterprise,DE
+106,Vandelay Imports,SMB,US
+107,Stark Retail,Enterprise,UK
+108,Wayne Supply,SMB,DE
+109,Soylent Foods,Enterprise,US
+110,Tyrell Labs,SMB,US
+111,Cyberdyne,SMB,BR
+112,Wonka Treats,Enterprise,JP
+113,Gringotts,SMB,UK
+114,Oscorp,SMB,DE
+115,Monarch Paper,SMB,US
+116,Dunder Supply,Consumer,US
+117,Pied Piper,Enterprise,US
+118,Aperture,SMB,US
+119,Black Mesa,Enterprise,DE
+120,Nakatomi,SMB,US
+121,Duff Brewing,SMB,BR
+122,Krusty Co,Enterprise,FR
+123,Bluth Homes,SMB,US
+124,Prestige Ww,Enterprise,US
+125,Sterling Coop,SMB,US

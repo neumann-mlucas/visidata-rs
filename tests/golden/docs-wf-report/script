@@ -1,0 +1,14 @@
+# Add a <code>revenue</code> column.
+:
+> derive revenue = qty * price
+# Add the month of each sale.
+:
+> derive month = strftime(date, '%Y-%m')
+# One row per month, one column per region, revenue summed.
+:
+> pivot month region revenue sum
+# Sort the months.
+[
+# Back to the rows: rank regions with SQL.
+q :
+> sql SELECT region, count(*) AS sales, round(sum(revenue), 2) AS revenue FROM self GROUP BY region ORDER BY revenue DESC

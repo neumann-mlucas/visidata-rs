@@ -1,0 +1,8 @@
+# This week's price list.
+# Compare with last week's, matching rows by <code>sku</code>.
+:
+> diff {fixtures}/prices_v1.csv sku
+# Jump to the last column, <code>__diff</code>, and count each kind of change.
+$ F
+# New products: rows only in this week's file.
+j <CR>

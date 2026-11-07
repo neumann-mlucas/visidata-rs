@@ -1,0 +1,4 @@
+sku	product	price	stock	product_right	price_right	stock_right	__diff
+SKU-1041	Standing desk A	449.0	10				only_a
+SKU-1042	Standing desk B	499.0	20				only_a
+SKU-1043	Standing desk C	549.0	30				only_a

@@ -1,0 +1,9 @@
+# A JSON Lines log: one event per line.
+# How many events per <code>level</code>?
+l F
+# Open just the errors.
+j j <CR>
+# Which <code>service</code> do they come from?
+l l F
+# Back to the errors, slowest first.
+q l l ]

@@ -1,0 +1,14 @@
+# A raw export: dates like <code>4/17/2024</code> and amounts like <code>$1,350.59</code> are just text.
+# Read <code>order_date</code> as a date (month first).
+l l @
+# Strip the currency formatting from <code>amount</code>: it becomes a float.
+l
+:
+> type currency
+# Some orders were exported twice. Select the repeats.
+h h h
+:
+> select-col-duplicates
+# Open a sheet with one row per order.
+:
+> dedupe-rows

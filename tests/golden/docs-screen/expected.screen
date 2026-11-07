@@ -1,5 +1,7 @@
  sales.csv  csv                                                         region 3/5  row 12/300 · 4%
  id i date date  region str   qty i  price f
+33137 2024-12-29 south            2  1149.49
+ 3146 2024-02-17 north            2  1239.61
 16569 2024-06-24 south            5  1078.93
 12361 2024-04-06 north            3   321.77
  4658 2024-06-01 east             2   516.67
