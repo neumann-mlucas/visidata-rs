@@ -80,6 +80,8 @@ fn a_closed_stdout_is_not_an_error() {
     std::fs::write(f.path(), "a\n1\n").unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_vdrs"))
         .args([f.path().to_str().unwrap(), "--headless"])
+        .env("XDG_CONFIG_HOME", f.path().with_extension("cfg"))
+        .env("XDG_STATE_HOME", f.path().with_extension("state"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

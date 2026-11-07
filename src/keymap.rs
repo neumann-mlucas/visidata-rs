@@ -36,6 +36,22 @@ pub struct Keymap {
 }
 
 impl Keymap {
+    /// A layer's chords, in declaration order (later ones shadow earlier).
+    pub fn chords(&self, layer: Layer) -> &[Chord] {
+        match layer {
+            Layer::Sheet => &self.sheet,
+            Layer::Input => &self.input,
+        }
+    }
+
+    /// No bindings at all.
+    pub fn empty() -> Self {
+        Keymap {
+            sheet: Vec::new(),
+            input: Vec::new(),
+        }
+    }
+
     /// Append a chord to a layer. Plugins call this via `vd.bind`; last-declaration-wins
     /// resolution means the appended chord shadows an identical default.
     pub fn append(&mut self, layer: Layer, chord: Chord) {

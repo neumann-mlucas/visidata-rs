@@ -218,6 +218,8 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td><kbd>|</kbd> then a regex</td><td>Add rows whose current column matches.</td></tr>
 <tr><td><kbd>,</kbd></td><td>Add rows whose current column equals the value under the cursor.</td></tr>
 <tr><td><kbd>"</kbd></td><td>Open a new sheet with just the selected rows.</td></tr>
+<tr><td><code>:select-col-duplicates</code></td><td>Add rows whose current column repeats a value from a row above.</td></tr>
+<tr><td><code>:dedupe-rows</code></td><td>Open a new sheet keeping the first row of each key (of each distinct row when there are no key columns).</td></tr>
 </table></div>
 <p>Selections stick to rows, not positions: sorting or filtering keeps the same rows selected.</p>
 
@@ -225,12 +227,12 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <p>Many commands open a new <em>sheet</em> on top of the current one. <kbd>q</kbd> closes the top sheet (and quits on the last one); <kbd>S</kbd> lists open sheets (<kbd>Enter</kbd> jumps to one). New sheets are built from what you see: the current filter, sort, types and visible columns.</p>
 <div class="scroll"><table>
 <tr><th>Keys / command</th><th>Opens</th></tr>
-<tr><td><kbd>F</kbd></td><td>Frequency table of the current column: each value with <code>count</code> and <code>percent</code>, most common first. On it, <kbd>Enter</kbd> opens the original rows with that value; select several values and press <kbd>g</kbd><kbd>Enter</kbd> to open the rows of all of them.</td></tr>
+<tr><td><kbd>F</kbd></td><td>Frequency table of the current column: each value with <code>count</code>, <code>percent</code> and a <code>histogram</code> bar, most common first. On it, <kbd>Enter</kbd> opens the original rows with that value; select several values and press <kbd>g</kbd><kbd>Enter</kbd> to open the rows of all of them.</td></tr>
 <tr><td><kbd>I</kbd></td><td>Describe: one row per column with type, count, nulls, distinct, min, max, mean, median.</td></tr>
 <tr><td><kbd>W</kbd></td><td>Pivot: one row per key-column combination, one column per value of the current column, counts in the cells. With no key columns: a single row of counts.</td></tr>
 <tr><td><code>:pivot index on values [agg]</code></td><td>Pivot with an aggregate: <code>sum</code> (default), <code>mean</code>, <code>count</code>, <code>min</code>, <code>max</code>, <code>first</code>, <code>last</code>, or a <a href="#lua-agg">Lua aggregator</a>. While you type it, a panel on the right says which argument comes next, lists the columns, and then previews the pivot of the first 10,000 rows; Enter pivots everything.</td></tr>
 <tr><td><code>:unpivot a,b -- id</code></td><td>Long format: columns <code>a</code>, <code>b</code> become <code>variable</code>/<code>value</code> rows, keeping <code>id</code>.</td></tr>
-<tr><td><code>:join other.csv id [type]</code></td><td>Join with a file, an open sheet's name, or <code>#2</code> (sheet id from <kbd>S</kbd>) on columns with the same name. Types: <code>inner</code> (default), <code>left</code>, <code>full</code>, <code>merge</code> (full join; the other side's non-empty values win), <code>append</code> (stack rows, union of columns, with an <code>origin_sheet</code> column; needs no key).</td></tr>
+<tr><td><code>:join other.csv id [type]</code></td><td>Join with a file, an open sheet's name, or <code>#2</code> (sheet id from <kbd>S</kbd>) on columns with the same name. Types: <code>inner</code> (default), <code>left</code>, <code>full</code>, <code>merge</code> (full join; the other side's non-empty values win), <code>append</code> (stack rows, columns matched by name), <code>concat</code> (stack rows, columns matched by position, named after the current sheet's). Both need no key and add a hidden <code>origin_sheet</code> column naming each row's sheet; <kbd>g</kbd><kbd>-</kbd> shows it.</td></tr>
 <tr><td><kbd>D</kbd> or <code>:diff file [keys]</code></td><td>Compare with another file. With key columns (<kbd>D</kbd> uses yours): the rows that differ, tagged <code>only_a</code>, <code>only_b</code> or <code>changed</code>. Without keys: a column-by-column schema comparison.</td></tr>
 <tr><td><code>:sql SELECT … FROM self</code></td><td>Run SQL (Polars SQL) on the current sheet, called <code>self</code>. Other open sheets are <code>s0</code>, <code>s1</code>, … (ids from <kbd>S</kbd>).</td></tr>
 <tr><td><kbd>g</kbd><kbd>"</kbd> or <code>:dup</code></td><td>A copy of the current sheet.</td></tr>
@@ -270,7 +272,7 @@ print(t3.collect())</code></pre>
 <p><kbd>P</kbd> opens a side panel with the Polars query behind the current window; press again for the optimized plan, a third time to close. Useful to see what a filter or join actually does.</p>
 
 <h2 id="prompt">Prompt editing</h2>
-<p>All prompts (<kbd>/</kbd>, <kbd>:</kbd>, filters, rename, diff) support: <kbd>←</kbd> <kbd>→</kbd>, <kbd>Home</kbd>/<kbd>Ctrl-a</kbd>, <kbd>End</kbd>/<kbd>Ctrl-e</kbd>, <kbd>Backspace</kbd>, <kbd>Del</kbd>, <kbd>Ctrl-u</kbd> (delete to start), <kbd>Ctrl-w</kbd> (delete previous word). <kbd>Enter</kbd> runs, <kbd>Esc</kbd> cancels. In the <kbd>:</kbd> prompt, <kbd>↑</kbd>/<kbd>↓</kbd> walk the command history (kept in <code>$XDG_STATE_HOME/vdrs/exline_history</code>).</p>
+<p>All prompts (<kbd>/</kbd>, <kbd>:</kbd>, filters, rename, diff) support: <kbd>←</kbd> <kbd>→</kbd>, <kbd>Home</kbd>/<kbd>Ctrl-a</kbd>, <kbd>End</kbd>/<kbd>Ctrl-e</kbd>, <kbd>Backspace</kbd>, <kbd>Del</kbd>, <kbd>Ctrl-u</kbd> (delete to start), <kbd>Ctrl-w</kbd> (delete previous word). <kbd>Enter</kbd> runs, <kbd>Esc</kbd> cancels. In the <kbd>:</kbd> prompt, <kbd>↑</kbd>/<kbd>↓</kbd> walk the command history (kept in <code>$XDG_STATE_HOME/vdrs/exline_history</code>), and <kbd>Tab</kbd> completes the command name: one match is filled in, several are listed after the prompt and filled in up to where they differ.</p>
 <p>Arguments are split on spaces; use quotes (<code>"a b"</code> or <code>'a b'</code>) or a backslash for spaces inside one argument.</p>
 
 <h2 id="ex">Ex commands</h2>
@@ -301,7 +303,10 @@ print(t3.collect())</code></pre>
 <tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
 <tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view.</td></tr>
 <tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>
+<tr data-ex="42"><td><code>:42</code></td><td>Go to row 42.</td></tr>
+<tr data-ex="select-all"><td><code>:select-all</code>, <code>:dedupe-rows</code>, …</td><td>Any action name (see <a href="#lua">vd.bind</a>), with <code>-</code> or <code>_</code>; no arguments.</td></tr>
 </table></div>
+<p>Commands defined in <code>init.lua</code> with <a href="#lua-command"><code>vd.command</code></a> run the same way.</p>
 
 <h2 id="keys">All keys</h2>
 <p><input id="keyfilter" type="search" placeholder="Filter keys…" aria-label="Filter the key table"></p>
@@ -369,7 +374,7 @@ print(t3.collect())</code></pre>
 </table></div>
 
 <h2 id="lua">Lua configuration</h2>
-<p>vdrs runs <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (usually <code>~/.config/vdrs/init.lua</code>) at startup. It is optional. Saving the file while vdrs runs reloads it within about two seconds. If it has an error, everything registered before the error still applies and the error is shown in the status line.</p>
+<p>vdrs runs <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (usually <code>~/.config/vdrs/init.lua</code>) at startup. The first time the TUI starts without one, vdrs writes it with every default binding listed but commented out: uncomment a line to change it. Defaults you leave commented keep following new releases. Saving the file while vdrs runs reloads it within about two seconds. If it has an error, everything registered before the error still applies and the error is shown in the status line.</p>
 <pre><code>-- ~/.config/vdrs/init.lua
 vd.set_theme("light")                               -- "dark" (default) or "light"
 
@@ -398,10 +403,14 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 
 <h3>vd.bind(layer, keys, action, description?)</h3>
 <p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, an ex command starting with <code>:</code>, or a Lua function to run when the keys are pressed. An unknown action or invalid command is an error at load time; an error inside a function is shown in the status line.</p>
-<p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>quit</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
+<p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>quit</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>select_col_duplicates</code> <code>dedupe_rows</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
 
 <h3>vd.unbind(layer, keys)</h3>
 <p>Makes a key do nothing.</p>
+
+<h3 id="lua-command">vd.command(name, fn)</h3>
+<p>Adds the ex command <code>:name</code>. <code>fn</code> gets the text after the name (<code>""</code> without any) and can use <code>vd.sheet()</code>, <code>vd.toast</code> and <code>vd.push_sheet</code>. Names use <code>a-z</code>, <code>0-9</code>, <code>-</code> and <code>_</code>, and can't be a built-in command or action name. <kbd>Tab</kbd> completes them; <code>vd.bind(…, ":name args")</code> binds one to a key once it is defined.</p>
+<pre><code>vd.command("hello", function(args) vd.toast("hello " .. args) end)  -- :hello world</code></pre>
 
 <h3 id="lua-loader">vd.register_loader { name?, extensions, open }</h3>
 <p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads natively (CSV, TSV, Parquet, Arrow, JSON Lines) and returns the path of the result. Used when opening files from the command line and by <code>:diff</code> and <code>:join</code>.</p>
@@ -441,7 +450,7 @@ end, "list columns")</code></pre>
 <p>A row with more values than <code>columns</code>, a duplicate column name, or a table or function as a value is an error shown in the status line. These sheets can't be exported with <code>:export</code>.</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
-<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>.</p>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>, 4 adds <code>vd.command</code>.</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>

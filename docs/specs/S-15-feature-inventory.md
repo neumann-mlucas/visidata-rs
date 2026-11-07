@@ -152,6 +152,21 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Readers | — | ISO-only CSV/TSV date inference (others stay text); lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
 | Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized |
 
+### 3.11 Added 2026-11-07
+
+| Surface | Semantics |
+|---|---|
+| freq `histogram` column | `■` × (count·38 // max count), after `percent`; exported to `.py` / `.sql` |
+| `:join <src> concat` | rows stacked, columns paired by position, current sheet's names |
+| hidden `origin_sheet` | `append` / `concat` add it at width 0 like VisiData (#2929); `g-` shows it |
+| `dedupe_rows` (`:dedupe-rows`) | new sheet: first row per key (per distinct row with no keys), view order; exports as row ids |
+| `select_col_duplicates` (`:select-col-duplicates`) | select rows whose current-column value occurred above |
+| `:<action-name>` | every `Action::NAMED` entry, kebab or snake case, no arguments |
+| `:N` | go to row N |
+| `<Tab>` in `:` | completes the command word (built-ins, actions, `vd.command`s) |
+| `vd.command(name, fn)` | Lua ex command; `fn(args)`; api_version 4 |
+| first-run `init.lua` | written at TUI start when missing: every default commented out (`plugins::default_init_lua`) |
+
 ## 4. Keymap
 
 Entry: `src/keymap.rs`. Model: linear vec of `Chord { on: Vec<Key>, run: Vec<Action>, desc: &'static str }` per `Layer` (`Sheet`, `Input`). Resolution: first-match; incomplete prefix → `Dispatch::Pending(vec)` which status bar echoes as the which-key hint.

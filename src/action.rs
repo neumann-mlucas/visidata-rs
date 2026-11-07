@@ -356,6 +356,18 @@ impl Action {
 mod tests {
     use super::*;
 
+    /// The guide's vd.bind section lists every action name.
+    #[test]
+    fn user_guide_lists_every_action_name() {
+        let html = include_str!("../docs/index.html");
+        for (name, _) in Action::NAMED {
+            assert!(
+                html.contains(&format!("<code>{name}</code>")),
+                "docs/index.html misses {name}"
+            );
+        }
+    }
+
     #[test]
     fn repeatable_excludes_quit() {
         assert!(!Action::Quit.repeatable());

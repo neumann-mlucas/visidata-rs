@@ -825,6 +825,109 @@ fn parse_keys(v: LuaValue) -> mlua::Result<Vec<Key>> {
         .map_err(|e| mlua::Error::RuntimeError(format!("bad key: {e}")))
 }
 
+/// First TUI start: write [`default_init_lua`] where `init.lua` goes, unless
+/// a file is there. A failed write (read-only home) is not worth a warning.
+pub fn ensure_default_config() {
+    if let Some(p) = default_config_path() {
+        let _ = write_default_config(&p);
+    }
+}
+
+/// Create `path` holding [`default_init_lua`]; never replaces a file.
+fn write_default_config(path: &Path) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    f.write_all(default_init_lua().as_bytes())
+}
+
+/// The `init.lua` written on first run: every default, commented out, so a
+/// later release's defaults still apply until a line is uncommented.
+pub fn default_init_lua() -> String {
+    let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    let mut out = format!(
+        "-- vdrs config: loaded at startup, reloaded when saved.\n\
+         -- vdrs wrote this file because there was none. Every line below is a\n\
+         -- default, commented out: uncomment and edit one to change it. Deleting\n\
+         -- the file is safe; the next start writes a fresh one.\n\
+         -- Lua API version {API_VERSION}. Guide: https://neumann-mlucas.github.io/visidata-rs/\n\
+         \n\
+         -- Theme: \"dark\" or \"light\".\n\
+         -- vd.set_theme(\"dark\")\n\
+         \n\
+         -- Keys: vd.bind(layer, keys, action, description?)\n\
+         --   keys: \"x\", or {{\"g\", \"g\"}} for a sequence; <C-d>, <CR>, <Esc>, <Tab>, …\n\
+         --   action: a name below, \":ex command\", or a Lua function.\n\
+         -- vd.unbind(layer, keys) removes a binding.\n"
+    );
+    let keymap = crate::keymap::Keymap::defaults();
+    for (layer, title) in [(Layer::Sheet, "sheet"), (Layer::Input, "input")] {
+        out += &format!("\n-- {title} layer\n");
+        for chord in keymap.chords(layer) {
+            let keys: Vec<String> = chord.on.iter().map(|k| quote(&k.to_string())).collect();
+            let keys = match keys.as_slice() {
+                [one] => one.clone(),
+                many => format!("{{{}}}", many.join(", ")),
+            };
+            let name = match chord.run.as_slice() {
+                [a] => Action::NAMED.iter().find(|(_, n)| n == a).map(|(n, _)| *n),
+                _ => None,
+            };
+            out += &match name {
+                Some(n) => format!(
+                    "-- vd.bind(\"{title}\", {keys}, \"{n}\")  -- {}\n",
+                    chord.desc
+                ),
+                None => format!("-- {keys}: {} (built in)\n", chord.desc),
+            };
+        }
+    }
+    let unbound: Vec<&str> = Action::NAMED
+        .iter()
+        .filter(|(_, a)| {
+            !keymap
+                .chords(Layer::Sheet)
+                .iter()
+                .chain(keymap.chords(Layer::Input))
+                .any(|c| c.run == [a.clone()])
+        })
+        .map(|(n, _)| *n)
+        .collect();
+    let wrap = |text: String| -> String {
+        let mut lines = vec![String::from("--")];
+        for word in text.split(' ') {
+            if lines.last().unwrap().len() + word.len() > 77 {
+                lines.push(String::from("--"));
+            }
+            let line = lines.last_mut().unwrap();
+            line.push(' ');
+            line.push_str(word);
+        }
+        lines.join("\n") + "\n"
+    };
+    out += "\n";
+    out += &wrap(format!(
+        "Actions without a default key: {}.",
+        unbound.join(", ")
+    ));
+    out += "\n";
+    out += &wrap(format!(
+        "Ex commands (`:`, Tab completes): {}, and every action name above with - for _ (:select-all). Add your own:",
+        crate::exline::COMMANDS.join(" ")
+    ));
+    out += "-- vd.command(\"hello\", function(args) vd.toast(\"hello \" .. args) end)\n\n";
+    out += &wrap(
+        "More (see the guide): vd.register_loader { name, extensions, open }, vd.register_aggregator(name, fn), vd.register_renderer { column, render }, vd.sheet(), vd.toast(msg), vd.push_sheet { name, columns, rows }."
+            .into(),
+    );
+    out
+}
+
 fn default_config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -836,6 +939,58 @@ fn default_config_path() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::keymap::{Dispatch, Keymap, Layer};
+
+    /// The generated `init.lua` loads as is (all comments), and with every
+    /// `vd.bind` line uncommented it binds exactly what the defaults bind.
+    #[test]
+    fn default_init_lua_spells_out_the_defaults() {
+        let text = default_init_lua();
+        if std::env::var_os("VDRS_PRINT_INIT").is_some() {
+            println!("{text}");
+        }
+        let mut km = Keymap::empty();
+        Plugins::load_from_source(&text)
+            .unwrap()
+            .apply_keymap(&mut km);
+        assert!(km.chords(Layer::Sheet).is_empty());
+
+        let live: String = text
+            .lines()
+            .map(|l| {
+                l.strip_prefix("-- ")
+                    .filter(|b| b.starts_with("vd.bind("))
+                    .unwrap_or(l)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut km = Keymap::empty();
+        Plugins::load_from_source(&live)
+            .unwrap()
+            .apply_keymap(&mut km);
+        let defaults = Keymap::defaults();
+        for layer in [Layer::Sheet, Layer::Input] {
+            assert_eq!(km.chords(layer).len(), defaults.chords(layer).len());
+            for c in defaults.chords(layer) {
+                let (last, pending) = c.on.split_last().unwrap();
+                let fired = |k: &Keymap| match k.resolve(layer, pending, *last) {
+                    Dispatch::Fire(a) => Some(a),
+                    _ => None,
+                };
+                assert_eq!(fired(&km), fired(&defaults), "{}", c.desc);
+            }
+        }
+    }
+
+    #[test]
+    fn first_run_writes_init_lua_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vdrs").join("init.lua");
+        write_default_config(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), default_init_lua());
+        std::fs::write(&path, "-- mine").unwrap();
+        assert!(write_default_config(&path).is_err()); // never clobbers
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "-- mine");
+    }
 
     #[test]
     fn bind_registers_a_single_key_chord() {
