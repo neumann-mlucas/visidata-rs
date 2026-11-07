@@ -950,7 +950,7 @@ fn is_text(s: &Sheet, c: &str) -> bool {
 /// rows know them.
 fn csv_columns(s: &Sheet) -> Result<std::sync::Arc<polars::prelude::Schema>, String> {
     match &s.state.tail {
-        Some(cache) => Ok(std::sync::Arc::new(cache.df.schema())),
+        Some(cache) => Ok(cache.df.schema().clone()),
         None => s
             .source
             .lazy

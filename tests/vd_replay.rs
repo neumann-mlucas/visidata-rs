@@ -709,7 +709,7 @@ impl Replay {
                 .then(lit(value))
                 .otherwise(col(col_name).cast(DataType::String))
                 .alias(col_name)])
-            .drop(["__ridx"]);
+            .drop(cols(["__ridx"]));
         Ok(())
     }
 
@@ -739,7 +739,7 @@ impl Replay {
                 .then(lit(value))
                 .otherwise(col(col_name).cast(DataType::String))
                 .alias(col_name)])
-            .drop(["__ridx"]);
+            .drop(cols(["__ridx"]));
         Ok(())
     }
 
@@ -808,7 +808,8 @@ impl Replay {
                 .iter()
                 .map(|val| Series::new(val.as_str().into(), &[counts[val]]).into_column())
                 .collect();
-            let out_df = DataFrame::new(series).map_err(|e| StepErr::Runtime(e.to_string()))?;
+            let out_df =
+                DataFrame::new_infer_height(series).map_err(|e| StepErr::Runtime(e.to_string()))?;
             let id = self.next_id;
             let name = format!("pivot({col_name})-{}", parent_slot.name);
             let sheet = Sheet {
@@ -922,6 +923,8 @@ impl Replay {
                         to_supertypes: true,
                         diagonal: true,
                         from_partitioned_ds: false,
+                        strict: false,
+                        maintain_order: true,
                     },
                 )
                 .map_err(|e| StepErr::Runtime(e.to_string()))?
@@ -1000,7 +1003,7 @@ impl Replay {
                                 .collect();
                             let drop_cols: Vec<String> =
                                 right_dups.iter().map(|b| format!("{b}_right")).collect();
-                            acc = acc.with_columns(coalesce_exprs).drop(drop_cols);
+                            acc = acc.with_columns(coalesce_exprs).drop(cols(drop_cols));
                         }
                     }
                 }

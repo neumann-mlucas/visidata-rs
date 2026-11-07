@@ -720,7 +720,7 @@ fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
         };
         out.push(Column::from(series));
     }
-    let df = DataFrame::new(out).map_err(|e| bad(e.to_string()))?;
+    let df = DataFrame::new_infer_height(out).map_err(|e| bad(e.to_string()))?;
     Ok((name.unwrap_or_else(|| "lua".into()), df))
 }
 

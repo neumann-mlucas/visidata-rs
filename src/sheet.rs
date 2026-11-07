@@ -172,13 +172,13 @@ impl PlanStep {
                     when(
                         col("__vdrs_set")
                             .cast(DataType::UInt64)
-                            .is_in(lit(Series::new("ids".into(), rids))),
+                            .is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
                     )
                     .then(lit(value.to_string()).strict_cast(dtype.clone()))
                     .otherwise(col(column.as_str()))
                     .alias(column.as_str()),
                 )
-                .drop(["__vdrs_set"]),
+                .drop(cols(["__vdrs_set"])),
         })
     }
 }
@@ -436,7 +436,7 @@ impl Sheet {
         let ids: Vec<i64> = summaries.iter().map(|(i, _, _)| *i as i64).collect();
         let names: Vec<String> = summaries.iter().map(|(_, n, _)| n.clone()).collect();
         let kinds: Vec<String> = summaries.iter().map(|(_, _, k)| format!("{k:?}")).collect();
-        let df = DataFrame::new(vec![
+        let df = DataFrame::new_infer_height(vec![
             Column::new("id".into(), ids),
             Column::new("name".into(), names),
             Column::new("kind".into(), kinds),
@@ -469,7 +469,7 @@ impl Sheet {
             .agg([len().alias(count)])
             .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
                 / col(count).cast(DataType::Float64).sum())
-            .round(2)
+            .round(2, RoundMode::HalfAwayFromZero)
             .alias(percent)])
             // Value breaks count ties: row order must repeat across collects,
             // since row ids (selection, freq dive) are positions in this plan.
@@ -508,28 +508,20 @@ impl Sheet {
         values: &str,
         agg: &str,
     ) -> Result<Self, String> {
-        use polars_ops::pivot::{PivotAgg, pivot_stable};
+        let e = element();
         let pivot_agg = match agg.to_ascii_lowercase().as_str() {
-            "sum" => PivotAgg::Sum,
-            "mean" | "avg" | "average" => PivotAgg::Mean,
-            "count" | "len" => PivotAgg::Count,
-            "max" => PivotAgg::Max,
-            "min" => PivotAgg::Min,
-            "first" => PivotAgg::First,
-            "last" => PivotAgg::Last,
+            "sum" => e.sum(),
+            "mean" | "avg" | "average" => e.mean(),
+            "count" | "len" => len(),
+            "max" => e.max(),
+            "min" => e.min(),
+            "first" => e.first(),
+            "last" => e.last(),
             other => return Err(format!("unknown agg: {other}")),
         };
         let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
-        let out = pivot_stable(
-            &df,
-            [on],
-            Some([index]),
-            Some([values]),
-            false,
-            Some(pivot_agg),
-            None,
-        )
-        .map_err(|e| e.to_string())?;
+        let out = pivot_df(&df, on, &[index.to_string()], values, pivot_agg)
+            .map_err(|e| e.to_string())?;
         let plan = out.clone().lazy();
         Ok(Sheet::child(
             parent,
@@ -658,7 +650,7 @@ impl Sheet {
             return None;
         }
         partial.push(b'\n');
-        crate::reader::parse_chunk(self.kind, partial, Some(Arc::new(df.schema())), false).ok()
+        crate::reader::parse_chunk(self.kind, partial, Some(df.schema().clone()), false).ok()
     }
 
     /// Read the whole tail file into the cache (first load, or after truncation).
@@ -748,7 +740,7 @@ impl Sheet {
         } else {
             let (new, rest) = self.tail_bytes(cache.consumed)?;
             let added = new.len() as u64;
-            let schema = Arc::new(cache.df.schema());
+            let schema = cache.df.schema().clone();
             let more = (!new.is_empty())
                 .then(|| crate::reader::parse_chunk(self.kind, new, Some(schema), false))
                 .transpose();
@@ -780,7 +772,8 @@ impl Sheet {
         } else {
             "sheet"
         };
-        let df = DataFrame::new(vec![Column::new(what.into(), parts)]).expect("one column");
+        let df =
+            DataFrame::new_infer_height(vec![Column::new(what.into(), parts)]).expect("one column");
         Sheet {
             id,
             name: format!("{}: {what}s", loaded.display_name),
@@ -840,7 +833,7 @@ impl Sheet {
             dtypes_b.push(b.unwrap_or_default());
             statuses.push(status.to_string());
         }
-        let df = DataFrame::new(vec![
+        let df = DataFrame::new_infer_height(vec![
             Column::new("column".into(), col_names),
             Column::new("dtype_a".into(), dtypes_a),
             Column::new("dtype_b".into(), dtypes_b),
@@ -911,7 +904,7 @@ impl Sheet {
         let plan = joined
             .with_column(diff_col)
             .filter(only_a.or(only_b).or(mismatch_expr))
-            .drop([DIFF_LEFT, DIFF_RIGHT]);
+            .drop(cols([DIFF_LEFT, DIFF_RIGHT]));
 
         let other_name = other.name.clone();
         let how = Derivation::Diff {
@@ -1122,7 +1115,7 @@ impl Sheet {
             mean.push(f("mean"));
             median.push(f("median"));
         }
-        let df = DataFrame::new(vec![
+        let df = DataFrame::new_infer_height(vec![
             Column::new("column".into(), names),
             Column::new("type".into(), types),
             Column::new("count".into(), count),
@@ -1195,23 +1188,14 @@ impl Sheet {
                 .map_err(|e| e.to_string())?;
             let ns = ns.i64().map_err(|e| e.to_string())?;
             let cols: Vec<Column> = vals
-                .into_iter()
-                .zip(ns)
+                .iter()
+                .zip(ns.iter())
                 .map(|(v, n)| Column::new(v.unwrap_or_default().into(), [n.unwrap_or(0)]))
                 .collect();
-            DataFrame::new(cols).map_err(|e| e.to_string())?
+            DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?
         } else {
-            use polars_ops::pivot::{PivotAgg, pivot_stable};
-            pivot_stable(
-                &counted,
-                [on],
-                Some(keys),
-                Some(["__vdrs_n"]),
-                false,
-                Some(PivotAgg::First),
-                None,
-            )
-            .map_err(|e| e.to_string())?
+            pivot_df(&counted, on, keys, "__vdrs_n", element().first())
+                .map_err(|e| e.to_string())?
         };
         let how = Derivation::PivotCount {
             keys: keys.to_vec(),
@@ -1300,7 +1284,7 @@ impl Sheet {
                     })
                     .collect();
                 let drop: Vec<String> = dups.iter().map(|b| format!("{b}_right")).collect();
-                joined = joined.with_columns(merged).drop(drop);
+                joined = joined.with_columns(merged).drop(cols(drop));
             }
             joined
         };
@@ -1328,14 +1312,8 @@ impl Sheet {
     pub fn unpivot_from(parent: &Sheet, id: SheetId, on: &[String], index: &[String]) -> Self {
         use polars::prelude::UnpivotArgsDSL;
         let args = UnpivotArgsDSL {
-            on: on
-                .iter()
-                .map(|c| polars::prelude::Selector::new(col(c.as_str())))
-                .collect(),
-            index: index
-                .iter()
-                .map(|c| polars::prelude::Selector::new(col(c.as_str())))
-                .collect(),
+            on: (!on.is_empty()).then(|| cols(on.iter().map(String::as_str))),
+            index: cols(index.iter().map(String::as_str)),
             variable_name: None,
             value_name: None,
         };
@@ -1739,7 +1717,7 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
         .collect();
     let mut pred = col(column)
         .cast(DataType::String)
-        .is_in(lit(Series::new("v".into(), &text)));
+        .is_in(lit(Series::new("v".into(), &text)).implode(false), false);
     if values.iter().any(AnyValue::is_null) {
         pred = pred.or(col(column).is_null());
     }
@@ -1747,6 +1725,34 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
 }
 
 /// Freq sheet stat columns; renamed when the grouped column already has the name.
+/// Eager pivot (Polars dropped `pivot_stable`): `on` values become columns in
+/// first-seen order; `agg` reduces `element()`. A missing index×on pair is
+/// null, not the aggregate of nothing (`sum` would say 0).
+pub fn pivot_df(
+    df: &DataFrame,
+    on: &str,
+    index: &[String],
+    values: &str,
+    agg: Expr,
+) -> PolarsResult<DataFrame> {
+    let on_columns = df
+        .select([on])?
+        .unique_stable(None, UniqueKeepStrategy::First, None)?;
+    df.clone()
+        .lazy()
+        .pivot(
+            cols([on]),
+            Arc::new(on_columns),
+            cols(index.iter().map(String::as_str)),
+            cols([values]),
+            when(len().gt(lit(0))).then(agg).otherwise(lit(NULL)),
+            true,
+            "_".into(),
+            Default::default(),
+        )
+        .collect()
+}
+
 pub fn freq_stat_names(column: &str) -> (&'static str, &'static str) {
     if column == "count" || column == "percent" {
         ("freq_count", "freq_percent")
@@ -2161,7 +2167,7 @@ mod tests {
         let (mut s, _tmp) = make_sheet();
         let count = |s: &Sheet| {
             let df = s.count_plan().collect().unwrap();
-            df.get_columns()[0]
+            df.columns()[0]
                 .get(0)
                 .unwrap()
                 .try_extract::<u64>()
@@ -2211,7 +2217,7 @@ mod tests {
             .unwrap()
             .str()
             .unwrap()
-            .into_iter()
+            .iter()
             .map(|v| v.map(String::from))
             .collect();
         let want = [
@@ -2257,7 +2263,7 @@ mod tests {
         let p = dir.path().join("keep.csv");
         std::fs::write(&p, "precious\n").unwrap();
         let list = Series::new("l".into(), [1i32, 2]).implode().unwrap();
-        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
         assert!(write_df_by_extension(&mut df, &p).is_err());
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "precious\n");
         assert_eq!(
@@ -2293,7 +2299,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("new.csv");
         let list = Series::new("l".into(), [1i32]).implode().unwrap();
-        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
         assert!(write_df_by_extension(&mut df, &p).is_err());
         assert!(!p.exists());
     }
@@ -2313,7 +2319,7 @@ mod tests {
         let link = dir.path().join("out.csv");
         std::os::unix::fs::symlink(dir.path().join("later.csv"), &link).unwrap();
         let list = Series::new("l".into(), [1i32]).implode().unwrap();
-        let mut df = DataFrame::new(vec![list.into_series().into()]).unwrap();
+        let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
         assert!(write_df_by_extension(&mut df, &link).is_err());
         assert!(std::fs::symlink_metadata(&link).is_ok());
         assert!(!dir.path().join("later.csv").exists());

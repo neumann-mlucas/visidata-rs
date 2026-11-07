@@ -33,7 +33,7 @@ impl<'a> SheetWidget<'a> {
     fn col_widths(df: &DataFrame, render: Option<CellRenderer>) -> Vec<u16> {
         let step = (df.height() / Self::WIDTH_ROWS).max(1);
         let rows = (0..df.height()).step_by(step);
-        df.get_columns()
+        df.columns()
             .iter()
             .map(|s| {
                 // Header width = name + " [dtype-badge]" so we don't truncate the badge.
@@ -78,7 +78,7 @@ impl<'a> Widget for SheetWidget<'a> {
             return;
         }
         let view = &self.sheet.view;
-        let cols = df.get_columns();
+        let cols = df.columns();
         let measured;
         let widths: &[u16] = if self.sheet.state.widths.len() == cols.len() {
             &self.sheet.state.widths

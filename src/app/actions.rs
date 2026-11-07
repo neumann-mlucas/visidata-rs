@@ -722,7 +722,7 @@ impl App {
                 let (path, kind) = (path.clone(), *kind);
                 let s = self.sheets.active();
                 let part = s.window.as_ref().and_then(|df| {
-                    let v = df.get_columns().first()?.get(s.view.row_cursor).ok()?;
+                    let v = df.columns().first()?.get(s.view.row_cursor).ok()?;
                     v.get_str().map(String::from)
                 });
                 let Some(part) = part else { return };
@@ -783,8 +783,11 @@ impl App {
             // Values by row id = position in the freq sheet's base plan; the
             // value column is first even if renamed here. `column` names it in
             // the parent.
-            let values = plan.select([nth(0)]).collect().map_err(|e| e.to_string())?;
-            let vals = &values.get_columns()[0];
+            let values = plan
+                .select([nth(0).as_expr()])
+                .collect()
+                .map_err(|e| e.to_string())?;
+            let vals = &values.columns()[0];
             let picked: Vec<AnyValue> = rids
                 .iter()
                 .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))

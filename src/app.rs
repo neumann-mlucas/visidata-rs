@@ -438,7 +438,7 @@ impl App {
         let tx = self.materialize_tx.clone();
         tokio::spawn(async move {
             let total = match tokio::task::spawn_blocking(move || plan.collect()).await {
-                Ok(Ok(df)) => df.get_columns()[0]
+                Ok(Ok(df)) => df.columns()[0]
                     .get(0)
                     .and_then(|v| v.try_extract::<u64>())
                     .map_err(|e| e.to_string()),
@@ -801,7 +801,7 @@ impl App {
                     .collect()
             }),
             value: df
-                .and_then(|df| df.get_columns().get(v.col_cursor)?.get(v.row_cursor).ok())
+                .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
                 .unwrap_or(AnyValue::Null),
         };
         let out = match p.call(id, &ctx) {
@@ -1163,7 +1163,6 @@ fn lua_pivot(
     values: &str,
 ) -> Result<DataFrame, String> {
     use crate::plugins::AggValue;
-    use polars_ops::pivot::{PivotAgg, pivot_stable};
     let groups = parent
         .view_plan()
         .group_by_stable([col(index), col(on)])
@@ -1175,7 +1174,7 @@ fn lua_pivot(
         .and_then(|c| c.list().cloned())
         .map_err(|e| e.to_string())?;
     let mut out = Vec::with_capacity(lists.len());
-    for cell in lists.into_iter() {
+    for cell in lists.series_iter() {
         let cell = cell.unwrap_or_else(|| Series::new_empty("v".into(), &DataType::Null));
         out.push(a.call(&cell).map_err(|e| e.to_string())?);
     }
@@ -1199,22 +1198,14 @@ fn lua_pivot(
             .collect();
         Column::new(values.into(), texts)
     };
-    let long = DataFrame::new(vec![
+    let long = DataFrame::new_infer_height(vec![
         groups.column(index).map_err(|e| e.to_string())?.clone(),
         groups.column(on).map_err(|e| e.to_string())?.clone(),
         agg_col,
     ])
     .map_err(|e| e.to_string())?;
-    pivot_stable(
-        &long,
-        [on],
-        Some([index]),
-        Some([values]),
-        false,
-        Some(PivotAgg::First),
-        None,
-    )
-    .map_err(|e| e.to_string())
+    crate::sheet::pivot_df(&long, on, &[index.to_string()], values, element().first())
+        .map_err(|e| e.to_string())
 }
 
 /// Default keymap plus Lua patches, and the theme `init.lua` picked.
@@ -1346,7 +1337,7 @@ mod tests {
         (0..80).map(|x| buf[(x, 0)].symbol()).collect()
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn goto_bottom_slides_to_last_data_row() {
         let (mut app, _tmp) = paged_app();
         app.dispatch(Action::GotoBottom);
@@ -1361,7 +1352,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn goto_bottom_before_count_settles_when_count_lands() {
         let (mut app, _tmp) = paged_app();
         let s = app.sheets.active_mut();
@@ -1393,7 +1384,7 @@ mod tests {
         assert_eq!((v.row_cursor, v.jump_bottom), (1, false));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn cursor_move_cancels_pending_goto_bottom() {
         let (mut app, _tmp) = paged_app();
         app.sheets.active_mut().view.total_rows = None;
@@ -1402,7 +1393,7 @@ mod tests {
         assert!(!app.sheets.active().view.jump_bottom);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn materialize_keeps_toast() {
         let (mut app, _tmp) = test_app();
         app.toast = Some("saved 3 rows".into());
@@ -1410,7 +1401,7 @@ mod tests {
         assert_eq!(app.toast.as_deref(), Some("saved 3 rows"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rename_keeps_filter_and_sort_on_column() {
         let (mut app, _tmp) = test_app();
         let v = &mut app.sheets.active_mut().view;
@@ -1431,7 +1422,7 @@ mod tests {
         assert!(s.window_plan().collect().is_ok());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn rename_prompt_is_rendered() {
         let (mut app, _tmp) = test_app();
         let mut line = LineEdit::default();
@@ -1444,7 +1435,7 @@ mod tests {
         assert!(last.starts_with("rename: foo"), "status bar: {last:?}");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn page_down_on_last_window_stays_in_bounds() {
         let (mut app, _tmp) = test_app();
         // Window of 4 holding 3 rows = last (partial) window; nothing beyond it.
@@ -1457,7 +1448,7 @@ mod tests {
         assert_eq!(v.row_cursor, 2);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn bad_filter_regex_is_rejected_with_toast() {
         let (mut app, _tmp) = test_app();
         app.dispatch(Action::SetFilter {
@@ -1468,7 +1459,7 @@ mod tests {
         assert!(app.toast.as_deref().unwrap().starts_with("bad regex"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn selection_follows_its_row_across_sort_and_filter() {
         let (mut app, _tmp) = test_app(); // alice,3 bob,1 carol,2
         land_window(&mut app);
@@ -2013,13 +2004,7 @@ pub(crate) mod scenario {
             .view_plan()
             .sort(["id"], Default::default());
         let df = s.collect().unwrap();
-        let names: Vec<_> = df
-            .column("name")
-            .unwrap()
-            .str()
-            .unwrap()
-            .into_iter()
-            .collect();
+        let names: Vec<_> = df.column("name").unwrap().str().unwrap().iter().collect();
         assert_eq!(names[1..3], [Some("TWO"), Some("name_3")]);
         assert!(df.column("name_right").is_err());
         // an open sheet as the right side, by #id: freq(name) joined back on name
@@ -2051,7 +2036,7 @@ pub(crate) mod scenario {
                 .unwrap()
                 .i64()
                 .unwrap()
-                .into_iter()
+                .iter()
                 .all(|v| v == Some(1))
         );
         h.keys("q s j s g <CR>").await; // two freq rows selected → union
@@ -2089,7 +2074,7 @@ pub(crate) mod scenario {
             .unwrap()
             .i64()
             .unwrap()
-            .into_iter()
+            .iter()
             .collect();
         assert_eq!(ids, [Some(42), Some(42), Some(3), Some(4), Some(5)]);
         h.keys(":").await;
@@ -2229,7 +2214,7 @@ pub(crate) mod scenario {
         h.type_("pivot grp name id n").await; // custom aggregator: rows per cell
         let df = h.app.sheets.active().view_plan().collect().unwrap();
         assert_eq!(df.shape(), (7, 21)); // grp + one column per name
-        let total: f64 = df.get_columns()[1..]
+        let total: f64 = df.columns()[1..]
             .iter()
             .map(|c| c.f64().unwrap().sum().unwrap_or(0.0))
             .sum();
@@ -2290,7 +2275,7 @@ pub(crate) mod scenario {
         assert!(err.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn lua_push_sheet_opens_a_sheet() {
         let mut h = Harness::new(5).await;
         h.app.plugins = Some(
@@ -2417,7 +2402,8 @@ pub(crate) mod scenario {
             .unwrap()
             .str()
             .unwrap()
-            .into_no_null_iter()
+            .iter()
+            .flatten()
             .collect();
         assert_eq!(tags, ["changed", "changed", "changed", "only_a", "only_b"]);
         assert!(

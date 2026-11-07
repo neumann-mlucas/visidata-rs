@@ -94,7 +94,7 @@ fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, Open
         .zip(cols)
         .map(|(name, data)| Column::new(name.into(), data))
         .collect();
-    DataFrame::new(series).map_err(OpenError::from)
+    DataFrame::new_infer_height(series).map_err(OpenError::from)
 }
 
 /// Int-valued floats as "N", not "N.0" — matches VisiData's xlsx/sqlite read.
@@ -151,7 +151,7 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
         .zip(cols)
         .map(|(name, data)| Column::new(name.into(), data))
         .collect();
-    DataFrame::new(series).map_err(OpenError::from)
+    DataFrame::new_infer_height(series).map_err(OpenError::from)
 }
 
 /// Repeats (blank cells above all) get `_duplicated_<i>`, as Polars names CSV
@@ -233,11 +233,16 @@ pub fn open(
     open_path(&path, kind)
 }
 
+/// Polars scans take its own path type; a non-UTF-8 path is an error there.
+fn pl_path(p: &Path) -> PolarsResult<PlRefPath> {
+    PlRefPath::try_from_path(p)
+}
+
 /// A directory = every `*.parquet` file in it, scanned as one table.
 /// Reopening picks up new files (`:tail <dir>/`).
 fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
     let glob = dir.join("*.parquet");
-    let lazy = LazyFrame::scan_parquet(&glob, ScanArgsParquet::default())?;
+    let lazy = LazyFrame::scan_parquet(pl_path(&glob)?, ScanArgsParquet::default())?;
     Ok(LoadedSource {
         kind: SourceKind::Parquet,
         display_name: dir.display().to_string(),
@@ -293,7 +298,7 @@ pub fn parse_chunk(
     let cursor = io::Cursor::new(bytes);
     match kind {
         SourceKind::Jsonl => {
-            let mut r = JsonLineReader::new(cursor);
+            let mut r = JsonReader::new(cursor).with_json_format(JsonFormat::JsonLines);
             if let Some(s) = schema {
                 r = r.with_schema(s);
             }
@@ -330,10 +335,10 @@ pub fn parse_chunk(
                 }
                 None => {
                     let mut parsed = Vec::new();
-                    for c in df.get_columns() {
+                    for c in df.columns() {
                         let Ok(text) = c.str() else { continue };
-                        if text.into_iter().flatten().next().is_some() && all_iso(text) {
-                            let date = text.into_iter().flatten().all(|v| v.len() == 10);
+                        if text.iter().flatten().next().is_some() && all_iso(text) {
+                            let date = text.iter().flatten().all(|v| v.len() == 10);
                             let d = if date {
                                 DataType::Date
                             } else {
@@ -422,9 +427,11 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
     let lazy = match kind {
         SourceKind::Csv => scan_csv(path, b',')?,
         SourceKind::Tsv => scan_csv(path, b'\t')?,
-        SourceKind::Parquet => LazyFrame::scan_parquet(path, ScanArgsParquet::default())?,
-        SourceKind::Arrow => LazyFrame::scan_ipc(path, ScanArgsIpc::default())?,
-        SourceKind::Jsonl => LazyJsonLineReader::new(path).finish()?,
+        SourceKind::Parquet => LazyFrame::scan_parquet(pl_path(path)?, ScanArgsParquet::default())?,
+        SourceKind::Arrow => {
+            LazyFrame::scan_ipc(pl_path(path)?, Default::default(), Default::default())?
+        }
+        SourceKind::Jsonl => LazyJsonLineReader::new(pl_path(path)?).finish()?,
         SourceKind::Json if !starts_with_json_array(path)? => {
             return scan(path, SourceKind::Jsonl);
         }
@@ -467,7 +474,7 @@ fn all_iso(values: &StringChunked) -> bool {
     static ISO: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex")
     });
-    values.into_iter().flatten().all(|v| ISO.is_match(v))
+    values.iter().flatten().all(|v| ISO.is_match(v))
 }
 
 /// Text column `name` (checked by `all_iso`) as date type `dtype`.
@@ -496,18 +503,18 @@ fn file_is_small(path: &Path) -> bool {
 /// cut, bad UTF-8 is replaced, and types come from the whole file.
 // ponytail: past CSV_FULL_INFER_BYTES a late type change still fails at
 // materialize; a per-column retry as text would lift that.
-fn csv_reader(path: &Path, sep: u8) -> LazyCsvReader {
-    LazyCsvReader::new(path)
+fn csv_reader(path: &Path, sep: u8) -> PolarsResult<LazyCsvReader> {
+    Ok(LazyCsvReader::new(pl_path(path)?)
         .with_has_header(true)
         .with_separator(sep)
         .with_infer_schema_length((!file_is_small(path)).then_some(CSV_INFER_ROWS))
         .with_truncate_ragged_lines(true)
-        .with_encoding(CsvEncoding::LossyUtf8)
+        .with_encoding(CsvEncoding::LossyUtf8))
 }
 
 /// Scan a CSV under `csv_schema`'s types.
 fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
-    Ok(csv_reader(path, sep)
+    Ok(csv_reader(path, sep)?
         .with_try_parse_dates(true)
         .with_schema(Some(csv_schema(path, sep)?))
         .with_infer_schema_length(Some(0)) // or each new plan infers again
@@ -517,7 +524,7 @@ fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
 /// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
 /// and Polars would guess day-first, so other layouts stay text until `@`.
 fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
-    let mut schema = (*csv_reader(path, sep).finish()?.collect_schema()?).clone();
+    let mut schema = (*csv_reader(path, sep)?.finish()?.collect_schema()?).clone();
     let text: Vec<Expr> = schema
         .iter()
         .filter(|(_, d)| **d == DataType::String)
@@ -528,7 +535,7 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
     }
     // Polars' date inference costs 10-40x plain inference per cell, so it only
     // names the type here. Every row inference saw must be ISO and parse.
-    let values = csv_reader(path, sep)
+    let values = csv_reader(path, sep)?
         .with_schema(Some(Arc::new(schema.clone())))
         .with_infer_schema_length(Some(0))
         .finish()?
@@ -539,7 +546,7 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
             CSV_INFER_ROWS as u32
         })
         .collect()?;
-    for c in values.get_columns() {
+    for c in values.columns() {
         if c.null_count() == c.len() || !all_iso(c.str()?) {
             continue;
         }
@@ -553,14 +560,14 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
 /// The date type Polars gives these ISO strings, if all of them parse as it.
 fn iso_dtype(values: &Column) -> PolarsResult<Option<DataType>> {
     let mut csv = String::from("v\n");
-    for v in values.str()?.into_iter().flatten().take(100) {
+    for v in values.str()?.iter().flatten().take(100) {
         csv += &format!("\"{}\"\n", v.replace('"', "\"\""));
     }
     let parsed = CsvReadOptions::default()
         .map_parse_options(|o| o.with_try_parse_dates(true))
         .into_reader_with_file_handle(io::Cursor::new(csv.into_bytes()))
         .finish()?;
-    let dtype = parsed.get_columns()[0].dtype().clone();
+    let dtype = parsed.columns()[0].dtype().clone();
     let parses = is_date(&dtype)
         && values
             .clone()
@@ -726,7 +733,7 @@ mod tests {
         let more = parse_chunk(
             SourceKind::Csv,
             b"2,y\n".to_vec(),
-            Some(std::sync::Arc::new(first.schema())),
+            Some(first.schema().clone()),
             false,
         )
         .unwrap();
