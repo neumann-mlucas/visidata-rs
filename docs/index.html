@@ -6,95 +6,134 @@
 <title>vdrs user guide</title>
 <meta name="description" content="How to use vdrs (visidata-rs), a modal terminal data explorer built on Polars, Ratatui and Lua.">
 <style>
+/* Palette mirrors src/theme.rs, so the guide looks like the app. */
 :root {
-  --bg: #fbfbfa; --fg: #1d1f21; --muted: #5f6368; --line: #e3e3e0; --panel: #f2f2ef;
-  --accent: #2456a6; --kbd-bg: #ffffff; --kbd-line: #c9c9c4; --code-bg: #f0f0ec; --warn: #8a5a00;
+  color-scheme: light dark;
+  --bg: #f5f6fa; --fg: #2a3050; --muted: #5a6285; --line: #dcdfea; --panel: #eceef5;
+  --accent: #2e5bbe; --amber: #a05a00; --kbd-bg: #fff; --kbd-line: #c8cee0; --code-bg: #e8eaf3;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15171a; --fg: #e4e4e1; --muted: #a0a4a8; --line: #2b2f34; --panel: #1c1f23;
-    --accent: #7aa7ff; --kbd-bg: #23272c; --kbd-line: #3a3f46; --code-bg: #1f2327; --warn: #e0b45a;
+    --bg: #16181f; --fg: #c0caf5; --muted: #8b93b8; --line: #2a2e42; --panel: #1e2130;
+    --accent: #7aa2f7; --amber: #e0af68; --kbd-bg: #24283b; --kbd-line: #414868; --code-bg: #1e2130;
   }
 }
 * { box-sizing: border-box; }
-html { scroll-padding-top: 1rem; }
-body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-.layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); max-width: 72rem; margin: 0 auto; }
-nav {
-  position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
-  padding: 1.5rem 1rem; border-right: 1px solid var(--line); font-size: .9rem;
-}
-nav .brand { font-weight: 700; font-size: 1.1rem; margin-bottom: 1rem; }
-nav a { display: block; color: var(--muted); text-decoration: none; padding: .15rem 0; }
-nav a:hover { color: var(--accent); }
-main { padding: 1.5rem 2.5rem 5rem; min-width: 0; }
-h1 { font-size: 2rem; margin: .5rem 0 .25rem; }
-h2 { font-size: 1.4rem; margin: 2.75rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--line); }
-h3 { font-size: 1.05rem; margin: 1.75rem 0 .5rem; }
-p, li { max-width: 46rem; }
-a { color: var(--accent); }
-.lede { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
-code, kbd, pre { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .88em; }
-code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
-pre { background: var(--code-bg); padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; line-height: 1.45; }
-pre code { background: none; padding: 0; }
-kbd {
-  display: inline-block; min-width: 1.5em; text-align: center; padding: .05em .4em; margin: 0 .1em;
-  background: var(--kbd-bg); border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 5px;
-}
-table { border-collapse: collapse; width: 100%; margin: .75rem 0 1.25rem; font-size: .93rem; }
-th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+html { scroll-padding-top: 1.25rem; scrollbar-color: var(--kbd-line) transparent; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-underline-offset: 2px; }
+.layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); max-width: 70rem; margin: 0 auto; }
+
+nav { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: 1.75rem 1rem 2rem 1.25rem; font-size: .9rem; }
+nav .brand { display: block; font: 700 1.15rem var(--mono); color: var(--fg); text-decoration: none; margin-bottom: 1.25rem; }
+nav .brand span { color: var(--amber); }
+nav summary { display: none; }
+.group { margin: 1.25rem 0 .3rem; font: 600 .72rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+nav a:not(.brand) { display: block; color: var(--muted); text-decoration: none; padding: .16rem 0 .16rem .75rem; border-left: 2px solid var(--line); }
+nav a:not(.brand):hover { color: var(--fg); }
+nav a[aria-current] { color: var(--amber); border-left-color: var(--amber); font-weight: 600; }
+
+main { padding: 2.25rem 2.5rem 6rem; min-width: 0; }
+.hero { margin-bottom: 3rem; }
+.eyebrow { margin: 0 0 .5rem; font: 600 .78rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--amber); }
+h1 { font-size: clamp(2rem, 5vw, 2.75rem); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 .75rem; }
+.lede { color: var(--muted); font-size: 1.1rem; margin: 0 0 1.25rem; }
+.cta { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1.75rem; }
+.cta a { padding: .35rem .8rem; border: 1px solid var(--kbd-line); border-radius: 6px; font-size: .92rem; color: var(--fg); text-decoration: none; }
+.cta a:first-child { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.cta a:hover { border-color: var(--accent); }
+
+h2 { font-size: 1.5rem; letter-spacing: -.01em; margin: 3.5rem 0 .9rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+code, kbd, pre { font-family: var(--mono); font-size: .86em; }
+code { background: var(--code-bg); padding: .12em .35em; border-radius: 4px; }
+pre { background: var(--code-bg); padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; line-height: 1.5; scrollbar-width: thin; }
+pre code { background: none; padding: 0; font-size: inherit; }
+kbd { display: inline-block; min-width: 1.6em; text-align: center; padding: .02em .35em; margin: 0 .08em; background: var(--kbd-bg); border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 4px; color: var(--amber); }
+table { border-collapse: collapse; width: 100%; margin: .75rem 0 1.5rem; font-size: .93rem; }
+th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--panel); color: var(--muted); font: 600 .75rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 td:first-child { white-space: nowrap; }
-.note { border-left: 3px solid var(--accent); background: var(--panel); padding: .6rem 1rem; border-radius: 0 6px 6px 0; max-width: 46rem; }
-.warn { border-left-color: var(--warn); }
-.screen { background: #101214; color: #d7dae0; border-radius: 8px; padding: .8rem 1rem; overflow-x: auto; font-size: .8rem; line-height: 1.35; }
-.screen .t { background: #1f4f8f; color: #fff; }
-.screen .s { background: #3a3d41; color: #fff; }
-.screen .c { background: #e8c547; color: #111; }
-#keyfilter { width: 100%; max-width: 22rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 6px; background: var(--kbd-bg); color: var(--fg); font: inherit; }
+.scroll { overflow-x: auto; }
+#keyfilter { width: 100%; max-width: 22rem; padding: .5rem .7rem; border: 1px solid var(--kbd-line); border-radius: 6px; background: var(--kbd-bg); color: var(--fg); font: inherit; }
+
+/* Terminal mock: dark theme of the app, in both page themes. */
+.screen { background: #1a1b26; color: #c0caf5; border: 1px solid #414868; border-radius: 8px; padding: 0; overflow-x: auto; font-size: .84rem; line-height: 1.5; }
+.screen .l { display: block; width: max-content; min-width: 100%; }
+.screen .l:first-child, .screen .l:last-child { background: #24283b; }
+.screen .n { background: #7aa2f7; color: #161822; font-weight: 700; }
+.screen .m { color: #a9b1d6; }
+.screen .b { color: #a9b1d6; font-weight: 700; }
+.screen .r { background: #414868; color: #c0caf5; font-weight: 700; }
+.screen .hd { background: #1e2130; color: #7aa2f7; font-weight: 700; }
+.screen .ty, .screen .nl { color: #565f89; font-weight: 400; }
+.screen .st { background: #1a1c28; }
+.screen .rc { background: #333b5b; color: #e6e9f5; font-weight: 700; }
+.screen .cc, .screen .hc { background: #e0af68; color: #161822; font-weight: 700; }
+.screen .cl { color: #e0af68; }
+.screen .nu { color: #7dcfff; }
+.screen .da { color: #bb9af7; }
+
 @media (max-width: 52rem) {
   .layout { display: block; }
-  nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 1rem; }
-  nav .links { display: flex; flex-wrap: wrap; gap: .25rem .9rem; }
-  main { padding: 1rem 1rem 4rem; }
-  td:first-child { white-space: normal; }
+  nav { position: static; max-height: none; padding: 1rem; border-bottom: 1px solid var(--line); }
+  nav .brand { margin-bottom: .5rem; }
+  nav summary { display: block; cursor: pointer; color: var(--muted); }
+  nav .groups { columns: 2; column-gap: 1.25rem; }
+  nav .groups > div { break-inside: avoid; padding-top: .9rem; }
+  .group { margin-top: 0; }
+  main { padding: 1.5rem 1rem 4rem; }
+  td:first-child { white-space: normal; min-width: 7rem; }
 }
 </style>
 </head>
 <body>
 <div class="layout">
-<nav>
-  <div class="brand">vdrs</div>
-  <div class="links">
-    <a href="#install">Install</a>
-    <a href="#open">Opening data</a>
-    <a href="#tour">A first session</a>
-    <a href="#screen">The screen</a>
-    <a href="#move">Moving around</a>
-    <a href="#columns">Columns &amp; types</a>
-    <a href="#find">Search, sort, filter</a>
-    <a href="#select">Selecting rows</a>
-    <a href="#sheets">Sheets</a>
-    <a href="#change">Changing data</a>
-    <a href="#save">Saving &amp; export</a>
-    <a href="#stream">Following files</a>
-    <a href="#plan">Plan panel</a>
-    <a href="#prompt">Prompt editing</a>
-    <a href="#ex">Ex commands</a>
-    <a href="#keys">All keys</a>
-    <a href="#lua">Lua config</a>
-    <a href="#trouble">Troubleshooting</a>
-    <a href="#limits">Limitations</a>
-  </div>
+<nav aria-label="Guide">
+  <a class="brand" href="#top">vdrs<span>_</span></a>
+  <details id="toc" open>
+    <summary>Contents</summary>
+    <div class="groups">
+      <div><p class="group">Start</p>
+        <a href="#install">Install</a>
+        <a href="#open">Opening data</a>
+        <a href="#tour">A first session</a>
+        <a href="#screen">The screen</a>
+      </div>
+      <div><p class="group">Explore</p>
+        <a href="#move">Moving around</a>
+        <a href="#columns">Columns &amp; types</a>
+        <a href="#find">Search, sort, filter</a>
+        <a href="#select">Selecting rows</a>
+        <a href="#sheets">Sheets</a>
+      </div>
+      <div><p class="group">Work</p>
+        <a href="#change">Changing data</a>
+        <a href="#save">Saving &amp; export</a>
+        <a href="#stream">Following files</a>
+        <a href="#plan">Plan panel</a>
+        <a href="#prompt">Prompt editing</a>
+      </div>
+      <div><p class="group">Reference</p>
+        <a href="#ex">Ex commands</a>
+        <a href="#keys">All keys</a>
+        <a href="#lua">Lua config</a>
+        <a href="#trouble">Troubleshooting</a>
+        <a href="#limits">Limitations</a>
+      </div>
+    </div>
+  </details>
 </nav>
 <main>
 
-<h1>vdrs user guide</h1>
+<header class="hero" id="top">
+<p class="eyebrow">visidata-rs · user guide</p>
+<h1>Explore tables in your terminal.</h1>
 <p class="lede">vdrs (visidata-rs) is a modal terminal data explorer. It reads CSV, Parquet, JSON, Excel and SQLite through Polars, shows them in a keyboard-driven table, and lets you sort, filter, pivot, join and query without leaving the terminal. If you know VisiData, most keys will feel familiar.</p>
+<p class="cta"><a href="#install">Install</a><a href="#tour">First session</a><a href="#keys">All keys</a><a href="https://github.com/neumann-mlucas/visidata-rs">GitHub</a></p>
+<pre class="screen" role="img" aria-label="vdrs terminal screen"><span class="l"><span class="n"> sales.csv </span><span class="m"> csv · sort price▼ </span><span class="m">                                      </span><span class="b"> price 5/5 </span><span class="r"> row 1/48,210 · 0% </span></span><span class="l hd">   id <span class="ty">i</span> date <span class="ty">date</span>  region <span class="ty">str</span> qty <span class="ty">i</span> <span class="hc"> price ▼</span>                                                      </span><span class="l rc">  40812 2024-11-02 north          3 <span class="cc">  1299.0</span>                                                      </span><span class="l st"> <span class="nu"> 38110</span> <span class="da">2024-10-14</span> east       <span class="nl">    ·</span> <span class="cl">  1185.5</span>                                                      </span><span class="l "> <span class="nu"> 12907</span> <span class="da">2024-03-22</span> south      <span class="nu">    1</span> <span class="cl">  1120.0</span>                                                      </span><span class="l st"> <span class="nu"> 29331</span> <span class="da">2024-08-09</span> north      <span class="nu">    2</span> <span class="cl">   999.9</span>                                                      </span><span class="l "> <span class="nu">  7204</span> <span class="da">2024-02-17</span> west       <span class="nu">    5</span> <span class="cl">  874.25</span>                                                      </span><span class="l"><span class="m"> hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q  </span></span></pre>
+</header>
 
 <h2 id="install">Install</h2>
 <p>You need a Rust toolchain (1.88 or newer):</p>
@@ -107,7 +146,7 @@ vdrs data/                         # every *.parquet file in a directory, as one
 cat events.jsonl | vdrs -          # read stdin; format is sniffed
 vdrs --format tsv export.txt       # force a format when the extension is wrong
 vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
-<table>
+<div class="scroll"><table>
 <tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
 <tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates load as dates; other layouts (<code>7/3/2018</code> is ambiguous) stay text until <kbd>@</kbd>. Column types come from the whole file (first 100,000 rows above 256 MB). Rows with too few fields are padded, extra fields dropped; invalid UTF-8 is replaced.</td></tr>
 <tr><td>Parquet</td><td><code>.parquet</code>, <code>.pq</code>, a directory</td><td>A directory means all its <code>*.parquet</code> files.</td></tr>
@@ -117,7 +156,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>Cells load as text; use the type keys to convert. Several worksheets → a list to pick from; <code>book.xlsx:Sheet2</code> opens one directly (also in <code>:join</code>/<code>:diff</code>).</td></tr>
 <tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>Columns load as text. Several tables → a list to pick from; <code>app.db:users</code> opens one directly.</td></tr>
 <tr><td>gzip</td><td>any of the above + <code>.gz</code></td><td>The inner extension (or <code>--format</code>) decides the format.</td></tr>
-</table>
+</table></div>
 <p>Files are scanned lazily: vdrs only loads a 1024-row window around the cursor and counts rows in the background, so large files open immediately. Other formats can be added with a <a href="#lua-loader">Lua loader</a>.</p>
 
 <h2 id="tour">A first session</h2>
@@ -132,31 +171,26 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <p>Nothing you do changes <code>sales.csv</code>.</p>
 
 <h2 id="screen">The screen</h2>
-<pre class="screen"><span class="t"> sales.csv  csv                      region 3/7  row 12/48,210 · 0% </span>
-  id i date date    <span class="c">region str</span>  qty i price f
-    11 2024-01-03   north         4    12.5
-    12 2024-01-03   <span class="c">south     </span>    1    80.0
-    13 2024-01-04   north         2    19.9
-<span class="s"> hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q </span></pre>
+<pre class="screen" role="img" aria-label="vdrs terminal screen"><span class="l"><span class="n"> sales.csv </span><span class="m"> csv </span><span class="m">                                                  </span><span class="b"> region 3/5 </span><span class="r"> row 12/48,210 · 0% </span></span><span class="l hd">   id <span class="ty">i</span> date <span class="ty">date</span>  <span class="hc">region str</span> qty <span class="ty">i</span>  price <span class="ty">f</span>                                                      </span><span class="l "> <span class="nu">    11</span> <span class="da">2024-01-03</span> <span class="cl">north     </span> <span class="nu">    4</span> <span class="nu">    12.5</span>                                                      </span><span class="l rc">     12 2024-01-03 <span class="cc">south     </span>     1     80.0                                                      </span><span class="l "> <span class="nu">    13</span> <span class="da">2024-01-04</span> <span class="cl">north     </span> <span class="nu">    2</span> <span class="nu">    19.9</span>                                                      </span><span class="l"><span class="m"> hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q  </span></span></pre>
 <ul>
-<li><strong>Title bar</strong>: the sheet name; your position as <code>row N/total</code> (<code>?</code> while rows are still being counted) and <code>col N/total (name)</code>; how many rows are selected; the source format; how many sheets are open. Long names are shortened from the left so the position stays visible.</li>
-<li><strong>Header</strong>: column names with a dim type badge (<code>i</code> integer, <code>f</code> float, <code>str</code> text, <code>date</code>, …).</li>
+<li><strong>Title bar</strong>: the sheet name; chips for what shapes the view (a spinner while work runs, source format, open sheets, <code>filter</code>, <code>sort</code> with <code>▲</code>/<code>▼</code>, <code>sel</code> count, <code>hidden</code> columns); then the current column with its position, and <code>row N/total · %</code> (<code>?</code> while rows are still being counted). Long names are shortened from the left so the position stays visible.</li>
+<li><strong>Header</strong>: column names with a dim type badge (<code>i</code> integer, <code>f</code> float, <code>str</code> text, <code>date</code>, …). On a sorted column the badge becomes <code>▲</code> or <code>▼</code>, followed by its rank when sorting by several columns (<code>▼2</code>). Numbers and their headers sit on the right.</li>
 <li><strong>Status line</strong>: a short key hint, or messages, prompts (<code>/</code>, <code>:</code>, …), <code>working: …</code> while a long command runs in the background, a pending count (<code>count: 3</code>) or a pending key chord. When you press the first key of a chord (for example <kbd>g</kbd> or <kbd>z</kbd>), a popup lists what can follow.</li>
 </ul>
 <p>Messages stay until your next key press.</p>
 
 <h2 id="move">Moving around</h2>
-<table>
+<div class="scroll"><table>
 <tr><th>Keys</th><th>Action</th></tr>
 <tr><td><kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd>, arrows</td><td>Left, down, up, right. A number first repeats: <kbd>3</kbd><kbd>j</kbd> moves three rows.</td></tr>
 <tr><td><kbd>Ctrl-d</kbd> / <kbd>PgDn</kbd>, <kbd>Ctrl-u</kbd> / <kbd>PgUp</kbd></td><td>One screen down / up.</td></tr>
 <tr><td><kbd>g</kbd><kbd>g</kbd>, <kbd>G</kbd></td><td>First row, last row of the whole sheet (not just the loaded window).</td></tr>
 <tr><td><kbd>0</kbd>, <kbd>$</kbd></td><td>First column, last column.</td></tr>
 <tr><td><kbd>.</kbd></td><td>Repeat the last action (including ex commands).</td></tr>
-</table>
+</table></div>
 
 <h2 id="columns">Columns &amp; types</h2>
-<table>
+<div class="scroll"><table>
 <tr><th>Keys</th><th>Action</th></tr>
 <tr><td><kbd>-</kbd>, <kbd>g</kbd><kbd>-</kbd></td><td>Hide the current column; show all hidden columns.</td></tr>
 <tr><td><kbd>!</kbd>, <kbd>z</kbd><kbd>!</kbd></td><td>Toggle the current column as a <em>key column</em> (moved to the left; used by <kbd>W</kbd> and <kbd>D</kbd>); clear all keys.</td></tr>
@@ -164,32 +198,32 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td><kbd>z</kbd><kbd>s</kbd>, <kbd>z</kbd><kbd>c</kbd></td><td>Freeze columns up to the cursor at the left edge; unfreeze.</td></tr>
 <tr><td><kbd>#</kbd> <kbd>%</kbd> <kbd>~</kbd> <kbd>@</kbd></td><td>Treat the column as integer, float, text, date. Values that don't convert show as <code>·</code> (empty).</td></tr>
 <tr><td><code>:type currency</code></td><td>Strip everything but digits, <code>.</code> and <code>-</code> (so <code>$1,200.50</code> → 1200.5) and make it a float.</td></tr>
-</table>
+</table></div>
 <p>The date conversion (<kbd>@</kbd>) understands <code>2024-01-31</code>, <code>2024/01/31</code>, <code>1/31/2024</code>, <code>1/31/24</code>, <code>31.01.2024</code>, <code>20240131</code>, <code>31 Jan 2024</code>, <code>Jan 31 2024</code>, <code>Jan 31, 2024</code> and <code>January 31, 2024</code>, and ignores a trailing time (<code>7/3/2018 1:47p</code>). Slash dates are read month first.</p>
 
 <h2 id="find">Search, sort, filter</h2>
-<table>
+<div class="scroll"><table>
 <tr><th>Keys</th><th>Action</th></tr>
 <tr><td><kbd>/</kbd> then text, <kbd>n</kbd>, <kbd>N</kbd></td><td>Find text (case-insensitive) in any column of the whole sheet; next / previous match, wrapping around.</td></tr>
 <tr><td><kbd>[</kbd>, <kbd>]</kbd>, <kbd>z</kbd><kbd>o</kbd></td><td>Sort ascending / descending by the current column. Pressing it on more columns sorts by several. Clear sorting.</td></tr>
 <tr><td><kbd>z</kbd><kbd>|</kbd> then a regex, <kbd>z</kbd><kbd>f</kbd></td><td>Keep only rows whose current column matches the regular expression (works on numbers and dates too, by their text); remove the filter.</td></tr>
-</table>
+</table></div>
 <p>The same from the command line: <code>:sort -price</code>, <code>:filter region ^n</code>, <code>:unsort</code>, <code>:unfilter</code>. Column names with spaces need quotes: <code>:filter "unit price" ^1\d+$</code>.</p>
 
 <h2 id="select">Selecting rows</h2>
-<table>
+<div class="scroll"><table>
 <tr><th>Keys</th><th>Action</th></tr>
 <tr><td><kbd>s</kbd> or <kbd>t</kbd>, <kbd>u</kbd></td><td>Toggle selection of the current row; unselect it.</td></tr>
 <tr><td><kbd>g</kbd><kbd>s</kbd>, <kbd>g</kbd><kbd>u</kbd></td><td>Select every row of the sheet (respecting the filter); clear the selection.</td></tr>
 <tr><td><kbd>|</kbd> then a regex</td><td>Add rows whose current column matches.</td></tr>
 <tr><td><kbd>,</kbd></td><td>Add rows whose current column equals the value under the cursor.</td></tr>
 <tr><td><kbd>"</kbd></td><td>Open a new sheet with just the selected rows.</td></tr>
-</table>
+</table></div>
 <p>Selections stick to rows, not positions: sorting or filtering keeps the same rows selected.</p>
 
 <h2 id="sheets">Sheets</h2>
 <p>Many commands open a new <em>sheet</em> on top of the current one. <kbd>q</kbd> closes the top sheet (and quits on the last one); <kbd>S</kbd> lists open sheets (<kbd>Enter</kbd> jumps to one). New sheets are built from what you see: the current filter, sort, types and visible columns.</p>
-<table>
+<div class="scroll"><table>
 <tr><th>Keys / command</th><th>Opens</th></tr>
 <tr><td><kbd>F</kbd></td><td>Frequency table of the current column: each value with <code>count</code> and <code>percent</code>, most common first. On it, <kbd>Enter</kbd> opens the original rows with that value; select several values and press <kbd>g</kbd><kbd>Enter</kbd> to open the rows of all of them.</td></tr>
 <tr><td><kbd>I</kbd></td><td>Describe: one row per column with type, count, nulls, distinct, min, max, mean, median.</td></tr>
@@ -200,25 +234,25 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td><kbd>D</kbd> or <code>:diff file [keys]</code></td><td>Compare with another file. With key columns (<kbd>D</kbd> uses yours): the rows that differ, tagged <code>only_a</code>, <code>only_b</code> or <code>changed</code>. Without keys: a column-by-column schema comparison.</td></tr>
 <tr><td><code>:sql SELECT … FROM self</code></td><td>Run SQL (Polars SQL) on the current sheet, called <code>self</code>. Other open sheets are <code>s0</code>, <code>s1</code>, … (ids from <kbd>S</kbd>).</td></tr>
 <tr><td><kbd>g</kbd><kbd>"</kbd> or <code>:dup</code></td><td>A copy of the current sheet.</td></tr>
-</table>
+</table></div>
 <p>Commands that read the whole data (search, select all, <kbd>|</kbd>, <kbd>,</kbd>, <kbd>"</kbd>, <kbd>I</kbd>, <kbd>W</kbd>, <code>:pivot</code>, <code>:save</code>) run in the background; the status line shows <code>working: …</code> and you can keep moving.</p>
 
 <h2 id="change">Changing data</h2>
 <p>vdrs never modifies your files; changes live in the sheet until you save.</p>
-<table>
+<div class="scroll"><table>
 <tr><th>Command</th><th>Action</th></tr>
 <tr><td><code>:derive total = qty * price</code></td><td>Add a computed column. The expression is SQL (<code>CASE WHEN …</code>, <code>upper(name)</code>, <code>price * 1.2</code>, …).</td></tr>
 <tr><td><code>:setcol 0</code></td><td>Set the current column to a value on the selected rows. The value must fit the column's type.</td></tr>
 <tr><td><code>:uniform</code></td><td>Hide columns that hold a single value.</td></tr>
 <tr><td><kbd>U</kbd>, <kbd>R</kbd></td><td>Undo, redo. Covers column changes, types, sorting, filtering, selection, <code>:derive</code> and <code>:setcol</code> (up to 100 steps per sheet).</td></tr>
-</table>
+</table></div>
 
 <h2 id="save">Saving &amp; export</h2>
-<table>
+<div class="scroll"><table>
 <tr><th>Command</th><th>Action</th></tr>
 <tr><td><code>:save out.parquet</code> (<code>:w</code>)</td><td>Write every row of the current view (filter, sort, types, visible columns). The extension picks the format: <code>.csv</code>, <code>.tsv</code>, <code>.parquet</code>, <code>.arrow</code>/<code>.ipc</code>, <code>.jsonl</code>, <code>.json</code>. An existing file is overwritten; an unknown extension is refused and leaves the file alone.</td></tr>
 <tr><td><code>:export view.py</code>, <code>:export view.sql</code></td><td>Write a script that rebuilds the current view from the source files: Python with Polars, or SQL for DuckDB. Derived sheets (frequency, copy, selected rows, <code>:join</code>, <code>:sql</code>, <code>:pivot</code>, <kbd>W</kbd>, <code>:unpivot</code>, describe, row diff) are rebuilt step by step from the sheet they came from, as it was when you made them.</td></tr>
-</table>
+</table></div>
 <p>For example, filtering <code>region</code> on <code>^n</code>, pressing <kbd>F</kbd> on <code>qty</code> and running <code>:export qty.py</code> writes:</p>
 <pre><code>import polars as pl
 
@@ -240,7 +274,7 @@ print(t3.collect())</code></pre>
 <p>Arguments are split on spaces; use quotes (<code>"a b"</code> or <code>'a b'</code>) or a backslash for spaces inside one argument.</p>
 
 <h2 id="ex">Ex commands</h2>
-<table id="extable">
+<div class="scroll"><table id="extable">
 <tr><th>Command</th><th>Action</th></tr>
 <tr data-ex="q"><td><code>:q</code>, <code>:quit</code></td><td>Close the current sheet (quit on the last).</td></tr>
 <tr data-ex="qa"><td><code>:qa</code>, <code>:quit!</code></td><td>Quit.</td></tr>
@@ -267,11 +301,11 @@ print(t3.collect())</code></pre>
 <tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
 <tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view.</td></tr>
 <tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>
-</table>
+</table></div>
 
 <h2 id="keys">All keys</h2>
 <p><input id="keyfilter" type="search" placeholder="Filter keys…" aria-label="Filter the key table"></p>
-<table id="keytable">
+<div class="scroll"><table id="keytable">
 <tr><th>Keys</th><th>Action</th></tr>
 <tr data-keys="j"><td><kbd>j</kbd></td><td>down</td></tr>
 <tr data-keys="k"><td><kbd>k</kbd></td><td>up</td></tr>
@@ -332,7 +366,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="q"><td><kbd>q</kbd></td><td>close sheet (quit on the last)</td></tr>
 <tr data-keys="&lt;C-c&gt;"><td><kbd>Ctrl-c</kbd></td><td>quit</td></tr>
 <tr data-keys="&lt;C-l&gt;"><td><kbd>Ctrl-l</kbd></td><td>redraw</td></tr>
-</table>
+</table></div>
 
 <h2 id="lua">Lua configuration</h2>
 <p>vdrs runs <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (usually <code>~/.config/vdrs/init.lua</code>) at startup. It is optional. Saving the file while vdrs runs reloads it within about two seconds. If it has an error, everything registered before the error still applies and the error is shown in the status line.</p>
@@ -429,6 +463,31 @@ end, "list columns")</code></pre>
 </main>
 </div>
 <script>
+// Contents: open on desktop, collapsed on phones.
+const narrow = matchMedia("(max-width: 52rem)");
+const toc = document.getElementById("toc");
+const syncToc = () => { toc.open = !narrow.matches; };
+syncToc();
+narrow.addEventListener("change", syncToc);
+toc.addEventListener("click", e => { if (e.target.tagName === "A" && narrow.matches) toc.open = false; });
+
+// Mark the section being read in the contents.
+const links = new Map([...toc.querySelectorAll("a")].map(a => [a.hash.slice(1), a]));
+const heads = [...links.keys()].map(id => document.getElementById(id));
+const markSection = () => {
+  const de = document.documentElement;
+  // The last sections can't scroll up to the line; at the bottom trust the link clicked.
+  const atEnd = scrollY + innerHeight >= de.scrollHeight - 2;
+  const clicked = heads.find(h => h.id === location.hash.slice(1));
+  const current = !atEnd ? heads.findLast(h => h.getBoundingClientRect().top <= 80)
+    : clicked?.getBoundingClientRect().top >= 0 ? clicked : heads.at(-1);
+  for (const a of links.values()) a.removeAttribute("aria-current");
+  if (current) links.get(current.id).setAttribute("aria-current", "true");
+};
+addEventListener("scroll", markSection, { passive: true });
+addEventListener("hashchange", markSection);
+markSection();
+
 // Filter the key table as you type (matches keys and descriptions).
 const box = document.getElementById("keyfilter");
 const rows = [...document.querySelectorAll("#keytable tr[data-keys]")];
