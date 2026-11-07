@@ -247,7 +247,10 @@ impl App {
         }
     }
 
-    async fn run<B: ratatui::backend::Backend>(mut self, term: &mut Terminal<B>) -> Result<()> {
+    async fn run<B: ratatui::backend::Backend>(mut self, term: &mut Terminal<B>) -> Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         self.spawn_materialize();
         let mut events = EventStream::new();
         let mut tick = tokio::time::interval(Duration::from_millis(16));
@@ -844,7 +847,10 @@ impl App {
             .cloned()
     }
 
-    fn draw<B: ratatui::backend::Backend>(&mut self, term: &mut Terminal<B>) -> Result<()> {
+    fn draw<B: ratatui::backend::Backend>(&mut self, term: &mut Terminal<B>) -> Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         let s = self.sheets.active();
         let working = s.state.loaded_rev != s.revision || s.state.counting || !self.busy.is_empty();
         self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
