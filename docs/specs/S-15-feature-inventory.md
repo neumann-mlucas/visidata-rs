@@ -294,18 +294,18 @@ Enumerated here so no one re-asks:
 
 - **No Python-expression eval** (direction §9.5): `qty*amt`, `curcol.casefold()`, `date.isocalendar()[2]`, `curcol.strip()`, `str.lower(curcol)`. Users write Lua instead; VisiData golden corpus tests encoding Python expressions are UNTESTABLE in S-14.
 - **No options system** (direction §1): `set-option`, `unset-option`, 4-level default→global→class→instance fallback. User overrides go in `init.lua`.
-- **No clipboard** (`copy-row`, `copy-cells`, `copy-selected`, `paste-after`, `setcol-clipboard`): we're a non-mutable projection engine; "copy to new sheet" is `dup-selected` + sheet-switcher instead.
-- **No interactive new sheet** (`open-new`, `add-row`): data sheets are read from sources, not authored in-place. Users compose transforms, not rows.
 - **No nested-field drilldown** (`unfurl-col`, `expand-col`, `expand-col-depth`): JSON records load with nested fields as JSON strings; users project via `:derive` (Polars SQL expressions).
 - **No `.vd` / `.vdj` runtime** (direction §9.5): the cmdlog format exists only in the S-14 test harness, not the `vdrs` binary.
 - **No VisiData state file compat** (direction §9.5): no `~/.visidata`, no `.visidatarc` import.
-- **No macros** (`macro-param-*`, record/playback): `.` repeat covers the common case; record/replay is clipboard-shaped, see above.
 - **No save-all** (`g^S`) and no `^S` binding: saving is the `:save <path.ext>` ex-command only.
 - **No plot column**, **no LLM-on-cells**, **no live chart previews**.
 
 ### 10.1 Not yet supported (planned or open)
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
+
+- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Spec S-18 drafts when work starts; sketch in `specs/README.md`.
+- **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Spec S-19.
 
 - **Rest of S-10**: `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).

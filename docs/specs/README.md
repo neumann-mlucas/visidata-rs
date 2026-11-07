@@ -29,5 +29,7 @@ File naming: `S-NN-slug.md`.
 |---|---|---|---|
 | S-16 | Rest of the Lua data/app API (`vd.frame`, pop sheet, sandbox) + `since`/`deprecate` registry | 3 | first plugin that needs data access from Lua (`vd.toast`, `vd.sheet`, function bindings, `vd.push_sheet` shipped 2026-11-05) |
 | S-17 | Pivot setup sheet (beyond the `:pivot` live preview shipped 2026-11-05) | 2 | the preview proves too little |
+| S-18 | Cell/row editing + clipboard (Day-1 must-have, deferred 2026-11-07) | — | work starts. Sketch: edits are an overlay keyed by row id (`rid`) on top of the lazy plan, applied as the last plan step so sort/filter/undo/`:export` keep working; `:save` writes plan + overlay; clipboard = in-app register (vim-style `y`/`p`) plus optional system clipboard. Unlocks the clipboard/new-row UNTESTABLE corpus bucket. |
+| S-19 | Macros (deferred 2026-11-07) | — | work starts. Sketch: record a resolved `Vec<Action>` (same capture as `.` repeat) and bind it as a Lua function via `vd.bind`; persist as Lua in `init.lua`-adjacent file, not as `.vdj`. |
 
 Writing order constraint: don't draft S-05+ until the matching phase actually starts — reality edits specs for free when written late. S-13/S-14 drafted post-Phase 0 to pin Tier 1 scope + test strategy. S-15 drafted post-Phase 1.5 as the authoritative "what's shipped" reference — update it when a user-visible surface changes.
