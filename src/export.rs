@@ -670,7 +670,7 @@ fn join_code(
             let on: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
             let h = if how == "merge" { "full" } else { how };
             let mut e = format!(
-                "{p}.join({r}, on=[{}], how={}, coalesce=True)",
+                "{p}.join({r}, on=[{}], how={}, coalesce=True, maintain_order=\"left_right\")",
                 on.join(", "),
                 py_str(h)
             );

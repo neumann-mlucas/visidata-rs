@@ -1331,7 +1331,10 @@ impl Sheet {
                 other => return Err(format!("unknown join type: {other}")),
             };
             let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-            let args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
+            let mut args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
+            // Left rows in their order, as VisiData; pivots of the join then
+            // order their columns the same way every run (and in the export).
+            args.maintain_order = MaintainOrderJoin::LeftRight;
             let mut joined = l.join(right, on.clone(), on, args);
             if how == "merge" {
                 // Polars suffixes colliding right columns `_right`; fold them in.
