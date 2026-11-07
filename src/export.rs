@@ -237,7 +237,7 @@ impl Script {
                     }
                     SourceKind::Parquet => format!("SELECT * FROM read_parquet({p})"),
                     SourceKind::Jsonl | SourceKind::Json => {
-                        format!("SELECT * FROM read_json_auto({p})")
+                        format!("SELECT * FROM read_json_auto({p}{})", sql_json_args(s)?)
                     }
                     SourceKind::Sqlite => {
                         format!("SELECT * FROM sqlite_scan({p}, {})", q_str(&table))
@@ -1039,6 +1039,39 @@ fn sql_csv_args(s: &Sheet) -> Result<String, String> {
         args += &format!(", types = {{{}}}", dates.join(", "));
     }
     Ok(args)
+}
+
+/// `read_json_auto` arguments: the types vdrs read, or DuckDB turns ISO-looking
+/// strings into timestamps that Polars keeps as text.
+fn sql_json_args(s: &Sheet) -> Result<String, String> {
+    use DataType::*;
+    let schema = csv_columns(s)?;
+    let scalar = |d: &DataType| {
+        matches!(
+            d,
+            Int8 | Int16
+                | Int32
+                | Int64
+                | UInt8
+                | UInt16
+                | UInt32
+                | UInt64
+                | Float32
+                | Float64
+                | Boolean
+                | String
+                | Null
+        )
+    };
+    if !schema.iter().all(|(_, d)| scalar(d)) {
+        // ponytail: nested JSON keeps DuckDB's sniffing; spell out STRUCT/LIST types if it drifts
+        return Ok(std::string::String::new());
+    }
+    let cols: Vec<std::string::String> = schema
+        .iter()
+        .map(|(n, d)| format!("{}: '{}'", q_str(n), sql_dtype(d)))
+        .collect();
+    Ok(format!(", columns = {{{}}}", cols.join(", ")))
 }
 
 /// Python twin of `sheet::lenient_date`.
