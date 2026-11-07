@@ -61,6 +61,16 @@ impl<'a> SheetWidget<'a> {
 
 impl<'a> Widget for SheetWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        // `paint_run` clips at the buffer's edge; a buffer of exactly `area`
+        // keeps a partly visible last column off a neighbour (panel borders).
+        let mut own = Buffer::empty(area.intersection(buf.area));
+        self.draw(own.area, &mut own);
+        buf.merge(&own);
+    }
+}
+
+impl SheetWidget<'_> {
+    fn draw(self, area: Rect, buf: &mut Buffer) {
         let th = self.theme;
         let Some(df) = self.sheet.window.as_ref() else {
             let msg = "loading…";
