@@ -1,4 +1,4 @@
- …t.csv&tests/golden/join-append/right.csv (append)  csv · sheets 2 · sort id id 1/6  row 1/8 · 12%
+ …s/golden/join-append/input.csv&right.csv (append)  csv · sheets 2 · sort id id 1/6  row 1/8 · 12%
  id ▲ name str  grp str       amt f day date   city str
     1 ann       a               1.5 2024-01-02 ·
     1 ·         ·               1.5 ·          oslo

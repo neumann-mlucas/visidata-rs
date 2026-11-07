@@ -1,4 +1,4 @@
- …t.csv&tests/golden/join-concat/right.csv (concat)  csv · sheets 2 · hidden  id 1/5  row 1/7 · 14%
+ …s/golden/join-concat/input.csv&right.csv (concat)  csv · sheets 2 · hidden  id 1/5  row 1/7 · 14%
  id i name str  grp str       amt f day date
     1 ann       a               1.5 2024-01-02
     2 bob       b              2.25 2024-01-03

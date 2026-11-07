@@ -1,4 +1,4 @@
- …put.csv&tests/golden/join-inner/right.csv (inner)  csv · sheets 2 · sort id id 1/7  row 1/2 · 50%
+ …sts/golden/join-inner/input.csv&right.csv (inner)  csv · sheets 2 · sort id id 1/7  row 1/2 · 50%
  id ▲ name str  grp str   amt f day date   city str   amt_right f
     1 ann       a           1.5 2024-01-02 oslo               1.5
     2 bob       b          2.25 2024-01-03 rome               9.0

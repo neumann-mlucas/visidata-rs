@@ -1,4 +1,4 @@
- …lls/input.csv ↔ tests/golden/diff-nulls/right.csv  csv · sheets 2 · sort id id 1/6  row 1/5 · 20%
+ …d): tests/golden/diff-nulls/input.csv ↔ right.csv  csv · sheets 2 · sort id id 1/6  row 1/5 · 20%
  id ▲ v str   w i v_right str   w_right i __diff str
     1 ·         1 z                     1 changed
     2 x         1 ·                     1 changed

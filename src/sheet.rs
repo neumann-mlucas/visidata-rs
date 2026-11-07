@@ -412,6 +412,12 @@ const CSV_MEMORY_BYTES: u64 = 1 << 30;
 /// filtering and casts don't change it, so selections key on it.
 pub const ROW_ID: &str = "__vdrs_rid";
 
+/// `data/x.csv` → `x.csv`, for the other side in a join/diff title: the
+/// title has little room and the path was just typed.
+fn file_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
 impl Sheet {
     pub fn from_source(id: SheetId, loaded: LoadedSource) -> Self {
         let name = loaded.display_name.clone();
@@ -885,7 +891,7 @@ impl Sheet {
         .map_err(|e| e.to_string())?;
         let plan = df.clone().lazy();
         let other_name = other.display_name.clone();
-        let name = format!("schemadiff: {} ↔ {}", parent.name, other_name);
+        let name = format!("schemadiff: {} ↔ {}", parent.name, file_name(&other_name));
         let origin = Origin::Diff {
             left: parent.id,
             right_name: other_name,
@@ -961,7 +967,7 @@ impl Sheet {
                 "rowdiff({}): {} ↔ {}",
                 keys.join(","),
                 parent.name,
-                other_name
+                file_name(&other_name)
             ),
             plan,
             Origin::Diff {
@@ -1364,7 +1370,7 @@ impl Sheet {
         let mut joined = Sheet::child(
             left,
             id,
-            format!("{}&{} ({how})", left.name, right_name),
+            format!("{}&{} ({how})", left.name, file_name(right_name)),
             plan,
             Origin::Join {
                 left: left.id,
