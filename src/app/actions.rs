@@ -242,6 +242,28 @@ impl App {
             Action::StartSelectInput => self.start_input(Prompt::Select),
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
             Action::DupSelected => self.open_dup_selected(),
+            Action::DedupeRows => {
+                let id = self.sheets.alloc_id();
+                let parent = self.sheets.active().clone();
+                self.spawn_job("dedupe", move || {
+                    Ok(JobDone::PushSheet(Box::new(Sheet::dedupe_from(
+                        &parent, id,
+                    )?)))
+                });
+            }
+            Action::SelectColDuplicates => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let sheet = self.sheets.active().clone();
+                self.spawn_job("select", move || {
+                    let rids = sheet
+                        .rids_col_duplicates(&column)
+                        .map_err(|e| e.to_string())?;
+                    let note = format!("selected {} repeated {column} values", rids.len());
+                    Ok(JobDone::Select { rids, note })
+                });
+            }
             Action::TogglePlanPanel => {
                 self.plan_mode = match self.plan_mode {
                     PlanMode::Off => PlanMode::Normal,

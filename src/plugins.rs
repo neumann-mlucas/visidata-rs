@@ -819,6 +819,8 @@ fn action_from_name(s: &str) -> Option<Action> {
         "dup_selected" => DupSelected,
         "dup_sheet" => DupSheet,
         "select_equal_cell" => SelectEqualCell,
+        "select_col_duplicates" => SelectColDuplicates,
+        "dedupe_rows" => DedupeRows,
         "hide_uniform" => HideUniform,
         "describe" => Describe,
         "pivot_current" => PivotCurrent,

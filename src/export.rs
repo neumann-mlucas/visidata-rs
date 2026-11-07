@@ -13,8 +13,8 @@ use polars::prelude::DataType;
 
 use crate::reader::SourceKind;
 use crate::sheet::{
-    DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, Lineage, Origin, PlanStep,
-    Sheet, SortOrder, freq_stat_names,
+    DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH, Lineage,
+    Origin, PlanStep, Sheet, SortOrder, freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -270,24 +270,31 @@ impl Script {
             Derivation::Copy if py => p,
             Derivation::Copy => format!("SELECT * FROM {p}"),
             Derivation::Freq { column } if py => {
-                let (n, pct) = freq_stat_names(column);
+                let (n, pct, hist) = freq_stat_names(column);
                 format!(
                     "{p}.group_by({c}).agg(pl.len().alias({n}))\
                      .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
+                     .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist}))\
                      .sort([{n}, {c}], descending=[True, False], nulls_last=True)",
                     c = py_str(column),
                     n = py_str(n),
-                    pct = py_str(pct)
+                    pct = py_str(pct),
+                    hist = py_str(hist),
+                    bar = py_str(&"■".repeat(HISTOGRAM_WIDTH)),
+                    w = HISTOGRAM_WIDTH,
                 )
             }
             Derivation::Freq { column } => {
-                let (n, pct) = freq_stat_names(column);
+                let (n, pct, hist) = freq_stat_names(column);
                 format!(
-                    "SELECT {c}, count(*) AS {n}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct}\n\
+                    "SELECT {c}, count(*) AS {n}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct},\n\
+                     repeat('■', (count(*) * {w} // max(count(*)) OVER ())::INTEGER) AS {hist}\n\
                      FROM {p} GROUP BY {c} ORDER BY {n} DESC, {c} ASC NULLS LAST",
                     c = q_ident(column),
                     n = q_ident(n),
-                    pct = q_ident(pct)
+                    pct = q_ident(pct),
+                    hist = q_ident(hist),
+                    w = HISTOGRAM_WIDTH,
                 )
             }
             Derivation::Rids(rids) => {
@@ -636,6 +643,26 @@ fn join_code(
         ),
         ("append", false) => format!(
             "SELECT *, {} AS origin_sheet FROM {p}\nUNION ALL BY NAME\nSELECT *, {} AS origin_sheet FROM {r}",
+            q_str(&left.name),
+            q_str(&right.name)
+        ),
+        ("concat", true) => {
+            let by_pos: Vec<String> = rn
+                .iter()
+                .zip(&ln)
+                .map(|(r, l)| format!("pl.col({}).alias({})", py_str(r), py_str(l)))
+                .collect();
+            format!(
+                "pl.concat([{p}.with_columns(pl.lit({}).alias(\"origin_sheet\")), \
+                 {r}.select([{}]).with_columns(pl.lit({}).alias(\"origin_sheet\"))], how=\"vertical_relaxed\")",
+                py_str(&left.name),
+                by_pos.join(", "),
+                py_str(&right.name)
+            )
+        }
+        // SQL's UNION ALL already pairs columns by position, names from the left.
+        ("concat", false) => format!(
+            "SELECT *, {} AS origin_sheet FROM {p}\nUNION ALL\nSELECT *, {} AS origin_sheet FROM {r}",
             q_str(&left.name),
             q_str(&right.name)
         ),

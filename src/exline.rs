@@ -168,17 +168,18 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }])
         }
         "join" => {
-            const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|append|merge]";
+            const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|merge] | :join <file|sheet> [append|concat]";
             let a = split_args(rest, USAGE)?;
             let (source, keys, how) = match a.as_slice() {
                 [s, k, h] => (s.clone(), comma_list(k), h.clone()),
-                [s, h] if h == "append" => (s.clone(), Vec::new(), h.clone()),
+                [s, h] if h == "append" || h == "concat" => (s.clone(), Vec::new(), h.clone()),
                 [s, k] => (s.clone(), comma_list(k), "inner".to_string()),
                 [s] => (s.clone(), Vec::new(), "append".to_string()), // append needs no keys
                 _ => return Err(ExError::Usage(USAGE)),
             };
-            if !matches!(how.as_str(), "inner" | "left" | "full" | "append" | "merge")
-                || (keys.is_empty() && how != "append")
+            let keyless = matches!(how.as_str(), "append" | "concat");
+            if !matches!(how.as_str(), "inner" | "left" | "full" | "merge") && !keyless
+                || (keys.is_empty() && !keyless)
             {
                 return Err(ExError::Usage(USAGE));
             }

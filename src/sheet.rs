@@ -458,11 +458,10 @@ impl Sheet {
     }
 
     /// Build a frequency-table sheet grouping by `col_name` with counts, desc.
-    /// `percent` column added alongside `count` to match VisiData's freq output
-    /// (count / total * 100, 2-decimal). No `histogram` column — users who need
-    /// one can hide-col the extras.
+    /// `percent` (count / total * 100, 2 decimals) and `histogram` (a `■` bar)
+    /// follow `count`, as in VisiData's freq output.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
-        let (count, percent) = freq_stat_names(col_name);
+        let (count, percent, histogram) = freq_stat_names(col_name);
         let plan = parent
             .view_plan()
             .group_by([col(col_name)])
@@ -471,6 +470,10 @@ impl Sheet {
                 / col(count).cast(DataType::Float64).sum())
             .round(2, RoundMode::HalfAwayFromZero)
             .alias(percent)])
+            .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
+                .str()
+                .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
+                .alias(histogram)])
             // Value breaks count ties: row order must repeat across collects,
             // since row ids (selection, freq dive) are positions in this plan.
             .sort(
@@ -548,16 +551,60 @@ impl Sheet {
         if parent.view.selected.is_empty() {
             return Err("no rows selected".into());
         }
-        // Selected row ids, in the parent's current view order and shape.
+        let name = format!(
+            "selected ({} rows): {}",
+            parent.view.selected.len(),
+            parent.name
+        );
         let df = parent
             .view_plan_rid(true)
             .collect()
             .map_err(|e| e.to_string())?;
-        let rids = rid_values(&df).map_err(|e| e.to_string())?;
-        let bc: BooleanChunked = rids
+        Self::rows_from(parent, id, df, &parent.view.selected, name)
+    }
+
+    /// VisiData `dedupe-rows`: the first row of each key (each distinct row
+    /// when there are no key columns), in view order.
+    pub fn dedupe_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
+        let df = parent
+            .view_plan_rid(true)
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let mut by: Vec<String> = parent
+            .view
+            .keys
             .iter()
-            .map(|r| parent.view.selected.contains(r))
+            .filter(|k| df.column(k).is_ok())
+            .cloned()
             .collect();
+        if by.is_empty() {
+            by = df
+                .get_column_names()
+                .into_iter()
+                .filter(|n| n.as_str() != ROW_ID)
+                .map(|n| n.to_string())
+                .collect();
+        }
+        let firsts = df
+            .unique_stable(Some(&by), UniqueKeepStrategy::First, None)
+            .and_then(|d| rid_values(&d))
+            .map_err(|e| e.to_string())?;
+        let keep: std::collections::BTreeSet<u64> = firsts.into_iter().collect();
+        let name = format!("dedupe ({} rows): {}", keep.len(), parent.name);
+        Self::rows_from(parent, id, df, &keep, name)
+    }
+
+    /// Rows of `df` (the parent's view with row ids) whose id is in `keep`,
+    /// as a sheet rebuilt by row id.
+    fn rows_from(
+        parent: &Sheet,
+        id: SheetId,
+        df: DataFrame,
+        keep: &std::collections::BTreeSet<u64>,
+        name: String,
+    ) -> Result<Self, String> {
+        let rids = rid_values(&df).map_err(|e| e.to_string())?;
+        let bc: BooleanChunked = rids.iter().map(|r| keep.contains(r)).collect();
         let out = df
             .filter(&bc)
             .and_then(|d| d.drop(ROW_ID))
@@ -566,16 +613,12 @@ impl Sheet {
         Ok(Sheet::child(
             parent,
             id,
-            format!(
-                "selected ({} rows): {}",
-                parent.view.selected.len(),
-                parent.name
-            ),
+            name,
             plan,
             Origin::Selected { parent: parent.id },
         )
         .with_window(out)
-        .derived(parent, Derivation::Rids((*parent.view.selected).clone())))
+        .derived(parent, Derivation::Rids(keep.clone())))
     }
 
     /// Open a tail-mode sheet; `refresh_tail` picks up what the file gains.
@@ -1233,7 +1276,9 @@ impl Sheet {
 
     /// `:join`: `left`'s view joined with `right` on same-named `keys`.
     /// `how`: inner | left | full | merge (full, right's non-null values win) |
-    /// append (stack rows, union columns, tag each with `origin_sheet`).
+    /// append (stack rows, union columns by name, tag each with a hidden
+    /// `origin_sheet`) | concat (stack rows, columns by position, `left`'s names,
+    /// same hidden `origin_sheet`).
     pub fn join_from(
         left: &Sheet,
         id: SheetId,
@@ -1243,16 +1288,41 @@ impl Sheet {
     ) -> Result<Self, String> {
         let l = left.view_plan();
         let (right, right_name) = (right_sheet.view_plan(), right_sheet.name.as_str());
+        let tag =
+            |p: LazyFrame, name: &str| p.with_column(lit(name.to_string()).alias("origin_sheet"));
         let plan = if how == "append" {
-            let tag = |p: LazyFrame, name: &str| {
-                p.with_column(lit(name.to_string()).alias("origin_sheet"))
-            };
             let args = UnionArgs {
                 to_supertypes: true,
                 diagonal: true,
                 ..Default::default()
             };
             concat([tag(l, &left.name), tag(right, right_name)], args).map_err(|e| e.to_string())?
+        } else if how == "concat" {
+            let names = |p: &LazyFrame| -> Result<Vec<String>, String> {
+                let schema = p.clone().collect_schema().map_err(|e| e.to_string())?;
+                Ok(schema.iter_names().map(|n| n.to_string()).collect())
+            };
+            let (ln, rn) = (names(&l)?, names(&right)?);
+            if ln.len() != rn.len() {
+                return Err(format!(
+                    "concat: {} has {} columns, {right_name} has {}",
+                    left.name,
+                    ln.len(),
+                    rn.len()
+                ));
+            }
+            let renamed = right.select(
+                rn.iter()
+                    .zip(&ln)
+                    .map(|(r, l)| col(r.as_str()).alias(l.as_str()))
+                    .collect::<Vec<_>>(),
+            );
+            let args = UnionArgs {
+                to_supertypes: true,
+                ..Default::default()
+            };
+            concat([tag(l, &left.name), tag(renamed, right_name)], args)
+                .map_err(|e| e.to_string())?
         } else {
             let jt = match how {
                 "inner" => JoinType::Inner,
@@ -1288,7 +1358,7 @@ impl Sheet {
             }
             joined
         };
-        Ok(Sheet::child(
+        let mut joined = Sheet::child(
             left,
             id,
             format!("{}&{} ({how})", left.name, right_name),
@@ -1305,7 +1375,12 @@ impl Sheet {
                 keys: keys.to_vec(),
                 how: how.into(),
             },
-        ))
+        );
+        if how == "append" || how == "concat" {
+            // VisiData's `origin_sheet` starts at width 0; `g-` shows it.
+            joined.view.hidden.insert("origin_sheet".into());
+        }
+        Ok(joined)
     }
 
     /// Build an unpivot (melt) sheet. `on` = columns to unpivot; `index` = keep columns.
@@ -1600,6 +1675,26 @@ impl Sheet {
         rid_values(&df)
     }
 
+    /// Row ids of view rows whose `column` repeats a value seen above (view
+    /// order; nulls repeat each other). VisiData `select-col-duplicates`.
+    pub fn rids_col_duplicates(&self, column: &str) -> PolarsResult<Vec<u64>> {
+        let df = self
+            .view_plan_rid(true)
+            .select([col(ROW_ID), col(column)])
+            .collect()?;
+        let firsts: std::collections::HashSet<u64> = rid_values(&df.unique_stable(
+            Some(&[column.to_string()]),
+            UniqueKeepStrategy::First,
+            None,
+        )?)?
+        .into_iter()
+        .collect();
+        Ok(rid_values(&df)?
+            .into_iter()
+            .filter(|r| !firsts.contains(r))
+            .collect())
+    }
+
     /// Row ids of every row in the (filtered) view.
     pub fn view_rids(&self) -> PolarsResult<Vec<u64>> {
         rid_values(&self.filtered_plan(true).select([col(ROW_ID)]).collect()?)
@@ -1753,13 +1848,19 @@ pub fn pivot_df(
         .collect()
 }
 
-pub fn freq_stat_names(column: &str) -> (&'static str, &'static str) {
-    if column == "count" || column == "percent" {
-        ("freq_count", "freq_percent")
+/// Names of a freq sheet's count, percent and histogram columns; prefixed
+/// when the grouped column already uses one.
+pub fn freq_stat_names(column: &str) -> (&'static str, &'static str, &'static str) {
+    if ["count", "percent", "histogram"].contains(&column) {
+        ("freq_count", "freq_percent", "freq_histogram")
     } else {
-        ("count", "percent")
+        ("count", "percent", "histogram")
     }
 }
+
+/// Bar length of the most frequent value (VisiData: twice its default column
+/// width, less 2); others scale down by count, rounding down.
+pub const HISTOGRAM_WIDTH: usize = 38;
 
 /// A value as `cast(String)` prints it: the text `values_predicate` compares.
 /// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
@@ -1955,7 +2056,7 @@ mod tests {
         let parent = Sheet::from_source(0, loaded);
         let freq = Sheet::freq_from(&parent, 1, "color");
         let df = freq.plan.clone().collect().unwrap();
-        assert_eq!(df.width(), 3); // color + count + percent
+        assert_eq!(df.width(), 4); // color + count + percent + histogram
         assert_eq!(df.height(), 3); // red/blue/green
         let counts = df.column("count").unwrap();
         let first: i64 = counts.get(0).unwrap().try_extract().unwrap();
@@ -1963,6 +2064,16 @@ mod tests {
         let pct = df.column("percent").unwrap();
         let first_pct: f64 = pct.get(0).unwrap().try_extract().unwrap();
         assert!((first_pct - 50.0).abs() < 0.01); // 3/6 = 50%
+        // bars scale by count, rounding down: red 3 → 38, blue 2 → 25, green 1 → 12
+        let bars: Vec<usize> = df
+            .column("histogram")
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .map(|b| b.unwrap().chars().count())
+            .collect();
+        assert_eq!(bars, [38, 25, 12]);
     }
 
     #[test]
@@ -2159,7 +2270,10 @@ mod tests {
         // freq of a freq's `count` column: stat columns step aside
         let ff = Sheet::freq_from(&Sheet::freq_from(&s, 3, "name"), 4, "count");
         let names = ff.plan.collect().unwrap().get_column_names_owned();
-        assert_eq!(names, ["count", "freq_count", "freq_percent"]);
+        assert_eq!(
+            names,
+            ["count", "freq_count", "freq_percent", "freq_histogram"]
+        );
     }
 
     #[test]

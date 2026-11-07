@@ -93,6 +93,10 @@ pub enum Action {
     StartSelectInput, // `|` → prompt for regex
     SelectEqualCell,  // `,` → rows whose current column equals the cursor cell
     DupSelected,      // `"` → new sheet with selected rows only
+    /// Rows whose current-column value already occurred above, in view order.
+    SelectColDuplicates,
+    /// New sheet keeping each key's first row (all columns when no keys).
+    DedupeRows,
 
     // ex-line
     StartExInput,
@@ -194,6 +198,7 @@ impl Action {
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
                 | Action::SelectEqualCell
+                | Action::SelectColDuplicates
                 | Action::HideUniform
         )
     }
@@ -239,11 +244,12 @@ impl Action {
             | UnselectAll
             | SelectByRegex { .. }
             | SelectEqualCell
+            | SelectColDuplicates
             | DupSelected => true,
             ExCommand(_) | Lua(_) | Join { .. } | Derive { .. } | Sql { .. } | SetCol { .. } => {
                 true
             }
-            HideUniform | DupSheet | Describe | PivotCurrent => true,
+            HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
         }
     }
 }

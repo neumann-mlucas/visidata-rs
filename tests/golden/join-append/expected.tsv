@@ -1,9 +1,9 @@
-id	name	grp	amt	day	origin_sheet	city
-1	ann	a	1.5	2024-01-02	tests/golden/join-append/input.csv	
-1			1.5		tests/golden/join-append/right.csv	oslo
-2	bob	b	2.25	2024-01-03	tests/golden/join-append/input.csv	
-2			9.0		tests/golden/join-append/right.csv	rome
-3	cid	a		2024-01-04	tests/golden/join-append/input.csv	
-4	dee	c	4.0		tests/golden/join-append/input.csv	
-5	eve	b	1234567.89	2024-01-06	tests/golden/join-append/input.csv	
-6			1.0		tests/golden/join-append/right.csv	kyiv
+id	name	grp	amt	day	city
+1	ann	a	1.5	2024-01-02	
+1			1.5		oslo
+2	bob	b	2.25	2024-01-03	
+2			9.0		rome
+3	cid	a		2024-01-04	
+4	dee	c	4.0		
+5	eve	b	1234567.89	2024-01-06	
+6			1.0		kyiv
