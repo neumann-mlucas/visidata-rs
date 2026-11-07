@@ -60,6 +60,10 @@ fn main() -> ExitCode {
     // Load Lua plugins before the initial read so `vd.register_loader` rules
     // can intercept a user-supplied extension. Plugin-load failure is reported
     // but non-fatal — users without an `init.lua` are the common case.
+    if !cli.headless {
+        // before load: a file appearing later would count as an edit and reload
+        plugins::ensure_default_config();
+    }
     let (plugins, plugin_warning) = plugins::Plugins::load();
     let plugins = Some(plugins);
 
@@ -99,7 +103,6 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    plugins::ensure_default_config(); // all comments: nothing to reload
     let result = rt.block_on(app::run(sheet, plugins, plugin_warning));
     rt.shutdown_background(); // or quitting waits for running sorts and loads
     match result {
