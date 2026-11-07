@@ -68,11 +68,7 @@ fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, Open
     let mut stmt = conn
         .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
-    let headers: Vec<String> = stmt
-        .column_names()
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
+    let headers: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let width = headers.len();
     let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::new()).collect();
     let mut rows = stmt
