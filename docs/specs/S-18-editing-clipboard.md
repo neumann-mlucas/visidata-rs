@@ -7,7 +7,8 @@ was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` a
 
 Direction note: `tests/vd_replay.rs` lists clipboard/add-row/delete-row as untestable because "we're a
 non-mutable projection engine". That stance changes here: the file stays read-only, the *sheet* becomes
-editable. Update that comment and `direction.md` in phase C.
+editable and gets a clipboard. Update that comment and `direction.md` in phase A, the first phase
+that crosses it.
 
 ## 1. What exists today (verified in `src/sheet.rs`)
 
@@ -33,7 +34,7 @@ panel get them with no new machinery:
 | `SetCells { column, dtype, patch }` | `e`, `zp`, `zx`, paste | per-row values; `patch` = rid → value (`Arc<DataFrame>` of `rid, value`) |
 | `SetCol` (exists) | `:setcol`, `ge`, `gzp` | one value on many rows |
 | `DeleteRows { rids }` | `d gd x gx` | filter out `rids` |
-| `AddRows { rows }` | `a ga p P`, paste rows | append rows (`Arc<DataFrame>`, own rids) |
+| `AddRows { rows }` | `a ga p`, paste-before (§5 D1) | append rows (`Arc<DataFrame>`, own rids) |
 
 `patch`/`rows` live behind `Arc` so 100 undo snapshots share them instead of copying (`steps` is cloned
 per snapshot). `SetCells` applies as a left join on rid + `coalesce`-style `when(patched)`; one code
