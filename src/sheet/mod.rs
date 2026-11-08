@@ -60,8 +60,8 @@ pub struct SheetState {
     pub load_tried: bool,
     /// The source read into memory by `memory_plan`: the base edits rebuild on.
     pub memory_base: Option<LazyFrame>,
-    /// Edit steps at the last `:save` (quit guard, S-26 A1).
-    pub saved_edits: usize,
+    /// Edit steps as of the last `:save` (quit guard, S-26 A1).
+    pub saved_edits: Vec<PlanStep>,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent
@@ -724,10 +724,21 @@ impl Sheet {
         Ok(())
     }
 
-    /// Edits since the last `:save` (or open); undoing past a save counts too.
+    /// The sheet's edit steps, in plan order.
+    pub fn edits(&self) -> Vec<PlanStep> {
+        self.state
+            .steps
+            .iter()
+            .filter(|s| s.is_edit())
+            .cloned()
+            .collect()
+    }
+
+    /// Edits not in the last `:save` (or open), plus saved ones undone since.
     pub fn unsaved_edits(&self) -> usize {
-        let edits = self.state.steps.iter().filter(|s| s.is_edit()).count();
-        edits.abs_diff(self.state.saved_edits)
+        let (now, saved) = (self.edits(), &self.state.saved_edits);
+        now.iter().filter(|e| !saved.contains(e)).count()
+            + saved.iter().filter(|e| !now.contains(e)).count()
     }
 
     /// Whether the base plan has `name` (hidden columns count: filter/sort may use them).
@@ -845,8 +856,6 @@ impl Sheet {
             .collect())
     }
 
-    /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
-    /// hidden columns included. Refused unless it is a boolean.
     /// Rows for `y` (the view row at `pos`) or `gy` (`None`: the selected
     /// rows), in view order, every column incl. hidden ones, no row id (S-18 A).
     pub fn copy_rows(&self, pos: Option<u64>) -> PolarsResult<DataFrame> {
@@ -868,6 +877,8 @@ impl Sheet {
         self.predicate(&self.filtered_plan(false), pred).map(|_| ())
     }
 
+    /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
+    /// hidden columns included. Refused unless it is a boolean.
     fn predicate(&self, lf: &LazyFrame, pred: &str) -> Result<Expr, String> {
         let e = polars::sql::sql_expr(pred).map_err(|e| format!("expr: {e}"))?;
         let schema = lf

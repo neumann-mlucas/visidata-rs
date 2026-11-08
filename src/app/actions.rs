@@ -633,7 +633,7 @@ impl App {
     fn save_active(&mut self, path: &str) {
         let s = self.sheets.active();
         let plan = s.view_plan();
-        let edits = s.state.steps.iter().filter(|s| s.is_edit()).count();
+        let edits = s.edits();
         let path = path.to_string();
         self.spawn_job("save", move || {
             let mut df = plan.collect().map_err(|e| format!("collect: {e}"))?;
@@ -972,9 +972,9 @@ impl App {
         }
     }
 
+    /// The question stays in the status line until a key answers it.
     fn ask(&mut self, c: Confirm, question: String) {
-        self.confirm = Some(c);
-        self.toast = Some(format!("{question} y/N"));
+        self.confirm = Some((c, format!("{question} y/N")));
     }
 
     /// Row id under the cursor; None on an empty view.

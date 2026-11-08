@@ -163,6 +163,7 @@ async fn title_shows_what_shapes_the_view_and_always_the_position() {
 async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
     let mut h = Harness::new(3).await;
     h.app.busy.push(Job {
+        id: 0,
         sheet_id: h.app.sheets.active().id,
         label: "x",
         abort: tokio::spawn(async {}).abort_handle(),
@@ -1572,4 +1573,47 @@ async fn quit_guard_y_and_bang_skip() {
     h.keys(":").await;
     h.type_("q!").await;
     assert!(h.app.quit);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn quit_guard_sees_a_new_edit_after_save_and_undo() {
+    let mut h = csv(b"id\n1\n2\n").await;
+    let dir = tempfile::tempdir().unwrap();
+    h.keys(":").await;
+    h.type_("edit 5").await;
+    h.keys(":").await;
+    h.type_(&format!("save {}", dir.path().join("o.csv").display()))
+        .await;
+    h.keys("U j :").await; // undo the saved edit, make another: same count, different edit
+    h.type_("edit 6").await;
+    assert_eq!(h.app.sheets.active().unsaved_edits(), 2);
+    h.keys("q").await;
+    assert!(status(&h).contains("discard 2 edits"), "{}", status(&h));
+    // a job finishing meanwhile doesn't hide the question
+    h.app.toast = Some("saved 2 rows".into());
+    h.app.draw(&mut h.term).unwrap();
+    assert!(status(&h).contains("discard 2 edits"), "{}", status(&h));
+    h.keys("n").await;
+    assert!(!h.app.quit);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_job_result_does_not_take_a_newer_jobs_place() {
+    let mut h = Harness::new(3).await;
+    let id = h.app.sheets.active().id;
+    h.app.busy.push(Job {
+        id: 2,
+        sheet_id: id,
+        label: "search",
+        abort: tokio::spawn(async {}).abort_handle(),
+    });
+    // job 1 (same sheet, same label) was cancelled after its result was sent
+    h.app
+        .on_job_done(1, id, "search", Ok(JobDone::Toast("stale".into())));
+    assert!(h.app.toast.is_none());
+    assert_eq!(h.app.busy.len(), 1);
+    h.app
+        .on_job_done(2, id, "search", Ok(JobDone::Toast("fresh".into())));
+    assert_eq!(h.app.toast.as_deref(), Some("fresh"));
+    assert!(h.app.busy.is_empty());
 }

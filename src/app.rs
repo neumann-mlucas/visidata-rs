@@ -88,6 +88,7 @@ enum MaterializeResult {
     },
     /// A background job finished (see `App::spawn_job`).
     Job {
+        id: u64,
         sheet_id: SheetId,
         label: &'static str,
         result: Result<JobDone, String>,
@@ -140,6 +141,7 @@ pub(crate) enum RegisterKind {
 
 /// A background job in flight.
 struct Job {
+    id: u64,
     sheet_id: SheetId,
     label: &'static str,
     /// Drops the job's result; the blocking work itself can't be interrupted.
@@ -175,10 +177,10 @@ enum JobDone {
         note: String,
     },
     Toast(String),
-    /// `:save` done: the sheet's edits up to `edits` are on disk.
+    /// `:save` done: these edits of the sheet are on disk.
     Saved {
         note: String,
-        edits: usize,
+        edits: Vec<crate::sheet::PlanStep>,
     },
     /// The job's source, read into memory.
     Loaded(DataFrame),
@@ -283,11 +285,13 @@ pub struct App {
     viewport_rows: usize,
     register: Option<Register>,
     /// Asked in the status line: unsaved edits would be lost (S-26 A1).
-    confirm: Option<Confirm>,
+    confirm: Option<(Confirm, String)>,
     /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
     clipboard: crate::clipboard::Clipboard,
     /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
     busy: Vec<Job>,
+    /// Id of the last spawned job.
+    next_job: u64,
     /// When the current stretch of background work started.
     working_since: Option<Instant>,
     /// Spinner frame on screen, so ticks redraw only when it changes.
@@ -327,6 +331,7 @@ impl App {
             confirm: None,
             clipboard,
             busy: Vec::new(),
+            next_job: 0,
             working_since: None,
             drawn_spin: None,
             quit: false,
@@ -408,12 +413,15 @@ impl App {
     ) {
         let sheet_id = self.sheets.active().id;
         let tx = self.materialize_tx.clone();
+        self.next_job += 1;
+        let id = self.next_job;
         let handle = tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(work)
                 .await
                 .unwrap_or_else(|e| Err(format!("job crashed: {e}")));
             let _ = tx
                 .send(MaterializeResult::Job {
+                    id,
                     sheet_id,
                     label,
                     result,
@@ -421,6 +429,7 @@ impl App {
                 .await;
         });
         self.busy.push(Job {
+            id,
             sheet_id,
             label,
             abort: handle.abort_handle(),
@@ -448,15 +457,13 @@ impl App {
 
     fn on_job_done(
         &mut self,
+        id: u64,
         sheet_id: SheetId,
         label: &'static str,
         result: Result<JobDone, String>,
     ) {
-        match self
-            .busy
-            .iter()
-            .position(|j| j.sheet_id == sheet_id && j.label == label)
-        {
+        // Not in `busy`: cancelled (its result may have been in the channel already).
+        match self.busy.iter().position(|j| j.id == id) {
             Some(i) => {
                 self.busy.remove(i);
             }
@@ -681,10 +688,11 @@ impl App {
                 }
             }
             MaterializeResult::Job {
+                id,
                 sheet_id,
                 label,
                 result,
-            } => self.on_job_done(sheet_id, label, result),
+            } => self.on_job_done(id, sheet_id, label, result),
             MaterializeResult::Count {
                 sheet_id,
                 key,
@@ -729,7 +737,7 @@ impl App {
     fn on_key(&mut self, key: Key) {
         // Toast lives until the next key — "clear on next action" without a timer.
         self.toast = None;
-        if let Some(c) = self.confirm.take() {
+        if let Some((c, _)) = self.confirm.take() {
             if key.code == KeyCode::Char('y') {
                 match c {
                     Confirm::Pop => self.pop_sheet(),

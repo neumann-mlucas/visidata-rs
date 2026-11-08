@@ -274,7 +274,10 @@ impl App {
     pub(super) fn render_statusbar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
         let text = match (
             &self.input,
-            &self.toast,
+            self.confirm
+                .as_ref()
+                .map(|(_, q)| q)
+                .or(self.toast.as_ref()),
             self.pending_count,
             !self.pending.is_empty(),
         ) {
@@ -320,7 +323,7 @@ impl App {
                     .join(" ")
             )),
             _ => Line::from(
-                " hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q ",
+                " hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q ",
             ),
         };
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
