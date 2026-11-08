@@ -37,14 +37,14 @@ Still open (see S-15 §10.1):
 
 In order; each phase ships alone with its tests (test plans in each spec §4/§3) and updates S-15 + the guide.
 
-- [ ] Confirm S-18 §5 decisions D1–D4 (paste-before key, where added rows go, child sheets, export size)
+- [x] S-18 §5 decisions D1–D6 confirmed 2026-11-08 (`P` = paste-before, plan panel → `:plan`; insert at cursor; source sheets only; inline export; pinned derived cells; `vd.option`)
 - [ ] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
-- [ ] S-18 B — copy to system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink` test sink (1–1.5 d)
+- [ ] S-18 B — copy to system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink` test sink, `vd.option` (1–1.5 d)
 - [ ] S-20 — undo tree, optional; best before C (1–2 d)
-- [ ] S-18 C — cell editing: `e`, `ge`, `:edit`; `SetCells` step placed after the column's last writer (3–4 d)
+- [ ] S-18 C — cell editing on source sheets: `e`, `ge`, `:edit`; `SetCells` step placed after the column's last writer (3–4 d)
 - [ ] S-18 D — paste into cells: `zp gzp zx` (1–2 d)
 - [ ] S-18 E — stable row ids (no-visible-change commit first), then delete rows: `d gd x gx` (2–3 d)
-- [ ] S-18 F — add/paste rows: `a ga p`, `A` open-new; rows appended at the end in v1 (2–3 d)
+- [ ] S-18 F — plan panel `P` → `:plan` (own commit), then add/paste rows at the cursor: `a ga p P`, `A` open-new (3–5 d)
 - [ ] S-18 G — system paste in: bracketed paste → register, `gzP` (1 d)
 - [ ] S-19 — macros: `m` record, `macros.lua`, `vd.bind` lists, `Action::to_ex` (2–3 d)
 - [ ] After each phase: translate the newly supported longnames in `tests/vd_replay.rs`, re-check the quarantine "Editing" block, raise `MIN_PASS`

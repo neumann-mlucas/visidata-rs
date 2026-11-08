@@ -21,7 +21,8 @@ that crosses it.
   `SetCol` numbers rows the same way (`__vdrs_set`). Stable only while no step adds/removes rows.
 - Undo: per sheet, linear `undo`/`redo: Vec<Snapshot { plan, view, steps }>`, max 100; a new change
   clears redo.
-- Keys free in vdrs today: `e d a A y p x Y m`. `P` is taken (plan panel).
+- Keys free in vdrs today: `e d a A y p x Y m`. `P` is the plan panel; it moves to `:plan` in phase F
+  (D1) so `P` can be paste-before, as in VisiData.
 
 ## 2. Model
 
@@ -34,7 +35,7 @@ panel get them with no new machinery:
 | `SetCells { column, dtype, patch }` | `e`, `zp`, `zx`, paste | per-row values; `patch` = rid → value (`Arc<DataFrame>` of `rid, value`) |
 | `SetCol` (exists) | `:setcol`, `ge`, `gzp` | one value on many rows |
 | `DeleteRows { rids }` | `d gd x gx` | filter out `rids` |
-| `AddRows { rows }` | `a ga p`, paste-before (§5 D1) | append rows (`Arc<DataFrame>`, own rids) |
+| `AddRows { anchor, rows }` | `a ga p P`, paste rows | insert rows after `anchor` (`Arc<DataFrame>`, own rids; §2.3) |
 
 `patch`/`rows` live behind `Arc` so 100 undo snapshots share them instead of copying (`steps` is cloned
 per snapshot). `SetCells` applies as a left join on rid + `coalesce`-style `when(patched)`; one code
@@ -58,18 +59,30 @@ instead of numbering rows. Added rows get ids `1<<62 | n` (`n` = per-sheet count
 `:tail` source (positional ids 0..) never collides. `__vdrs_rid` stays hidden and never reaches
 `:save` output (dropped in `view_plan` like today).
 
+Row order (D2: insert at the cursor, as VisiData). Without added rows nothing changes: the source
+order is the order. Once a sheet has `AddRows`, its plan gets a hidden position key and is sorted by
+it before the view's own sort: source rows have key `(rid, 0.0)`; rows added after row `r` get
+`(anchor, s)` with `anchor` = `r`'s own anchor and `s` strictly between `r`'s `s` and the next row's in
+that group (midpoints, so inserting between inserted rows never renumbers). `p` = after the cursor
+row, `P` = before it (after the previous row; at the top: anchor `-1`). With a user sort active the
+new rows land where their values sort, as in VisiData. Cost: a full sort of the table on each plan
+rebuild, only for sheets that have added rows; `ponytail:` fine in memory, slow on multi-GB scans,
+upgrade path = keep added rows in a side table and merge them into the window.
+
 ### 2.4 Types
 The value typed or pasted must convert to the column **as displayed** (after `#%~@` casts), and is
 stored converted to the **base** type (so the view cast still applies). Empty input = null.
 Rejected values: nothing changes, status line `"abc" doesn't fit qty (i64)` (same as `:setcol`).
 Dates: ISO only in v1 (`2024-01-31`); the lenient `@` layouts are a follow-up.
 
-### 2.5 Which sheets are editable
-Every sheet, and edits stay on the sheet where they're made: a child sheet (freq, pivot, join,
-selected rows…) is built from its parent's view when opened; editing it never writes back, editing
-the parent later doesn't change an open child. Matches how vdrs derives sheets today; VisiData's
-write-through to shared row objects is out of scope. Exceptions: the sheet list (`S`) and the
-columns/describe sheets refuse edits with a message (they describe, they don't hold data).
+### 2.5 Which sheets are editable (D3: source sheets only)
+Only sheets read from a source take edits: a file opened from the command line or `:open`-like paths,
+a `:tail`, a part of an xlsx/sqlite file, and `A` (open-new). Derived sheets (freq, describe, pivot,
+join, `:sql`, diff, selected rows, `:dup`, dedupe, the sheet list) refuse every edit key with
+`read-only: freq(region) is derived from sales.csv` and change nothing. Copying (`y`, `Y`…) works on
+every sheet. One predicate, `Sheet::editable()`, decided from `Origin`; every edit action checks it
+first. Children opened after an edit see it (they're built from the parent's view); open children
+don't change, as today.
 
 ### 2.6 Register (internal clipboard)
 `App.register: Option<Register>`, one per app (copy on one sheet, paste on another):
@@ -97,10 +110,10 @@ and S-15 + the user guide updated.
 | C | Cell editing | `e` edit-cell, `ge` setcol-input, `:edit` | 3–4 d |
 | D | Paste into cells | `zp` paste-cell, `gzp` setcol-clipboard, `zx` cut-cell | 1–2 d |
 | E | Stable rids + delete rows | `d` delete-row, `gd` delete-selected, `x` cut-row, `gx` cut-selected | 2–3 d |
-| F | Add/paste rows | `a` add-row, `ga` add-rows, `p` paste-after, paste-before (§5 D1), `A` open-new | 2–3 d |
+| F | Add/paste rows; plan panel → `:plan` | `a` add-row, `ga` add-rows, `p` paste-after, `P` paste-before, `A` open-new | 3–5 d |
 | G | System paste in | terminal paste → register; `gzP` syspaste-cells-selected | 1 d |
 
-Total ≈ 11–16 days.
+Total ≈ 12–18 days.
 
 ### A — Copy to register
 Collect the cursor row / selected rows / cell / column-of-selected from the view (background job for
@@ -112,7 +125,8 @@ TSV text of the same data (header line for rows, none for cells), as VisiData. B
 startup: `arboard` when a display server answers, else OSC 52 (`ESC ] 52 ; c ; base64 BEL`) through the
 terminal when `$SSH_TTY`/`$TMUX`, else an error message. Behind a `ClipboardSink` trait so tests use an
 in-memory sink (no real side effects). Config: `vd.option("clipboard", "auto"|"osc52"|"system"|"off")`
-**[needs the small option API; else a Lua global, decide in phase]**.
+via a new general `vd.option(name, value)` (Lua API v5, S-10); `clipboard` is its first option,
+unknown names/values are init.lua errors like a bad `vd.bind`.
 
 ### C — Cell editing
 `e` opens the existing line editor on the cell's display text; Enter → `SetCells` (one cell) via
@@ -130,8 +144,11 @@ proof the rid switch is safe). Then `DeleteRows`. `d` keeps the cursor on the ne
 selection; `x`/`gx` = copy then delete.
 
 ### F — Add/paste rows
-`AddRows` appends: v1 adds rows **at the end of the source order** and moves the cursor to them
-(§5 D2). `a` one blank row, `ga` asks how many, `p` pastes register rows. `A` (open-new) = an empty
+First, as its own commit: `P` stops toggling the plan panel; `:plan` (new built-in, same cycle:
+plan → optimized → off; `:toggle-plan-panel` keeps working) replaces it in the keymap, the guide
+(`docs-plan` recording, key tables), S-15 and the `init.lua` template. Then `AddRows` with the
+position key of §2.3: `a` one blank row after the cursor, `ga` asks how many, `p`/`P` paste register
+rows after/before the cursor row, cursor moves to the first new row. `A` (open-new) = an empty
 in-memory sheet with one column `A`, editable; `:save` writes it.
 
 ### G — System paste in
@@ -170,6 +187,8 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Scenario: `e` → type → Enter changes the cell; Esc doesn't; `U` restores, `R` reapplies.
 - Scenario: edit `qty` after `:derive total = qty * price` → `total` changes (the §2.2 rule).
 - Scenario: edit, then sort/filter → edit follows its row (by rid).
+- Scenario: every edit key (`e ge zp gzp zx d gd x gx a ga p P`) on a freq, pivot, join, `:sql` and
+  selected-rows sheet → the read-only message, sheet unchanged; `y`/`Y` still copy there.
 - Property (proptest or seeded loop): for random edits + sort/filter, the view by rid is the same
   whatever order sort/filter happen.
 - Golden: `edit-cell`, `edit-after-derive`, `edit-typed` (export round trip proves `:export` replays
@@ -197,7 +216,13 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Corpus: `delete-row`, `delete-selected`; S-14 counts updated.
 
 ### F — Add/paste rows
-- Scenario: `a` adds a blank row at the end and moves there; `ga 3`; edit the new row; `U`.
+- Plan-key commit: scenario `:plan` cycles plan → optimized → off; `P` no longer opens it; the
+  `docs-plan` recording and the guide's key tables regenerate; `default_init_lua` test still passes.
+- Unit: position keys — insert after/before source rows, between two inserted rows (repeatedly, no
+  renumbering), at the top, at the end; order of the result = expected rid list.
+- Scenario: `a` adds a blank row right after the cursor and moves there; `ga 3`; edit the new row; `U`.
+- Scenario: insert, then sort by a column, then `zo` (clear sort) → rows back at their inserted place.
+- Scenario: `:tail` growth with inserted rows: new source rows append after all existing rows.
 - Scenario: `p` pastes copied rows by column name; missing columns null; mismatch refused.
 - Scenario: `A` new sheet → `a` → `e` → `:save x.csv` → reopen = typed rows.
 - Golden + export round trip: `add-row`, `paste-rows`, `open-new` (the `AddRows` literal data).
@@ -210,11 +235,12 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - pty: bracketed-paste bytes (`ESC[200~ … ESC[201~`) into the real binary → register message on screen.
 - Manual: paste from a spreadsheet into vdrs in 2–3 terminals.
 
-## 5. Decisions to confirm before phase C
+## 5. Decisions (confirmed 2026-11-08)
 
-- **D1 paste-before key.** VisiData's `P` is vdrs's plan panel (shipped, documented). Recommend: `P`
-  stays; paste-before has no default key, `:paste-before` + bindable.
-- **D2 where added rows go.** Positional insert (VisiData) needs a sort over the whole table on every
-  plan rebuild. Recommend v1: append at the end; positional insert later, when the table is in memory.
-- **D3 editing child sheets.** Recommend §2.5 (allowed, local, no write-back).
-- **D4 export size.** Recommend inline literals (§2.7) until someone hits a big paste.
+- **D1 paste-before key:** `P` = paste-before, as VisiData. The plan panel loses its key: `:plan`
+  (plus the existing `:toggle-plan-panel`), bindable. Done at the start of phase F.
+- **D2 where added rows go:** at the cursor (§2.3 position key), not appended.
+- **D3 which sheets take edits:** source sheets only (§2.5); derived sheets are read-only.
+- **D4 export size:** edits are written into exported scripts as literal data.
+- **D5 derived cells:** editing a cell of a `:derive`d column pins that value (§2.2).
+- **D6 settings:** `vd.option(name, value)` in init.lua (Lua API v5), first used by `clipboard`.

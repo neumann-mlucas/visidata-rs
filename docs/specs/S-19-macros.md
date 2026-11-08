@@ -19,7 +19,7 @@ Depends on: S-04 (`.` repeat capture), S-09/S-10 (`vd.bind`), S-18 C (edits as s
   form makes recording refuse it with a message (lists which). Most already have ex forms.
 - Saved to `$XDG_CONFIG_HOME/vdrs/macros.lua`, loaded after `init.lua`:
   `vd.bind("sheet", "<F5>", { "goto_rightmost", ":filter region ^n", "open_freq_table" })`.
-  `vd.bind` accepts a list (API v5). The file is plain Lua: edit, share, delete by hand.
+  `vd.bind` accepts a list (next Lua API version; S-18 B's `vd.option` may take v5 first). The file is plain Lua: edit, share, delete by hand.
 - Playback = dispatch the list in order, waiting for background jobs between steps (as the golden
   harness does), so `F` then `<CR>` works.
 - Undo: each step its own undo entry in v1; one-step undo of a macro needs S-20 grouping.
