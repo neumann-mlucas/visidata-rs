@@ -44,6 +44,8 @@ derived sheets.
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
 - Punchlist: [`docs/tasks.md`](docs/tasks.md)
+- Planned: cell/row editing + clipboard ([S-18](docs/specs/S-18-editing-clipboard.md)), undo
+  tree ([S-20](docs/specs/S-20-undo-tree.md)), macros ([S-19](docs/specs/S-19-macros.md)); the files you open stay read-only
 - Config: `$XDG_CONFIG_HOME/vdrs/init.lua`, hot-reloaded: `vd.bind` (to an action, ex
   command or Lua function), `vd.register_loader`, `vd.register_aggregator`,
   `vd.register_renderer`, `vd.set_theme` — see the guide's Lua section
