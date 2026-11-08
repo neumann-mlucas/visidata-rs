@@ -262,6 +262,10 @@ impl App {
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
             Action::SelectExpr { expr, unselect } => self.select_by_expr(expr, unselect),
             Action::DupSelected => self.open_dup_selected(),
+            Action::CopyRow => self.copy(false, false),
+            Action::CopySelected => self.copy(true, false),
+            Action::CopyCell => self.copy(false, true),
+            Action::CopyCells => self.copy(true, true),
             Action::DedupeRows => {
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active().clone();
@@ -981,6 +985,48 @@ impl App {
                     note: format!("selected {n} rows where {expr}"),
                 }
             })
+        });
+    }
+
+    /// `y` `gy` `zy` `gzy`: the cursor row or the selected rows, every column
+    /// or (`cells`) only the cursor column, into the register.
+    fn copy(&mut self, selected: bool, cells: bool) {
+        // ponytail: the register holds the copy in memory; refuse past 10M cells, raise on demand.
+        const MAX_CELLS: usize = 10_000_000;
+        let s = self.sheets.active();
+        let Ok(schema) = s.view_plan().collect_schema() else {
+            return;
+        };
+        let rows = if selected { s.view.selected.len() } else { 1 };
+        if rows == 0 {
+            self.toast = Some("no rows selected".into());
+            return;
+        }
+        let width = if cells { 1 } else { schema.len() };
+        if rows * width > MAX_CELLS {
+            self.toast = Some(format!(
+                "copy: {} cells is over the {} limit",
+                grouped((rows * width) as u64),
+                grouped(MAX_CELLS as u64)
+            ));
+            return;
+        }
+        let column = match self.current_column_name() {
+            Some(c) => c,
+            None if cells => return,
+            None => String::new(),
+        };
+        let pos = (!selected).then(|| s.view.window_offset + s.view.row_cursor as u64);
+        let sheet = s.clone();
+        self.spawn_job("copy", move || {
+            let mut df = sheet.copy_rows(pos).map_err(|e| e.to_string())?;
+            let kind = if cells {
+                df = df.select([column.as_str()]).map_err(|e| e.to_string())?;
+                RegisterKind::Cells
+            } else {
+                RegisterKind::Rows
+            };
+            Ok(JobDone::Copy(Box::new(Register { kind, df })))
         });
     }
 

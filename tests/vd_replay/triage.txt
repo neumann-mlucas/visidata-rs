@@ -63,7 +63,7 @@ freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cos
 frozen-attrs	SKIP aggregate-col
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr
-getitem	SKIP copy-row
+getitem	SKIP paste-after
 graph-cursor-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graph-sincos-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graphpr-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -75,8 +75,8 @@ inner-join	PASS
 invalid_unicode_sqlite	PASS
 issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknown format for ../visidata/sample_data/issue1308.html
 issue1346	SKIP runtime: open-file ../visidata/tests/issue1346.html: unknown format for ../visidata/tests/issue1346.html
-issue1377	SKIP copy-selected
-issue1377b	SKIP copy-selected
+issue1377	SKIP open-new
+issue1377b	SKIP open-new
 issue2015	SKIP open-new
 issue2190	UNTESTABLE assert-expr
 issue2225-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -196,7 +196,7 @@ postgres-readonly-pg	SKIP allow-error
 postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 pr2302	PASS
 pr2308	NO_GOLDEN golden is .json
-pr2372	SKIP copy-cells
+pr2372	SKIP addcol-new
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
 pr2614	SKIP addcol-incr
 pr2647	SKIP join-selected

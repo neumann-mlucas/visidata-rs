@@ -124,6 +124,20 @@ fn preview_sheet(parent: &Sheet, df: DataFrame) -> Sheet {
     s
 }
 
+/// The internal clipboard (S-18 §2.6): one per app, so a copy on one sheet
+/// pastes on another. Rows keep every column (hidden too), typed.
+#[derive(Debug, Clone)]
+pub(crate) struct Register {
+    pub kind: RegisterKind,
+    pub df: DataFrame,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisterKind {
+    Rows,
+    Cells,
+}
+
 /// A background job in flight.
 struct Job {
     sheet_id: SheetId,
@@ -148,6 +162,8 @@ enum JobDone {
         rids: Vec<u64>,
         note: String,
     },
+    /// Fill the register (`y` …).
+    Copy(Box<Register>),
     /// Remove row ids from the job's sheet selection.
     Unselect {
         rids: Vec<u64>,
@@ -242,6 +258,7 @@ pub struct App {
     theme: Theme,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
+    register: Option<Register>,
     /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
     busy: Vec<Job>,
     /// When the current stretch of background work started.
@@ -278,6 +295,7 @@ impl App {
             pivot_preview: None,
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
+            register: None,
             busy: Vec::new(),
             working_since: None,
             drawn_spin: None,
@@ -453,6 +471,20 @@ impl App {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
                     std::sync::Arc::make_mut(&mut s.view.selected).extend(rids);
                     self.toast = Some(note);
+                }
+            }
+            Ok(JobDone::Copy(r)) => {
+                let (n, what) = match r.kind {
+                    RegisterKind::Rows => (r.df.height(), "row"),
+                    RegisterKind::Cells => (r.df.height() * r.df.width(), "cell"),
+                };
+                self.toast = Some(match n {
+                    0 => "nothing to copy".into(),
+                    1 => format!("copied 1 {what}"),
+                    n => format!("copied {} {what}s", grouped(n as u64)),
+                });
+                if n > 0 {
+                    self.register = Some(*r);
                 }
             }
             Ok(JobDone::Unselect { rids, note }) => {

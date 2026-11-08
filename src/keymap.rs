@@ -279,6 +279,19 @@ impl Keymap {
                 vec![StartDiffInput],
                 "diff with file (key cols)",
             ),
+            // copy (S-18 A)
+            ch(vec![k("y")], vec![CopyRow], "copy current row"),
+            ch(
+                vec![k("g"), k("y")],
+                vec![CopySelected],
+                "copy selected rows",
+            ),
+            ch(vec![k("z"), k("y")], vec![CopyCell], "copy current cell"),
+            ch(
+                vec![k("g"), k("z"), k("y")],
+                vec![CopyCells],
+                "copy current column of selected rows",
+            ),
             ch(vec![k("U")], vec![Undo], "undo"),
             ch(vec![k("R")], vec![Redo], "redo"),
             ch(

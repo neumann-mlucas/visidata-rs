@@ -103,6 +103,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `StartSelectInput` → prompt | `\|` | — |
 | `SelectExpr { expr, unselect }` | `z\|` / `z\\` (prompt) | `:select <pred>` / `:unselect <pred>`: rows where a SQL predicate holds; background job |
 | `DupSelected` | `"` | new sheet filtered to selected rows via `Sheet::dup_selected_from` |
+| `CopyRow` / `CopySelected` / `CopyCell` / `CopyCells` | `y` / `gy` / `zy` / `gzy` | register (`App.register`, one per app): cursor row / selected rows in view order (every column, hidden too, typed) / cursor cell / current column of selected rows; background job; over 10M cells refused (S-18 A) |
 
 ### 3.6 Sheet stack
 
@@ -328,7 +329,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
 - **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
-- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
+- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `syscopy-*`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
 
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.

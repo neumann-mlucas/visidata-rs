@@ -541,6 +541,8 @@ impl Replay {
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" => Ok(()),
+            // Copy to the register (S-18 A) leaves the sheet unchanged; paste is S-18 D/F.
+            "copy-row" | "copy-selected" | "copy-cell" | "copy-cells" => Ok(()),
             // Widening a column shows a hidden (width 0) one.
             "resize-col-max" | "resize-col-input" => {
                 let col = r.col.clone();

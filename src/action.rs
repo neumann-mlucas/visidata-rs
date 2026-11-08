@@ -106,6 +106,12 @@ pub enum Action {
     SelectColDuplicates,
     /// New sheet keeping each key's first row (all columns when no keys).
     DedupeRows,
+    /// `y` `gy` `zy` `gzy` (S-18 A): copy the cursor row / selected rows /
+    /// cursor cell / current column of selected rows to the register.
+    CopyRow,
+    CopySelected,
+    CopyCell,
+    CopyCells,
 
     // ex-line
     StartExInput,
@@ -298,6 +304,7 @@ impl Action {
             | Sql { .. }
             | SetCol { .. } => true,
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
+            CopyRow | CopySelected | CopyCell | CopyCells => true,
         }
     }
 }
@@ -374,6 +381,10 @@ impl Action {
         ("select_equal_cell", SelectEqualCell),
         ("select_col_duplicates", SelectColDuplicates),
         ("dedupe_rows", DedupeRows),
+        ("copy_row", CopyRow),
+        ("copy_selected", CopySelected),
+        ("copy_cell", CopyCell),
+        ("copy_cells", CopyCells),
         ("hide_uniform", HideUniform),
         ("describe", Describe),
         ("pivot_current", PivotCurrent),

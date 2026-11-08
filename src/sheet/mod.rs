@@ -773,6 +773,22 @@ impl Sheet {
 
     /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
     /// hidden columns included. Refused unless it is a boolean.
+    /// Rows for `y` (the view row at `pos`) or `gy` (`None`: the selected
+    /// rows), in view order, every column incl. hidden ones, no row id (S-18 A).
+    pub fn copy_rows(&self, pos: Option<u64>) -> PolarsResult<DataFrame> {
+        let lf = self.sorted_plan(true);
+        let lf = match pos {
+            Some(p) => lf.slice(p as i64, 1),
+            None => {
+                let rids: Vec<u64> = self.view.selected.iter().copied().collect();
+                lf.filter(
+                    col(ROW_ID).is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
+                )
+            }
+        };
+        lf.collect()?.drop(ROW_ID)
+    }
+
     /// Schema-only check of a `:select` / `z|` predicate (no data read).
     pub fn check_predicate(&self, pred: &str) -> Result<(), String> {
         self.predicate(&self.filtered_plan(false), pred).map(|_| ())

@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**, not started. Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.

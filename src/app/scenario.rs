@@ -1352,3 +1352,53 @@ async fn ctrl_c_cancels_jobs_and_gq_quits() {
     h.keys("<Esc> g q").await;
     assert!(h.app.quit);
 }
+
+/// S-18 A: `y` `gy` `zy` `gzy` fill the register, typed, in view order.
+#[tokio::test(flavor = "multi_thread")]
+async fn copy_to_register_rows_and_cells() {
+    let mut h = csv(b"id,x,note\n1,1.5,a\n2,,b\n3,0.5,c\n").await;
+    h.keys("g y").await; // nothing selected
+    assert_eq!(h.app.toast.as_deref(), Some("no rows selected"));
+    assert!(h.app.register.is_none());
+
+    h.keys("j y").await; // row 2: x is null
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(r.kind, RegisterKind::Rows);
+    assert_eq!(r.df.height(), 1);
+    assert_eq!(r.df.column("x").unwrap().dtype(), &DataType::Float64);
+    assert_eq!(r.df.column("x").unwrap().null_count(), 1);
+    assert_eq!(h.app.toast.as_deref(), Some("copied 1 row"));
+
+    // hidden columns stay in the register; selection in view order after a sort
+    h.keys("g l -").await; // hide note
+    h.keys("g h s j j s").await; // select rows 2 and 3
+    h.keys("]").await; // sort id desc: 3, 2, 1
+    h.keys("g y").await;
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(r.df.get_column_names(), ["id", "x", "note"]);
+    let ids: Vec<i64> =
+        r.df.column("id")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+    assert_eq!(ids, vec![3, 2]);
+    assert_eq!(h.app.toast.as_deref(), Some("copied 2 rows"));
+
+    h.keys("l g z y").await; // current column (x) of the selected rows
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(r.kind, RegisterKind::Cells);
+    assert_eq!(r.df.get_column_names(), ["x"]);
+    assert_eq!(r.df.height(), 2);
+
+    h.keys("g g z y").await; // cursor cell: x of id 3
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(r.df.shape(), (1, 1));
+    assert_eq!(r.df.column("x").unwrap().f64().unwrap().get(0), Some(0.5));
+    assert_eq!(h.app.toast.as_deref(), Some("copied 1 cell"));
+
+    // the register is per app: it survives opening and closing sheets
+    h.keys("F q").await;
+    assert_eq!(h.app.register.as_ref().unwrap().df.shape(), (1, 1));
+}
