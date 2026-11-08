@@ -3,17 +3,52 @@
 Modal terminal data explorer with VisiData's taste: Polars + Ratatui + mlua,
 Lua-extensible like Neovim. Pre-alpha.
 
-A pivot sheet, from the test suite (`:pivot grp name amt sum`):
+![vdrs: typing :pivot region qty price previews the pivot before Enter](docs/screens/pivot-preview.svg)
 
-```
- pivot(grp×name→amt): tests/golden/pivot-sum/input.csv  csv · sheets 2       grp 1/6  row 1/3 · 33%
-grp str   ann f  bob f  cid f  dee f      eve f
-a           1.5      ·    0.0      ·          ·
-b             ·   2.25      ·      · 1234567.89
-c             ·      ·      ·    4.0          ·
+## Why
 
- hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q
-```
+VisiData is open in one of my terminals most days. Treating everything as a
+sheet, with a frequency table one keystroke away, changed how I look at data,
+and nothing else in the terminal comes close. visidata-rs is not a fork. It
+rebuilds that tool in Rust: same keys, same behavior (VisiData's own test corpus
+is replayed against it), different insides.
+
+The insides matter because that's where VisiData's open issues pile up:
+
+- **Big files.** Rows are Python objects, read cell by cell; the maintainer
+  says a real fix means changing the architecture
+  ([#1068](https://github.com/saulpw/visidata/issues/1068)). Here Polars does
+  the work: files are scanned lazily, only the visible window is loaded, and
+  sorts, counts and pivots run off the UI thread.
+- **curses.** The largest share of bug reports: resize crashes
+  ([#1454](https://github.com/saulpw/visidata/issues/1454),
+  [#2138](https://github.com/saulpw/visidata/issues/2138)), color pairs
+  ([#3206](https://github.com/saulpw/visidata/issues/3206)), wide characters
+  ([#2416](https://github.com/saulpw/visidata/issues/2416)). Ratatui and
+  crossterm own the terminal here.
+- **Plugins.** Plugins and `.visidatarc` patch live Python internals, so they
+  break on upgrades ([#2084](https://github.com/saulpw/visidata/issues/2084),
+  [#2142](https://github.com/saulpw/visidata/issues/2142)). Extensions here go
+  through a fixed Lua API (loaders, aggregators, renderers, bindings), and
+  `init.lua` reloads on save.
+- **Python versions.** 3.12 broke expression eval
+  ([#2179](https://github.com/saulpw/visidata/issues/2179)). A compiled binary
+  doesn't care which Python you have. No prebuilt binaries yet, though:
+  `cargo install` still compiles from source.
+
+Two things are new rather than fixes:
+
+- Your keystrokes build a Polars query plan. The plan panel shows it, and
+  `:export` writes it out as a Polars or DuckDB script, so an exploratory
+  session ends as code you can rerun.
+- More vim, which is what VisiData users keep asking for
+  ([#2500](https://github.com/saulpw/visidata/issues/2500),
+  [#3008](https://github.com/saulpw/visidata/issues/3008)): ex commands with
+  live preview now, macros and an undo tree next.
+
+What it won't fix: VisiData's 60-odd loaders shrink to a core set plus Lua,
+hundreds of commands are still hard to discover, and a Rust codebase doesn't
+grow more maintainers. If VisiData does what you need, keep using it. I still do.
 
 ```
 cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked   # installs `vdrs`; needs Rust 1.88+
