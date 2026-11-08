@@ -27,8 +27,8 @@ Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`
   with the S-18 read-only message.
 
 ## 3. Search-hit sheet (quickfix)
-- `g/` (VisiData `search-cols`; vdrs `/` already searches every column) is free in vdrs → `:hits
-  <text>` / `g/` pushes a sheet: one row per hit `row, column, value` (+ key column values), from
+- `:hits <text>` pushes a sheet (no default key: `g/` is VisiData's search-all-columns, S-26 §0; the
+  vim profile may bind one): one row per hit `row, column, value` (+ key column values), from
   `Sheet::search_hits` (already returns `(rid, col)` pairs; background job).
 - `Enter` on a hit: pop back to the parent with the cursor on that cell; the hit sheet stays on the
   stack, `S` / `<C-^>` returns to it (vim `:copen` + `:cc`).
@@ -41,18 +41,19 @@ Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`
 | Phase | Ships | Effort |
 |---|---|---|
 | A | `:s` in place + `*` / `g*`, `PlanStep::Replace`, export | 1.5–2 d |
-| B | hit sheet `g/` / `:hits`, `Enter` jumps back | 1 d |
+| B | hit sheet `:hits`, `Enter` jumps back | 1 d |
 
 ## 5. Test plan
 - Unit: `:s` parser — delimiters, flags, escapes, `\1` → `$1`, empty replacement, bad regex message.
 - Unit: `Replace` on selected rids only; nulls stay null; `g` vs first-only.
 - Scenario: `:s/ +$//` on selected rows; `U`; `*` adds `name_re`; read-only refusal on a freq sheet.
 - Golden + export round trip (DuckDB + Polars): `subst-col`, `subst-new-col`.
-- Scenario: `g/foo` → hit sheet with the expected (row, column) list; `Enter` lands on the cell; cap
+- Scenario: `:hits foo` → hit sheet with the expected (row, column) list; `Enter` lands on the cell; cap
   message on a generated 200k-hit frame.
 - Corpus: translate `addcol-regex-subst`, `setcol-regex-subst(-all)`; move them out of UNTESTABLE.
 
-## 6. Decisions (open)
-- **S1** `:s` default rows without range/selection: whole view (recommend, with the count in the
-  status line) vs. current row (vim).
-- **S2** export the hit sheet: no (recommend).
+## 6. Decisions (confirmed 2026-11-08)
+- **S1** `:s` with no range and no selection changes every row of the view; the status line gives the
+  count, `U` undoes.
+- **S2** the hit sheet is not exported.
+- Keys follow S-26 §0: `*` / `g*` as VisiData; hit sheet via `:hits` only.

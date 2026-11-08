@@ -5,11 +5,47 @@ Depends on: S-04 (keymap, counts, `.`), S-18 (register, edit keys, D1–D6), S-1
 S-20 (undo tree), S-23 B (splits). Constraint: direction §9.2 — the **default** keymap feels like
 VisiData from keystroke 1; deviations need a reason. So this spec has two layers:
 
-1. **Default keymap**: only additions on keys VisiData leaves free or that vdrs doesn't use, plus
-   data-safety and TUI-convention fixes.
+1. **Default keymap**: VisiData's, plus additions on keys VisiData leaves free, plus data-safety and
+   TUI-convention fixes.
 2. **`vd.option("keymap", "vim")`** (S-18 D6 options): an opt-in profile that rebinds the VisiData
    keys whose vim meaning differs. Built on `vd.bind` patches, so it is one Lua table shipped in the
-   binary (`plugins::vim_profile_lua`), readable and copyable by users.
+   binary (`plugins::vim_profile_lua`), readable and copyable by users. Precedent: VisiData ships the
+   same idea as `visidata/experimental/vimcompat.py` (`Ctrl+D`/`Ctrl+U` half page, `go` home).
+
+## 0. Keymap rule (confirmed 2026-11-08, applies to every spec)
+- **R-a** A key VisiData binds to a command vdrs has → the VisiData meaning, in the default keymap.
+- **R-b** A key VisiData leaves free → vdrs may bind a new feature to it in the default keymap
+  (additive, breaks no muscle memory): `D` diff, `V` / `<C-v>` visual, `gz|` filter.
+- **R-c** A vdrs meaning that differs from VisiData's → vim profile only.
+- **R-d** Transition: a VisiData key whose command vdrs doesn't have *yet* keeps its current vdrs
+  meaning until that command ships; the shipping commit switches the key and moves the old meaning to
+  the vim profile. No key goes dead in between.
+- Every VisiData command is also reachable as `:<name>` in both profiles.
+
+Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bindkey` table at
+`5f67ff8a`, 2026-11-08):
+
+| Key | vdrs today | VisiData | Default | Vim profile | When |
+|---|---|---|---|---|---|
+| `Space` | — | `exec-longname` | opens the `:` command line | same | phase 0 |
+| `:` | command line | `addcol-split` | command line until split-column ships (R-d) | command line | when `addcol-split` ships |
+| `.` | repeat | `plot-column` | repeat until plots ship (R-d) | repeat | S-23 C1 |
+| `$` | last column | `type-currency` | currency cast; last/first column = `gl` / `gh` (`0` stays: VisiData alias) | `$` / `0` | phase 0 |
+| `g-` | unhide all | `hide-uniform-cols` | `:uniform` | — | phase 0 |
+| `gv` | — | `unhide-cols` | unhide all | reselect last visual range | phase 0 |
+| `<C-c>` | quit | `cancel-sheet` | cancel the sheet's background jobs (`gCtrl+C` all); quit all = `gq`, hard quit = `<C-q>` | `<C-c>` cancels too; `:qa` | phase 0 |
+| `<C-d>` / `<C-u>` | page down / up | `save-cmdlog` (cut, §9.5) / — | page = `<C-f>` / `<C-b>` / PgDn / PgUp | half page (as vimcompat) | phase 0 |
+| `<C-r>` | — | `reload-sheet` | `:refresh` (S-30 A; asks first if the sheet has unsaved edits) | redo | S-30 A |
+| `<C-o>` / `<C-i>` | — | `sysopen-*` (external program) | — | jumplist back / forward | phase A |
+| `zs` / `zc` | freeze / unfreeze cols | `select-before` / `go-col-number` | freeze/unfreeze until those ship (R-d), then `:freeze` / `:unfreeze` | — | when they ship |
+| `zo` | clear sort | `open-cell-file` | clear sort until that ships (R-d), then `:unsort` | — | when it ships |
+| `z\|` | regex filter | `select-expr` | select-expr; filter = `gz\|` + `:filter` | same | S-21 A |
+| `P` | plan panel | `paste-before` | paste-before; `:plan` | same | S-18 F (D1) |
+| `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`) | `/` all columns (vim searches the whole buffer) | phase 0 |
+
+Phase 0 is one commit per row group, each updating the guide, its recordings, the doc-sync test,
+S-15 §3–4 and the `init.lua` template. Tests: scenario per moved key (old key does the VisiData thing,
+new key does the vdrs thing); `<C-c>` during a running job cancels it and the app stays open.
 
 ## 1. What exists (verified)
 - Count prefix for motions (`3j`), `.` repeats resolved Actions, `:` ex line with history + Tab
@@ -24,13 +60,13 @@ VisiData from keystroke 1; deviations need a reason. So this spec has two layers
 | Item | Behavior | Why |
 |---|---|---|
 | A1 quit guard | `q` / `:q` / `<C-c>` on a sheet with unsaved edits (S-18) asks `discard 3 edits to sales.csv? y/N`; `:q!` / `:qa!` skip it | VisiData's `quitguard` defaults off, so `q` silently drops edits; vim refuses `:q` with changes |
-| A2 `<C-r>` = redo | alias of `R` | vdrs has no reload, so no VisiData meaning lost; vim users get redo instead of nothing |
+| A2 reload guard | `<C-r>` (`:refresh`, §0) on a sheet with unsaved edits asks first | VisiData's `Ctrl+R` reloads and drops edits silently (`quitguard` off) |
 | A3 `<C-z>` suspend | leave raw mode + alt screen, `SIGTSTP` self, restore on `SIGCONT` (unix only) | every TUI does this; VisiData does |
 | A4 colors | detect `COLORTERM=truecolor|24bit`; else map theme RGB to 256 colors; `NO_COLOR` → no color, selection/cursor by reverse/bold | 24-bit-only breaks on older terminals, tmux without `Tc`, Linux console |
 | A5 help | `:help` (and `<F1>`) opens a sheet of all bindings of the current layer (key, action, desc) — the which-key table, searchable with `/` | VisiData `z^H` help-commands; nothing in vdrs today |
 | A6 keyboard protocol | crossterm `PushKeyboardEnhancementFlags(DISAMBIGUATE_ESCAPE_CODES)` when supported, so `<C-i>` ≠ `Tab` and `Esc` is immediate | needed for A7's jumplist and S-23 `Tab` |
-| A7 jumplist | `<C-o>` / `<C-i>` go back/forward through big jumps: `gg G :N n N /` hits, sheet switches, freq dives | vim; VisiData only has `Ctrl+^` prev sheet (also add `<C-^>`) |
-| A8 Space | command palette: fuzzy list of every `Action::NAMED` + ex command with its key (VisiData `Space` = exec-longname) | discoverability (VisiData #2313) |
+| A7 jumplist | the list of big jumps (`gg G :N n N /` hits, sheet switches, freq dives) with `:jumps`; keys `<C-o>` / `<C-i>` in the vim profile only (§0); default gets `<C-^>` prev sheet (VisiData `jump-prev`) | vim; VisiData only has `Ctrl+^` |
+| A8 Space | opens the `:` line (§0); Tab completion lists every `Action::NAMED` + ex command with its key, fuzzy-matched | VisiData `Space` = exec-longname; discoverability (VisiData #2313) |
 | A9 mouse (opt-in) | `vd.option("mouse", true)`: wheel scrolls, click moves cursor, click header = column | off by default so terminal text selection keeps working |
 
 ## 3. Part B — Ex-line ranges and global commands (2 d, default keymap)
@@ -52,7 +88,8 @@ No key conflicts — all on `:`.
 - On the range, the VisiData verbs apply as their `g` (selected) form: `s`/`u` select/unselect, `y`
   copy rows (S-18 A), `d` delete (S-18 E), `e` setcol (S-18 C), `-` hide block columns, `F` freq of the
   block's columns, `"` new sheet. `:` pre-fills `:'<,'>`.
-- `gv` reselects the last range — but `gv` is VisiData unhide-cols (vdrs `g-`), decision V2.
+- Reselect the last range: `gv` in the vim profile only (default `gv` = unhide-cols, §0); `:reselect`
+  in both.
 - Visual ranges are row ids (survive sort, like selection).
 - Tests: scenario per verb on a range; range survives `[` sort; monkey gets `V`, `<C-v>`.
 
@@ -61,8 +98,9 @@ Rebinds only where VisiData and vim disagree; everything else stays VisiData.
 
 | Key | VisiData / vdrs default | vim profile |
 |---|---|---|
+| §0 rows | VisiData meanings | the "Vim profile" column of the §0 table (`.` repeat, `$`/`0`, `<C-d>`/`<C-u>`, `<C-r>` redo, `<C-o>`/`<C-i>`, `gv` reselect) |
 | `u` | unselect row | undo |
-| `<C-r>` | redo (A2) | redo |
+| `<C-r>` | `:refresh` (§0) | redo |
 | `U` | undo | unselect row (VisiData `u` moves here) |
 | `R` | redo | — (unbound; free for future replace mode) |
 | `q{a-z}` / `@{a-z}` / `@@` | `q` pop sheet; `m` macro (S-19) | record / play macro into a register (S-19 machinery) |
@@ -99,6 +137,7 @@ profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` 
 ## 7. Phases
 | Phase | Ships | Effort |
 |---|---|---|
+| 0 | §0 key alignment, rows marked "phase 0" (`Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`); the R-d rows move with their features | 2–2.5 d |
 | A | safety + TUI conventions A1–A9 (A1 lands with S-18 C) | 2–3 d |
 | B | ex ranges, `:g` / `:v`, `:normal` | 2 d |
 | C | visual mode `V` / `<C-v>` | 2–3 d |
@@ -117,11 +156,12 @@ profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` 
   has no RGB).
 - Docs: guide "vim users" page lists the profile table; doc-sync test covers both profiles.
 
-## 9. Decisions (open)
-- **V1** `v`: visual (vim) vs VisiData multiline toggle — vdrs has no multiline yet; recommend `v`
-  stays free for a charwise/cell visual later, `V` + `<C-v>` now.
-- **V2** `gv`: reselect (vim) vs unhide-cols (VisiData `gv`; vdrs uses `g-`) — recommend reselect.
-- **V3** `"` in the vim profile: register prefix — recommend yes, profile only.
-- **V4** `e` in the vim profile: word motion vs edit — recommend motion, edit on `i` / `<CR>`.
-- **V5** should A2 (`<C-r>` redo) and A7 (jumplist) be default? Recommend yes (no VisiData meaning
-  lost in vdrs).
+## 9. Decisions (confirmed 2026-11-08)
+- **Rule**: §0 (R-a … R-d) for every spec.
+- **V1** `v` unbound for now; `V` / `<C-v>` visual in the default keymap (R-b). When multi-line cells
+  ship, default `v` = VisiData's toggle; a charwise visual on `v` would be vim-profile only.
+- **V2** `gv` = unhide-cols by default (VisiData); reselect in the vim profile.
+- **V3** `"` = register prefix in the vim profile only; the selected-rows sheet there is `:dupsel`.
+- **V4** `e` = cell motion in the vim profile; edit on `i` / `<CR>` there. Default `e` = edit.
+- **V5** `<C-r>` redo and the `<C-o>`/`<C-i>` jumplist are vim profile only; default `<C-r>` = `:refresh`.
+- **V6** `Space` opens the `:` line (VisiData exec-longname) rather than a separate palette.

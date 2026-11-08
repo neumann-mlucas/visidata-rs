@@ -18,7 +18,7 @@ without rules (F1).
 |---|---|---|
 | Predicate color | `:color <col\|*> <sql pred> <style>` | `sql_expr(pred)` as an extra Boolean column in `window_plan` (`__vdrs_fmt_N`), so Polars computes it with the window |
 | Color scale | `:scale <col> [low-color high-color]` | min/max from a background stats job (the `I` describe path, one column); cell color interpolated in Rust at render |
-| Data bar | `:bar-cell <col>` | same min/max; cell background filled proportional (`█▉▊▋▌▍▎▏`, eighths) |
+| Data bar | `:databar <col>` | same min/max; cell background filled proportional (`█▉▊▋▌▍▎▏`, eighths) |
 | Lua | renderer returns `{ text = …, fg = …, bg = …, bold = … }` or a string (api bump) | memoized as today |
 | Clear | `:nocolor [col]` | — |
 
@@ -35,7 +35,7 @@ without rules (F1).
 | Phase | Ships | Effort |
 |---|---|---|
 | A | `:color` predicate rules + `:nocolor`, row and cell, styles | 1.5–2 d |
-| B | `:scale`, `:bar-cell` (background min/max job) | 1–1.5 d |
+| B | `:scale`, `:databar` (background min/max job) | 1–1.5 d |
 | C | Lua renderer styles (`vd.api_version` bump) | 0.5 d |
 
 ## 4. Test plan
@@ -47,6 +47,6 @@ without rules (F1).
 - Render snapshot per phase, dark + light theme; `NO_COLOR` → bold/reverse only.
 - Docs: guide card + `docs-format` recording.
 
-## 5. Decisions (open)
-- **F1** rules on derived sheets: start empty (recommend) vs inherited from parent.
-- **F2** `:bar-cell` name (`:bar` is the S-23 chart) — or `:databar`.
+## 5. Decisions (confirmed 2026-11-08)
+- **F1** derived sheets start without format rules.
+- **F2** data bars are `:databar` (`:bar` is the S-23 bar chart).

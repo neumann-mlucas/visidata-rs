@@ -14,7 +14,7 @@ Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 VisiData reference keys: `b` sidebar-toggle, `Ctrl+G` sidebar-cycle, `zb` sidebar-choose; `Z`
 splitwin-half, `gZ` close, `Tab` swap focus, `gTab` swap panes, `zZ` split at N rows; `.` plot-column,
-`g.` plot-numerics (in vdrs `.` is repeat — see L3).
+`g.` plot-numerics (in vdrs `.` is repeat until plots ship — see L3).
 
 ## 2. Part A — Sidebar (0.5–1 d)
 A right-hand panel that shows text about the current context; the plan panel becomes one of its pages.
@@ -35,6 +35,7 @@ A right-hand panel that shows text about the current context; the plan panel bec
   close other pane, `Tab` focus other pane, `gTab` swap. Vim aliases via `vd.bind` (S-26):
   `<C-w>s`/`<C-w>v`/`<C-w>w`/`<C-w>o`. Vertical split (`:vsplit`) is the same code with
   `Direction::Horizontal`.
+  `<C-w>` aliases are vim-profile keys (S-26 §0), not default.
 - `q` in a pane pops the pane's sheet; last sheet in a pane closes the pane.
 - Same sheet in both panes: allowed; cursor/scroll are per `View`, so v1 shares them (VisiData does too).
   Per-pane cursors only if asked.
@@ -66,7 +67,7 @@ Drawing library (checked 2026-11-08):
   ≤ 2 × width points.
 
 Rules:
-- Keys: `:plot`/`:hist`/`:bar` first; key binding decided in L3.
+- Keys: `.` / `g.` (L3) and `:plot`/`:hist`/`:bar`.
 - x types: int/float/date/datetime; y numeric; anything else refused with the column + dtype.
 - A plot of a 100M-row view must stay O(screen) in memory: the sample/bin step runs lazily in Polars,
   never collects raw rows.
@@ -87,8 +88,10 @@ Rules:
   equals a `:select x between … and y between …` (S-21) on the same bounds.
 - Docs: guide cards + recordings per part; doc-sync test covers new keys.
 
-## 6. Decisions (open)
-- **L1** sidebar default: off (VisiData) — recommend.
-- **L2** split direction for `Z`: horizontal (VisiData) — recommend; `:vsplit` for side by side.
-- **L3** plot key: VisiData `.` is `.`-repeat in vdrs (S-04, vim). Recommend keep `.` = repeat and bind
-  plots to `g.` (VisiData plot-numerics) + `:plot`; record the deviation in S-04.
+## 6. Decisions (confirmed 2026-11-08)
+Keymap rule: S-26 §0.
+- **L1** sidebar starts closed (VisiData).
+- **L2** `Z` splits top/bottom (VisiData); `:vsplit` for side by side.
+- **L3** plot keys as VisiData: `.` = plot current column, `g.` = plot numeric columns, plus `:plot`.
+  Until C1 ships, `.` keeps `.`-repeat (S-26 §0 transition rule); the C1 commit moves repeat to the vim
+  profile and updates S-04 / S-15 / the guide.

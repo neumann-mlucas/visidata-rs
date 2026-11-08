@@ -8,7 +8,7 @@ Today a derived sheet (freq, pivot, join, `:sql`, describe, …) is built once f
 `view_plan()`; later parent changes don't reach it (S-18 §2.5 "open children don't change"). Every
 derived sheet already stores how it was made (`SheetState.lineage = { parent snapshot, Derivation }`),
 which `:export` replays.
-- `:refresh` (and `<C-r>`? no — S-26 A2 gives it redo; key decision K1) rebuilds the current derived
+- `:refresh` (`<C-r>`, VisiData reload-sheet; K1) rebuilds the current derived
   sheet: same `Derivation`, the parent's **current** view, keeps this sheet's own view state (sort,
   hidden, formats) where columns still exist. Undoable (snapshot before).
 - `:link` / `:unlink`: a linked sheet refreshes itself when its parent's revision changes (checked when
@@ -52,9 +52,9 @@ Excel's status bar (sum / average / count of the selected cells).
 - Tests: scenario — select 3 rows → exact status text; switch column → recomputes; 1M-row selection
   stays a background job (spinner, no UI stall).
 
-## 4. Decisions (open)
-- **K1** key for `:refresh`: VisiData reload is `Ctrl+R`, taken by redo in S-26 A2. Recommend
-  `:refresh` + `zR`?, no `Ctrl+R`.
-- **K2** note key: VisiData has no notes (`Alt+m` is memo-cell = store a named value). Recommend
-  `zn`? free in vdrs; confirm.
-- **K3** copying stats: `:stats` command vs a key — recommend `:stats` only.
+## 4. Decisions (confirmed 2026-11-08)
+- **K1** `<C-r>` = `:refresh` (VisiData `reload-sheet`, S-26 §0), asking first when the sheet has
+  unsaved edits; redo stays `R` (and `<C-r>` in the vim profile).
+- **K2** notes on `zn` (unbound in both VisiData and vdrs, checked 2026-11-08) + `:note`. VisiData has
+  no notes (`Alt+m` is memo-cell = store a named value).
+- **K3** `:stats` copies the stats; no key.

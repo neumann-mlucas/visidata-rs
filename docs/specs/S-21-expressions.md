@@ -69,12 +69,10 @@ chain into other UNTESTABLE longnames, so the real unlock is lower — measure f
 - Docs: the guide's "derive" card mentions `=`; doc-sync test covers the new key.
 - Corpus (C only): translated files leave the UNTESTABLE list; `MIN_PASS` raised by what passes.
 
-## 5. Decisions (open)
-- **E1** `=` column name: expression text (VisiData) vs. prompt for a name. Recommend expression text
-  unless `name = ` is given.
-- **E2** `g=` key: VisiData binds it to `setcol-expr`; in vdrs `g` + key = "all/selected" too. Recommend
-  keep.
-- **E3** `z|`: VisiData = select-expr, vdrs = filter by regex. Moving the filter breaks vdrs users and
-  the docs recordings; keeping it breaks VisiData muscle memory (direction §9.2 says VisiData wins).
-  Recommend: `z|` → select-expr as VisiData, filter moves to `:filter` + `gz|` (free in both; VisiData `zF` is freq-summary), decided
-  before phase A; doc-sync and `docs-filter` recording updated in the same commit.
+## 5. Decisions (confirmed 2026-11-08)
+Keymap rule: S-26 §0 (default = VisiData; changed meanings only in the vim profile).
+- **E1** `=` names the column with the expression text (VisiData); `name = expr` names it `name`.
+- **E2** `g=` = setcol-expr on selected rows (VisiData).
+- **E3** `z|` = select-expr (VisiData). The regex filter moves to `gz|` (free in both; VisiData `zF` is
+  freq-summary) and `:filter`, in phase A's first commit, with the doc-sync test and the `docs-filter`
+  recording updated.

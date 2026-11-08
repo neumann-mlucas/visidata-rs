@@ -49,9 +49,9 @@ In order; each phase ships alone with its tests (test plans in each spec §4/§3
 - [ ] S-19 — macros: `m` record, `macros.lua`, `vd.bind` lists, `Action::to_ex` (2–3 d)
 - [ ] After each phase: translate the newly supported longnames in `tests/vd_replay.rs`, re-check the quarantine "Editing" block, raise `MIN_PASS`
 
-## Roadmap 2026-11-08 (S-21 … S-26)
+## Roadmap 2026-11-08 (S-21 … S-30)
 
-Drafted from the VisiData comparison review. Each phase ships alone with its spec's test plan and updates S-15 + the guide. Open decisions are listed at the end of each spec; settle them before the phase that needs them.
+Drafted from the VisiData comparison review. Each phase ships alone with its spec's test plan and updates S-15 + the guide. Decisions confirmed 2026-11-08 (end of each spec). Keymap rule for all of them: S-26 §0 — default = VisiData, changed meanings only in the vim profile.
 
 **Hardening (S-24)** — R1 before S-18 C, R2 with S-18 E
 - [ ] R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
@@ -71,7 +71,7 @@ Drafted from the VisiData comparison review. Each phase ships alone with its spe
 - [ ] P7 — cheap formats in core (usv, fixed-width, zip, toml/yaml), each a yes/no vs direction §7 (0.5 d each)
 
 **Expressions (S-21)**
-- [ ] A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect` (1 d); settle E3 (`z|`) first
+- [ ] A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect` (1 d); first commit moves the regex filter `z|` → `gz|` (E3)
 - [ ] B — `g=` / `:setexpr`, `:filter-expr` (1–1.5 d)
 - [ ] C0 — measure corpus files the Python subset would unlock (0.5 d)
 - [ ] C — Python subset translator, only if C0 or users justify it (3–4 d)
@@ -84,13 +84,14 @@ Drafted from the VisiData comparison review. Each phase ships alone with its spe
 **Layout (S-23)**
 - [ ] A — sidebar `b` / `Ctrl+G` pages (plan, column, cell, help) (0.5–1 d)
 - [ ] B — split panes `Z` / `gZ` / `Tab` (2–3 d)
-- [ ] C1 — `:plot x y…` scatter/line, downsampled (3–4 d)
+- [ ] C1 — `:plot x y…` scatter/line, downsampled; `.` / `g.` keys, repeat → vim profile (3–4 d)
 - [ ] C2 — `:hist`, `:bar` (1–2 d)
 - [ ] C3 — plot pan/zoom (2 d)
 - [ ] C4 — plot region select → parent rows (2–3 d)
 
 **Vim + TUI conventions (S-26)**
-- [ ] A — quit guard (with S-18 C), `<C-r>` redo, `<C-z>` suspend, 256-color/`NO_COLOR`, `:help`, keyboard protocol, jumplist, Space palette, opt-in mouse (2–3 d)
+- [ ] 0 — VisiData key alignment (S-26 §0 table, "phase 0" rows): `Space` → `:` line, `$` currency + `gl`/`gh`, `g-` uniform / `gv` unhide, `<C-c>` cancels jobs + `gq`/`<C-q>` quit, `<C-f>`/`<C-b>` page, `/` current column + `g/` all (2–2.5 d); the R-d rows (`:` `.` `zs` `zc` `zo` `z|` `P` `<C-r>`) move with their features
+- [ ] A — quit/reload guard (with S-18 C), `<C-z>` suspend, 256-color/`NO_COLOR`, `:help`, keyboard protocol, jumplist (`<C-o>`/`<C-i>` vim profile), `<C-^>`, opt-in mouse (2–3 d)
 - [ ] B — ex ranges, `:g` / `:v`, `:normal` (2 d)
 - [ ] C — visual mode `V` / `<C-v>` (2–3 d)
 - [ ] D — `keymap = "vim"` profile: operators, text objects, registers, marks, `q` macros (3–4 d)
@@ -103,17 +104,17 @@ Drafted from the VisiData comparison review. Each phase ships alone with its spe
 
 **Substitute + search hits (S-28)**
 - [ ] A — `:s/re/rep/[gi]`, `*` / `g*` (VisiData regex subst), `PlanStep::Replace`, export (1.5–2 d; after S-18 C)
-- [ ] B — search-hit sheet `g/` / `:hits` (1 d)
+- [ ] B — search-hit sheet `:hits` (1 d)
 
 **Sessions + hooks (S-29)**
 - [ ] A — `vd.on(event, fn)` + `vd.exec` (1–1.5 d)
 - [ ] B — `:source <ex script>` (0.5 d)
 - [ ] C — `:mksession` (needs S-19 `to_ex`) (2–3 d)
-- [ ] D — autosave option; `-S` flag only after H1 is approved (0.5 d)
+- [ ] D — autosave option; `vdrs -S <file>` (H1 approved) (0.5 d)
 
 **Live sheets, notes, selection stats (S-30)**
-- [ ] A — `:refresh`, `:link` / `:unlink` derived sheets (2–3 d)
-- [ ] B — cell notes `:note`, `:notes` (2 d; after S-18 E)
+- [ ] A — `:refresh` (`<C-r>`), `:link` / `:unlink` derived sheets (2–3 d)
+- [ ] B — cell notes `zn` / `:note`, `:notes` (2 d; after S-18 E)
 - [ ] C — selection stats in the status line (1 d)
 
 ## Test layout

@@ -29,7 +29,7 @@ derived from which parent (`SheetState.lineage`). Not saved: windows, undo histo
   loads.
 - Commands: `:mksession [path]` (default `$XDG_STATE_HOME/vdrs/session.vdrs`), `:source <path>` runs
   any ex script (session or not). Auto-save on quit: `vd.option("session_autosave", false)`.
-- CLI: `vdrs -S <file>` — **new flag; discuss before adding** (decision H1).
+- CLI: `vdrs -S <file>` (H1, approved); `tests/cli.rs` covers it.
 
 ## 2. Lua hooks
 `vd.on(event, fn)` registers a handler; several per event, run in registration order; an error in a
@@ -73,7 +73,6 @@ end)
 - pty: `:mksession` then restart with `:source` (or `-S`) → same screen.
 - Session files only under the test's temp `XDG_STATE_HOME`.
 
-## 5. Decisions (open)
-- **H1** `vdrs -S <file>` CLI flag vs. `vdrs` + `:source`. Recommend the flag (vim parity), but it is a
-  public interface — confirm first.
-- **H2** session format: ex script (recommend) vs. Lua table (more structure, less readable).
+## 5. Decisions (confirmed 2026-11-08)
+- **H1** add the CLI flag `vdrs -S <file>` (vim parity); `:source` works too.
+- **H2** a session is an ex script (`.vdrs`), not a Lua table.
