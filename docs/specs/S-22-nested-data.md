@@ -1,8 +1,8 @@
 # S-22 — Nested data: expand structs, unfurl lists
 
 Status: **drafted 2026-11-08**, not started.
-Depends on: S-03 (readers), S-15. Corrects S-15 §10 ("JSON records load with nested fields as JSON
-strings"): verified 2026-11-08 that Polars' JSON/JSONL readers give native `struct[...]` and
+Depends on: S-03 (readers), S-15. Corrected S-15 §10 (it said "JSON records load with nested fields as JSON
+strings"; fixed 2026-11-08): verified 2026-11-08 that Polars' JSON/JSONL readers give native `struct[...]` and
 `list[...]` columns (`vdrs --headless` on nested JSONL), and Parquet/Arrow carry them as-is. So the
 data is already typed; only the operations are missing.
 
@@ -56,4 +56,4 @@ Rules:
   parent, unchanged; edit keys on the unfurled sheet → read-only message (S-18 D3).
 - Golden + export round trip: `expand-struct`, `unfurl-list` (DuckDB + Polars rebuild the same TSV).
 - Corpus: translate `expand-col*`, `unfurl-col`; record which files pass.
-- Fix S-15 §10 wording in phase A.
+- S-15: move nested data from §10.1 (planned) to §3 when phase A ships.

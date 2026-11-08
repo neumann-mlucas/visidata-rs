@@ -22,7 +22,8 @@ A right-hand panel that shows text about the current context; the plan panel bec
   `I` describe row, computed for one column in the background), `cell` (full value, wrapped; nested
   values pretty-printed — pairs with S-22), `help` (bindings of the current layer, which-key list).
 - Keys: `b` toggle (VisiData), `Ctrl+G` cycle pages (VisiData). `:sidebar <page>`.
-  Interaction with S-18 F (`P` → `:plan`): `:plan` = `:sidebar plan`.
+  `:plan` = `:sidebar plan`. Ships before or with S-18 F (tasks roadmap item 13), so `:plan` lands once
+  and S-18 F's first commit only frees `P`.
 - Rendering: reuse the plan-panel split; pivot preview keeps priority while typing `:pivot`.
 - Width: 35 % (today's value); `vd.option("sidebar_width", 35)` via S-18 D6 if asked.
 

@@ -50,7 +50,7 @@ consistency is a correctness rule:
   for that case and record why).
 - Tests: unit per type rule incl. mixed columns; golden `xlsx-typed`, `sqlite-typed` with export.
 
-## 4. R4 — CSV inference: no silent data change (1 d)
+## 4. R4 — CSV inference: no silent data change (1 d; ships as part of S-25 P2)
 - Zero-padded integers: a column inferred as int where any sampled value matches `^[+-]?0\d` stays
   String (zip codes, IDs). Implementation: after schema inference, re-check int columns on the same
   sample rows Polars inferred from (`CSV_INFER_ROWS`) read as text; override via `with_schema_overwrite`.
@@ -59,7 +59,7 @@ consistency is a correctness rule:
 - Tests: unit — `082053`, `-01`, `0`, `0.5`, `10` → expected dtypes; golden `zero-padded-ids`;
   `issue964-inner-join` leaves the quarantine if it then passes.
 
-## 5. R5 — Release binaries (0.5–1 d)
+## 5. R5 — Release binaries (0.5–1 d; waits on the 2026-11-05 decision "no prebuilt binaries until the name is settled", `tasks.md`)
 - GitHub Actions release workflow on tag `v*`: build `vdrs` for x86_64/aarch64 Linux (musl), macOS
   (x86_64 + arm64), Windows; attach archives + SHA256 to the release. Prefer `cargo-dist` (generates the
   workflow and a shell installer) over a hand-written matrix; pin its version.

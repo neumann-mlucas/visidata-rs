@@ -15,11 +15,14 @@ VisiData from keystroke 1; deviations need a reason. So this spec has two layers
 ## 0. Keymap rule (confirmed 2026-11-08, applies to every spec)
 - **R-a** A key VisiData binds to a command vdrs has → the VisiData meaning, in the default keymap.
 - **R-b** A key VisiData leaves free → vdrs may bind a new feature to it in the default keymap
-  (additive, breaks no muscle memory): `D` diff, `V` / `<C-v>` visual, `gz|` filter.
+  (additive, breaks no muscle memory): `V` / `<C-v>` visual, `gz|` filter, `zn` notes.
 - **R-c** A vdrs meaning that differs from VisiData's → vim profile only.
 - **R-d** Transition: a VisiData key whose command vdrs doesn't have *yet* keeps its current vdrs
   meaning until that command ships; the shipping commit switches the key and moves the old meaning to
   the vim profile. No key goes dead in between.
+- **R-e** A VisiData key whose command vdrs cuts on purpose (direction §9.5: cmdlog, `.vdj`) → treated
+  as free (R-b), listed in the table below with the cut it rests on: `D` diff (VisiData
+  `cmdlog-sheet`), `<C-d>` page (VisiData `save-cmdlog`).
 - Every VisiData command is also reachable as `:<name>` in both profiles.
 
 Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bindkey` table at
@@ -34,6 +37,7 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 | `g-` | unhide all | `hide-uniform-cols` | `:uniform` | — | phase 0 |
 | `gv` | — | `unhide-cols` | unhide all | reselect last visual range | phase 0 |
 | `<C-c>` | quit | `cancel-sheet` | cancel the sheet's background jobs (`gCtrl+C` all); quit all = `gq`, hard quit = `<C-q>` | `<C-c>` cancels too; `:qa` | phase 0 |
+| `D` | diff prompt | `cmdlog-sheet` (cut, §9.5) | diff prompt (R-e) | same | — (kept) |
 | `<C-d>` / `<C-u>` | page down / up | `save-cmdlog` (cut, §9.5) / — | page = `<C-f>` / `<C-b>` / PgDn / PgUp | half page (as vimcompat) | phase 0 |
 | `<C-r>` | — | `reload-sheet` | `:refresh` (S-30 A; asks first if the sheet has unsaved edits) | redo | S-30 A |
 | `<C-o>` / `<C-i>` | — | `sysopen-*` (external program) | — | jumplist back / forward | phase A |
@@ -110,7 +114,7 @@ Rebinds only where VisiData and vim disagree; everything else stays VisiData.
 | `x` | cut row (S-18) | cut cell (vim `x` = one char) |
 | `H` `M` `L` | slide column / melt / slide | screen top / middle / bottom row |
 | `zt` `zz` `zb` | — | scroll cursor row to top / middle / bottom |
-| `w` `b` `e` | — / — / edit | next / prev non-null cell in the row (`e` edit moves to `i` / `<CR>` on a cell, decision V4) |
+| `w` `b` `e` | — / sidebar (S-23 A) / edit | next / prev non-null cell in the row (`e` edit moves to `i` / `<CR>` on a cell, decision V4; sidebar toggle moves to `:sidebar` / `<C-g>`) |
 | `{` `}` | — | prev / next change of value in the current column (VisiData `<`/`>` go-prev/next-value) |
 | `*` `#` | — / type-int | search the cursor cell's value forward / back (`#` int cast → `:type int` + `z#`) |
 | `<C-w>s/v/w/o/q` | — | splits (S-23 B) |
@@ -157,7 +161,7 @@ profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` 
 - Docs: guide "vim users" page lists the profile table; doc-sync test covers both profiles.
 
 ## 9. Decisions (confirmed 2026-11-08)
-- **Rule**: §0 (R-a … R-d) for every spec.
+- **Rule**: §0 (R-a … R-e) for every spec. Direction §9.7: default = VisiData, opt-in vim profile for new or more standard meanings.
 - **V1** `v` unbound for now; `V` / `<C-v>` visual in the default keymap (R-b). When multi-line cells
   ship, default `v` = VisiData's toggle; a charwise visual on `v` would be vim-profile only.
 - **V2** `gv` = unhide-cols by default (VisiData); reselect in the vim profile.

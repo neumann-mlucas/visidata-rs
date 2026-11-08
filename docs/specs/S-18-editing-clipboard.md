@@ -7,8 +7,8 @@ was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` a
 
 Direction note: `tests/vd_replay.rs` lists clipboard/add-row/delete-row as untestable because "we're a
 non-mutable projection engine". That stance changes here: the file stays read-only, the *sheet* becomes
-editable and gets a clipboard. Update that comment and `direction.md` in phase A, the first phase
-that crosses it.
+editable and gets a clipboard. `direction.md` records it (§9.8, 2026-11-08); update the
+`vd_replay.rs` comment in phase A, the first phase that crosses it.
 
 ## 1. What exists today (verified in `src/sheet.rs`)
 
@@ -144,8 +144,8 @@ proof the rid switch is safe). Then `DeleteRows`. `d` keeps the cursor on the ne
 selection; `x`/`gx` = copy then delete.
 
 ### F — Add/paste rows
-First, as its own commit: `P` stops toggling the plan panel; `:plan` (new built-in, same cycle:
-plan → optimized → off; `:toggle-plan-panel` keeps working) replaces it in the keymap, the guide
+First, as its own commit: `P` stops toggling the plan panel; `:plan` (from S-23 A, which ships with or
+before this phase: `:sidebar plan`, same plan → optimized → off cycle; `:toggle-plan-panel` keeps working) replaces it in the keymap, the guide
 (`docs-plan` recording, key tables), S-15 and the `init.lua` template. Then `AddRows` with the
 position key of §2.3: `a` one blank row after the cursor, `ga` asks how many, `p`/`P` paste register
 rows after/before the cursor row, cursor moves to the first new row. `A` (open-new) = an empty

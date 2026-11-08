@@ -1,6 +1,6 @@
 # S-15 — Feature inventory (what `visidata-rs` actually ships)
 
-Status: **landed 2026-10-16**, re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of the same day.
+Status: **landed 2026-10-16**, re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of that day, §3.11 the 2026-11-07 additions. Planned work: `../tasks.md` roadmap.
 
 User-facing reference: [`docs/index.html`](../index.html) (GitHub Pages). Unit tests fail if it misses a default key binding or documents an ex command that doesn't exist. This is the authoritative list of what the `vdrs` binary and companion crate expose. Update when a user-visible surface changes.
 Phase: n/a (cross-cutting documentation)
@@ -95,7 +95,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 
 | Action | Key | Semantics |
 |---|---|---|
-| `ToggleSelectRow` / `UnselectRow` | `s` or `t` / `u` | View.selected (`BTreeSet<u64>` of view row indexes) |
+| `ToggleSelectRow` / `UnselectRow` | `s` or `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan) |
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
 | `SelectByRegex { regex }` | — | regex over current col, whole view |
 | `StartSelectInput` → prompt | `\|` | — |
@@ -179,7 +179,7 @@ Full default binding table lives in `Keymap::defaults()`; see source.
 
 ## 5. Ex-line
 
-Full grammar: `src/exline.rs:parse()`. Commands:
+Full grammar: `src/exline.rs:parse()`; the complete list is what `:<Tab>` completes and what the guide documents (doc-sync test). The original commands below; later ones (`:join`, `:derive`, `:sql`, `:setcol`, `:export`, `:describe`, `:dup`, `:uniform`, `:undo`/`:redo`, `:N`, `:<action-name>`, `vd.command`s) in §3.10–3.11:
 
 ```
 :q / :quit                           pop sheet
@@ -274,7 +274,7 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 3
+vd.api_version                                  -- 4 (vd.command, §3.11)
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
@@ -308,21 +308,25 @@ CSV and TSV files up to 1 GiB move into memory in the background after opening, 
 Enumerated here so no one re-asks:
 
 - **No Python-expression eval** (direction §9.5): `qty*amt`, `curcol.casefold()`, `date.isocalendar()[2]`, `curcol.strip()`, `str.lower(curcol)`. Users write Lua instead; VisiData golden corpus tests encoding Python expressions are UNTESTABLE in S-14.
-- **No options system** (direction §1): `set-option`, `unset-option`, 4-level default→global→class→instance fallback. User overrides go in `init.lua`.
-- **No nested-field drilldown** (`unfurl-col`, `expand-col`, `expand-col-depth`): JSON records load with nested fields as JSON strings; users project via `:derive` (Polars SQL expressions).
+- **No options fallback chain** (direction §1): no 4-level default→global→class→instance resolution, no per-sheet options. A flat `vd.option` is planned (§10.1).
 - **No `.vd` / `.vdj` runtime** (direction §9.5): the cmdlog format exists only in the S-14 test harness, not the `vdrs` binary.
 - **No VisiData state file compat** (direction §9.5): no `~/.visidata`, no `.visidatarc` import.
 - **No save-all** (`g^S`) and no `^S` binding: saving is the `:save <path.ext>` ex-command only.
-- **No plot column**, **no LLM-on-cells**, **no live chart previews**.
+- **No LLM-on-cells**.
 
 ### 10.1 Not yet supported (planned or open)
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
+- **Nested data** (`expand-col`, `unfurl-col`): JSON/JSONL/Parquet/Arrow already load nested fields as native `struct`/`list` columns; the expand/unfurl operations are missing. Plan: [`S-22-nested-data.md`](S-22-nested-data.md).
+- **Plots** (`plot-column`, histograms): plan [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) part C.
+- **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
+- **Expression keys** `=` `g=` `z/` over Polars SQL: [`S-21-expressions.md`](S-21-expressions.md).
+- **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
 - **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
 
-- **Rest of S-10**: `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
+- **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
 - **Export**: schema diff and Lua-aggregator pivots.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
@@ -346,14 +350,3 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 | Library façade (re-exports for integration tests) | `src/lib.rs` |
 | Golden corpus replay harness | `tests/vd_replay.rs` |
 | Quarantine list w/ per-entry reasons | `tests/vd_replay/quarantine.txt` |
-
-## 12. What belongs in the next spec
-
-When a change touches this spec, it probably belongs in a successor:
-
-- **S-17**: aggregator plugin shape (per S-09 §Lifecycle)
-- **S-18**: renderer plugin shape (per S-09 §Lifecycle)
-- **S-19**: pivot setup sheet (column roles picked on a meta-sheet) — only if the `:pivot` preview proves too little
-- **S-20**: plan panel export (bet #2 Tier 2)
-
-Only draft one when the implementation starts (direction §README "specs rot, late-bind to reality").

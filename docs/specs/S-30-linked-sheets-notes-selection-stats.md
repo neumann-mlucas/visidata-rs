@@ -45,7 +45,7 @@ Excel's status bar (sum / average / count of the selected cells).
 - Computed in a background job over `view_plan()` filtered to the selected rids, debounced 150 ms
   after the last selection/cursor-column change; cached by (selection revision, column).
 - Visual block (`<C-v>`, several columns): sum over all numeric cells in the block.
-- `y` on the stats (decision K3) copies them as TSV.
+- `:stats` copies them as TSV (decision K3; no key — `y` is copy-row).
 - Not a "sum of a range" *cell* (that is `:derive x = sum(col) OVER ()`, already works — Polars SQL
   window functions verified 2026-11-08 via `sql_expr`; note `:derive` runs on the base plan, so
   `OVER ()` spans all source rows, not the filtered view).

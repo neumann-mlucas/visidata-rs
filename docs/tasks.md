@@ -20,102 +20,40 @@ Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same
 - [x] Column widths include on-screen rows
 - [x] Freq dive: `<CR>` / `g<CR>` on a frequency sheet (user report)
 
-Still open (see S-15 §10.1):
+Done in the same pass (2026-11-05): live `:pivot` preview; Lua function bindings, `vd.toast`, `vd.sheet()` (api 2); `vd.push_sheet` (api 3); renderer memo + widths; Lua aggregators off the UI thread; deterministic join / `:sql` order; `:export` for derived sheets, describe, row diff, `W`, Arrow/Excel/SQLite sources; `path:part` targets. Later: `vd.command` (api 4, 2026-11-07).
 
-- [x] Live pivot preview while typing `:pivot` (hints → pivot of first 10k rows)
-- [x] Lua function bindings + `vd.toast` + `vd.sheet()` (api_version 2)
-- [x] `vd.push_sheet { name?, columns, rows }` (api_version 3)
-- [ ] Rest of S-10 (`vd.frame`, pop sheet, sandbox, coroutines, deprecate registry) — when a Lua user asks
-- [x] Renderer output memoized per value and counted in column widths
-- [x] Lua aggregators off the UI thread: `:pivot` and its preview run them on a background job (mlua `send`; VM lock per cell)
-- [x] Deterministic row order for joins / `:sql`: result collected once in the background
-- [x] `:export` for derived sheets (verified: DuckDB + Polars 1.x reproduce the rows)
-- [x] `:export` for describe/row diff/`W`; Arrow/Excel in `.sql` (DuckDB extensions), SQLite in `.py` (stdlib `sqlite3`) — schema diff stays out
-- [x] Multi-part files as `:join`/`:diff`/CLI targets (`path:part` syntax)
+## Roadmap (ordered, 2026-11-08)
 
-## Editing, clipboard, macros (S-18, S-19, S-20)
+One list, worked top to bottom. Each item ships alone with its spec's test plan and updates S-15 + the guide. Keymap rule for all of them: [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md) — the default keymap matches VisiData; new or more standard meanings live in the opt-in vim profile. After each item that ships a VisiData command: translate its longnames in `tests/vd_replay.rs`, re-check the quarantine, raise `MIN_PASS`.
 
-In order; each phase ships alone with its tests (test plans in each spec §4/§3) and updates S-15 + the guide.
+Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26 D; S-18 C's `Arc` rid set blocks S-21 B; S-18 E (stable rids) blocks S-26 B `:'<,'>d` and S-30 B; S-19 `Action::to_ex` blocks S-29 C; S-23 A lands `:plan` (= `:sidebar plan`) before S-18 F needs it.
 
-- [x] S-18 §5 decisions D1–D6 confirmed 2026-11-08 (`P` = paste-before, plan panel → `:plan`; insert at cursor; source sheets only; inline export; pinned derived cells; `vd.option`)
-- [ ] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
-- [ ] S-18 B — copy to system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink` test sink, `vd.option` (1–1.5 d)
-- [ ] S-20 — undo tree, optional; best before C (1–2 d)
-- [ ] S-18 C — cell editing on source sheets: `e`, `ge`, `:edit`; `SetCells` step placed after the column's last writer (3–4 d)
-- [ ] S-18 D — paste into cells: `zp gzp zx` (1–2 d)
-- [ ] S-18 E — stable row ids (no-visible-change commit first), then delete rows: `d gd x gx` (2–3 d)
-- [ ] S-18 F — plan panel `P` → `:plan` (own commit), then add/paste rows at the cursor: `a ga p P`, `A` open-new (3–5 d)
-- [ ] S-18 G — system paste in: bracketed paste → register, `gzP` (1 d)
-- [ ] S-19 — macros: `m` record, `macros.lua`, `vd.bind` lists, `Action::to_ex` (2–3 d)
-- [ ] After each phase: translate the newly supported longnames in `tests/vd_replay.rs`, re-check the quarantine "Editing" block, raise `MIN_PASS`
+1. - [ ] Doc cleanup: specs/tasks/direction consistent with the 2026-11-08 roadmap
+2. - [ ] S-24 R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
+3. - [ ] S-25 P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
+4. - [ ] S-26 phase 0 — VisiData key alignment (§0 "phase 0" rows: `Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`) (2–2.5 d), with S-21 A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect`, `z|` select-expr, regex filter → `gz|` (1 d)
+5. - [ ] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
+6. - [ ] S-18 B — system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink`, `vd.option` (1–1.5 d)
+7. - [ ] S-25 P1 — translate shipped features' longnames (~26 files); `I` describe switches to VisiData's columns (1.5–2.5 d)
+8. - [ ] S-20 — undo tree (1–2 d)
+9. - [ ] S-18 C — cell editing `e`, `ge`, `:edit`; `SetCells` after the column's last writer; `SetCol.rids` → `Arc<[u64]>`; S-26 A1 quit guard (3–4 d)
+10. - [ ] S-21 B — `g=` / `:setexpr` (source sheets only, S-18 D3), `:filter-expr` (1–1.5 d)
+11. - [ ] S-18 D — paste into cells: `zp gzp zx` (1–2 d)
+12. - [ ] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d)
+13. - [ ] S-23 A + S-18 F — sidebar `b` / `Ctrl+G` (pages plan, column, cell, help; `:plan` = `:sidebar plan`, `P` freed), then add/paste rows `a ga p P`, `A` open-new (4–6 d)
+14. - [ ] S-18 G — system paste in: bracketed paste → register, `gzP` (1 d)
+15. - [ ] S-24 R3 + S-25 P2 — typed xlsx/sqlite; correctness fixes from FAIL/runtime buckets, incl. S-24 R4 zero-padded ids (3–4 d)
+16. - [ ] S-22 A/B/C — `(` `z(` `g(` expand, `)` contract; `zM` unfurl sheet; `:type json` (2.5–3 d)
+17. - [ ] S-25 P3 — columns sheet `C` (3–5 d); P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d)
+18. - [ ] S-19 — macros: `m` record, `macros.lua`, `vd.bind` lists, `Action::to_ex` (2–3 d)
+19. - [ ] S-29 A–D — `vd.on` + `vd.exec`; `:source`; `:mksession`; autosave + `vdrs -S` (4–5 d)
+20. - [ ] S-28 A/B — `:s`, `*` / `g*`, `PlanStep::Replace`; `:hits` sheet (2.5–3 d)
+21. - [ ] S-30 C, A, B — selection stats; `:refresh` (`<C-r>`) + `:link`; cell notes `zn` (5–6 d)
+22. - [ ] S-27 A/B/C — `:color` / `:nocolor`; `:scale`, `:databar`; Lua renderer styles (3–4 d)
+23. - [ ] S-23 B — split panes `Z` / `gZ` / `Tab` (2–3 d); C1–C4 — `:plot` (`.` / `g.`, repeat → vim profile), `:hist`, `:bar`, pan/zoom, region select (8–11 d)
+24. - [ ] S-26 A (rest), B, C, D, E — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
 
-## Roadmap 2026-11-08 (S-21 … S-30)
-
-Drafted from the VisiData comparison review. Each phase ships alone with its spec's test plan and updates S-15 + the guide. Decisions confirmed 2026-11-08 (end of each spec). Keymap rule for all of them: S-26 §0 — default = VisiData, changed meanings only in the vim profile.
-
-**Hardening (S-24)** — R1 before S-18 C, R2 with S-18 E
-- [ ] R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
-- [ ] R2 — window/revision/count invariants behind `Sheet` methods (1–2 d)
-- [ ] R3 — typed xlsx / sqlite columns when uniform (1 d)
-- [ ] R4 — CSV: zero-padded ints stay text (`issue964`) (1 d)
-- [ ] R5 — release binaries on tag (cargo-dist), README install order (0.5–1 d)
-- [ ] (S-18 C) `SetCol.rids` → `Arc<[u64]>` with `SetCells`
-
-**Corpus coverage (S-25)** — target ~80–95 PASS
-- [ ] P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
-- [ ] P1 — translate shipped features' longnames (~26 files); `I` describe sheet switches to VisiData's columns (6 goldens) (1.5–2.5 d)
-- [ ] P2 — correctness fixes from FAIL/runtime buckets (~16 files) (2–3 d)
-- [ ] P3 — columns sheet `C` (3–5 d)
-- [ ] P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d)
-- [ ] P6 — options subset via `vd.option` (1–2 d)
-- [ ] P7 — cheap formats in core (usv, fixed-width, zip, toml/yaml), each a yes/no vs direction §7 (0.5 d each)
-
-**Expressions (S-21)**
-- [ ] A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect` (1 d); first commit moves the regex filter `z|` → `gz|` (E3)
-- [ ] B — `g=` / `:setexpr`, `:filter-expr` (1–1.5 d)
-- [ ] C0 — measure corpus files the Python subset would unlock (0.5 d)
-- [ ] C — Python subset translator, only if C0 or users justify it (3–4 d)
-
-**Nested data (S-22)**
-- [ ] A — `(` / `z(` / `g(` expand, `)` contract, struct cell text; fix S-15 §10 wording (1–1.5 d)
-- [ ] B — `zM` unfurl sheet (1 d)
-- [ ] C — `:type json` (0.5 d)
-
-**Layout (S-23)**
-- [ ] A — sidebar `b` / `Ctrl+G` pages (plan, column, cell, help) (0.5–1 d)
-- [ ] B — split panes `Z` / `gZ` / `Tab` (2–3 d)
-- [ ] C1 — `:plot x y…` scatter/line, downsampled; `.` / `g.` keys, repeat → vim profile (3–4 d)
-- [ ] C2 — `:hist`, `:bar` (1–2 d)
-- [ ] C3 — plot pan/zoom (2 d)
-- [ ] C4 — plot region select → parent rows (2–3 d)
-
-**Vim + TUI conventions (S-26)**
-- [ ] 0 — VisiData key alignment (S-26 §0 table, "phase 0" rows): `Space` → `:` line, `$` currency + `gl`/`gh`, `g-` uniform / `gv` unhide, `<C-c>` cancels jobs + `gq`/`<C-q>` quit, `<C-f>`/`<C-b>` page, `/` current column + `g/` all (2–2.5 d); the R-d rows (`:` `.` `zs` `zc` `zo` `z|` `P` `<C-r>`) move with their features
-- [ ] A — quit/reload guard (with S-18 C), `<C-z>` suspend, 256-color/`NO_COLOR`, `:help`, keyboard protocol, jumplist (`<C-o>`/`<C-i>` vim profile), `<C-^>`, opt-in mouse (2–3 d)
-- [ ] B — ex ranges, `:g` / `:v`, `:normal` (2 d)
-- [ ] C — visual mode `V` / `<C-v>` (2–3 d)
-- [ ] D — `keymap = "vim"` profile: operators, text objects, registers, marks, `q` macros (3–4 d)
-- [ ] E — line editor normal mode (2 d)
-
-**Conditional formatting (S-27)**
-- [ ] A — `:color <col|*> <pred> <style>`, `:nocolor` (1.5–2 d)
-- [ ] B — `:scale`, data bars (1–1.5 d)
-- [ ] C — Lua renderer styles (0.5 d)
-
-**Substitute + search hits (S-28)**
-- [ ] A — `:s/re/rep/[gi]`, `*` / `g*` (VisiData regex subst), `PlanStep::Replace`, export (1.5–2 d; after S-18 C)
-- [ ] B — search-hit sheet `:hits` (1 d)
-
-**Sessions + hooks (S-29)**
-- [ ] A — `vd.on(event, fn)` + `vd.exec` (1–1.5 d)
-- [ ] B — `:source <ex script>` (0.5 d)
-- [ ] C — `:mksession` (needs S-19 `to_ex`) (2–3 d)
-- [ ] D — autosave option; `vdrs -S <file>` (H1 approved) (0.5 d)
-
-**Live sheets, notes, selection stats (S-30)**
-- [ ] A — `:refresh` (`<C-r>`), `:link` / `:unlink` derived sheets (2–3 d)
-- [ ] B — cell notes `zn` / `:note`, `:notes` (2 d; after S-18 E)
-- [ ] C — selection stats in the status line (1 d)
+Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries once the release decision below changes.
 
 ## Test layout
 
@@ -126,7 +64,7 @@ Drafted from the VisiData comparison review. Each phase ships alone with its spe
 - `tests/vd_replay.rs`: VisiData corpus; `MIN_PASS` floor.
 
 ## Phase 0 — viewer parity (csvlens++)
-- [ ] Prep: extract VisiData default binding table from `../visidata/visidata/**/*.py` (grep `addCommand\(`) — _deferred: the baked-in table covers the shipped features; extract only when a user asks for VisiData parity on a key we lack (overrides go through `vd.bind`)_
+- [x] ~~Prep: extract VisiData default binding table~~ — superseded: S-26 §0 compares vdrs keys with VisiData's `addCommand`/`bindkey` table at `5f67ff8a` (2026-11-08)
 - [x] CSV/TSV reader via Polars `scan_csv` (S-03)
 - [x] Parquet reader via Polars `scan_parquet` (S-03)
 - [x] Arrow IPC reader (S-03)
@@ -170,7 +108,7 @@ Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts 
 
 **Current state (2026-11-07, `.vdx` corpus added): PASS=29, FAIL=0, SKIP=0, UNTESTABLE=50, QUARANTINED=121, NO_GOLDEN=40.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
-**Addressable ceiling: 21 tests.** PASS/addressable = 21/21 (100%). All 164 corpus entries resolved. Addressable collapsed from 98 → 21 across iterations 10-14 via honest classification: longnames encoding Python expressions / clipboard / new-sheet / options-system workflows are UNTESTABLE (direction §9.5 compat ban + §1 options cut); format tests out of scope (xml/html/yaml/toml/zip/stata/npy/msgpack/etc.) are QUARANTINED. See [`specs/S-14-corpus-replay-harness.md`](specs/S-14-corpus-replay-harness.md) for the classification taxonomy.
+**Addressable ceiling (2026-11-08 triage, quarantine emptied): ~137** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 
 Driver semantics for several chunks exist test-side only; production `App::dispatch` still needs them. Each `[driver only]` item below means the harness proves Polars-level correctness but there's no keybinding/exline entry in `vdrs` the binary.
 
@@ -194,11 +132,11 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **Harness-first, now also in the binary (2026-11-05)**: Joins (inner/outer/full/left/append/extend/merge → `:join`), pivot without keys (`W`), hide-uniform-cols (`:uniform`), setcol-input gang mode (`:setcol`), dup-rows (`g"`), select-equal-cell (`,`).
 - [x] **CI**: `ci.yml` fetches saulpw/visidata pinned at `5f67ff8a` (was `dd1a9f0` until 2026-11-07) into `../visidata`; `cargo test` runs the replay and fails on any regression
 
-**Deferred (per iter 14 postmortem — explicit non-features; struck items shipped later):**
+**Deferred at iteration 14** (history; struck = shipped, _now planned_ = back on the roadmap):
 - ~~**Describe-sheet**~~ — shipped as `I` / `:describe` (own stats, not VisiData's fmtstr output; golden tests stay quarantined).
-- **Options system** (`set-option`, `g set-option`, 4-level fallback). Cut per direction §1; `init.lua` is the config surface.
-- **Expression column** (`addcol-expr`, `aggregate-col`): Python-expr payloads UNTESTABLE per direction §9.5. Covered by `:derive name = <SQL expr>` and `:setcol <value>`.
-- **Row ops** (`edit-cell` interactive, `delete-row`, `open-row` dive, `open-cell`): clipboard/mutation surface cut per direction §1.
+- **Options system** — 4-level fallback stays cut; _now planned_: flat `vd.option` (S-18 B) + data-changing subset (S-25 P6).
+- **Expression column** — _now planned_: `=` / `g=` over Polars SQL (S-21); `aggregate-col` takes an aggregator name, not Python (S-25 P4).
+- **Row ops** (`edit-cell`, `delete-row`, copy/paste) — _now planned_: S-18.
 - ~~**Multi-worksheet xlsx**, **multi-table sqlite**~~ — shipped: parts list + `file:part`.
 - ~~**Lenient date parsing**~~ — shipped: `@` tries 12 regex-guarded layouts.
 - [x] **Cleanup iteration 2** — fixed pre-existing clippy warnings: `widget.rs` collapsible `if`, `Sheets` missing `is_empty`. Remaining 2 warnings pre-existed and are benign (`fn next` in keymap chord resolver, items-after-test-module in plugins). Not touched.
@@ -235,16 +173,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - **Multi-sheet replay is a new blocker**: `append.vd` and friends load two files, use `sheets-stack` + `select-row` on `キ<sheet-name>` to pick which sheets to join, then run `join-sheets`. Our single-sheet `Replay::sheet: Option<Sheet>` can't model this. 8 tests gated on this.
 - Clippy drift: xlsx impl introduced one `needless_range_loop` warning (`for ci in row.len()..width`); fixed to `cols.iter_mut().take(width).skip(row.len())`.
 
-**Phase 1.5 CLOSED.** Corpus-leverage work exhausted at iteration 10. Remaining PASS gains require genuine new features (not test-engineering):
-
-1. **Phase 3 plugin shapes** (loader/aggregator/renderer + hot-reload) — zero PASS lift but the main user-facing extensibility story. Highest priority for next phase.
-2. **describe-sheet** (~150 LOC, +2 PASS). Low priority — defer until a user asks.
-3. **Lenient date parsing** (strptime fallback via `str.strptime`, +1-3 PASS). Trivial Polars one-liner, do when touching date paths next.
-4. **Python-expr compat subset** (col * col, col > N, col.method() for a few builtins) — unlocks 5–10 UNTESTABLE. Direction §9.5 defers; revisit if user demand clear.
-5. **Format plugins** (XML/HTML/YAML/TOML via `vdrs-ext-*` crates per S-09 ADR) — PASS lift per format but no urgency; CSV/TSV/JSON/Parquet/XLSX/SQLite covers 95% of exploratory workflows.
-6. ~~Visual verification pass~~ — done 2026-11-05: `app::scenario` end-to-end tests drive keymap → dispatch → background Polars → render; real binary smoke-tested on a pty.
-
-Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` runtime support, `unfurl-col`, `set-option` precedence tests, `issue*`/`pr*` regressions, loaders not in core (conllu/h5/stata/xpt/png/mbtiles/msgpack/usv/lsv/pcap/zip/numpy/ods/html/xml/yaml/toml/geojson). Those are Lua plugin territory per S-09 extension ADR.
+**Phase 1.5 CLOSED** (2026-10-16). Its follow-up list (plugin shapes, describe, lenient dates, visual pass) shipped; the Python subset and format plugins moved to S-21 C and S-25 P7. Still out of scope: `.vdj` runtime, `set-option` precedence tests, loaders not in core except the cheap ones S-25 P7 weighs (Lua / `vdrs-ext-*` territory per S-09). Plots, macros and `unfurl-col` are planned (S-23, S-19, S-22).
 
 ## Phase 2 — pivot + plan panel (the differentiating release)
 - [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.
@@ -262,7 +191,7 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] Keymap plugin shape: `vd.bind(layer, keys, action, desc?)` + `vd.unbind(layer, keys)`
 - [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
 - [x] Loader plugin covers `:diff` too (shared `plugins::open`); `:tail` refuses loader formats since refresh would re-scan the stale converted file
-- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — part of the S-10 rest, deferred until a Lua user asks (see Still open)
+- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — part of the S-10 rest, deferred until a Lua user asks (S-16, roadmap evidence-gated list)
 - [x] Aggregator plugin shape — `vd.register_aggregator(name, fn)`, used by `:pivot`; `:derive` takes SQL expressions (Polars `sql_expr`)
 - [x] Renderer plugin shape — `vd.register_renderer { column | dtype, render }`
 - [x] Hot-reload on save — mtime poll on the 2 s tick (no `notify` dependency)
@@ -294,5 +223,5 @@ Explicit cuts (don't chase these upstream tests): `plot-column`, macros, `.vdj` 
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — the `app::scenario` Harness drives the UI without a TTY but is test-only; add a bench target when scroll speed regresses
 - [ ] `rust-toolchain.toml` only when a nightly is needed
-- [x] Release path: `cargo install --path . --locked` from a checkout (decision 2026-11-05); no prebuilt binaries or crates.io until the name is settled
+- [x] Release path: `cargo install --path . --locked` from a checkout (decision 2026-11-05); no prebuilt binaries or crates.io until the name is settled (S-24 R5 waits on this decision)
 - [x] Refactor: dispatch + action handlers moved to `src/app/actions.rs` (`app.rs` keeps loop, jobs, prompts, render, tests)

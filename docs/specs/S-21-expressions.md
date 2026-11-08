@@ -1,7 +1,7 @@
 # S-21 — Expression columns and expression selection (`=`, `:select`)
 
 Status: **drafted 2026-11-08**, not started.
-Depends on: S-15 (`:derive`, `:sql`), S-04 (keymap). Touches S-14 (UNTESTABLE list).
+Depends on: S-15 (`:derive`, `:sql`), S-04 (keymap); phase B on S-18 C (`Arc` rid set, D3 read-only derived sheets). Touches S-14 (UNTESTABLE list).
 Direction: §9.5 stays — no Python runtime. This spec gives VisiData's *keys* and *workflow* an
 expression language vdrs already has (Polars SQL), and leaves a Python-flavoured subset as an
 optional phase gated on evidence.

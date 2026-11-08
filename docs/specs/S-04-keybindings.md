@@ -1,6 +1,6 @@
 # S-04 — Keybinding model
 
-Status: **draft** (unapproved)
+Status: **shipped** (keymap config is Lua `vd.bind`, not the TOML planned here). Default-key policy since 2026-11-08: S-26 §0 (default = VisiData, opt-in vim profile).
 Phase: 0
 Depends on: S-02 (`Action` enum, `App` state)
 Research: [`../research/tui-patterns.md`](../research/tui-patterns.md) Q3

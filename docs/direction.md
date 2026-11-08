@@ -2,7 +2,7 @@
 
 Original design notes for a Rust take on VisiData using Ratatui + Polars + mlua, leaning harder into vim/neovim philosophy. Based on a read of the VisiData source, a GitHub issue scan, and a tool-landscape survey (Oct 2026).
 
-Kept for context: this is the plan as written, not current status. §9 records the decisions taken. For what ships today see [S-15](specs/S-15-feature-inventory.md).
+Kept for context: this is the plan as written, not current status. §9 records the decisions taken; its later entries override earlier sections (editing, options, plots and nested data are now in scope). For what ships today see [S-15](specs/S-15-feature-inventory.md).
 
 ---
 
@@ -164,6 +164,15 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 4. **Config**: pure `init.lua`. No TOML/KDL layer.
 5. **Compat**: zero. No `.vdj`, no `.visidatarc` import, no reading VisiData state files. Data files are shared; everything else starts fresh.
 6. **Name**: `visidata-rs`, binary `vdrs`.
+
+### Later decisions (2026-11-07 / 2026-11-08)
+
+7. **Keymap**: the default keymap matches VisiData's bindings. New or more standard (vim/TUI) meanings go in an opt-in vim profile (`vd.option("keymap", "vim")`), never in the default. Rule R-a…R-e in [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md); every spec follows it.
+8. **Editing**: the sheet is editable and has a clipboard; source files stay read-only (`:save` writes elsewhere). Supersedes "non-mutable projection engine" and the row-ops cut. Plan: [S-18](specs/S-18-editing-clipboard.md), macros [S-19](specs/S-19-macros.md), undo tree [S-20](specs/S-20-undo-tree.md).
+9. **Options**: a flat, global `vd.option(name, value)` in `init.lua` (S-18 D6) for the few settings that need one. Still no four-level fallback (§1 cut stands).
+10. **Expressions**: Polars SQL behind VisiData's expression keys (`=`, `g=`, `z/`, `z|`). A Python-flavoured subset only if the corpus or users justify it ([S-21](specs/S-21-expressions.md)). §9.5 (no Python runtime) stands.
+11. **Back in scope** (were cut, or "product decisions" in §2/§7): nested-data expand/unfurl ([S-22](specs/S-22-nested-data.md)), plots ([S-23](specs/S-23-layout-sidebar-splits-plots.md)), sessions in vdrs's own ex-script format ([S-29](specs/S-29-sessions-lua-hooks.md)) — still no `.vdj` compat.
+12. **Roadmap**: S-18 … S-30, in the order listed in [`tasks.md`](tasks.md).
 
 ### Deltas these cause in earlier sections
 

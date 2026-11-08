@@ -1,6 +1,6 @@
 # S-09 — mlua plugin system: shapes, sandbox, errors
 
-Status: **draft** (unapproved)
+Status: **shipped in part** — keymap, loader, aggregator, renderer shapes + hot reload (S-15 §7). Sandbox not started.
 Phase: 3
 Depends on: direction §4 (Scripting: mlua, Neovim-style API discipline), S-01 (`Sheet.Source`), S-02 (tokio runtime), S-04 (`Keymap` layer vecs)
 Blocks: S-10 (API surface + versioning)
