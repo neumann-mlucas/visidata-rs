@@ -30,6 +30,12 @@ impl App {
             self.toast = Some(format!("no column: {column}"));
             return;
         }
+        if let Action::SelectExpr { expr, .. } = &action
+            && let Err(e) = self.sheets.active().check_predicate(expr)
+        {
+            self.toast = Some(e);
+            return;
+        }
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
         }

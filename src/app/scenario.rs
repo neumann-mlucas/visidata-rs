@@ -1308,8 +1308,10 @@ async fn expression_keys_search_select_and_derive() {
     h.keys("z \\").await;
     h.type_("price = 2").await;
     assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+    let undo_depth = h.app.sheets.active().state.undo.len();
     h.keys(":").await;
     h.type_("select qty + 1").await;
+    assert_eq!(h.app.sheets.active().state.undo.len(), undo_depth); // no empty undo step
     assert!(
         h.app
             .toast

@@ -1072,7 +1072,6 @@ fn complete_command(line: &mut LineEdit, lua: Vec<String>) -> Option<String> {
     }
 }
 
-/// Default keymap plus Lua patches, and the theme `init.lua` picked.
 /// `=` input: `name = expr` names the column when `name` is a new column;
 /// otherwise the whole text is the expression and names it (VisiData), so
 /// `region = 'east'` on a sheet with `region` is a boolean column.
@@ -1090,6 +1089,7 @@ fn derive_input(text: &str, exists: impl Fn(&str) -> bool) -> (String, String) {
     (text.to_string(), text.to_string())
 }
 
+/// Default keymap plus Lua patches, and the theme `init.lua` picked.
 fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme) {
     let mut keymap = Keymap::defaults();
     let mut theme = Theme::dark();

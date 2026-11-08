@@ -773,6 +773,11 @@ impl Sheet {
 
     /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
     /// hidden columns included. Refused unless it is a boolean.
+    /// Schema-only check of a `:select` / `z|` predicate (no data read).
+    pub fn check_predicate(&self, pred: &str) -> Result<(), String> {
+        self.predicate(&self.filtered_plan(false), pred).map(|_| ())
+    }
+
     fn predicate(&self, lf: &LazyFrame, pred: &str) -> Result<Expr, String> {
         let e = polars::sql::sql_expr(pred).map_err(|e| format!("expr: {e}"))?;
         let schema = lf
