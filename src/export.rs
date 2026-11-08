@@ -14,7 +14,7 @@ use polars::prelude::DataType;
 use crate::reader::SourceKind;
 use crate::sheet::{
     DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH, Lineage,
-    Origin, PlanStep, Sheet, SortOrder, freq_stat_names,
+    Origin, PlanStep, Sheet, SortOrder, freq_keeps_order, freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -271,11 +271,22 @@ impl Script {
             Derivation::Copy => format!("SELECT * FROM {p}"),
             Derivation::Freq { column } if py => {
                 let (n, pct, hist) = freq_stat_names(column);
+                let (stable, order) = if freq_keeps_order(&l.parent, column) {
+                    (", maintain_order=True", String::new())
+                } else {
+                    (
+                        "",
+                        format!(
+                            ".sort([{n}, {c}], descending=[True, False], nulls_last=True)",
+                            c = py_str(column),
+                            n = py_str(n)
+                        ),
+                    )
+                };
                 format!(
-                    "{p}.group_by({c}).agg(pl.len().alias({n}))\
+                    "{p}.group_by({c}{stable}).agg(pl.len().alias({n}))\
                      .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
-                     .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist}))\
-                     .sort([{n}, {c}], descending=[True, False], nulls_last=True)",
+                     .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist})){order}",
                     c = py_str(column),
                     n = py_str(n),
                     pct = py_str(pct),
@@ -286,10 +297,26 @@ impl Script {
             }
             Derivation::Freq { column } => {
                 let (n, pct, hist) = freq_stat_names(column);
+                let (from, order) = if freq_keeps_order(&l.parent, column) {
+                    // DuckDB keeps the scan's order (preserve_insertion_order).
+                    (
+                        format!("(SELECT *, row_number() OVER () AS __pos FROM {p})"),
+                        "min(__pos)".to_string(),
+                    )
+                } else {
+                    (
+                        p,
+                        format!(
+                            "{n} DESC, {c} ASC NULLS LAST",
+                            c = q_ident(column),
+                            n = q_ident(n)
+                        ),
+                    )
+                };
                 format!(
                     "SELECT {c}, count(*) AS {n}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct},\n\
                      repeat('■', (count(*) * {w} // max(count(*)) OVER ())::INTEGER) AS {hist}\n\
-                     FROM {p} GROUP BY {c} ORDER BY {n} DESC, {c} ASC NULLS LAST",
+                     FROM {from} GROUP BY {c} ORDER BY {order}",
                     c = q_ident(column),
                     n = q_ident(n),
                     pct = q_ident(pct),

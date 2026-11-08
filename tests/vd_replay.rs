@@ -25,7 +25,7 @@ use visidata_rs::sheet::{Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 34;
+const MIN_PASS: usize = 35;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {

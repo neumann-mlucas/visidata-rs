@@ -1,6 +1,6 @@
 # S-25 — Corpus coverage: from 29 to ~90 passing VisiData goldens
 
-Status: **drafted 2026-11-08**; P0 done 2026-11-08 (PASS=30 FAIL=0 SKIP=140 UNTESTABLE=19 QUARANTINED=12 NO_GOLDEN=39, ceiling 182; see §1.1); P1 batch 1 (longname aliases, `rename_col`, driver origins) 2026-11-08: PASS=34 FAIL=0 SKIP=134 UNTESTABLE=19 QUARANTINED=14 NO_GOLDEN=39. Extends S-14 (harness) — no harness redesign.
+Status: **drafted 2026-11-08**; P0 done 2026-11-08 (PASS=30 FAIL=0 SKIP=140 UNTESTABLE=19 QUARANTINED=12 NO_GOLDEN=39, ceiling 182; see §1.1); P1 batch 1 (longname aliases, `rename_col`, driver origins) 2026-11-08: PASS=34 FAIL=0 SKIP=134 UNTESTABLE=19 QUARANTINED=14 NO_GOLDEN=39; numeric/date freq in first-seen order 2026-11-08: PASS=35, QUARANTINED=13. Extends S-14 (harness) — no harness redesign.
 Baseline (CI pin `5f67ff8a`, 240 cmdlogs): **PASS=29 FAIL=0 SKIP=0 UNTESTABLE=50 QUARANTINED=121
 NO_GOLDEN=40.**
 

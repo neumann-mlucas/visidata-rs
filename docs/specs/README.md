@@ -20,7 +20,7 @@ File naming: `S-NN-slug.md`.
 | S-11 | Streaming source abstraction | 4 | not-started as a trait; `:tail` reads CSV/JSONL incrementally and watches Parquet dirs |
 | S-12 | Frame diff | 5 | **shipped** — `:diff` and `D` (prompt; key columns as keys) |
 | S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | **closed** (iter 14 — honest classification replaced the "~160 PASS" target) → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
-| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (PASS=34, ceiling 182; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
+| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (PASS=35, ceiling 182; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
 | S-15 | **Feature inventory** — what the binary actually ships, plus what it doesn't (§10 cut, §10.1 not yet) | cross-cutting | **re-verified 2026-11-05** → [`S-15-feature-inventory.md`](S-15-feature-inventory.md) |
 | S-18 | Cell/row editing + clipboard (Day-1 must-have) | — | **drafted 2026-11-08**, A (register copy), B (system clipboard), C (cell editing) shipped — 7 phases A–G, copy first, paste after editing → [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) |
 | S-19 | Macros | — | **drafted 2026-11-08**, after S-18 C → [`S-19-macros.md`](S-19-macros.md) |

@@ -6,6 +6,7 @@
 //! - `expected.tsv`: the final view, every row.
 //! - `expected.screen`: the final screen.
 //! - `no-export` (optional): why `:export` can't reproduce this case.
+//! - `ordered` (optional): the exports must keep the view's row order too.
 //!
 //! The sheet opens `input.csv`/`input.jsonl`. `UPDATE_GOLDEN=1` rewrites the
 //! expected files; read the diff before committing it.
@@ -315,9 +316,9 @@ fn render_guide(guide: &str, html: &std::collections::BTreeMap<String, String>) 
     out
 }
 
-/// CSV → sorted rows of normalized cells, header first: scripts may order
-/// unsorted rows differently and print `3.0` as `3`.
-fn table(csv: &str) -> Vec<String> {
+/// CSV → rows of normalized cells, header first, sorted unless `ordered`:
+/// scripts may order unsorted rows differently and print `3.0` as `3`.
+fn table(csv: &str, ordered: bool) -> Vec<String> {
     let norm = |c: &str| {
         let c = c.trim().trim_matches('"');
         match c.parse::<f64>() {
@@ -334,7 +335,9 @@ fn table(csv: &str) -> Vec<String> {
         .map(|l| l.split(',').map(norm).collect::<Vec<_>>().join(","));
     let header = lines.next().unwrap_or_default();
     let mut rows: Vec<String> = lines.collect();
-    rows.sort();
+    if !ordered {
+        rows.sort();
+    }
     std::iter::once(header).chain(rows).collect()
 }
 
@@ -389,14 +392,15 @@ fn tool_ok(cmd: &str, arg: &str) -> bool {
 fn roundtrip(h: &Harness, dir: &Path, want: &str, fails: &mut Vec<String>) {
     let sheet = h.app.sheets.active();
     let scratch = tempfile::tempdir().unwrap();
-    let want = table(want);
+    let ordered = dir.join("ordered").exists();
+    let want = table(want, ordered);
     let mut compare = |lang: &str, got: Result<String, String>| match got {
-        Ok(got) if table(&got) == want => {}
+        Ok(got) if table(&got, ordered) == want => {}
         Ok(got) => fails.push(format!(
             "{} {lang}\n--- want\n{}\n--- got\n{}",
             dir.display(),
             want.join("\n"),
-            table(&got).join("\n")
+            table(&got, ordered).join("\n")
         )),
         Err(e) => fails.push(format!("{} {lang}: {e}", dir.display())),
     };

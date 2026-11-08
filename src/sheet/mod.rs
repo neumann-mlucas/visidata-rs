@@ -1067,6 +1067,17 @@ pub fn freq_stat_names(column: &str) -> (&'static str, &'static str, &'static st
     }
 }
 
+/// VisiData leaves a numeric (or date) freq table in first-seen order and
+/// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
+pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
+    parent
+        .view_plan()
+        .collect_schema()
+        .ok()
+        .and_then(|s| s.get(column).map(|d| d.is_numeric() || d.is_temporal()))
+        .unwrap_or(false)
+}
+
 /// Bar length of the most frequent value (VisiData: twice its default column
 /// width, less 2); others scale down by count, rounding down.
 pub const HISTOGRAM_WIDTH: usize = 38;

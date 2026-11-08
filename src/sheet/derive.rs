@@ -1,14 +1,19 @@
 use super::*;
 
 impl Sheet {
-    /// Build a frequency-table sheet grouping by `col_name` with counts, desc.
+    /// Build a frequency-table sheet grouping by `col_name` with counts, desc
+    /// (numeric and date keys: first-seen order, see `freq_keeps_order`).
     /// `percent` (count / total * 100, 2 decimals) and `histogram` (a `■` bar)
     /// follow `count`, as in VisiData's freq output.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
         let (count, percent, histogram) = freq_stat_names(col_name);
-        let plan = parent
-            .view_plan()
-            .group_by([col(col_name)])
+        let keep_order = freq_keeps_order(parent, col_name);
+        let grouped = if keep_order {
+            parent.view_plan().group_by_stable([col(col_name)])
+        } else {
+            parent.view_plan().group_by([col(col_name)])
+        };
+        let plan = grouped
             .agg([len().alias(count)])
             .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
                 / col(count).cast(DataType::Float64).sum())
@@ -17,15 +22,19 @@ impl Sheet {
             .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
                 .str()
                 .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
-                .alias(histogram)])
-            // Value breaks count ties: row order must repeat across collects,
-            // since row ids (selection, freq dive) are positions in this plan.
-            .sort(
+                .alias(histogram)]);
+        // Value breaks count ties: row order must repeat across collects,
+        // since row ids (selection, freq dive) are positions in this plan.
+        let plan = if keep_order {
+            plan
+        } else {
+            plan.sort(
                 [count, col_name],
                 SortMultipleOptions::default()
                     .with_order_descending_multi([true, false])
                     .with_nulls_last(true),
-            );
+            )
+        };
         Sheet::child(
             parent,
             id,
