@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -121,12 +121,16 @@ selections, like `"`), store typed. Status: `copied 1,204 rows`. Copying a wide 
 file is bounded by memory; refuse above 10M cells with a message (`ponytail:` limit, raise on demand).
 
 ### B — System clipboard out
-TSV text of the same data (header line for rows, none for cells), as VisiData. Backend picked at
-startup: `arboard` when a display server answers, else OSC 52 (`ESC ] 52 ; c ; base64 BEL`) through the
-terminal when `$SSH_TTY`/`$TMUX`, else an error message. Behind a `ClipboardSink` trait so tests use an
-in-memory sink (no real side effects). Config: `vd.option("clipboard", "auto"|"osc52"|"system"|"off")`
-via a new general `vd.option(name, value)` (Lua API v5, S-10); `clipboard` is its first option,
-unknown names/values are init.lua errors like a bad `vd.bind`.
+As VisiData's `clipboard.py` (decision 2026-11-08, replaces the arboard plan): pipe text to a copy
+command. `Y`/`gY` send visible columns as TSV with a header; `zY` the raw cell text (no newline);
+`gzY` the current column of the selected rows, one value per line. Tab/newline inside a value become
+U+001F/U+001E, nulls empty (VisiData's `tsv_safe_*`). No filetype prompt (`Y` asks for one in
+VisiData; `:export` covers other formats). Command: `vd.option("clipboard_copy_cmd", "…")` (split on
+spaces) or `"osc52"`; default `osc52` when `$SSH_TTY`, else `clip.exe` (Windows/WSL), `pbcopy`
+(macOS), `wl-copy` (`$WAYLAND_DISPLAY`), `xclip -selection clipboard -filter`. Runs as a background
+job; a missing or failing command is a status message naming the option. OSC 52 bytes are written by
+the UI thread. Unit tests always get an in-memory sink (`cfg(test)`), never the real clipboard.
+`vd.option(name, value)` is the general setter (Lua API v5, S-10); unknown names are init.lua errors.
 
 ### C — Cell editing
 `e` opens the existing line editor on the cell's display text; Enter → `SetCells` (one cell) via
@@ -175,7 +179,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 ### B — System clipboard out
 - Unit: TSV encoding (tabs/newlines inside values, nulls empty, header rules), matched to VisiData's
   `syscopyCells` output (`visidata/clipboard.py`) before writing it.
-- Unit: backend choice table (`auto` with/without display, SSH, tmux, `off`) → expected backend.
+- Unit: backend choice table (option set, `osc52`, SSH, WSL, Wayland, X11) → expected command.
 - Unit: OSC 52 bytes for a known string (exact escape sequence).
 - Scenario: `Y`/`gY`/`zY` with the in-memory sink → sink holds the expected text; error path message.
 - Manual checklist (not automatable): X11, Wayland, macOS, SSH+OSC52 in kitty/wezterm/iTerm, tmux.
@@ -243,4 +247,5 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - **D3 which sheets take edits:** source sheets only (§2.5); derived sheets are read-only.
 - **D4 export size:** edits are written into exported scripts as literal data.
 - **D5 derived cells:** editing a cell of a `:derive`d column pins that value (§2.2).
-- **D6 settings:** `vd.option(name, value)` in init.lua (Lua API v5), first used by `clipboard`.
+- **D6 settings:** `vd.option(name, value)` in init.lua (Lua API v5), first used by `clipboard_copy_cmd`.
+- **D7 clipboard backend:** VisiData's approach, a copy command (2026-11-08), plus OSC 52 over SSH; no `arboard`.

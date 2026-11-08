@@ -4,6 +4,7 @@
 
 pub mod action;
 pub mod app;
+pub mod clipboard;
 pub mod exline;
 pub mod export;
 pub mod key;

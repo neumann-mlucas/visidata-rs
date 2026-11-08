@@ -33,7 +33,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 3. - [x] S-25 P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
 4. - [x] S-26 phase 0 — VisiData key alignment (§0 "phase 0" rows: `Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`) (2–2.5 d), with S-21 A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect`, `z|` select-expr, regex filter → `gz|` (1 d)
 5. - [x] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
-6. - [ ] S-18 B — system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink`, `vd.option` (1–1.5 d)
+6. - [x] S-18 B — system clipboard: `Y gY zY gzY`, VisiData-style copy command / OSC 52, `vd.option` (Lua API 5)
 7. - [ ] S-25 P1 — translate shipped features' longnames (~26 files); `I` describe switches to VisiData's columns (1.5–2.5 d)
 8. - [ ] S-20 — undo tree (1–2 d)
 9. - [ ] S-18 C — cell editing `e`, `ge`, `:edit`; `SetCells` after the column's last writer; `SetCol.rids` → `Arc<[u64]>`; S-26 A1 quit guard (3–4 d)

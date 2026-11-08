@@ -112,6 +112,11 @@ pub enum Action {
     CopySelected,
     CopyCell,
     CopyCells,
+    /// `Y` `gY` `zY` `gzY` (S-18 B): the same, as text to the system clipboard.
+    SysCopyRow,
+    SysCopySelected,
+    SysCopyCell,
+    SysCopyCells,
 
     // ex-line
     StartExInput,
@@ -305,6 +310,7 @@ impl Action {
             | SetCol { .. } => true,
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
+            SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
         }
     }
 }
@@ -385,6 +391,10 @@ impl Action {
         ("copy_selected", CopySelected),
         ("copy_cell", CopyCell),
         ("copy_cells", CopyCells),
+        ("syscopy_row", SysCopyRow),
+        ("syscopy_selected", SysCopySelected),
+        ("syscopy_cell", SysCopyCell),
+        ("syscopy_cells", SysCopyCells),
         ("hide_uniform", HideUniform),
         ("describe", Describe),
         ("pivot_current", PivotCurrent),

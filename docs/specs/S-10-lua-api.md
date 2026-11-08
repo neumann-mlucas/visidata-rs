@@ -1,6 +1,6 @@
 # S-10 — Lua API surface + versioning
 
-Status: **shipped in part**, `vd.api_version` 4: registration fns, `vd.bind` with a function, `vd.toast`, `vd.sheet()`, `vd.push_sheet { name?, columns, rows }`, `vd.command` (api 4, 2026-11-07) (row arrays, chosen over column arrays / records: explicit order, nil-safe). The rest waits for a Lua user to ask and will be drafted as S-16. Planned additions: `vd.option` (S-18 B), list bindings (S-19), `vd.on`/`vd.exec` (S-29), styled renderers (S-27 C).
+Status: **shipped in part**, `vd.api_version` 5 (5: `vd.option`, S-18 B): registration fns, `vd.bind` with a function, `vd.toast`, `vd.sheet()`, `vd.push_sheet { name?, columns, rows }`, `vd.command` (api 4, 2026-11-07) (row arrays, chosen over column arrays / records: explicit order, nil-safe). The rest waits for a Lua user to ask and will be drafted as S-16. Planned additions: list bindings (S-19), `vd.on`/`vd.exec` (S-29), styled renderers (S-27 C).
 Phase: 3
 Depends on: S-09 (plugin lifecycle), direction §4 (Neovim-style API discipline)
 

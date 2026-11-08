@@ -104,6 +104,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SelectExpr { expr, unselect }` | `z\|` / `z\\` (prompt) | `:select <pred>` / `:unselect <pred>`: rows where a SQL predicate holds; background job |
 | `DupSelected` | `"` | new sheet filtered to selected rows via `Sheet::dup_selected_from` |
 | `CopyRow` / `CopySelected` / `CopyCell` / `CopyCells` | `y` / `gy` / `zy` / `gzy` | register (`App.register`, one per app): cursor row / selected rows in view order (every column, hidden too, typed) / cursor cell / current column of selected rows; background job; over 10M cells refused (S-18 A) |
+| `SysCopyRow` / `SysCopySelected` / `SysCopyCell` / `SysCopyCells` | `Y` / `gY` / `zY` / `gzY` | same rows as text to the system clipboard: visible columns as TSV with header / raw cell / one value per line; `clipboard_copy_cmd` or OSC 52 (S-18 B) |
 
 ### 3.6 Sheet stack
 
@@ -171,6 +172,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | `:N` | go to row N |
 | `<Tab>` in `:` | completes the command word (built-ins, actions, `vd.command`s) |
 | `vd.command(name, fn)` | Lua ex command; `fn(args)`; api_version 4 |
+| `vd.option(name, value)` | set an option; only `clipboard_copy_cmd` so far; unknown name = error; api_version 5 |
 | first-run `init.lua` | written at TUI start when missing: every default commented out (`plugins::default_init_lua`) |
 
 ## 4. Keymap
@@ -280,7 +282,7 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 4 (vd.command, §3.11)
+vd.api_version                                  -- 5 (vd.option)
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
@@ -329,7 +331,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
 - **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
-- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `syscopy-*`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
+- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
 
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.

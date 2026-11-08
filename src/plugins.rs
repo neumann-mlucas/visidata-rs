@@ -27,6 +27,8 @@ struct Registry {
     patches: Vec<KeymapPatch>,
     loaders: Vec<LoaderRule>,
     theme: Option<String>,
+    /// `vd.option("clipboard_copy_cmd", …)`.
+    clipboard_copy_cmd: Option<String>,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -98,7 +100,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 4; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command
+pub const API_VERSION: i64 = 5; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -317,6 +319,12 @@ impl Plugins {
         }
     }
 
+    /// `vd.option("clipboard_copy_cmd", …)`, if set.
+    pub fn clipboard_copy_cmd(&self) -> Option<String> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        reg.borrow().clipboard_copy_cmd.clone()
+    }
+
     /// Mutate `keymap` by appending the Lua-registered patches.
     /// Last declaration wins at `Keymap::resolve` time (S-04 rule), so user binds shadow defaults.
     pub fn apply_keymap(&self, keymap: &mut Keymap) {
@@ -446,6 +454,27 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 )));
             }
             registry(lua)?.borrow_mut().theme = Some(name);
+            Ok(())
+        })?,
+    )?;
+    vd.set(
+        "option",
+        lua.create_function(|lua, (name, value): (String, String)| {
+            match name.as_str() {
+                "clipboard_copy_cmd" if !value.trim().is_empty() => {
+                    registry(lua)?.borrow_mut().clipboard_copy_cmd = Some(value)
+                }
+                "clipboard_copy_cmd" => {
+                    return Err(mlua::Error::RuntimeError(
+                        "vd.option: clipboard_copy_cmd is empty".into(),
+                    ));
+                }
+                _ => {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "vd.option: unknown option {name} (clipboard_copy_cmd)"
+                    )));
+                }
+            }
             Ok(())
         })?,
     )?;
@@ -860,6 +889,14 @@ pub fn default_init_lua() -> String {
          -- Theme: \"dark\" or \"light\".\n\
          -- vd.set_theme(\"dark\")\n\
          \n\
+         -- System clipboard (Y, gY, zY, gzY): a command that reads stdin, or \"osc52\".\n\
+         -- Default: osc52 over SSH, else wl-copy / xclip / pbcopy / clip.exe.\n\
+         -- vd.option(\"clipboard_copy_cmd\", \"xclip -selection clipboard -filter\")\n\
+         \n\
+         -- System clipboard (Y, gY, zY, gzY): a command that reads stdin, or \"osc52\".\n\
+         -- Default: osc52 over SSH, else wl-copy / xclip / pbcopy / clip.exe.\n\
+         -- vd.option(\"clipboard_copy_cmd\", \"xclip -selection clipboard -filter\")\n\
+         \n\
          -- Keys: vd.bind(layer, keys, action, description?)\n\
          --   keys: \"x\", or {{\"g\", \"g\"}} for a sequence; <C-d>, <CR>, <Esc>, <Tab>, …\n\
          --   action: a name below, \":ex command\", or a Lua function.\n\
@@ -1082,6 +1119,19 @@ mod tests {
             None
         );
         assert!(Plugins::load_from_source("vd.register_renderer { render = print }").is_err());
+    }
+
+    #[test]
+    fn option_sets_clipboard_cmd_and_rejects_unknown() {
+        let p =
+            Plugins::load_from_source(r#"vd.option("clipboard_copy_cmd", "wl-copy -n")"#).unwrap();
+        assert_eq!(p.clipboard_copy_cmd().as_deref(), Some("wl-copy -n"));
+        for bad in [
+            r#"vd.option("nope", "x")"#,
+            r#"vd.option("clipboard_copy_cmd", " ")"#,
+        ] {
+            assert!(Plugins::load_from_source(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

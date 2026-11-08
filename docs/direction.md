@@ -172,7 +172,7 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 9. **Options**: a flat, global `vd.option(name, value)` in `init.lua` (S-18 D6) for the few settings that need one. Still no four-level fallback (§1 cut stands).
 10. **Expressions**: Polars SQL behind VisiData's expression keys (`=`, `g=`, `z/`, `z|`). A Python-flavoured subset only if the corpus or users justify it ([S-21](specs/S-21-expressions.md)). §9.5 (no Python runtime) stands.
 11. **Back in scope** (were cut, or "product decisions" in §2/§7): nested-data expand/unfurl ([S-22](specs/S-22-nested-data.md)), plots ([S-23](specs/S-23-layout-sidebar-splits-plots.md)), sessions in vdrs's own ex-script format ([S-29](specs/S-29-sessions-lua-hooks.md)) — still no `.vdj` compat.
-12. **Release**: no prebuilt binaries or crates.io until the alpha is finished; `cargo install --path .` until then.
+12. **Release**: no prebuilt binaries or crates.io until the alpha is finished; `cargo install --path .` until then. **Alpha** = every feature planned in `docs/` (tasks.md roadmap + specs) implemented, and the tests robust (no unexplained quarantine, S-25 coverage targets met).
 13. **Roadmap**: S-18 … S-30, in the order listed in [`tasks.md`](tasks.md).
 
 ### Deltas these cause in earlier sections

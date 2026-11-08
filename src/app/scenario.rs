@@ -1402,3 +1402,34 @@ async fn copy_to_register_rows_and_cells() {
     h.keys("F q").await;
     assert_eq!(h.app.register.as_ref().unwrap().df.shape(), (1, 1));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn syscopy_sends_tsv_and_lines_to_the_clipboard() {
+    use crate::clipboard::Clipboard;
+    let mut h = csv(b"id,x,note\n1,1.5,a\tb\n2,,c\n3,0.5,d\n").await;
+    let Clipboard::Memory(sink) = h.app.clipboard.clone() else {
+        panic!("tests must use the memory sink");
+    };
+    let sent = |n: usize| sink.lock().unwrap().get(n).cloned();
+    h.keys("g Y").await;
+    assert_eq!(h.app.toast.as_deref(), Some("no rows selected"));
+
+    h.keys("Y").await; // header + row; tab inside a value as U+001F
+    assert_eq!(sent(0).as_deref(), Some("id\tx\tnote\n1\t1.5\ta\u{1f}b\n"));
+    assert_eq!(h.app.toast.as_deref(), Some("copied 1 row to clipboard"));
+    assert!(h.app.register.is_none(), "Y leaves the register alone");
+
+    h.keys("g l - g h s j s").await; // hide note; select rows 1, 2
+    h.keys("g Y").await; // visible columns only, null empty
+    assert_eq!(sent(1).as_deref(), Some("id\tx\n1\t1.5\n2\t\n"));
+    h.keys("l g z Y").await;
+    assert_eq!(sent(2).as_deref(), Some("1.5\n\n"));
+    assert_eq!(h.app.toast.as_deref(), Some("copied 2 cells to clipboard"));
+    h.keys("g g z Y").await;
+    assert_eq!(sent(3).as_deref(), Some("1.5"));
+
+    h.app.clipboard = Clipboard::Command(vec!["vdrs-no-such-clip-cmd".into()]);
+    h.keys("Y").await;
+    let toast = h.app.toast.clone().unwrap();
+    assert!(toast.contains("vdrs-no-such-clip-cmd not found"), "{toast}");
+}

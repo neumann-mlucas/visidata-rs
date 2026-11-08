@@ -543,6 +543,8 @@ impl Replay {
             "set-option" => Ok(()),
             // Copy to the register (S-18 A) leaves the sheet unchanged; paste is S-18 D/F.
             "copy-row" | "copy-selected" | "copy-cell" | "copy-cells" => Ok(()),
+            // the system clipboard never changes the sheet
+            "syscopy-row" | "syscopy-selected" | "syscopy-cell" | "syscopy-cells" => Ok(()),
             // Widening a column shows a hidden (width 0) one.
             "resize-col-max" | "resize-col-input" => {
                 let col = r.col.clone();

@@ -292,6 +292,27 @@ impl Keymap {
                 vec![CopyCells],
                 "copy current column of selected rows",
             ),
+            // system clipboard (S-18 B)
+            ch(
+                vec![k("Y")],
+                vec![SysCopyRow],
+                "copy current row to clipboard",
+            ),
+            ch(
+                vec![k("g"), k("Y")],
+                vec![SysCopySelected],
+                "copy selected rows to clipboard",
+            ),
+            ch(
+                vec![k("z"), k("Y")],
+                vec![SysCopyCell],
+                "copy current cell to clipboard",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("Y")],
+                vec![SysCopyCells],
+                "copy current column of selected rows to clipboard",
+            ),
             ch(vec![k("U")], vec![Undo], "undo"),
             ch(vec![k("R")], vec![Redo], "redo"),
             ch(

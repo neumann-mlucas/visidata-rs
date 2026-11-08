@@ -164,6 +164,11 @@ enum JobDone {
     },
     /// Fill the register (`y` …).
     Copy(Box<Register>),
+    /// Text sent to the system clipboard (`Y` …); OSC 52 bytes still to write.
+    SysCopy {
+        note: String,
+        osc52: Option<String>,
+    },
     /// Remove row ids from the job's sheet selection.
     Unselect {
         rids: Vec<u64>,
@@ -259,6 +264,8 @@ pub struct App {
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
     register: Option<Register>,
+    /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
+    clipboard: crate::clipboard::Clipboard,
     /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
     busy: Vec<Job>,
     /// When the current stretch of background work started.
@@ -280,6 +287,7 @@ impl App {
     ) -> Self {
         let (tx, rx) = mpsc::channel(8);
         let (keymap, theme) = keymap_and_theme(plugins.as_ref());
+        let clipboard = clipboard_for(plugins.as_ref());
         Self {
             plugins,
             sheets: Sheets::new(sheet),
@@ -296,6 +304,7 @@ impl App {
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             register: None,
+            clipboard,
             busy: Vec::new(),
             working_since: None,
             drawn_spin: None,
@@ -486,6 +495,14 @@ impl App {
                 if n > 0 {
                     self.register = Some(*r);
                 }
+            }
+            Ok(JobDone::SysCopy { note, osc52 }) => {
+                if let Some(seq) = osc52 {
+                    use std::io::Write;
+                    let mut out = std::io::stdout();
+                    let _ = out.write_all(seq.as_bytes()).and_then(|()| out.flush());
+                }
+                self.toast = Some(note);
             }
             Ok(JobDone::Unselect { rids, note }) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
@@ -1130,6 +1147,16 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme = p.theme().unwrap_or(theme);
     }
     (keymap, theme)
+}
+
+/// Unit tests always get an in-memory sink: no test touches the real clipboard.
+fn clipboard_for(plugins: Option<&crate::plugins::Plugins>) -> crate::clipboard::Clipboard {
+    if cfg!(test) {
+        #[cfg(test)]
+        return crate::clipboard::Clipboard::Memory(Default::default());
+    }
+    let option = plugins.and_then(|p| p.clipboard_copy_cmd());
+    crate::clipboard::Clipboard::pick(option.as_deref(), |k| std::env::var(k).ok())
 }
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

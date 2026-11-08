@@ -266,6 +266,10 @@ impl App {
             Action::CopySelected => self.copy(true, false),
             Action::CopyCell => self.copy(false, true),
             Action::CopyCells => self.copy(true, true),
+            Action::SysCopyRow => self.syscopy(false, false),
+            Action::SysCopySelected => self.syscopy(true, false),
+            Action::SysCopyCell => self.syscopy(false, true),
+            Action::SysCopyCells => self.syscopy(true, true),
             Action::DedupeRows => {
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active().clone();
@@ -619,6 +623,7 @@ impl App {
         };
         self.plugins = Some(fresh);
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
+        self.clipboard = super::clipboard_for(self.plugins.as_ref());
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
     }
@@ -991,6 +996,21 @@ impl App {
     /// `y` `gy` `zy` `gzy`: the cursor row or the selected rows, every column
     /// or (`cells`) only the cursor column, into the register.
     fn copy(&mut self, selected: bool, cells: bool) {
+        self.spawn_copy(selected, cells, None);
+    }
+
+    /// `Y` …: visible columns as TSV (rows) or one value per line (cells).
+    fn syscopy(&mut self, selected: bool, cells: bool) {
+        self.spawn_copy(selected, cells, Some(self.clipboard.clone()));
+    }
+
+    /// Register copy, or with `clip` the same rows as text to the system clipboard.
+    fn spawn_copy(
+        &mut self,
+        selected: bool,
+        cells: bool,
+        clip: Option<crate::clipboard::Clipboard>,
+    ) {
         // ponytail: the register holds the copy in memory; refuse past 10M cells, raise on demand.
         const MAX_CELLS: usize = 10_000_000;
         let s = self.sheets.active();
@@ -1018,8 +1038,25 @@ impl App {
         };
         let pos = (!selected).then(|| s.view.window_offset + s.view.row_cursor as u64);
         let sheet = s.clone();
+        let visible: Vec<PlSmallStr> = schema.iter_names().cloned().collect();
         self.spawn_job("copy", move || {
             let mut df = sheet.copy_rows(pos).map_err(|e| e.to_string())?;
+            if let Some(clip) = clip {
+                let (text, n, what) = if cells {
+                    let c = df.column(&column).map_err(|e| e.to_string())?;
+                    (crate::clipboard::lines(c), c.len(), "cell")
+                } else {
+                    let df = df.select(visible).map_err(|e| e.to_string())?;
+                    (crate::clipboard::tsv(&df), df.height(), "row")
+                };
+                if n == 0 {
+                    return Ok(JobDone::Toast("nothing to copy".into()));
+                }
+                let osc52 = clip.send(&text).map_err(|e| format!("clipboard: {e}"))?;
+                let s = if n == 1 { "" } else { "s" };
+                let note = format!("copied {} {what}{s} to clipboard", grouped(n as u64));
+                return Ok(JobDone::SysCopy { note, osc52 });
+            }
             let kind = if cells {
                 df = df.select([column.as_str()]).map_err(|e| e.to_string())?;
                 RegisterKind::Cells
