@@ -25,6 +25,16 @@ File naming: `S-NN-slug.md`.
 | S-18 | Cell/row editing + clipboard (Day-1 must-have) | — | **drafted 2026-11-08** — 7 phases A–G, copy first, paste after editing → [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) |
 | S-19 | Macros | — | **drafted 2026-11-08**, after S-18 C → [`S-19-macros.md`](S-19-macros.md) |
 | S-20 | Undo tree | — | **drafted 2026-11-08**, optional, before/with S-18 C → [`S-20-undo-tree.md`](S-20-undo-tree.md) |
+| S-21 | Expression columns + selection (`=`, `g=`, `z/`, `:select`), Python subset gated | — | **drafted 2026-11-08** → [`S-21-expressions.md`](S-21-expressions.md) |
+| S-22 | Nested data: expand structs `(`, unfurl lists `zM` | — | **drafted 2026-11-08** → [`S-22-nested-data.md`](S-22-nested-data.md) |
+| S-23 | Layout: sidebar, split panes, plots | — | **drafted 2026-11-08** → [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) |
+| S-24 | Hardening: module layout, window invariants, typed readers, release binaries | — | **drafted 2026-11-08** → [`S-24-hardening-refactor.md`](S-24-hardening-refactor.md) |
+| S-25 | Corpus coverage plan (29 → ~90 PASS), columns sheet, column aggregators | 1.5 | **drafted 2026-11-08** → [`S-25-corpus-coverage.md`](S-25-corpus-coverage.md) |
+| S-26 | Vim grammar (ranges, visual, opt-in vim profile) + TUI conventions | — | **drafted 2026-11-08** → [`S-26-vim-grammar-tui-conventions.md`](S-26-vim-grammar-tui-conventions.md) |
+| S-27 | Conditional formatting (`:color`, `:scale`, data bars, Lua styles) | — | **drafted 2026-11-08** → [`S-27-conditional-formatting.md`](S-27-conditional-formatting.md) |
+| S-28 | `:s` substitute on a column, search-hit sheet | — | **drafted 2026-11-08** → [`S-28-substitute-search-hits.md`](S-28-substitute-search-hits.md) |
+| S-29 | Sessions (ex-script `.vdrs`), Lua event hooks (`vd.on`, `vd.exec`) | — | **drafted 2026-11-08** → [`S-29-sessions-lua-hooks.md`](S-29-sessions-lua-hooks.md) |
+| S-30 | Live derived sheets (`:refresh`, `:link`), cell notes, selection stats | — | **drafted 2026-11-08** → [`S-30-linked-sheets-notes-selection-stats.md`](S-30-linked-sheets-notes-selection-stats.md) |
 
 **Not drafted yet** (draft only when the work starts):
 
