@@ -509,12 +509,7 @@ impl App {
             self.toast = Some("no column to type-cast".into());
             return;
         };
-        let s = self.sheets.active_mut();
-        if let Some(entry) = s.view.type_casts.iter_mut().find(|(c, _)| c == &name) {
-            entry.1 = dt;
-        } else {
-            s.view.type_casts.push((name, dt));
-        }
+        self.sheets.active_mut().set_type_cast(name, dt);
         self.spawn_materialize();
     }
 

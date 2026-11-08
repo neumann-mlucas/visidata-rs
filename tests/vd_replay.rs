@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 use visidata_rs::reader;
-use visidata_rs::sheet::{Origin, Sheet, SheetId, SortKey, SortOrder};
+use visidata_rs::sheet::{Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
@@ -473,14 +473,8 @@ impl Replay {
             // Keystroke isn't on the cmdlog's `row` field, so we gang-set when there
             // IS a selection AND the row field is empty / "0" (VisiData's cursor is
             // row 0 at gang time) — otherwise single-row via `row` key.
-            "setcol-input" => {
-                let has_selection = !self.current_slot()?.sheet.view.selected.is_empty();
-                if has_selection && (r.row.is_empty() || r.row == "0") {
-                    self.setcol_input_gang(&r.col, &r.input)
-                } else {
-                    self.setcol_input(&r.col, &r.row, &r.input)
-                }
-            }
+            // `ge`: every selected row (the row field is just the cursor).
+            "setcol-input" => self.setcol_input_gang(&r.col, &r.input),
             "set-cell-input" => self.setcol_input(&r.col, &r.row, &r.input),
             // Walk every column of the current sheet; hide any whose non-null
             // values are all identical (and there's >1 row). VisiData's `hide-uniform-cols`.
@@ -600,33 +594,24 @@ impl Replay {
         Ok(())
     }
 
+    /// `# % ~` / `@`: a view cast, as the app does.
     fn cast(&mut self, name: &str, dtype: DataType) -> Result<(), StepErr> {
         let s = &mut self.current_slot_mut()?.sheet;
-        s.plan = s
-            .plan
-            .clone()
-            .with_columns([col(name).cast(dtype).alias(name)]);
+        s.set_type_cast(name.to_string(), dtype);
         Ok(())
     }
 
     fn cast_date(&mut self, name: &str) -> Result<(), StepErr> {
-        let s = &mut self.current_slot_mut()?.sheet;
-        s.plan = s
-            .plan
-            .clone()
-            .with_columns([col(name).cast(DataType::Date).alias(name)]);
-        Ok(())
+        self.cast(name, DataType::Date)
     }
 
+    /// `$`: a plan step, as the app does (edits rebuild the plan from steps).
     fn cast_currency(&mut self, name: &str) -> Result<(), StepErr> {
         let s = &mut self.current_slot_mut()?.sheet;
-        s.plan = s.plan.clone().with_columns([col(name)
-            .cast(DataType::String)
-            .str()
-            .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
-            .cast(DataType::Float64)
-            .alias(name)]);
-        Ok(())
+        s.apply_step(PlanStep::Currency {
+            column: name.to_string(),
+        })
+        .map_err(|e| StepErr::Runtime(e.to_string()))
     }
 
     /// VisiData `z[`/`z]`: if `col` already a sort key, flip its direction in place
@@ -786,60 +771,22 @@ impl Replay {
         Ok(())
     }
 
-    /// VisiData setcol-input (`g=` text literal): set a cell's value to a string.
-    /// Applies to a single row at (col, row). Phase 1.5: literal strings only;
-    /// VisiData's "input" expression form hooks into Phase 3 Lua eval.
+    /// VisiData `e` (edit-cell): the cell at (col, row), through `Sheet::edit_cell`.
     fn setcol_input(&mut self, col_name: &str, row_key: &str, value: &str) -> Result<(), StepErr> {
-        let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
-        let df = s
-            .plan
-            .clone()
-            .collect()
-            .map_err(|e| StepErr::Runtime(e.to_string()))?;
-        let idx = resolve_row(&df, &keys, row_key)?;
-        // Use a row-index predicate so unkeyed sheets work too. Row index via
-        // `int_range(0, df.height())` with eq filter avoids depending on a key.
-        s.plan = s
-            .plan
-            .clone()
-            .with_row_index("__ridx", None)
-            .with_columns([when(col("__ridx").eq(lit(idx as u32)))
-                .then(lit(value))
-                .otherwise(col(col_name).cast(DataType::String))
-                .alias(col_name)])
-            .drop(cols(["__ridx"]));
-        Ok(())
+        let rid = view_rid(s, row_key)?;
+        s.edit_cell(col_name, rid, value).map_err(StepErr::Runtime)
     }
 
-    /// VisiData `ge`: for every row in `view.selected`, overwrite `col_name` with `value`.
+    /// VisiData `ge`: `col_name` := `value` on the selected rows (`:setcol`).
     fn setcol_input_gang(&mut self, col_name: &str, value: &str) -> Result<(), StepErr> {
         let s = &mut self.current_slot_mut()?.sheet;
         if s.view.selected.is_empty() {
             return Ok(());
         }
-        // Build a chain of eq-OR predicates over the row index for each selected row.
-        // Ponytail: when selection is huge this is O(n·|sel|); good enough for tests.
-        let idxs: Vec<u32> = s.view.selected.iter().map(|i| *i as u32).collect();
-        let mut predicate: Option<Expr> = None;
-        for i in idxs {
-            let p = col("__ridx").eq(lit(i));
-            predicate = Some(match predicate {
-                None => p,
-                Some(acc) => acc.or(p),
-            });
-        }
-        let predicate = predicate.unwrap();
-        s.plan = s
-            .plan
-            .clone()
-            .with_row_index("__ridx", None)
-            .with_columns([when(predicate)
-                .then(lit(value))
-                .otherwise(col(col_name).cast(DataType::String))
-                .alias(col_name)])
-            .drop(cols(["__ridx"]));
-        Ok(())
+        s.set_col(col_name, value)
+            .map(|_| ())
+            .map_err(StepErr::Runtime)
     }
 
     /// Hide every column whose non-null values are all identical, provided
@@ -1296,6 +1243,34 @@ fn find_by_key(df: &DataFrame, keys: &[String], target: &str) -> Result<usize, S
         "no row with {}='{target}'",
         keys[0]
     )))
+}
+
+/// Row id of a cmdlog row reference, looked up in the sheet's view (casts
+/// applied, so a `@` key matches `2018-07-03`): key value, else view index.
+fn view_rid(s: &Sheet, target: &str) -> Result<u64, StepErr> {
+    let target = target.strip_prefix('キ').unwrap_or(target);
+    let rt = |e: PolarsError| StepErr::Runtime(e.to_string());
+    if let Some(k) = s.view.keys.first()
+        && !target.is_empty()
+        && let Some(&rid) = s
+            .rids_with_values(k, &[AnyValue::String(target)])
+            .map_err(rt)?
+            .first()
+    {
+        return Ok(rid);
+    }
+    let rids = s.view_rids().map_err(rt)?;
+    let i = if target.is_empty() {
+        Some(0)
+    } else {
+        target.parse::<usize>().ok()
+    };
+    i.and_then(|i| rids.get(i).copied()).ok_or_else(|| {
+        StepErr::Runtime(format!(
+            "cannot locate row '{target}' (keys={:?})",
+            s.view.keys
+        ))
+    })
 }
 
 /// Resolve a VisiData row identifier to a DataFrame row index.

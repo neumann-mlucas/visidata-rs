@@ -629,6 +629,14 @@ impl Sheet {
         Ok(())
     }
 
+    /// `# % ~ @`: show `name` as `dt` (a view cast; the base plan is untouched).
+    pub fn set_type_cast(&mut self, name: String, dt: DataType) {
+        match self.view.type_casts.iter_mut().find(|(c, _)| *c == name) {
+            Some(entry) => entry.1 = dt,
+            None => self.view.type_casts.push((name, dt)),
+        }
+    }
+
     /// Sheets read from a source take edits; derived ones (freq, pivot,
     /// join, `:sql`, selected rows, …) don't (S-18 D3).
     pub fn editable(&self) -> Result<(), String> {

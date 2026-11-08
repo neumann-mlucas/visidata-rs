@@ -39,7 +39,7 @@ edit-joinkey-1	SKIP columns-selected
 edit-joinkey-2	SKIP columns-selected
 edit-joinregular-1	SKIP columns-selected
 edit-joinregular-2	SKIP columns-selected
-edit-type	SKIP runtime: cannot locate row 'Paid' (keys=[])
+edit-type	SKIP describe-sheet
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	SKIP delete-cells
@@ -55,8 +55,8 @@ freeze-json	SKIP freeze-sheet
 freeze-sheet-attrs	SKIP aggregate-col
 freq-dive-except	SKIP dive-except
 freq-error	SKIP aggregate-col
-freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="\t51\t100.0"
-freq-same-int	SKIP runtime: cannot locate row '2018-07-03' (keys=["Date"])
+freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="2018-08-20\t4\t7.84"
+freq-same-int	FAIL line 2: want="2\t1\t1.96" got="3\t50\t98.04"
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
 freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal" got="count\tfreq_count\tfreq_percent\tfreq_histogram"
@@ -230,7 +230,7 @@ sum-freq-table	SKIP aggregate-col
 syspaste-crlf	NO_GOLDEN golden is .json
 test_quartiles	SKIP aggregate-col
 transform-cols	SKIP setcol-regex-subst-all
-type-customdate	SKIP type-customdate
+type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
 unfurl-dict	SKIP unfurl-col
 unfurl-empty	SKIP unfurl-col
 unfurl-empty-false	SKIP unfurl-col

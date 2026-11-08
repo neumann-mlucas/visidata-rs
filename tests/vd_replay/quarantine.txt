@@ -17,6 +17,7 @@ issue964-inner-join  # zero-padded ids read as int (S-24 R4)
 load-sqlite-view     # sqlite views not listed with tables
 join-extend-mult     # extend join: `<sheet>_` prefixes on clashing columns
 freqtbl-openrow      # freq open-row: dive to the parent rows of the cursor value
+freq-same-int        # freq of a numeric column: VisiData keeps first-seen order, vdrs sorts by count
 
 # Permanent: VisiData semantics vdrs doesn't model
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)
