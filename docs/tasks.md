@@ -63,7 +63,7 @@ Drafted from the VisiData comparison review. Each phase ships alone with its spe
 
 **Corpus coverage (S-25)** — target ~80–95 PASS
 - [ ] P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
-- [ ] P1 — translate shipped features' longnames (~26 files) (1–2 d)
+- [ ] P1 — translate shipped features' longnames (~26 files); `I` describe sheet switches to VisiData's columns (6 goldens) (1.5–2.5 d)
 - [ ] P2 — correctness fixes from FAIL/runtime buckets (~16 files) (2–3 d)
 - [ ] P3 — columns sheet `C` (3–5 d)
 - [ ] P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d)

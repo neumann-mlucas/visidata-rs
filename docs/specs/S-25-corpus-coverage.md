@@ -30,7 +30,7 @@ sit in UNTESTABLE as "Python-expression payloads", but their input is an aggrega
 | Phase | Work | Files in reach | Effort |
 |---|---|---|---|
 | P0 | Harness: `VDRS_REPLAY_TRIAGE=1` runs quarantined files too and prints first blockers; quarantine rewritten with one real reason per stem (headings by blocker, as the table above); `aggregate-*` moved out of UNTESTABLE; look at the 40 NO_GOLDEN (generate with VisiData's own `tests/test-vdx.sh --batch` where the test simply never had a golden committed — run in CI only, never needed locally) | 0 (+ up to 40 testable) | 0.5–1 d |
-| P1 | Translate shipped features' longnames (table row 3); `describe-sheet`: either match VisiData's describe columns in the harness or keep quarantined with that reason | ~26 | 1–2 d |
+| P1 | Translate shipped features' longnames (table row 3); `describe-sheet`: `I` matches VisiData's describe sheet (decided 2026-11-08) — columns `column errors nulls distinct mode min max sum median mean stdev` (`sheet`, `type` hidden at width 0; mean/stdev = VisiData `describe_aggrs` default; `errors` = cells a type cast failed on, 0 when none), replacing vdrs's `type count …` layout; update `:export`, guide, `docs-describe` recording | ~26 | 1–2 d |
 | P2 | Correctness fixes: S-24 R4 zero-padded ids; sqlite views listed with tables; `extend` join with `<sheet>_` prefixes on clashing columns; freq `open-row` semantics; duplicate header names → VisiData naming; JSON with comments/trailing commas → decide accept (lenient parser) or permanent | ~16 | 2–3 d |
 | P3 | Columns sheet `C` (design §3) | ~7, +4 with S-18 C | 3–5 d |
 | P4 | Column aggregators `+` / `g+` (design §4) | ~13 | 1.5–2 d |
