@@ -76,5 +76,5 @@ chain into other UNTESTABLE longnames, so the real unlock is lower — measure f
   keep.
 - **E3** `z|`: VisiData = select-expr, vdrs = filter by regex. Moving the filter breaks vdrs users and
   the docs recordings; keeping it breaks VisiData muscle memory (direction §9.2 says VisiData wins).
-  Recommend: `z|` → select-expr as VisiData, filter moves to `:filter` + a free key (`zF`?), decided
+  Recommend: `z|` → select-expr as VisiData, filter moves to `:filter` + `gz|` (free in both; VisiData `zF` is freq-summary), decided
   before phase A; doc-sync and `docs-filter` recording updated in the same commit.
