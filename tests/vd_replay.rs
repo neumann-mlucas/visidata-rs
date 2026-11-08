@@ -25,7 +25,7 @@ use visidata_rs::sheet::{Origin, Sheet, SheetId, SortKey, SortOrder};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 29;
+const MIN_PASS: usize = 30;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -189,60 +189,26 @@ enum StepErr {
     PythonExpr(String),
 }
 
-/// Longnames we deliberately don't support — direction §9.5 (zero VisiData
-/// compat beyond data files) and §1 (no VisiData options system / clipboard /
-/// interactive new-sheet workflow).
-///
-/// Three families:
-///   (1) Python-syntax payloads: `qty*amt`, `curcol.casefold()`. No Lua equivalent.
-///   (2) Interactive-clipboard / new-sheet / nested-dict workflows: copy-cells,
-///       paste-after, open-new, add-row, unfurl-col, expand-*. These are
-///       VisiData's shell-REPL feel; we're a non-mutable projection engine.
-///   (3) Options system (set-option/unset-option) — direction §1.
+/// Longnames the replay can't run: their input is a Python expression
+/// (`qty*amt`, `curcol.casefold()`, `range(1, 100)`) or Python itself, and vdrs
+/// has no Python runtime (direction
+/// §9.5; a Python subset is S-21 C, gated on evidence), or they unset VisiData
+/// options. Planned features (editing/clipboard S-18, nested data S-22, column
+/// aggregators S-25 P4) are not listed: they are SKIP (missing longname) until
+/// they ship, so the triage shows them as real blockers.
 fn is_direction_skip_longname(ln: &str) -> bool {
     matches!(
         ln,
         // (1) Python expression payloads
         "addcol-expr"
             | "setcol-expr"
-            | "aggregate-col"
             | "select-expr"
             | "unselect-expr"
-            | "addcol-capture"
-            | "addcol-incr"
             | "addcol-iter"
-            | "addcol-new"
-            | "addcol-aggregate"
-            | "addcol-window"
-            | "aggregate-cols"
-            | "setcol-fake"
-            | "setcol-precision-less"
-            | "setcol-precision-more"
-            | "setcol-regex-subst-all"
-            | "setcol-format-enum"
-            | "type-customdate"
-            | "type-len"
+            | "setcol-fake" // random values from Python `faker`
             | "assert-expr"
             | "import-python"
-            | "memo-aggregate"
-            // (2) Clipboard / interactive-new-sheet / nested-expand workflows
-            | "copy-row"
-            | "copy-cells"
-            | "copy-selected"
-            | "paste-after"
-            | "setcol-clipboard"
-            | "add-row"
-            | "add-rows"
-            | "open-new"
-            | "delete-row"
-            | "delete-cell"
-            | "delete-cells"
-            | "unfurl-col"
-            | "expand-col"
-            | "expand-cols"
-            | "expand-col-depth"
-            | "expand-cols-depth"
-            // (3) Options system
+            // Options
             | "unset-option"
     )
 }
@@ -1404,9 +1370,30 @@ fn load_quarantine() -> HashSet<String> {
         return HashSet::new();
     };
     text.lines()
-        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-        .map(|l| l.trim().to_string())
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
         .collect()
+}
+
+/// Why a file has no `<stem>.tsv` golden: VisiData runs `-nosave`, `-manual`,
+/// `-broken` and `quit-perf` for their assertions only; the others save to
+/// another format (`golden/<stem>.csv`, `.json`, …) the replay doesn't compare yet.
+fn no_golden_reason(corpus: &Path, stem: &str) -> String {
+    let mut exts: Vec<String> = fs::read_dir(corpus.join("golden"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.file_stem().and_then(|s| s.to_str()) == Some(stem))
+        .filter_map(|p| p.extension().and_then(|x| x.to_str()).map(str::to_string))
+        .collect();
+    exts.sort();
+    if exts.is_empty() {
+        "assertion-only (no golden in VisiData)".into()
+    } else {
+        format!("golden is .{}", exts.join(" ."))
+    }
 }
 
 fn short_diff(want: &str, got: &str) -> String {
@@ -1440,7 +1427,15 @@ fn vd_replay_corpus() {
         return;
     }
     let visidata_root = corpus.parent().unwrap().to_path_buf();
-    let quarantine = load_quarantine();
+    // Triage: run quarantined files too, record every file's first blocker in
+    // `tests/vd_replay/triage.txt`, assert nothing (S-25 P0).
+    let triage = std::env::var("VDRS_REPLAY_TRIAGE").is_ok();
+    let quarantine = if triage {
+        HashSet::new()
+    } else {
+        load_quarantine()
+    };
+    let mut outcomes: BTreeMap<String, String> = BTreeMap::new();
 
     let mut pass = 0usize;
     let mut skip: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -1471,6 +1466,10 @@ fn vd_replay_corpus() {
         let golden = corpus.join("golden").join(format!("{stem}.tsv"));
         if !golden.exists() {
             no_golden += 1;
+            outcomes.insert(
+                stem.clone(),
+                format!("NO_GOLDEN {}", no_golden_reason(corpus, &stem)),
+            );
             continue;
         }
 
@@ -1483,6 +1482,7 @@ fn vd_replay_corpus() {
         let rows = match rows {
             Ok(r) => r,
             Err(e) => {
+                outcomes.insert(stem.clone(), format!("FAIL parse: {e}"));
                 fail.push((stem.clone(), format!("parse: {e}")));
                 continue;
             }
@@ -1492,55 +1492,63 @@ fn vd_replay_corpus() {
         if ext == Some("vdx") {
             rp.cursor = Some(HashMap::new());
         }
-        let mut outcome: Result<(), String> = Ok(());
+        let mut blocked = None;
         for row in &rows {
             match rp.step(row) {
                 Ok(()) => {}
                 Err(StepErr::PythonExpr(ln)) => {
+                    blocked = Some(format!("UNTESTABLE {ln}"));
                     *untestable.entry(ln).or_default() += 1;
-                    outcome = Err("untestable".into());
                     break;
                 }
                 Err(StepErr::MissingLongname(ln)) => {
+                    blocked = Some(format!("SKIP {ln}"));
                     skip.entry(ln).or_default().push(stem.clone());
-                    outcome = Err("skip".into());
                     break;
                 }
                 Err(StepErr::Runtime(e)) => {
-                    skip.entry(format!("runtime: {e}"))
-                        .or_default()
-                        .push(stem.clone());
-                    outcome = Err("skip".into());
+                    let e = format!("runtime: {e}");
+                    blocked = Some(format!("SKIP {e}"));
+                    skip.entry(e).or_default().push(stem.clone());
                     break;
                 }
             }
         }
-        if outcome.is_err() {
+        if let Some(b) = blocked {
+            outcomes.insert(stem, b);
             continue;
         }
 
         let got = match rp.to_tsv() {
             Ok(s) => normalize(&s),
             Err(e) => {
-                skip.entry(format!("serialize: {e}"))
-                    .or_default()
-                    .push(stem.clone());
+                let e = format!("serialize: {e}");
+                outcomes.insert(stem.clone(), format!("SKIP {e}"));
+                skip.entry(e).or_default().push(stem.clone());
                 continue;
             }
         };
-        let Ok(want_raw) = fs::read_to_string(&golden) else {
+        // Lossy: `invalid_unicode_sqlite`'s golden holds invalid UTF-8, which the
+        // sqlite reader decodes the same way.
+        let Ok(want_raw) = fs::read(&golden).map(|b| String::from_utf8_lossy(&b).into_owned())
+        else {
             no_golden += 1;
+            outcomes.insert(stem, "NO_GOLDEN unreadable".into());
             continue;
         };
         let want = normalize(&want_raw);
 
         if tsv_eq(&want, &got) {
+            outcomes.insert(stem.clone(), "PASS".into());
             pass += 1;
             if std::env::var("VDRS_REPLAY_VERBOSE").is_ok() {
                 eprintln!("PASS: {stem}");
             }
         } else {
-            fail.push((stem, short_diff(&want, &got)));
+            let d = short_diff(&want, &got);
+            let first = d.lines().nth(1).unwrap_or(&d).trim().to_string();
+            outcomes.insert(stem.clone(), format!("FAIL {first}"));
+            fail.push((stem, d));
         }
     }
 
@@ -1577,6 +1585,19 @@ fn vd_replay_corpus() {
         for (name, msg) in &fail {
             eprintln!("  {name}:\n    {msg}");
         }
+    }
+    if triage {
+        let mut out = String::from(
+            "# S-25 P0 triage: every corpus file's first blocker, quarantine ignored.\n\
+             # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay\n",
+        );
+        for (stem, o) in &outcomes {
+            let o: String = o.lines().next().unwrap_or("").chars().take(160).collect();
+            out.push_str(&format!("{stem}\t{o}\n"));
+        }
+        fs::write("tests/vd_replay/triage.txt", out).unwrap();
+        eprintln!("triage written to tests/vd_replay/triage.txt");
+        return;
     }
     assert!(fail.is_empty(), "{} replay regressions", fail.len());
     // A runtime error buckets a file as SKIP, so FAIL=0 alone can hide regressions.

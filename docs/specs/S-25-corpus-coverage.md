@@ -1,6 +1,6 @@
 # S-25 — Corpus coverage: from 29 to ~90 passing VisiData goldens
 
-Status: **drafted 2026-11-08**, not started. Extends S-14 (harness) — no harness redesign.
+Status: **drafted 2026-11-08**; P0 done 2026-11-08 (PASS=30 FAIL=0 SKIP=140 UNTESTABLE=19 QUARANTINED=12 NO_GOLDEN=39, ceiling 182; see §1.1). Extends S-14 (harness) — no harness redesign.
 Baseline (CI pin `5f67ff8a`, 240 cmdlogs): **PASS=29 FAIL=0 SKIP=0 UNTESTABLE=50 QUARANTINED=121
 NO_GOLDEN=40.**
 
@@ -24,6 +24,16 @@ duckdb/postgres loaders, html, regressions and real columns-sheet tests. Real fi
 **Misclassification found:** `aggregate-col` (11 files), `aggregate-cols` (1), `addcol-aggregate` (1)
 sit in UNTESTABLE as "Python-expression payloads", but their input is an aggregator *name*
 (`sum`, `mean`: `{"longname": "aggregate-col", "input": "sum"}`). They need a feature (P4), not Python.
+
+### 1.1 P0 results (2026-11-08)
+- UNTESTABLE 63 → 19: besides `aggregate-*`, the editing/clipboard (S-18), nested (S-22) and most
+  `addcol-*` / `setcol-*` / `type-*` longnames take a regex, name, format or nothing — not Python. They
+  are SKIP now, under their real name. Left: Python payloads, `setcol-fake`, `unset-option`.
+- Quarantine 121 → 12: only end-to-end FAILs, each with a reason; everything else shows its blocker.
+- NO_GOLDEN 40 → 39: 18 are assertion-only upstream (permanent); 21 have non-TSV goldens (`.csv` 5,
+  `.json` 5, `.jsonl` 3, `.grep` 2, others 1 each) — comparing those (load the golden with vdrs's own
+  reader) is a cheap follow-up; `invalid_unicode_sqlite` passes with a lossy golden read (+1 PASS).
+- Nothing to generate with `test-vdx.sh`: every file that can have a golden has one.
 
 ## 2. Phases (gains are upper bounds: a file can hit a second blocker)
 

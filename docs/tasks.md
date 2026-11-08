@@ -30,7 +30,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 
 1. - [x] Doc cleanup: specs/tasks/direction consistent with the 2026-11-08 roadmap
 2. - [x] S-24 R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
-3. - [ ] S-25 P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
+3. - [x] S-25 P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
 4. - [ ] S-26 phase 0 — VisiData key alignment (§0 "phase 0" rows: `Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`) (2–2.5 d), with S-21 A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect`, `z|` select-expr, regex filter → `gz|` (1 d)
 5. - [ ] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
 6. - [ ] S-18 B — system clipboard: `Y gY zY gzY`, arboard / OSC 52, `ClipboardSink`, `vd.option` (1–1.5 d)
@@ -106,9 +106,9 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-07, `.vdx` corpus added): PASS=29, FAIL=0, SKIP=0, UNTESTABLE=50, QUARANTINED=121, NO_GOLDEN=40.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-08, S-25 P0): PASS=30, FAIL=0, SKIP=140, UNTESTABLE=19, QUARANTINED=12, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
-**Addressable ceiling (2026-11-08 triage, quarantine emptied): ~137** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
+**Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 
 Driver semantics for several chunks exist test-side only; production `App::dispatch` still needs them. Each `[driver only]` item below means the harness proves Polars-level correctness but there's no keybinding/exline entry in `vdrs` the binary.
 

@@ -1,0 +1,242 @@
+# S-25 P0 triage: every corpus file's first blocker, quarantine ignored.
+# Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
+1410a	SKIP delete-cell
+1410b	SKIP serialize: ExpectedObjectColon at character 33 (',')
+1410c	SKIP type-len
+add-col-dup-attrs	SKIP addcol-new
+addcol-iter	UNTESTABLE addcol-iter
+addcol_window	SKIP addcol-window
+aggregators-cols	SKIP addcol-aggregate
+aggregators-errors	SKIP aggregate-col
+aggregators-set	SKIP aggregate-cols
+append	PASS
+avg-nulls	SKIP delete-cells
+bulk-rename-cols	UNTESTABLE setcol-expr
+capture-col-named	SKIP addcol-capture
+column-copy	SKIP aggregate-col
+column-name-__name__	NO_GOLDEN golden is .csv
+column-name-_fields	NO_GOLDEN golden is .csv
+column-name-length	NO_GOLDEN golden is .csv
+concat-origin	PASS
+curcol	UNTESTABLE addcol-expr
+date_add	UNTESTABLE addcol-expr
+deferred-hidden-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+describe	SKIP describe-sheet
+describe-error	SKIP describe-sheet
+describe-through	UNTESTABLE setcol-expr
+diff-join	SKIP key-selected
+duckdb-commit-changes	SKIP save-sheet
+duckdb-commit-composite-pk	SKIP save-sheet
+duckdb-commit-no-pk	SKIP save-sheet
+duckdb-exec-sql	SKIP save-sheet
+duckdb-index	SKIP save-sheet
+duckdb-open-alt-schema	SKIP save-sheet
+duckdb-save-sheet	SKIP save-sheet
+duckdb-types	NO_GOLDEN golden is .json
+dup-rows-attrs	SKIP aggregate-col
+edit-fixed	NO_GOLDEN golden is .fixed
+edit-joinkey-1	SKIP columns-selected
+edit-joinkey-2	SKIP columns-selected
+edit-joinregular-1	SKIP columns-selected
+edit-joinregular-2	SKIP columns-selected
+edit-type	SKIP runtime: cannot locate row 'Paid' (keys=[])
+empty-unfurl	UNTESTABLE addcol-expr
+empty-unfurl-2	UNTESTABLE addcol-expr
+error-passthru	SKIP delete-cells
+errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
+exp-digits	SKIP open-new
+extend	SKIP join-selected
+fill	NO_GOLDEN golden is .jsonl
+fill-nested	NO_GOLDEN golden is .jsonl
+fill-zero	NO_GOLDEN golden is .json
+format-enum	SKIP setcol-format-enum
+format-enum-freeze	SKIP setcol-format-enum
+freeze-json	SKIP freeze-sheet
+freeze-sheet-attrs	SKIP aggregate-col
+freq-dive-except	SKIP dive-except
+freq-error	SKIP aggregate-col
+freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="\t51\t100.0"
+freq-same-int	SKIP runtime: cannot locate row '2018-07-03' (keys=["Date"])
+freq-summary	UNTESTABLE select-expr
+freqtbl-nested-dive-selected	SKIP dive-selected
+freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal" got="count\tfreq_count\tfreq_percent\tfreq_histogram"
+frozen-attrs	SKIP aggregate-col
+full-join	PASS
+gMelt	UNTESTABLE addcol-expr
+getitem	SKIP copy-row
+graph-cursor-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+graph-sincos-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+graphpr-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+hide-uniform	PASS
+histogram	UNTESTABLE addcol-expr
+import-python	UNTESTABLE import-python
+incr-key	SKIP addcol-incr-key
+inner-join	PASS
+invalid_unicode_sqlite	PASS
+issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknown format for ../visidata/sample_data/issue1308.html
+issue1346	SKIP runtime: open-file ../visidata/tests/issue1346.html: unknown format for ../visidata/tests/issue1346.html
+issue1377	SKIP copy-selected
+issue1377b	SKIP copy-selected
+issue2015	SKIP open-new
+issue2190	UNTESTABLE assert-expr
+issue2225-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue2227	SKIP runtime: open-file ../visidata/tests/issue2227.html: unknown format for ../visidata/tests/issue2227.html
+issue2309	SKIP save-all
+issue2316	SKIP runtime: open-file ../visidata/sample_data/issue2316.zip: unknown format for ../visidata/sample_data/issue2316.zip
+issue2396	SKIP type-decimal
+issue2476	NO_GOLDEN golden is .csv
+issue2524-curcol	UNTESTABLE addcol-expr
+issue2890-parquet-addrow-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue2901-defer-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue2988	SKIP unhide-cols
+issue3015-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3022-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3103	SKIP addcol-shell
+issue3146-paste	SKIP addcol-new
+issue3146-vds	SKIP save-sheet
+issue3163	SKIP search-keys
+issue3174-deepcopy-append	SKIP dup-rows-deep
+issue3174-deepcopy-concat	SKIP dup-rows-deep
+issue3174-deepcopy-full	SKIP dup-rows-deep
+issue3174-deepcopy-join-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3174-deepcopy-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3175-vds-concat	SKIP save-sheet
+issue3175-vds-full	SKIP save-sheet
+issue3178	SKIP serialize: duplicate: column 'D' is duplicate
+issue3187	SKIP join-selected
+issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
+issue3190-unhide	PASS
+issue3195	SKIP set-envvar
+issue3198	PASS
+issue3198-keycols	PASS
+issue3208-append	PASS
+issue3208-concat	PASS
+issue3208-duplicates	SKIP runtime: duplicate: column 'a' is duplicate
+issue3208-reordered	PASS
+issue3214-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3215-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+issue3219-dedupe	FAIL line 3: want="1.0" got="abc"
+issue3219-dedupe-int	FAIL line 3: want="abc" got="<EOF>"
+issue3219-freq	FAIL line 2: want="1\t2\t28.57\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■" got="1\t3\t42.86\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
+issue3223	SKIP describe-sheet
+issue3223-distinct	SKIP describe-sheet
+issue3223-dive	SKIP describe-sheet
+issue3223-median	SKIP describe-sheet
+issue3223-nostat	SKIP allow-error
+issue350	UNTESTABLE addcol-expr
+issue655	SKIP define-command
+issue733	UNTESTABLE unset-option
+issue964-inner-join	FAIL line 2: want="082053\tM\tPA\tPalermo" got="82014\tM\tPA\tCaccamo"
+join-cols-single-sheet	SKIP join-cols
+join-concat	SKIP join-selected
+join-different-types	SKIP runtime: join-sheets needs ≥2 sheets, got 0
+join-extend-mult	FAIL line 1: want="Key\tA\tB\tdata3_E\tdata3_F\tdata2_C\tdata2_D" got="Key\tE\tF\tA\tB"
+join-merge	PASS
+join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
+jump-sheet	PASS
+known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
+listofdictobj	SKIP expand-col-depth
+load-2d-matrix	SKIP runtime: open-file ../visidata/sample_data/arrays.npz: unknown format for ../visidata/sample_data/arrays.npz
+load-conllu	NO_GOLDEN golden is .jsonl
+load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expanded paths were empty (path expansion input: 'paths: [PlRefPath { inner: "../visidata/bin/*.
+load-duckdb	SKIP save-sheet
+load-duckdb-view	SKIP save-sheet
+load-fec	SKIP runtime: open-file ../visidata/sample_data/1794685.fec: unknown format for ../visidata/sample_data/1794685.fec
+load-fixed	SKIP runtime: open-file ../visidata/sample_data/countries: unknown format for ../visidata/sample_data/countries
+load-fixed-header0	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
+load-fixed-leadingspaces	SKIP runtime: open-file ../visidata/sample_data/test-fixed-leadingspaces.txt: unknown format for ../visidata/sample_data/test-fixed-leadingspaces.txt
+load-grep-json	NO_GOLDEN golden is .grep
+load-grep-standard	NO_GOLDEN golden is .grep
+load-h5	SKIP runtime: open-file ../visidata/sample_data/sensors.h5: unknown format for ../visidata/sample_data/sensors.h5
+load-html	SKIP runtime: open-file ../visidata/sample_data/sunshinelist.html: unknown format for ../visidata/sample_data/sunshinelist.html
+load-http-flaky	SKIP runtime: open-file ../visidata/https://raw.githubusercontent.com/saulpw/visidata/develop/sample_data/benchmark.csv: io: ../visidata/https://raw.githubuserc
+load-json	SKIP expand-cols-depth
+load-jsonla	SKIP runtime: open-file ../visidata/sample_data/officials.jsonla: unknown format for ../visidata/sample_data/officials.jsonla
+load-lsv	SKIP runtime: open-file ../visidata/sample_data/benchmark.lsv: unknown format for ../visidata/sample_data/benchmark.lsv
+load-msgpack	SKIP runtime: open-file ../visidata/sample_data/test.msgpack: unknown format for ../visidata/sample_data/test.msgpack
+load-msgpackz	SKIP runtime: open-file ../visidata/sample_data/test.msgpackz: unknown format for ../visidata/sample_data/test.msgpackz
+load-numpy	SKIP runtime: open-file ../visidata/sample_data/goog.npy: unknown format for ../visidata/sample_data/goog.npy
+load-ods	PASS
+load-pandas	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
+load-pandas-2	NO_GOLDEN golden is .csv
+load-pandas-3	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
+load-parquet	PASS
+load-parquet-geo	SKIP serialize: datatype ext[geoarrow.wkb] cannot be written to CSV
+load-png	SKIP runtime: open-file ../visidata/sample_data/vdlogo-160x24.png: unknown format for ../visidata/sample_data/vdlogo-160x24.png
+load-sqlite	PASS
+load-sqlite-view	FAIL line 1: want="empno\tename\tjob\tmgr\thiredate\tsal\tcomm\tdeptno" got="deptno\tdname\tloc"
+load-stata	SKIP runtime: open-file ../visidata/sample_data/co3.dta: unknown format for ../visidata/sample_data/co3.dta
+load-toml	SKIP runtime: open-file ../visidata/sample_data/freshwater-mammals.toml: unknown format for ../visidata/sample_data/freshwater-mammals.toml
+load-usv	SKIP runtime: open-file ../visidata/sample_data/test.usv: unknown format for ../visidata/sample_data/test.usv
+load-xlsx	PASS
+load-xml	SKIP runtime: open-file ../visidata/sample_data/benchmark.xml: unknown format for ../visidata/sample_data/benchmark.xml
+load-xpt-n311	SKIP runtime: open-file ../visidata/sample_data/brakes.xpt: unknown format for ../visidata/sample_data/brakes.xpt
+load-yaml	SKIP runtime: open-file ../visidata/sample_data/benchmark.yml: unknown format for ../visidata/sample_data/benchmark.yml
+load-zip	SKIP runtime: open-file ../visidata/sample_data/benchmark.zip: unknown format for ../visidata/sample_data/benchmark.zip
+load_npy	SKIP runtime: open-file ../visidata/sample_data/benchmark.npy: unknown format for ../visidata/sample_data/benchmark.npy
+long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
+melt-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
+messenger-nosave	NO_GOLDEN golden is .dot
+monthly-revenue	SKIP addcol-capture
+numeric-cols	PASS
+numeric-names	PASS
+numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
+outer-join-1	SKIP key-selected
+outer-join-2	PASS
+pandas_loader_dup_selected	PASS
+petsdiet	SKIP aggregate-col
+pivot	SKIP aggregate-col
+pivot-error	SKIP aggregate-col
+pivot-noaggr	PASS
+postgres-exec-sql-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
+postgres-open-table-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/benchmark: unknown format for ../visidata/postgres:///vdtest/benchmark
+postgres-quoted-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/we"ird: unknown format for ../visidata/postgres:///vdtest/we"ird
+postgres-readonly-pg	SKIP allow-error
+postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
+pr2302	PASS
+pr2308	NO_GOLDEN golden is .json
+pr2372	SKIP copy-cells
+pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
+pr2614	SKIP addcol-incr
+pr2647	SKIP join-selected
+pr2688a	PASS
+pr2688b	PASS
+pr2815	NO_GOLDEN golden is .json
+pr2855	SKIP addcol-incr
+prefer-visible-col	UNTESTABLE addcol-expr
+pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
+quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
+quit-perf	NO_GOLDEN assertion-only (no golden in VisiData)
+rank-sheetrank-sorted-cols	SKIP key-col-off
+record-aggr	SKIP memo-aggregate
+remove-errors	UNTESTABLE setcol-expr
+rows-select-expr	UNTESTABLE select-expr
+save-benchmarks	NO_GOLDEN golden is .csv .html .json .jsonl .md .npy .rst .txt
+save-geojson	NO_GOLDEN golden is .geojson
+save-json	SKIP serialize: ExpectedObjectColon at character 33 (',')
+save-jsonla	NO_GOLDEN golden is .jsonla
+save-usv	NO_GOLDEN golden is .usv
+select-to-selected	SKIP select-to-next-selected
+setcol-precision	SKIP setcol-precision-more
+setcol_fake	UNTESTABLE setcol-fake
+setcol_precision_less	SKIP setcol-precision-less
+setcol_precision_more	SKIP setcol-precision-more
+sort-levels	PASS
+sortorder	FAIL line 1: want="name\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal"
+sqlite-commit	SKIP save-sheet
+sqlite_withoutrowid	PASS
+sum-freq-table	SKIP aggregate-col
+syspaste-crlf	NO_GOLDEN golden is .json
+test_quartiles	SKIP aggregate-col
+transform-cols	SKIP setcol-regex-subst-all
+type-customdate	SKIP type-customdate
+unfurl-dict	SKIP unfurl-col
+unfurl-empty	SKIP unfurl-col
+unfurl-empty-false	SKIP unfurl-col
+unfurl-list	SKIP unfurl-col
+xlsx-color-cells	FAIL line 1: want="A\tA_cellPyObj\tA_fontColor\tA_fillColor\tBC\tBC_cellPyObj\tBC_fontColor\tBC_fillColor\t\t_cellPyObj\t_fontColor\t_fillColor\tD\tD_cellPyObj\
+xlsx-empty-cell	PASS
+xlsx-header	SKIP rename-cols-row
+xlsx-merged-cells	PASS
+xml-table	SKIP runtime: open-file ../visidata/tests/xml-table.xml: unknown format for ../visidata/tests/xml-table.xml

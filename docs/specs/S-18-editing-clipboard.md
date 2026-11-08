@@ -169,8 +169,8 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Scenario: `y` on row 3 → register = that row; `gy` with sel 2 after `[` sort → the selected rows,
   view order; `zy`/`gzy` cells; copy with nothing selected → message, register unchanged.
 - Scenario: copy survives `q` / switching sheets.
-- Corpus: driver handles `copy-row`/`copy-selected`/`copy-cells`; remove them from the untestable list
-  (they become SKIP-free only with paste in D/F; count moves recorded in S-14).
+- Corpus: driver handles `copy-row`/`copy-selected`/`copy-cells` (already SKIP, not UNTESTABLE, since
+  S-25 P0); files pass only with paste in D/F; count moves recorded in S-14.
 
 ### B — System clipboard out
 - Unit: TSV encoding (tabs/newlines inside values, nulls empty, header rules), matched to VisiData's

@@ -1,6 +1,6 @@
 # S-13 — Tier 1 feature target: daily-driver parity for upstream golden corpus
 
-Status: **closed** (2026-10-16 iteration 14 — all addressable chunks shipped or classified. Corpus state at close: PASS=21, SKIP=0, 70 quarantined, 48 UNTESTABLE; today's counts and the reopened ceiling (~137): S-14, S-25. The "~160 goldens runnable" target was replaced by an honest classification: 21 PASS covers the subset that's compatible with direction §9.5 compat ban + §1 options cut. See [`S-15-feature-inventory.md`](S-15-feature-inventory.md) for what shipped.)
+Status: **closed** (2026-10-16 iteration 14 — all addressable chunks shipped or classified. Corpus state at close: PASS=21, SKIP=0, 70 quarantined, 48 UNTESTABLE; today's counts and the reopened ceiling: S-14, S-25. The "~160 goldens runnable" target was replaced by an honest classification: 21 PASS covers the subset that's compatible with direction §9.5 compat ban + §1 options cut. See [`S-15-feature-inventory.md`](S-15-feature-inventory.md) for what shipped.)
 Phase: 1.5 (interleaved with Phases 1–3)
 Depends on: direction §4 (engine), S-01 (data model), S-04 (keybindings), S-09 (plugins)
 Blocks: S-14 (test corpus replay harness — Tier 1 is what the harness grew into)

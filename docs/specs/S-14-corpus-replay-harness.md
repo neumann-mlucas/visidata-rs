@@ -1,6 +1,6 @@
 # S-14 — Golden corpus replay harness (test strategy)
 
-Status: **landed and stable (2026-10-16 iteration 14)** — harness at `tests/vd_replay.rs` (~1230 LOC single file; the planned `vd_replay/{cmdlog,translate,headless,normalize}.rs` module split was cut as premature). Current counts (2026-11-07, VisiData `5f67ff8a`, `.vd`/`.vdj`/`.vdx` = 240 files): PASS=29, FAIL=0, SKIP=0, UNTESTABLE=50, QUARANTINED=121, NO_GOLDEN=40. With the quarantine emptied the ceiling is ~137 (S-25 §1 triage, 2026-11-08); the coverage plan lives in S-25. `.vdx` = VisiData's minimal script (`longname input` per line; `col`/`row`/`sheet` lines position the next command; the driver keeps a per-sheet cursor between them). Classification taxonomy below.
+Status: **landed and stable (2026-10-16 iteration 14)** — harness at `tests/vd_replay.rs` (~1230 LOC single file; the planned `vd_replay/{cmdlog,translate,headless,normalize}.rs` module split was cut as premature). Current counts (2026-11-08, VisiData `5f67ff8a`, `.vd`/`.vdj`/`.vdx` = 240 files): PASS=30, FAIL=0, SKIP=140, UNTESTABLE=19, QUARANTINED=12, NO_GOLDEN=39. With the quarantine emptied the ceiling is ~137 (S-25 §1 triage, 2026-11-08); the coverage plan lives in S-25. `.vdx` = VisiData's minimal script (`longname input` per line; `col`/`row`/`sheet` lines position the next command; the driver keeps a per-sheet cursor between them). Classification taxonomy below.
 Phase: 1.5 (landed with S-13)
 Depends on: S-13 (Tier 1 feature target)
 Blocks: nothing — pure test infrastructure
@@ -204,14 +204,16 @@ fn vd_replay_corpus() {
 }
 ```
 
-**Semantics (shipped — reflects iter 14 taxonomy):**
+**Semantics (S-25 P0 taxonomy, 2026-11-08):**
 
 - **PASS** — longname-covered, output matches golden (byte-for-byte post-normalize, with numeric-aware line compare for float trailing-zeros).
 - **FAIL** — longname-covered, output differs → test fails loudly.
-- **SKIP** — missing a longname that we COULD still implement. **Target: zero.** Reached 0 at iter 10. New SKIP buckets = new addressable work.
-- **UNTESTABLE** — cmdlog contains a longname whose semantics violate direction §9.5 (Python-eval payloads like `qty*amt`, `curcol.casefold()`) or direction §1 (VisiData clipboard/new-sheet workflows: `copy-row`, `paste-after`, `open-new`; options system: `unset-option`). Classifier: `is_direction_skip_longname()`. These are **permanent** without a Python-compat eval layer.
-- **QUARANTINED** — stem listed in `tests/vd_replay/quarantine.txt` with a per-entry reason. Two sub-categories: (a) format out of scope per direction §1 (xml/html/yaml/toml/zip/stata/npy/msgpack/xpt/dta/fixed/jsonla/h5/usv/png/http = 21 entries), (b) known specific-bug divergence we chose not to fix (deep columns-sheet operations, freq-fmtstr with histogram, lenient date parsing, describe-sheet numeric formatting, multi-table sqlite — ~49 entries). Deletion is a conscious decision per entry.
-- **NO_GOLDEN** — cmdlog has no paired golden TSV in `../visidata/tests/golden/`. Interactive-only features and side-effect tests upstream doesn't ship a golden for; cannot be scored.
+- **SKIP** — first blocker is a longname not translated yet, a runtime error, or a serialize error. The bucket name is the blocker; planned features (editing, nested data, aggregators, columns sheet, formats) sit here until they ship.
+- **UNTESTABLE** — input is Python (`addcol-expr`, `setcol-expr`, `select-expr`, `unselect-expr`, `addcol-iter`, `assert-expr`, `import-python`), random (`setcol-fake`), or `unset-option`. Classifier: `is_direction_skip_longname()`. Leaves only with a Python subset (S-21 C).
+- **QUARANTINED** — only files that run to the end and FAIL; `stem  # reason` per line in `tests/vd_replay/quarantine.txt`, grouped by the phase that fixes them.
+- **NO_GOLDEN** — no `golden/<stem>.tsv`: assertion-only upstream (`-nosave`, `-manual`, `-broken`), or the golden is another format (`.csv`, `.json`, …) the replay doesn't compare yet. Reason per file in the triage.
+
+**Triage:** `VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay` ignores the quarantine, asserts nothing, and writes every file's outcome / first blocker to `tests/vd_replay/triage.txt` (checked in, so blocker shifts show in review diffs). Regenerate it in every commit that changes the counts.
 
 **Rule of thumb:** SKIP non-zero means a feature gap that's addressable; the harness output tells you what longname to implement next. Zero SKIP means the next PASS requires either lifting a quarantine (concrete feature work with a known cost) or an untestable (direction change).
 
