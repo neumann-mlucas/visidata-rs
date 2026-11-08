@@ -894,8 +894,8 @@ fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String, String> {
         .enumerate()
         .map(|(i, (name, dt))| {
             let numeric = dt.is_numeric();
-            let ordered = numeric || dt.is_temporal();
-            let nested = dt.is_nested();
+            let nested = dt.is_nested() || matches!(dt, DataType::Duration(_)); // no text cast
+            let ordered = !nested && (numeric || dt.is_temporal());
             if py {
                 let c = format!("pl.col({})", py_str(name));
                 let e = cast(name).then(|| format!("pl.col({})", py_str(&err_col(name))));

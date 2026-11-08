@@ -615,3 +615,29 @@ fn describe_counts_failed_casts_as_errors() {
         ]
     );
 }
+
+#[test]
+fn describe_handles_every_column_kind() {
+    let df = df!(
+        "b" => [true, false, true],
+        "t" => [1i64, 2, 3],
+        "l" => [Series::new("".into(), [1i64]), Series::new("".into(), [2i64]), Series::new("".into(), [1i64])],
+    )
+    .unwrap()
+    .lazy()
+    .with_columns([
+        col("t").cast(DataType::Decimal(10, 2)).alias("dec"),
+        (col("t") * lit(1_000_000_000i64)).cast(DataType::Time).alias("time"),
+        col("t").cast(DataType::Duration(TimeUnit::Milliseconds)).alias("dur"),
+        col("t").cast(DataType::String).cast(DataType::from_categories(Categories::global())).alias("cat"),
+    ])
+    .collect()
+    .unwrap();
+    let parent = Sheet::from_source(
+        0,
+        LoadedSource::from_df(SourceKind::Csv, "t".into(), None, df),
+    );
+    let d = Sheet::describe_from(&parent, 1).unwrap();
+    let out = d.view_plan().collect().unwrap();
+    assert_eq!(out.height(), 7, "{out}");
+}

@@ -772,7 +772,17 @@ async fn duckdb_index_exec_sql_open_and_save() {
             .try_extract::<i64>()
             .unwrap(),
         1
+    ); // Back on the index, cursor on o.t's row: dropping it leaves one row.
+    h.keys("q").await;
+    h.keys(":").await;
+    h.type_("exec-sql DROP TABLE o.t").await;
+    assert!(
+        title(&h).contains("tables") && title(&h).contains("row 1/1"),
+        "{}",
+        title(&h)
     );
+    h.keys("<CR>").await;
+    assert!(title(&h).contains(":main.t"), "{}", title(&h));
 }
 
 #[tokio::test(flavor = "multi_thread")]

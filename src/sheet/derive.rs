@@ -284,7 +284,9 @@ impl Sheet {
                 None => c(),
             };
             let numeric = dt.is_numeric();
-            let ordered = numeric || dt.is_temporal();
+            // Duration has no text cast: no text stats.
+            let texty = !dt.is_nested() && !matches!(dt, DataType::Duration(_));
+            let ordered = texty && (numeric || dt.is_temporal());
             let text = |e: Expr, ok: bool| {
                 if ok {
                     e.cast(DataType::String)
@@ -313,7 +315,7 @@ impl Sheet {
                     .n_unique()
                     .cast(DataType::UInt64)
                     .alias(stat(i, "distinct")),
-                text(mode, !dt.is_nested()).alias(stat(i, "mode")),
+                text(mode, texty).alias(stat(i, "mode")),
                 text(c().min(), ordered).alias(stat(i, "min")),
                 text(c().max(), ordered).alias(stat(i, "max")),
                 text(c().sum(), numeric).alias(stat(i, "sum")),
