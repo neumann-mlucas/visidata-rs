@@ -335,9 +335,9 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 | Concern | File |
 |---|---|
-| Sheet / View / LazyFrame plan | `src/sheet.rs` |
+| Sheet / View / LazyFrame plan | `src/sheet/mod.rs`; derived sheets `derive.rs`, diff `diff.rs`, tail `tail.rs`, `PlanStep` + undo `step.rs`, tests `tests.rs` |
 | Reader (CSV/TSV/Parquet/Arrow/Jsonl/Json/Xlsx/Sqlite/stdin + gzip) | `src/reader.rs` |
-| App loop, jobs, prompts, rendering + `scenario` end-to-end tests | `src/app.rs` |
+| App loop, jobs, prompts | `src/app.rs`; rendering `src/app/render.rs`; unit tests `src/app/tests.rs`; `scenario` end-to-end tests `src/app/scenario.rs` |
 | Action dispatch + handlers | `src/app/actions.rs` |
 | Keymap / chord resolution | `src/keymap.rs` |
 | Key parsing | `src/key.rs` |

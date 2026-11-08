@@ -1,0 +1,1238 @@
+//! End-to-end: real keymap + dispatch + background Polars tasks + render.
+use super::*;
+use std::io::Write;
+use unicode_width::UnicodeWidthStr;
+
+pub struct Harness {
+    pub app: App,
+    pub term: Terminal<ratatui::backend::TestBackend>,
+    _tmp: Option<tempfile::NamedTempFile>,
+}
+
+impl Harness {
+    /// `rows`-row CSV: id,name,grp,amt with id = 1..=rows.
+    pub async fn new(rows: usize) -> Self {
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        writeln!(tmp, "id,name,grp,amt").unwrap();
+        for i in 1..=rows {
+            writeln!(tmp, "{i},name_{i},{},{}", i % 7, i as f64 * 1.5).unwrap();
+        }
+        tmp.flush().unwrap();
+        let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+        Self::with_source(loaded, tmp).await
+    }
+
+    pub async fn with_source(
+        loaded: crate::reader::LoadedSource,
+        tmp: tempfile::NamedTempFile,
+    ) -> Self {
+        let mut app = App::new(Sheet::from_source(0, loaded), None, None);
+        app.spawn_materialize();
+        let mut h = Self::from_app(app).await;
+        h._tmp = Some(tmp);
+        h
+    }
+
+    pub async fn from_app(app: App) -> Self {
+        let term = Terminal::new(ratatui::backend::TestBackend::new(100, 12)).unwrap();
+        let mut h = Self {
+            app,
+            term,
+            _tmp: None,
+        };
+        h.pump().await;
+        h
+    }
+
+    /// Apply background results until the app is idle, then draw.
+    pub async fn pump(&mut self) {
+        // Generous timeout: parallel tests share CPUs; settled() ends it early.
+        while !self.app.settled() {
+            let next = self.app.materialize_rx.recv();
+            match tokio::time::timeout(Duration::from_secs(20), next).await {
+                Ok(Some(res)) => self.app.on_materialize(res),
+                _ => break,
+            }
+        }
+        // stale results (superseded counts) may still be queued; apply them too
+        while let Ok(res) = self.app.materialize_rx.try_recv() {
+            self.app.on_materialize(res);
+        }
+        self.app.draw(&mut self.term).unwrap();
+    }
+
+    /// Space-separated key tokens, e.g. "g g", "<C-d>", or literal text via `type_`.
+    pub async fn keys(&mut self, ks: &str) {
+        for k in ks.split(' ').filter(|k| !k.is_empty()) {
+            self.app.on_key(k.parse().unwrap());
+            self.app.draw(&mut self.term).unwrap();
+        }
+        self.pump().await;
+    }
+
+    pub async fn type_(&mut self, text: &str) {
+        self.type_no_enter(text).await;
+        self.keys("<CR>").await;
+    }
+
+    /// Type into the open prompt without submitting; waits for jobs.
+    pub async fn type_no_enter(&mut self, text: &str) {
+        for c in text.chars() {
+            self.app
+                .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
+                    c,
+                ))));
+        }
+        self.pump().await;
+        self.app.draw(&mut self.term).unwrap();
+    }
+
+    pub fn screen(&self) -> String {
+        let buf = self.term.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| {
+                // Like a terminal: a wide symbol covers the next cell too.
+                let mut line = String::new();
+                let mut x = 0;
+                while x < buf.area.width {
+                    let sym = buf[(x, y)].symbol();
+                    line.push_str(sym);
+                    x += sym.width().max(1) as u16;
+                }
+                line.trim_end().to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Harness over a CSV holding exactly `bytes`.
+async fn csv(bytes: &[u8]) -> Harness {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    tmp.write_all(bytes).unwrap();
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    Harness::with_source(loaded, tmp).await
+}
+
+/// Every row of `sheet`'s view as delimited text.
+pub fn csv_text(sheet: &Sheet, sep: u8) -> String {
+    let mut df = sheet.view_plan().collect().unwrap();
+    let mut out = Vec::new();
+    CsvWriter::new(&mut out)
+        .with_separator(sep)
+        .finish(&mut df)
+        .unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+fn title(h: &Harness) -> String {
+    // Thousands separators aside, tests read plain numbers.
+    h.screen()
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .replace(',', "")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn title_shows_what_shapes_the_view_and_always_the_position() {
+    let mut h = Harness::new(5000).await;
+    assert!(!title(&h).contains("sel "), "{}", title(&h));
+    h.keys("l [ s -").await;
+    let line = h.screen().lines().next().unwrap().to_string();
+    assert!(line.contains("row 1/5,000 · 0%"), "{line}");
+    for chip in ["csv", "sort name▲", "sel 1", "hidden 1"] {
+        assert!(line.contains(chip), "{chip}: {line}");
+    }
+    assert_eq!(line.width(), 99, "the row block ends the bar: {line:?}");
+
+    h.app.sheets.active_mut().name = "x".repeat(300);
+    h.pump().await;
+    let line = h.screen().lines().next().unwrap().to_string();
+    assert!(line.contains("row 1/5,000") && line.contains('…'), "{line}");
+    assert_eq!(line.width(), 99, "{line:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
+    let mut h = Harness::new(3).await;
+    h.app.busy.push("x");
+    h.app.working_since = Some(Instant::now() - Duration::from_secs(1));
+    h.app.sheets.active_mut().revision += 1;
+    h.app.draw(&mut h.term).unwrap();
+    assert!(
+        title(&h).contains(|c| SPINNER.contains(&c)),
+        "{}",
+        title(&h)
+    );
+    let buf = h.term.backend().buffer();
+    assert!(buf[(1, 3)].modifier.contains(Modifier::DIM));
+
+    h.app.busy.clear();
+    h.app.sheets.active_mut().state.loaded_rev += 1;
+    h.app.draw(&mut h.term).unwrap();
+    assert!(h.app.working_since.is_none());
+    assert!(!title(&h).contains(|c| SPINNER.contains(&c)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn csv_moves_into_memory_after_opening() {
+    let mut h = Harness::new(5000).await;
+    let path = h.app.sheets.active().source.path.clone().unwrap();
+    std::fs::remove_file(path).unwrap();
+    h.keys("G").await;
+    assert!(title(&h).contains("row 5000/5000"), "{}", title(&h));
+    assert!(h.app.toast.is_none(), "{:?}", h.app.toast);
+    h.keys("]").await;
+    assert_eq!(first_cell(&h), "5000", "{}", h.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn columns_keep_their_width_while_scrolling() {
+    let mut csv = b"id,note\n".to_vec();
+    for i in 0..5000 {
+        let note = if i >= 4900 {
+            "x".repeat(30)
+        } else {
+            "y".into()
+        };
+        csv.extend(format!("{i},{note}\n").bytes());
+    }
+    let mut h = super::scenario::csv(&csv).await;
+    let width = |h: &Harness| h.app.sheets.active().state.widths[1];
+    h.keys("G").await;
+    let wide = width(&h);
+    assert!(wide >= 30, "{wide}");
+    h.keys("g g").await;
+    assert_eq!(width(&h), wide);
+}
+
+#[test]
+fn grouped_and_fit() {
+    assert_eq!(grouped(0), "0");
+    assert_eq!(grouped(999), "999");
+    assert_eq!(grouped(1000), "1,000");
+    assert_eq!(grouped(1234567), "1,234,567");
+    assert_eq!(fit("abc", 5), "abc  ");
+    assert_eq!(fit("abcdef", 3), "abc");
+    assert_eq!(fit("日本", 3), "日 ");
+}
+
+/// First data row (below the header), first cell.
+fn first_cell(h: &Harness) -> String {
+    let screen = h.screen();
+    let line = screen.lines().nth(2).unwrap_or_default();
+    line.split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn navigate_search_filter_save_across_windows() {
+    let mut h = Harness::new(5000).await; // 12 rows tall → 9 data rows per screen
+    assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+
+    h.keys("G").await;
+    assert!(title(&h).contains("row 5000/5000"), "{}", title(&h));
+    assert!(h.screen().contains("5000 name_5000"), "{}", h.screen());
+
+    // :save writes every row of the view, not just the loaded window
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("all.csv");
+    h.keys(":").await;
+    h.type_(&format!("w {}", out.display())).await;
+    let saved = crate::reader::open(out.as_os_str(), None).unwrap();
+    assert_eq!(saved.lazy.collect().unwrap().height(), 5000);
+
+    h.keys("g g").await;
+    assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+    assert_eq!(first_cell(&h), "1");
+
+    h.keys(&"<C-d> ".repeat(12)).await;
+    assert!(title(&h).contains("row 109/5000"), "{}", title(&h));
+
+    h.keys("]").await; // sort desc on id
+    assert_eq!(first_cell(&h), "5000");
+    h.keys("z o g g /").await;
+    h.type_("name_4999").await;
+    assert!(title(&h).contains("row 4999/5000"), "{}", title(&h));
+
+    h.keys("0 l l z |").await; // filter grp
+    h.type_("^3$").await;
+    let want = (1..=5000).filter(|i| i % 7 == 3).count();
+    assert!(
+        title(&h).contains(&format!("row 1/{want}")),
+        "{}",
+        title(&h)
+    );
+    h.keys("F").await;
+    assert!(
+        title(&h).contains("freq(grp)") && title(&h).contains("/1 "),
+        "{}",
+        title(&h)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selection_covers_whole_view() {
+    let mut h = Harness::new(5000).await;
+    h.keys("g s").await;
+    assert!(title(&h).contains("sel 5000"), "{}", title(&h));
+    h.keys("g u l |").await;
+    h.type_("^name_49").await; // 49, 490-499, 4900-4999
+    assert!(title(&h).contains("sel 111"), "{}", title(&h));
+    h.keys("\"").await;
+    assert!(title(&h).contains("row 1/111"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn key_col_keeps_cursor_on_column() {
+    let mut h = Harness::new(10).await;
+    h.keys("l l !").await; // key grp → moves to the front
+    assert!(title(&h).contains("grp 1/4"), "{}", title(&h));
+    h.keys("!").await; // unkey → back to its place
+    assert!(title(&h).contains("grp 3/4"), "{}", title(&h));
+}
+
+fn status(h: &Harness) -> String {
+    h.screen().lines().last().unwrap_or_default().to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bad_user_input_is_rejected_without_breaking_the_sheet() {
+    let mut h = Harness::new(30).await;
+    h.keys(":").await;
+    h.type_("sort nosuch").await;
+    assert_eq!(status(&h), "no column: nosuch");
+    h.keys(":").await;
+    h.type_("filter nosuch x").await;
+    assert_eq!(status(&h), "no column: nosuch");
+    h.keys("^").await;
+    h.type_("grp").await; // id → grp would duplicate
+    assert_eq!(status(&h), "column already exists: grp");
+    // sheet still healthy: derived sheets build
+    h.keys("F").await;
+    assert!(
+        title(&h).contains("freq(id)") && title(&h).contains("/30 "),
+        "{}",
+        title(&h)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multiline_errors_show_first_line_only() {
+    let mut h = Harness::new(3).await;
+    h.app.toast = Some("materialize: boom\n\nResolved plan: …".into());
+    h.pump().await;
+    assert_eq!(status(&h), "materialize: boom");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_follow_and_row_diff() {
+    use std::io::Write;
+    let mut h = Harness::new(3).await;
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("t.jsonl");
+    std::fs::write(&p, "{\"a\":1}\n{\"a\":2}\n").unwrap();
+    h.keys(":").await;
+    h.type_(&format!("tail {} -f", p.display())).await;
+    h.keys("G").await;
+    let mut f = std::fs::OpenOptions::new().append(true).open(&p).unwrap();
+    writeln!(f, "{{\"a\":3}}\n{{\"a\":4}}").unwrap();
+    drop(f);
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("row 4/4"), "{}", title(&h)); // followed to the new bottom
+
+    h.keys("q").await;
+    let other = dir.path().join("o.csv");
+    std::fs::write(
+        &other,
+        "id,name,grp,amt\n1,name_1,1,1.5\n2,CHANGED,2,3.0\n99,x,0,0\n",
+    )
+    .unwrap();
+    h.keys(":").await;
+    h.type_(&format!("diff {} id", other.display())).await;
+    // id 2 changed, id 3 only_a, id 99 only_b; id 1 identical → hidden
+    assert!(
+        title(&h).contains("o.csv") && title(&h).contains("row 1/3"),
+        "{}",
+        h.screen()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wide_and_control_chars_render_on_one_line() {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    tmp.write_all("k,v,z\n名前,\"a\nb\",end\nx\ty,q,end\n".as_bytes())
+        .unwrap();
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tmp).await;
+    let screen = h.screen();
+    let rows: Vec<&str> = screen.lines().collect();
+    assert!(
+        rows[2].starts_with("名前") && rows[2].contains("a↵b"),
+        "{screen}"
+    );
+    assert!(rows[3].contains("x→y"), "{screen}");
+    // `z` column starts at the same terminal column on both rows
+    let col = |r: &str| r[..r.find("end").unwrap()].width();
+    assert_eq!(col(rows[2]), col(rows[3]), "{screen}");
+    h.keys("j").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn long_sheet_name_never_hides_position() {
+    let mut h = Harness::new(3).await;
+    h.app.sheets.active_mut().name = format!("/{}/data.csv", "very/long/dir".repeat(20));
+    h.pump().await;
+    let t = title(&h);
+    assert!(
+        t.contains("…") && t.contains("data.csv") && t.contains("row 1/3"),
+        "{t}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diff_uses_plugin_loader_and_tail_refuses_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let ml = dir.path().join("other.ml");
+    std::fs::write(&ml, "opaque").unwrap();
+    std::fs::write(
+        dir.path().join("other.csv"),
+        "id,name,grp,amt\n1,name_1,1,1.5\n",
+    )
+    .unwrap();
+    // loader "converts" x.ml by pointing at its sibling x.csv
+    let lua = r#"vd.register_loader { extensions = "ml",
+        open = function(p) return (p:gsub("%.ml$", ".csv")) end }"#;
+    let mut h = Harness::new(2).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.keys(":").await;
+    h.type_(&format!("diff {} id", ml.display())).await;
+    assert!(
+        title(&h).contains("other.ml") && title(&h).contains("sheets 2"),
+        "{}",
+        h.screen()
+    );
+    h.keys("q :").await;
+    h.type_(&format!("tail {}", ml.display())).await;
+    assert!(status(&h).contains("can't follow"), "{}", status(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_sheet_survives_every_basic_key() {
+    let mut h = Harness::new(0).await;
+    for k in [
+        "G", "j", "k", "<C-d>", "<C-u>", "g g", "s", "t", "u", "g s", "n", "$", "F", "q",
+    ] {
+        h.keys(k).await;
+        assert!(
+            title(&h).contains("row 0/0") && !title(&h).contains("sel "),
+            "{k}: {}",
+            title(&h)
+        );
+    }
+    h.keys("\"").await;
+    assert_eq!(status(&h), "dup: no rows selected");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prompt_line_editing_and_quoted_args() {
+    let mut h = Harness::new(5).await;
+    // type "ort -id", jump home, fix the typo, submit
+    h.keys(":").await;
+    for c in "ort -id".chars() {
+        h.app
+            .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
+                c,
+            ))));
+    }
+    h.keys("<Home>").await;
+    h.type_("s").await;
+    assert_eq!(first_cell(&h), "5");
+    h.keys(":").await;
+    h.type_(r#"filter "name" ^name_[12]$"#).await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn heavy_commands_run_in_background_and_report() {
+    let mut h = Harness::new(3000).await;
+    h.keys(":").await;
+    h.type_("pivot grp grp id count").await; // job → pushes pivot sheet
+    assert!(
+        title(&h).contains("pivot(") && title(&h).contains("row 1/7"),
+        "{}",
+        title(&h)
+    );
+    h.keys("q").await;
+    // while a job runs the status bar says so
+    h.app.on_key("g".parse().unwrap());
+    h.app.on_key("s".parse().unwrap());
+    h.app.draw(&mut h.term).unwrap();
+    assert!(
+        status(&h).starts_with("working: select all"),
+        "{}",
+        status(&h)
+    );
+    h.pump().await;
+    assert!(title(&h).contains("sel 3000"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn join_types_against_file_and_open_sheet() {
+    let mut h = Harness::new(5).await; // id 1..5
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("o.csv");
+    std::fs::write(&other, "id,name,extra\n2,TWO,x\n3,,y\n9,NINE,z\n").unwrap();
+    let o = other.display();
+    for (how, rows) in [("inner", 2), ("left", 5), ("full", 6), ("append", 8)] {
+        h.keys(":").await;
+        h.type_(&format!("join {o} id {how}")).await;
+        assert!(
+            title(&h).contains(&format!("row 1/{rows}")),
+            "{how}: {}",
+            h.screen()
+        );
+        h.keys("q").await;
+    }
+    // merge: right's non-null name wins, left kept where right is null
+    h.keys(":").await;
+    h.type_(&format!("join {o} id merge")).await;
+    let s = h
+        .app
+        .sheets
+        .active()
+        .view_plan()
+        .sort(["id"], Default::default());
+    let df = s.collect().unwrap();
+    let names: Vec<_> = df.column("name").unwrap().str().unwrap().iter().collect();
+    assert_eq!(names[1..3], [Some("TWO"), Some("name_3")]);
+    assert!(df.column("name_right").is_err());
+    // an open sheet as the right side, by #id: freq(name) joined back on name
+    h.keys("q l F").await; // freq sheet on `name`
+    let freq_id = h.app.sheets.active().id;
+    h.keys("S <CR>").await; // switcher row 1 = base sheet → back on top
+    assert!(title(&h).contains("row 1/5"), "{}", title(&h));
+    h.keys(":").await;
+    h.type_(&format!("join #{freq_id} name")).await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 5);
+    assert!(df.column("count").is_ok(), "{:?}", df.get_column_names());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_dive_opens_matching_rows() {
+    let mut h = Harness::new(5000).await; // grp = id % 7: 1..=5 → 715 rows, 0 and 6 → 714
+    h.keys("l l F").await;
+    assert_eq!(first_cell(&h), "1"); // count tie broken by value
+    h.keys("<CR>").await;
+    assert!(
+        title(&h).contains("grp=1") && title(&h).contains("row 1/715"),
+        "{}",
+        title(&h)
+    );
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert!(
+        df.column("grp")
+            .unwrap()
+            .i64()
+            .unwrap()
+            .iter()
+            .all(|v| v == Some(1))
+    );
+    h.keys("q s j s g <CR>").await; // two freq rows selected → union
+    assert!(title(&h).contains("row 1/1430"), "{}", title(&h));
+    h.keys("q q <CR>").await; // <CR> on a data sheet explains itself
+    assert_eq!(status(&h), "<CR>: nothing to open here");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn derive_setcol_and_undo_redo() {
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_("derive dbl = amt * 2").await;
+    let names = |h: &Harness| h.screen().lines().nth(1).unwrap().to_string();
+    assert!(names(&h).contains("dbl"), "{}", h.screen());
+    h.keys("U").await;
+    assert!(!names(&h).contains("dbl"), "{}", h.screen());
+    h.keys("R").await;
+    assert!(names(&h).contains("dbl"), "{}", h.screen());
+    h.keys(":").await;
+    h.type_("derive bad = nosuch + 1").await;
+    assert!(status(&h).starts_with("derive:"), "{}", status(&h));
+    // setcol on selected rows, type-checked
+    h.keys("s j s 0 :").await;
+    h.type_("setcol 42").await;
+    assert_eq!(status(&h), "set id on 2 rows");
+    let ids: Vec<_> = h
+        .app
+        .sheets
+        .active()
+        .view_plan()
+        .collect()
+        .unwrap()
+        .column("id")
+        .unwrap()
+        .i64()
+        .unwrap()
+        .iter()
+        .collect();
+    assert_eq!(ids, [Some(42), Some(42), Some(3), Some(4), Some(5)]);
+    h.keys(":").await;
+    h.type_("setcol abc").await;
+    assert!(status(&h).contains("doesn't fit id"), "{}", status(&h));
+    h.keys("U U").await; // undo setcol, then the second selection
+    assert!(title(&h).contains("sel 1"), "{}", title(&h));
+    assert_eq!(first_cell(&h), "1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sql_describe_pivot_uniform_copy() {
+    let mut h = Harness::new(5000).await;
+    h.keys(":").await;
+    h.type_("sql SELECT grp, count(*) AS n FROM self GROUP BY grp ORDER BY grp")
+        .await;
+    assert!(
+        title(&h).contains("sql:") || title(&h).contains("row 1/7"),
+        "{}",
+        title(&h)
+    );
+    assert!(title(&h).contains("row 1/7"), "{}", title(&h));
+    // GROUP BY order isn't fixed by Polars: collected once so row ids hold
+    let plan = h.app.sheets.active().plan.describe_plan().unwrap();
+    assert!(plan.starts_with("DF "), "{plan}");
+    h.keys("q I").await;
+    assert!(
+        title(&h).contains("describe") && title(&h).contains("row 1/4"),
+        "{}",
+        title(&h)
+    );
+    let d = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(
+        d.column("distinct")
+            .unwrap()
+            .get(2)
+            .unwrap()
+            .extract::<u64>(),
+        Some(7)
+    ); // grp
+    assert_eq!(
+        d.column("max").unwrap().get(0).unwrap().get_str(),
+        Some("5000")
+    ); // id
+    h.keys("q l l W").await; // no key cols → one row, a column per grp value
+    let p = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(p.shape(), (1, 7));
+    h.keys("q h !").await; // key on name… then W on grp → 5000 rows
+    h.keys("l W").await;
+    assert!(title(&h).contains("row 1/5000"), "{}", title(&h));
+    h.keys("q :").await;
+    h.type_("derive k = 1").await;
+    h.keys(":").await;
+    h.type_("uniform").await;
+    assert_eq!(status(&h), "hid 1 uniform columns");
+    h.keys("g \"").await;
+    assert!(title(&h).contains("copy of"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diff_prompt_uses_key_columns_and_export_writes_scripts() {
+    let mut h = Harness::new(3).await;
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("o.csv");
+    std::fs::write(&other, "id,name,grp,amt\n1,name_1,1,1.5\n2,X,2,3.0\n").unwrap();
+    h.keys("! D").await; // key = id
+    h.type_(&other.display().to_string()).await;
+    assert!(title(&h).contains("row 1/2"), "{}", h.screen()); // id 2 changed, id 3 only_a
+    h.keys("q").await;
+    for ext in ["py", "sql"] {
+        let out = dir.path().join(format!("view.{ext}"));
+        h.keys(":").await;
+        h.type_(&format!("export {}", out.display())).await;
+        let script = std::fs::read_to_string(&out).unwrap();
+        assert!(script.contains(".csv"), "{script}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn parts_list_opens_each_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("two.db");
+    let c = rusqlite::Connection::open(&db).unwrap();
+    c.execute_batch("create table a(x); insert into a values (1); create table b(y); insert into b values (8),(9);")
+        .unwrap();
+    drop(c);
+    let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
+    let parts = crate::reader::list_parts(&db, loaded.kind).unwrap();
+    let mut app = App::new(Sheet::parts_list(0, loaded, parts), None, None);
+    app.spawn_materialize();
+    let mut h = Harness::from_app(app).await;
+    assert!(
+        title(&h).contains("tables") && title(&h).contains("row 1/2"),
+        "{}",
+        title(&h)
+    );
+    h.keys("j <CR>").await;
+    assert!(
+        title(&h).contains(":b") && title(&h).contains("row 1/2"),
+        "{}",
+        title(&h)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_on_parquet_directory_picks_up_new_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let write = |i: i64| {
+        let mut df = df!("v" => [i, i]).unwrap();
+        let f = std::fs::File::create(dir.path().join(format!("{i}.parquet"))).unwrap();
+        ParquetWriter::new(f).finish(&mut df).unwrap();
+    };
+    write(1);
+    let mut h = Harness::new(1).await;
+    h.keys(":").await;
+    h.type_(&format!("tail {}", dir.path().display())).await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    write(2);
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("/4 "), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_aggregator_renderer_and_select_equal() {
+    let mut h = Harness::new(20).await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.register_aggregator("n", function(vs) return #vs end)
+               vd.register_renderer { column = "name", render = function(v) return string.upper(v) end }"#,
+        )
+        .unwrap(),
+    );
+    h.pump().await;
+    assert!(h.screen().contains("NAME_1 "), "{}", h.screen()); // renderer applied
+    h.keys(":").await;
+    h.type_("pivot grp name id n").await; // custom aggregator: rows per cell
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.shape(), (7, 21)); // grp + one column per name
+    let total: f64 = df.columns()[1..]
+        .iter()
+        .map(|c| c.f64().unwrap().sum().unwrap_or(0.0))
+        .sum();
+    assert_eq!(total, 20.0);
+    h.keys("q l l ,").await; // grp of row 1 is 1 → ids 1, 8, 15
+    assert!(title(&h).contains("sel 3"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pivot_prompt_previews_live() {
+    let mut h = Harness::new(20).await;
+    h.keys(":").await;
+    h.type_no_enter("pivot grp").await;
+    assert!(h.screen().contains("next: <columns>"), "{}", h.screen());
+    h.type_no_enter(" nope").await;
+    assert!(
+        h.screen().contains("unknown column: nope"),
+        "{}",
+        h.screen()
+    );
+    for _ in 0..4 {
+        h.keys("<BS>").await;
+    }
+    h.type_no_enter("na").await; // half-typed: still a hint, not an error
+    assert!(h.screen().contains("next: <columns>"), "{}", h.screen());
+    h.type_no_enter("me id").await;
+    let screen = h.screen();
+    assert!(screen.contains("pivot preview"), "{screen}");
+    eprintln!("{screen}");
+    assert!(screen.contains("name_1"), "{screen}"); // pivoted column header
+    h.type_no_enter(" bogus").await; // bad agg: error in the panel, no toast
+    assert!(h.screen().contains("unknown agg: bogus"), "{}", h.screen());
+    assert!(h.app.toast.is_none());
+    h.keys("<Esc>").await;
+    assert!(!h.screen().contains("pivot"), "{}", h.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_function_binding_sees_the_cursor_and_toasts() {
+    let mut h = Harness::new(5).await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.bind("sheet", "X", function()
+                 local s = vd.sheet()
+                 vd.toast(s.column .. "=" .. s.value .. " @" .. s.cursor.row .. "/" .. #s.column_names)
+               end, "show cell")
+               vd.bind("sheet", "E", function() error("boom") end)"#,
+        )
+        .unwrap(),
+    );
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("j l X").await;
+    assert!(status(&h).contains("name=name_2 @2/"), "{}", status(&h));
+    h.keys("E").await;
+    assert!(status(&h).contains("boom"), "{}", status(&h));
+    // vd.toast outside a binding is a load error, not a silent queue
+    let err = crate::plugins::Plugins::load_from_source(r#"vd.toast("hi")"#);
+    assert!(err.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_named_action_is_an_ex_command() {
+    let mut h = Harness::new(30).await;
+    h.keys(":").await;
+    h.type_("select-all").await;
+    assert_eq!(h.app.sheets.active().view.selected.len(), 30);
+    h.keys(":").await;
+    h.type_("unselect_all").await; // snake case, as in vd.bind
+    assert!(h.app.sheets.active().view.selected.is_empty());
+    // :N → row N
+    h.keys(":").await;
+    h.type_("25").await;
+    assert!(title(&h).contains("row 25/30"), "{}", title(&h));
+    // a named action takes no arguments
+    h.keys(":").await;
+    h.type_("select-all now").await;
+    assert!(
+        h.screen().contains(":select-all takes no arguments"),
+        "{}",
+        h.screen()
+    );
+    assert!(h.app.sheets.active().view.selected.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tab_completes_ex_command_names() {
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_no_enter("dedu").await;
+    h.keys("<Tab>").await;
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "dedupe-rows ");
+    h.keys("<C-u>").await;
+    h.type_no_enter("unse").await;
+    h.keys("<Tab>").await; // unselect-all, unselect-row → common prefix
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "unselect-");
+    assert!(
+        h.screen().contains("unselect-all unselect-row"),
+        "{}",
+        h.screen()
+    );
+    h.keys("<Esc>").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_command_runs_with_its_arguments() {
+    let mut h = Harness::new(5).await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.command("hello", function(args) vd.toast("hi " .. args .. " on " .. vd.sheet().column) end)
+               vd.bind("sheet", "X", ":hello key")"#,
+        )
+        .unwrap(),
+    );
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys(":").await;
+    h.type_no_enter("hel").await;
+    h.keys("<Tab>").await; // Lua commands complete too
+    h.type_("you").await;
+    assert!(h.screen().contains("hi you on id"), "{}", h.screen());
+    h.keys("X").await;
+    assert!(h.screen().contains("hi key on id"), "{}", h.screen());
+    // a Lua command can't shadow a built-in
+    let err =
+        crate::plugins::Plugins::load_from_source(r#"vd.command("select-all", function() end)"#);
+    assert!(err.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_push_sheet_opens_a_sheet() {
+    let mut h = Harness::new(5).await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.bind("sheet", "X", function()
+                 local rows = {}
+                 for i, c in ipairs(vd.sheet().column_names) do rows[#rows + 1] = { i, c } end
+                 vd.push_sheet { name = "cols", columns = { "n", "name" }, rows = rows }
+               end)"#,
+        )
+        .unwrap(),
+    );
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("X").await;
+    assert!(title(&h).contains("cols"), "{}", title(&h));
+    assert_eq!(first_cell(&h), "1");
+    h.keys("q").await;
+    assert!(!title(&h).contains("cols"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn renderer_output_sets_width_and_runs_once_per_value() {
+    let mut h = Harness::new(3).await;
+    // `calls` grows on every Lua call: memoized output never changes
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"calls = 0
+               vd.register_renderer { column = "id", render = function(v)
+                 calls = calls + 1
+                 return "id-" .. v .. "-rendered-wide#" .. calls end }"#,
+        )
+        .unwrap(),
+    );
+    h.pump().await;
+    let first = h.screen();
+    assert!(first.contains("id-1-rendered-wide#1 "), "{first}"); // not cut to the i64 width
+    h.keys("j k").await;
+    assert_eq!(h.screen(), first);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn long_values_further_down_widen_their_column() {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    let mut body = "k,v\n".to_string();
+    for i in 0..200 {
+        body += &format!(
+            "{i},{}\n",
+            if i == 150 { "a-much-longer-value" } else { "x" }
+        );
+    }
+    tmp.write_all(body.as_bytes()).unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tmp).await;
+    h.keys("1 5 0 j").await; // row 151 holds the long value; far past the first-64 sample
+    assert!(h.screen().contains("a-much-longer-value"), "{}", h.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cursor_column_scrolls_into_view() {
+    let mut h = Harness::new(10).await;
+    h.term = Terminal::new(ratatui::backend::TestBackend::new(16, 5)).unwrap();
+    h.keys("$").await;
+    assert!(
+        h.screen().lines().nth(1).unwrap().contains("amt"),
+        "{}",
+        h.screen()
+    );
+    h.keys("0").await;
+    assert!(
+        h.screen()
+            .lines()
+            .nth(1)
+            .unwrap()
+            .trim_start()
+            .starts_with("id"),
+        "{}",
+        h.screen()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn floats_show_exactly_and_select_equal_compares_them_exactly() {
+    let mut h = csv(b"x,y\n1.00000001,a\n1.0,b\n123456789.125,c\n").await;
+    assert!(h.screen().contains("1.00000001"), "{}", h.screen());
+    assert!(h.screen().contains("123456789.125"), "{}", h.screen());
+    h.keys(",").await;
+    let rid = |h: &Harness| {
+        h.app
+            .sheets
+            .active()
+            .view
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rid(&h), vec![0], "cursor row only, not the row holding 1.0");
+    h.keys("g u j j ,").await;
+    assert_eq!(rid(&h), vec![2]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn select_equal_and_freq_dive_match_datetimes() {
+    let mut h = csv(b"t,y\n2024-01-02 03:04:05,a\n2024-01-03 03:04:05,b\n").await;
+    h.keys(",").await;
+    assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+    h.keys("F").await;
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn row_diff_tells_null_cells_from_missing_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = dir.path().join("b.csv");
+    std::fs::write(&b, "id,v,w\n1,z,1\n2,,1\n3,y,1\n4,y,\n6,y,1\n").unwrap();
+    let mut h = csv(b"id,v,w\n1,,1\n2,x,1\n3,y,1\n4,y,9\n5,y,1\n").await;
+    h.keys(":").await;
+    h.type_(&format!("diff {} id", b.display())).await;
+    let mut df = h.app.sheets.active().view_plan().collect().unwrap();
+    df = df.sort(["id"], Default::default()).unwrap();
+    let tags: Vec<_> = df
+        .column("__diff")
+        .unwrap()
+        .str()
+        .unwrap()
+        .iter()
+        .flatten()
+        .collect();
+    assert_eq!(tags, ["changed", "changed", "changed", "only_a", "only_b"]);
+    assert!(
+        !df.get_column_names()
+            .iter()
+            .any(|n| n.starts_with("__vdrs"))
+    );
+}
+
+async fn tail_sheet(h: &mut Harness, path: &std::path::Path) {
+    h.keys(":").await;
+    h.type_(&format!("tail {}", path.display())).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_keeps_edits_when_rows_arrive_and_undo_keeps_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "a,b\n1,2\n").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    h.keys("^").await;
+    h.type_("renamed").await;
+    h.keys(":").await;
+    h.type_("derive c = renamed + 1").await;
+    std::fs::write(&f, "a,b\n1,2\n3,4\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert_eq!(h.app.toast, None);
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    assert!(h.screen().contains("renamed"), "{}", h.screen());
+    h.keys("U").await; // undo derive: the new row stays
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    assert!(!h.screen().contains(" c "), "{}", h.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_of_gz_survives_a_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv.gz");
+    let gz = |rows: &str| {
+        let file = std::fs::File::create(&f).unwrap();
+        let mut e = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        e.write_all(rows.as_bytes()).unwrap();
+        e.finish().unwrap();
+    };
+    gz("a\n1\n");
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    gz("a\n1\n2\n");
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert_eq!(h.app.toast, None);
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_shows_an_unterminated_last_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "a\n1\n2").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    std::fs::write(&f, "a\n1\n23\n4").unwrap(); // the partial row grew, then a new one
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+    assert!(h.screen().contains("23"), "{}", h.screen());
+
+    let g = dir.path().join("u.csv");
+    std::fs::write(&g, "a,b").unwrap(); // header only, no newline
+    tail_sheet(&mut h, &g).await;
+    assert_eq!(h.app.toast, None);
+    std::fs::write(&g, "a,b\n1,2\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn derive_over_the_filtered_column_recounts() {
+    let mut h = csv(b"n\n1\n1\n2\n").await;
+    h.keys("z |").await;
+    h.type_("^1$").await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    h.keys(":").await;
+    h.type_("derive n = n + 1").await;
+    assert!(title(&h).contains("row 0/0"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keys_during_a_pending_window_act_on_the_new_columns() {
+    let mut h = csv(b"a,b,c\n1,2,3\n").await;
+    h.keys("- -").await; // no pump between: both must land
+    assert_eq!(h.app.sheets.active().view.hidden.len(), 2);
+    h.keys("g -").await;
+    h.keys("- F").await; // freq on the column now under the cursor
+    assert!(title(&h).contains("freq(b)"), "{}", title(&h));
+    assert_eq!(h.app.toast, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_bound_digit_and_input_function_fire() {
+    let mut h = csv(b"a\n1\n2\n3\n").await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.bind("sheet", "1", function() vd.toast("one") end)
+               vd.bind("input", "<C-t>", function() vd.toast("hi") end)"#,
+        )
+        .unwrap(),
+    );
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("1").await;
+    assert_eq!(h.app.toast.as_deref(), Some("one"));
+    h.keys("2 j").await; // unbound digits still count
+    assert!(title(&h).contains("row 3/3"), "{}", title(&h));
+    h.keys(": <C-t>").await;
+    assert_eq!(h.app.toast.as_deref(), Some("hi"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn w_works_on_a_key_column_and_with_text_null() {
+    let mut h = csv(b"a,b\nx,1\ny,2\n").await;
+    h.keys("! W").await;
+    assert_eq!(h.app.toast, None);
+    assert!(title(&h).contains("pivot(a)"), "{}", title(&h));
+    let mut h = csv(b"a,b\nnull,1\n,2\n").await;
+    h.keys("W").await;
+    assert_eq!(h.app.toast, None);
+    assert!(h.screen().contains("null"), "{}", h.screen());
+    assert!(
+        h.screen().contains('2'),
+        "two rows count as null: {}",
+        h.screen()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_dive_survives_renaming_the_value_column() {
+    let mut h = csv(b"a\nx\ny\nx\n").await;
+    h.keys("F ").await;
+    h.keys("^").await;
+    h.type_("val").await;
+    h.keys("<CR>").await;
+    assert_eq!(h.app.toast, None);
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repeat_does_not_reopen_a_prompt() {
+    let mut h = csv(b"a\nx\ny\n").await;
+    h.keys("|").await;
+    h.type_("x").await;
+    assert_eq!(
+        h.app.last_action,
+        Some(vec![Action::SelectByRegex { regex: "x".into() }])
+    );
+    h.keys(".").await;
+    assert!(h.app.input.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_of_a_lone_single_column_header_gains_no_phantom_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "a").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    std::fs::write(&f, "a\n1\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_reads_iso_dates_like_a_plain_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "d,u\n2024-01-02,7/3/2018\n").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    std::fs::write(&f, "d,u\n2024-01-02,7/3/2018\n2024-01-03,7/4/2018\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 2);
+    assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+    assert_eq!(df.column("u").unwrap().dtype(), &DataType::String);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_file_open_is_reported_and_keeps_the_sheet() {
+    let mut h = csv(b"a\n1\n").await;
+    for cmd in [
+        "tail /no/such.csv",
+        "diff /no/such.csv a",
+        "join /no/such.csv a",
+    ] {
+        h.keys(":").await;
+        h.type_(cmd).await;
+        assert!(
+            h.app
+                .toast
+                .as_deref()
+                .is_some_and(|t| t.contains("/no/such")),
+            "{cmd}"
+        );
+        assert_eq!(h.app.sheets.len(), 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_turns_a_date_column_to_text_when_an_ambiguous_date_arrives() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "d\n2024-01-02\n").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    std::fs::write(&f, "d\n2024-01-02\n7/3/2018\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.column("d").unwrap().dtype(), &DataType::String);
+    assert_eq!(
+        df.column("d").unwrap().str().unwrap().get(1),
+        Some("7/3/2018")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tail_learns_types_from_the_first_rows_after_a_bare_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "d,n\n").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    std::fs::write(&f, "d,n\n2024-01-02,5\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+    assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_half_written_last_row_does_not_set_column_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("t.csv");
+    std::fs::write(&f, "d,n\n2024-01-02,5\n2024-0").unwrap();
+    let mut h = csv(b"x\n1\n").await;
+    tail_sheet(&mut h, &f).await;
+    std::fs::write(&f, "d,n\n2024-01-02,5\n2024-01-03,6\n").unwrap();
+    h.app.on_tail_tick();
+    h.pump().await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 2);
+    assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+}

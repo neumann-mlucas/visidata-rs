@@ -28,8 +28,8 @@ One list, worked top to bottom. Each item ships alone with its spec's test plan 
 
 Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26 D; S-18 C's `Arc` rid set blocks S-21 B; S-18 E (stable rids) blocks S-26 B `:'<,'>d` and S-30 B; S-19 `Action::to_ex` blocks S-29 C; S-23 A lands `:plan` (= `:sidebar plan`) before S-18 F needs it.
 
-1. - [ ] Doc cleanup: specs/tasks/direction consistent with the 2026-11-08 roadmap
-2. - [ ] S-24 R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
+1. - [x] Doc cleanup: specs/tasks/direction consistent with the 2026-11-08 roadmap
+2. - [x] S-24 R1 — module layout: `app.rs` tests/render out, `sheet.rs` → `sheet/` (moves only) (0.5–1 d)
 3. - [ ] S-25 P0 — `VDRS_REPLAY_TRIAGE=1`, quarantine rewritten by real blocker, `aggregate-*` out of UNTESTABLE, NO_GOLDEN investigation (0.5–1 d)
 4. - [ ] S-26 phase 0 — VisiData key alignment (§0 "phase 0" rows: `Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`) (2–2.5 d), with S-21 A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect`, `z|` select-expr, regex filter → `gz|` (1 d)
 5. - [ ] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
@@ -57,7 +57,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 ## Test layout
 
-- `src/app.rs` `scenario`: hand-written end-to-end tests.
+- `src/app/scenario.rs`: hand-written end-to-end tests.
 - `src/app/golden.rs` + `tests/golden/<case>/`: key script → expected TSV + screen; exported `.sql`/`.py` run through DuckDB and Polars (`VDRS_PYTHON`, `VDRS_REQUIRE_ROUNDTRIP` in CI). `UPDATE_GOLDEN=1` rewrites expectations.
 - `src/app/monkey.rs`: seeded random keys, undo/redo round trip.
 - `tests/cli.rs`: the binary (arguments, stdin, exit codes).
