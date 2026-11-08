@@ -21,8 +21,8 @@ concat-origin	PASS
 curcol	UNTESTABLE addcol-expr
 date_add	UNTESTABLE addcol-expr
 deferred-hidden-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-describe	SKIP describe-sheet
-describe-error	SKIP describe-sheet
+describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-08-07\t#ERR\t#ERR" got="Date\t0\t0\t32\t2018-07-03\t2018-08-31\t\t2018-08-07"
+describe-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP key-selected
 duckdb-commit-changes	SKIP add-row
@@ -39,7 +39,7 @@ edit-joinkey-1	SKIP columns-selected
 edit-joinkey-2	SKIP columns-selected
 edit-joinregular-1	SKIP columns-selected
 edit-joinregular-2	SKIP columns-selected
-edit-type	SKIP describe-sheet
+edit-type	FAIL line 6: want="Quantity\t0\t0\t10\t1\t144\t403.00\t2\t7.90\t21.57" got="Quantity\t0\t0\t10\t1\t144\t403.0\t2\t7.901960784313726\t21.57244066114058"
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	SKIP delete-cells
@@ -118,10 +118,10 @@ issue3215-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3219-dedupe	FAIL line 3: want="1.0" got="abc"
 issue3219-dedupe-int	FAIL line 3: want="abc" got="<EOF>"
 issue3219-freq	FAIL line 2: want="1\t2\t28.57\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■" got="1\t3\t42.86\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
-issue3223	SKIP describe-sheet
-issue3223-distinct	SKIP describe-sheet
-issue3223-dive	SKIP describe-sheet
-issue3223-median	SKIP describe-sheet
+issue3223	SKIP select-cell
+issue3223-distinct	FAIL line 2: want="n\t0\t0\t4\t1" got="n\t0\t0\t4\t1\t1\t4\t10\t2.5\t2.5\t1.2909944487358056"
+issue3223-dive	SKIP dive-cell
+issue3223-median	SKIP select-cell
 issue3223-nostat	SKIP allow-error
 issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command

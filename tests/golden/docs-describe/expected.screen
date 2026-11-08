@@ -1,10 +1,10 @@
- describe: sales.csv  csv · sheets 2                                      column 1/9  row 1/5 · 20%
-column str  type str   count u  nulls u  distinct u min str    max str              mean f  median f
-id          i64            300        0         300 1171       49828      24767.0633333333   24827.0
-date        date           300        0         195 2024-01-02 2024-12-31                ·         ·
-region      str            300        0           4 east       west                      ·         ·
-qty         i64            283       17           6 1          5          3.13074204946996       3.0
-price       f64            300        0         299 7.66       1299.72            660.2024    667.32
+ describe: sales.csv  csv · sheets 2 · hidden 2                          column 1/11  row 1/5 · 20%
+column str   errors u  nulls u  distinct u mode str   min str    max str    sum str            media
+id                  0        0         300 33352      1171       49828      7430119            24827
+date                0        0         195 2024-04-06 2024-01-02 2024-12-31 ·                  ·
+region              0        0           4 north      ·          ·          ·                  ·
+qty                 0       17           6 4          1          5          886                3
+price               0        0         299 980.93     7.66       1299.72    198060.71999999997 667.3
 
 
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

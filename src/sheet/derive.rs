@@ -256,93 +256,119 @@ impl Sheet {
         )
     }
 
-    /// `I` (VisiData describe-sheet): one row per visible column with
-    /// type, count, nulls, distinct, min, max, mean, median. Eager.
+    /// `I` (VisiData describe-sheet): one row per visible column, VisiData's
+    /// columns: sheet, column, type (both hidden), errors (failed type casts),
+    /// nulls, distinct (null is one value), mode (most common, first seen on
+    /// ties), then min, max, sum, median, mean, stdev for numbers; dates get
+    /// min, max and a median (an odd count's middle value; VisiData errors on
+    /// the rest). Eager.
     pub fn describe_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
-        let mut lf = parent.view_plan();
-        let schema = lf.collect_schema().map_err(|e| e.to_string())?;
+        let schema = parent
+            .view_plan()
+            .collect_schema()
+            .map_err(|e| e.to_string())?;
+        let mut lf = parent.sorted_plan_with(false, true);
+        let has_err = lf.collect_schema().map_err(|e| e.to_string())?;
         let stat = |i: usize, s: &str| format!("{i}\u{1f}{s}");
+        let null = |t: DataType| lit(NULL).cast(t);
         let mut aggs = Vec::new();
         for (i, (name, dt)) in schema.iter().enumerate() {
             let c = || col(name.as_str());
-            aggs.push(c().count().cast(DataType::UInt64).alias(stat(i, "count")));
-            aggs.push(
-                c().null_count()
-                    .cast(DataType::UInt64)
-                    .alias(stat(i, "nulls")),
-            );
-            aggs.push(
-                c().n_unique()
-                    .cast(DataType::UInt64)
-                    .alias(stat(i, "distinct")),
-            );
-            let ordered = !dt.is_nested();
-            let text_stat = |e: Expr, s| {
-                if ordered {
+            let err = has_err.get(&err_col(name)).map(|_| col(err_col(name)));
+            let errors = match &err {
+                Some(e) => e.clone().sum().cast(DataType::UInt64),
+                None => lit(0u64).cast(DataType::UInt64),
+            };
+            let valid = || match &err {
+                Some(e) => c().filter(e.clone().not()),
+                None => c(),
+            };
+            let numeric = dt.is_numeric();
+            let ordered = numeric || dt.is_temporal();
+            let text = |e: Expr, ok: bool| {
+                if ok {
                     e.cast(DataType::String)
                 } else {
-                    lit(NULL).cast(DataType::String)
+                    null(DataType::String)
                 }
-                .alias(stat(i, s))
             };
-            aggs.push(text_stat(c().min(), "min"));
-            aggs.push(text_stat(c().max(), "max"));
-            let num_stat = |e: Expr, s| {
-                if dt.is_numeric() {
-                    e.cast(DataType::Float64)
+            let cnt = c().count().over([c()]).map_err(|e| e.to_string())?;
+            let mode = c()
+                .filter(c().is_not_null().and(cnt.clone().eq(cnt.max())))
+                .first();
+            let n = c().count();
+            let middle = c()
+                .drop_nulls()
+                .sort(Default::default())
+                .get(n.clone() / lit(2u32), true);
+            let median = when(n.clone().eq(lit(0u32)))
+                .then(null(DataType::String))
+                .when((n % lit(2u32)).eq(lit(1u32)))
+                .then(middle.cast(DataType::String))
+                .otherwise(text(c().median(), numeric));
+            aggs.extend([
+                errors.clone().alias(stat(i, "errors")),
+                (c().null_count().cast(DataType::UInt64) - errors).alias(stat(i, "nulls")),
+                valid()
+                    .n_unique()
+                    .cast(DataType::UInt64)
+                    .alias(stat(i, "distinct")),
+                text(mode, !dt.is_nested()).alias(stat(i, "mode")),
+                text(c().min(), ordered).alias(stat(i, "min")),
+                text(c().max(), ordered).alias(stat(i, "max")),
+                text(c().sum(), numeric).alias(stat(i, "sum")),
+                text(median, ordered).alias(stat(i, "median")),
+                if numeric {
+                    c().mean().cast(DataType::Float64)
                 } else {
-                    lit(NULL).cast(DataType::Float64)
+                    null(DataType::Float64)
                 }
-                .alias(stat(i, s))
-            };
-            aggs.push(num_stat(c().mean(), "mean"));
-            aggs.push(num_stat(c().median(), "median"));
+                .alias(stat(i, "mean")),
+                if numeric {
+                    c().std(1).cast(DataType::Float64)
+                } else {
+                    null(DataType::Float64)
+                }
+                .alias(stat(i, "stdev")),
+            ]);
         }
         let row = lf.select(aggs).collect().map_err(|e| e.to_string())?;
-        let get = |i: usize, s: &str| {
-            row.column(&stat(i, s))
-                .and_then(|c| c.get(0).map(|v| v.into_static()))
+        let n = schema.len();
+        let stat_col = |s: &str| -> Result<Column, String> {
+            let parts: Vec<Column> = (0..n)
+                .map(|i| row.column(&stat(i, s)).cloned().map_err(|e| e.to_string()))
+                .collect::<Result<_, _>>()?;
+            let mut out = parts
+                .first()
+                .cloned()
+                .unwrap_or_else(|| Column::new_empty(s.into(), &DataType::Null));
+            for p in &parts[1.min(parts.len())..] {
+                out.append(p).map_err(|e| e.to_string())?;
+            }
+            Ok(out.with_name(s.into()))
         };
-        let mut names = Vec::new();
-        let mut types = Vec::new();
-        let (mut count, mut nulls, mut distinct) = (Vec::new(), Vec::new(), Vec::new());
-        let (mut min, mut max, mut mean, mut median) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        for (i, (name, dt)) in schema.iter().enumerate() {
-            names.push(name.to_string());
-            types.push(dt.to_string());
-            let u = |s| get(i, s).ok().and_then(|v| v.extract::<u64>());
-            let f = |s| get(i, s).ok().and_then(|v| v.extract::<f64>());
-            let t = |s| get(i, s).ok().and_then(|v| v.get_str().map(String::from));
-            count.push(u("count"));
-            nulls.push(u("nulls"));
-            distinct.push(u("distinct"));
-            min.push(t("min"));
-            max.push(t("max"));
-            mean.push(f("mean"));
-            median.push(f("median"));
-        }
-        let df = DataFrame::new_infer_height(vec![
+        let names: Vec<String> = schema.iter_names().map(|s| s.to_string()).collect();
+        let types: Vec<String> = schema.iter().map(|(_, dt)| dt.to_string()).collect();
+        let mut cols = vec![
+            Column::new("sheet".into(), vec![parent.name.clone(); n]),
             Column::new("column".into(), names),
             Column::new("type".into(), types),
-            Column::new("count".into(), count),
-            Column::new("nulls".into(), nulls),
-            Column::new("distinct".into(), distinct),
-            Column::new("min".into(), min),
-            Column::new("max".into(), max),
-            Column::new("mean".into(), mean),
-            Column::new("median".into(), median),
-        ])
-        .map_err(|e| e.to_string())?;
+        ];
+        for s in DESCRIBE_STATS {
+            cols.push(stat_col(s)?);
+        }
+        let df = DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?;
         let origin = Origin::Describe { parent: parent.id };
-        Ok(Self::child(
+        let mut sheet = Self::child(
             parent,
             id,
             format!("describe: {}", parent.name),
             df.lazy(),
             origin,
         )
-        .derived(parent, Derivation::Describe))
+        .derived(parent, Derivation::Describe);
+        sheet.view.hidden = ["sheet", "type"].iter().map(|s| s.to_string()).collect();
+        Ok(sheet)
     }
 
     /// `W`: count pivot of the current column `on`, rows keyed by `keys`.

@@ -14,7 +14,7 @@ use polars::prelude::DataType;
 use crate::reader::SourceKind;
 use crate::sheet::{
     DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH, Lineage,
-    Origin, PlanStep, Sheet, SortOrder, freq_keeps_order, freq_stat_names,
+    Origin, PlanStep, Sheet, SortOrder, err_col, freq_keeps_order, freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -44,7 +44,7 @@ pub fn to_python(sheet: &Sheet) -> Result<String, String> {
 
 pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
     let mut sc = Script::new(Lang::Sql);
-    let q = sc.view_query(sheet, false)?;
+    let q = sc.view_query(sheet, false, false)?;
     let head: String = sc.head.iter().map(|l| l.clone() + "\n").collect();
     // DuckDB 2.0: a PIVOT that reads its columns from the data can't see CTEs
     // and can't live in a view, so those scripts materialize each step.
@@ -110,10 +110,15 @@ impl Script {
     /// The sheet's view as a named table. `rid` adds `__rid`: row ids of the
     /// base plan (what selections hold).
     fn view(&mut self, s: &Sheet, rid: bool) -> Result<String, String> {
+        self.view_with(s, rid, false)
+    }
+
+    /// `errs`: cast columns also carry `err_col(c)`, true where the cast failed.
+    fn view_with(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
         match self.lang {
-            Lang::Py => self.py_view(s, rid),
+            Lang::Py => self.py_view(s, rid, errs),
             Lang::Sql => {
-                let q = self.view_query(s, rid)?;
+                let q = self.view_query(s, rid, errs)?;
                 Ok(self.bind(q))
             }
         }
@@ -276,7 +281,8 @@ impl Script {
     /// The derived table, built from the parent snapshot.
     fn derive(&mut self, l: &Lineage) -> Result<String, String> {
         let rid = matches!(l.how, Derivation::Rids(_));
-        let p = self.view(&l.parent, rid)?;
+        let errs = matches!(l.how, Derivation::Describe);
+        let p = self.view_with(&l.parent, rid, errs)?;
         let py = self.lang == Lang::Py;
         Ok(match &l.how {
             Derivation::Copy if py => p,
@@ -521,7 +527,7 @@ impl Script {
         })
     }
 
-    fn py_view(&mut self, s: &Sheet, rid: bool) -> Result<String, String> {
+    fn py_view(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
         let base = self.base(s)?;
         let v = &s.view;
         let mut ops = Vec::new();
@@ -529,16 +535,29 @@ impl Script {
             ops.push(".with_row_index(\"__rid\")".to_string());
         }
         for (c, dt) in &v.type_casts {
+            let e = py_str(&err_col(c));
+            if errs {
+                ops.push(format!(
+                    ".with_columns(pl.col({}).is_not_null().alias({e}))",
+                    py_str(c)
+                ));
+            }
             if *dt == DataType::Date && is_text(s, c) {
                 self.need(&py_lenient_date());
                 ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
-                continue;
+            } else {
+                ops.push(format!(
+                    ".with_columns(pl.col({c}).cast({}, strict=False))",
+                    py_dtype(dt),
+                    c = py_str(c)
+                ));
             }
-            ops.push(format!(
-                ".with_columns(pl.col({c}).cast({}, strict=False))",
-                py_dtype(dt),
-                c = py_str(c)
-            ));
+            if errs {
+                ops.push(format!(
+                    ".with_columns((pl.col({e}) & pl.col({}).is_null()).alias({e}))",
+                    py_str(c)
+                ));
+            }
         }
         if let Some(f) = &v.filter {
             ops.push(format!(
@@ -570,6 +589,9 @@ impl Script {
             if rid {
                 cols.push("__rid".into());
             }
+            if errs {
+                cols.extend(v.type_casts.iter().map(|(c, _)| err_col(c)));
+            }
             let cols: Vec<String> = cols.iter().map(|c| py_str(c)).collect();
             ops.push(format!(".select([{}])", cols.join(", ")));
         }
@@ -580,7 +602,7 @@ impl Script {
         })
     }
 
-    fn view_query(&mut self, s: &Sheet, rid: bool) -> Result<String, String> {
+    fn view_query(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
         let base = self.base(s)?;
         let v = &s.view;
         let mut q = if rid {
@@ -589,25 +611,34 @@ impl Script {
             format!("SELECT * FROM {base}")
         };
         if !v.type_casts.is_empty() {
+            let mut flags = String::new();
             let casts: Vec<String> = v
                 .type_casts
                 .iter()
                 .map(|(c, dt)| {
                     let i = q_ident(c);
-                    if *dt == DataType::Date && is_text(s, c) {
+                    let cast = if *dt == DataType::Date && is_text(s, c) {
                         self.need(&sql_lenient_date());
-                        format!("lenient_date({i}) AS {i}")
+                        format!("lenient_date({i})")
                     } else {
-                        format!("TRY_CAST({i} AS {}) AS {i}", sql_dtype(dt))
+                        format!("TRY_CAST({i} AS {})", sql_dtype(dt))
+                    };
+                    if errs {
+                        let e = q_ident(&err_col(c));
+                        flags += &format!(", ({i} IS NOT NULL AND {cast} IS NULL) AS {e}");
                     }
+                    format!("{cast} AS {i}")
                 })
                 .collect();
-            q = format!("SELECT * REPLACE ({}) FROM ({q})", casts.join(", "));
+            q = format!("SELECT * REPLACE ({}){flags} FROM ({q})", casts.join(", "));
         }
         let cols = match visible_columns(s)? {
             Some(mut cols) => {
                 if rid {
                     cols.push("__rid".into());
+                }
+                if errs {
+                    cols.extend(v.type_casts.iter().map(|(c, _)| err_col(c)));
                 }
                 cols.iter()
                     .map(|c| q_ident(c))
@@ -850,58 +881,111 @@ fn diff_code(
     })
 }
 
-/// `I`: one row per column of view `p` (mirrors `Sheet::describe_from`).
+/// `I`: one row per column of view `p` (mirrors `Sheet::describe_from`);
+/// `p` carries `err_col(c)` for each cast column `c`.
 fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String, String> {
     let cols = columns(parent)?;
     if cols.is_empty() {
         return Err("export: nothing to describe".into());
     }
+    let cast = |n: &str| parent.view.type_casts.iter().any(|(c, _)| c == n);
     let rows: Vec<String> = cols
         .iter()
         .enumerate()
         .map(|(i, (name, dt))| {
-            let (ordered, numeric) = (!dt.is_nested(), dt.is_numeric());
+            let numeric = dt.is_numeric();
+            let ordered = numeric || dt.is_temporal();
+            let nested = dt.is_nested();
             if py {
                 let c = format!("pl.col({})", py_str(name));
-                let or_null = |ok: bool, e: String, ty: &str, alias: &str| {
-                    if ok {
-                        format!("{e}.cast({ty}).alias(\"{alias}\")")
-                    } else {
-                        format!("pl.lit(None, dtype={ty}).alias(\"{alias}\")")
-                    }
+                let e = cast(name).then(|| format!("pl.col({})", py_str(&err_col(name))));
+                let text = |ok: bool, x: String| {
+                    if ok { format!("{x}.cast(pl.Utf8)") } else { "pl.lit(None, dtype=pl.Utf8)".into() }
                 };
+                let float = |ok: bool, x: String| {
+                    if ok { format!("{x}.cast(pl.Float64)") } else { "pl.lit(None, dtype=pl.Float64)".into() }
+                };
+                let errors = match &e {
+                    Some(e) => format!("{e}.sum().cast(pl.UInt64)"),
+                    None => "pl.lit(0, dtype=pl.UInt64)".into(),
+                };
+                let valid = match &e {
+                    Some(e) => format!("{c}.filter(~{e})"),
+                    None => c.clone(),
+                };
+                let cnt = format!("{c}.count().over({c})");
+                let median = format!(
+                    "pl.when({c}.count() == 0).then(pl.lit(None, dtype=pl.Utf8))\
+                     .when({c}.count() % 2 == 1).then({c}.drop_nulls().sort().get({c}.count() // 2).cast(pl.Utf8))\
+                     .otherwise({})",
+                    text(numeric, format!("{c}.median()"))
+                );
                 [
+                    format!("pl.lit({}).alias(\"sheet\")", py_str(&parent.name)),
                     format!("pl.lit({}).alias(\"column\")", py_str(name)),
                     format!("pl.lit({}).alias(\"type\")", py_str(&dt.to_string())),
-                    format!("{c}.count().cast(pl.UInt64).alias(\"count\")"),
-                    format!("{c}.null_count().cast(pl.UInt64).alias(\"nulls\")"),
-                    format!("{c}.n_unique().cast(pl.UInt64).alias(\"distinct\")"),
-                    or_null(ordered, format!("{c}.min()"), "pl.Utf8", "min"),
-                    or_null(ordered, format!("{c}.max()"), "pl.Utf8", "max"),
-                    or_null(numeric, format!("{c}.mean()"), "pl.Float64", "mean"),
-                    or_null(numeric, format!("{c}.median()"), "pl.Float64", "median"),
+                    format!("{errors}.alias(\"errors\")"),
+                    format!("({c}.null_count().cast(pl.UInt64) - {errors}).alias(\"nulls\")"),
+                    format!("{valid}.n_unique().cast(pl.UInt64).alias(\"distinct\")"),
+                    format!(
+                        "{}.alias(\"mode\")",
+                        text(!nested, format!("{c}.filter({c}.is_not_null() & ({cnt} == {cnt}.max())).first()"))
+                    ),
+                    format!("{}.alias(\"min\")", text(ordered, format!("{c}.min()"))),
+                    format!("{}.alias(\"max\")", text(ordered, format!("{c}.max()"))),
+                    format!("{}.alias(\"sum\")", text(numeric, format!("{c}.sum()"))),
+                    format!(
+                        "{}.alias(\"median\")",
+                        if ordered { median } else { text(false, String::new()) }
+                    ),
+                    format!("{}.alias(\"mean\")", float(numeric, format!("{c}.mean()"))),
+                    format!("{}.alias(\"stdev\")", float(numeric, format!("{c}.std(ddof=1)"))),
                 ]
                 .join(", ")
             } else {
                 let c = q_ident(name);
-                let or_null = |ok: bool, e: String, ty: &str| {
-                    if ok {
-                        format!("CAST({e} AS {ty})")
-                    } else {
-                        format!("CAST(NULL AS {ty})")
-                    }
+                let e = cast(name).then(|| q_ident(&err_col(name)));
+                let text = |ok: bool, x: String| {
+                    if ok { format!("CAST({x} AS VARCHAR)") } else { "CAST(NULL AS VARCHAR)".into() }
                 };
+                let float = |ok: bool, x: String| {
+                    if ok { format!("CAST({x} AS DOUBLE)") } else { "CAST(NULL AS DOUBLE)".into() }
+                };
+                let errors = match &e {
+                    Some(e) => format!("count(*) FILTER (WHERE {e})"),
+                    None => "0".into(),
+                };
+                let null_values = match &e {
+                    Some(e) => format!("count(*) FILTER (WHERE {c} IS NULL AND NOT {e})"),
+                    None => format!("(count(*) - count({c}))"),
+                };
+                let mode = format!(
+                    "(SELECT v FROM (SELECT v, pos, count(*) OVER (PARTITION BY v) AS n \
+                     FROM (SELECT {c} AS v, row_number() OVER () AS pos FROM {p})) \
+                     WHERE v IS NOT NULL ORDER BY n DESC, pos LIMIT 1)"
+                );
+                let median = format!(
+                    "CASE WHEN count({c}) = 0 THEN NULL WHEN count({c}) % 2 = 1 \
+                     THEN CAST(quantile_disc({c}, 0.5) AS VARCHAR) ELSE {} END",
+                    text(numeric, format!("median({c})"))
+                );
                 format!(
-                    "SELECT {i} AS __i, {} AS \"column\", {} AS \"type\", CAST(count({c}) AS UBIGINT) AS \"count\", \
-                     CAST(count(*) - count({c}) AS UBIGINT) AS nulls, \
-                     CAST(count(DISTINCT {c}) + (count(*) > count({c}))::INT AS UBIGINT) AS \"distinct\", \
-                     {} AS \"min\", {} AS \"max\", {} AS mean, {} AS median FROM {p}",
+                    "SELECT {i} AS __i, {} AS sheet, {} AS \"column\", {} AS \"type\", \
+                     CAST({errors} AS UBIGINT) AS errors, \
+                     CAST(count(*) - count({c}) - {errors} AS UBIGINT) AS nulls, \
+                     CAST(count(DISTINCT {c}) + ({null_values} > 0)::INT AS UBIGINT) AS \"distinct\", \
+                     {} AS mode, {} AS \"min\", {} AS \"max\", {} AS \"sum\", {} AS median, \
+                     {} AS mean, {} AS stdev FROM {p}",
+                    q_str(&parent.name),
                     q_str(name),
                     q_str(&dt.to_string()),
-                    or_null(ordered, format!("min({c})"), "VARCHAR"),
-                    or_null(ordered, format!("max({c})"), "VARCHAR"),
-                    or_null(numeric, format!("avg({c})"), "DOUBLE"),
-                    or_null(numeric, format!("median({c})"), "DOUBLE"),
+                    text(!nested, mode),
+                    text(ordered, format!("min({c})")),
+                    text(ordered, format!("max({c})")),
+                    text(numeric, format!("sum({c})")),
+                    if ordered { median } else { text(false, String::new()) },
+                    float(numeric, format!("avg({c})")),
+                    float(numeric, format!("stddev_samp({c})")),
                 )
             }
         })

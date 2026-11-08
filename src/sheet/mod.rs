@@ -575,7 +575,13 @@ impl Sheet {
     /// `view_plan` before the visible-column projection: the view's rows in
     /// view order, hidden columns included (expression predicates may name them).
     fn sorted_plan(&self, with_rid: bool) -> LazyFrame {
-        let mut lf = self.filtered_plan(with_rid);
+        self.sorted_plan_with(with_rid, false)
+    }
+
+    /// `errs`: each cast column `c` also gets a boolean `err_col(c)`, true where
+    /// the cast failed (a value before it, null after). For describe's `errors`.
+    pub(crate) fn sorted_plan_with(&self, with_rid: bool, errs: bool) -> LazyFrame {
+        let mut lf = self.filtered_plan_with(with_rid, errs);
         if !self.view.sort.is_empty() {
             let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
             let desc: Vec<bool> = self
@@ -595,6 +601,10 @@ impl Sheet {
     /// Base plan + type_casts + filter: decides which rows exist, not their order.
     /// `with_rid` numbers base rows first, so ids survive filter and sort.
     fn filtered_plan(&self, with_rid: bool) -> LazyFrame {
+        self.filtered_plan_with(with_rid, false)
+    }
+
+    fn filtered_plan_with(&self, with_rid: bool, errs: bool) -> LazyFrame {
         let mut lf = self.plan.clone();
         if with_rid {
             lf = lf.with_row_index(ROW_ID, None);
@@ -612,7 +622,22 @@ impl Sheet {
                     _ => col(name.as_str()).cast(dt.clone()).alias(name.as_str()),
                 })
                 .collect();
+            let names = || self.view.type_casts.iter().map(|(n, _)| n.as_str());
+            if errs {
+                lf = lf.with_columns(
+                    names()
+                        .map(|n| col(n).is_not_null().alias(err_col(n)))
+                        .collect::<Vec<_>>(),
+                );
+            }
             lf = lf.with_columns(exprs);
+            if errs {
+                lf = lf.with_columns(
+                    names()
+                        .map(|n| col(err_col(n)).and(col(n).is_null()).alias(err_col(n)))
+                        .collect::<Vec<_>>(),
+                );
+            }
         }
         if let Some(f) = &self.view.filter {
             // Cast so numeric/date columns filter on their display text. Strict:
@@ -1091,6 +1116,16 @@ pub fn freq_stat_names(column: &str) -> (&'static str, &'static str, &'static st
     } else {
         ("count", "percent", "histogram")
     }
+}
+
+/// Describe's statistic columns after `sheet`, `column`, `type`.
+pub const DESCRIBE_STATS: [&str; 10] = [
+    "errors", "nulls", "distinct", "mode", "min", "max", "sum", "median", "mean", "stdev",
+];
+
+/// Describe's per-column cast-failure flag (`Sheet::sorted_plan_with`).
+pub fn err_col(column: &str) -> String {
+    format!("\u{1f}err:{column}")
 }
 
 /// VisiData leaves a numeric (or date) freq table in first-seen order and

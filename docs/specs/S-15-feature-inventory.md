@@ -143,7 +143,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Surface | Key / command | Semantics |
 |---|---|---|
 | Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null) |
-| Describe | `I`, `:describe` | per column: type, count, nulls, distinct, min, max, mean, median (background job) |
+| Describe | `I`, `:describe` | VisiData's describe sheet: per visible column `sheet` `column` `type` (sheet, type hidden), errors (failed type casts), nulls, distinct (null = one value), mode (first seen on ties); numbers: min max sum median mean stdev (sample); dates: min max, median when the count is odd (VisiData `#ERR` → empty) (background job) |
 | Pivot | `W` | key cols × current col, counts; no keys → one row of counts |
 | Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background, Lua aggs too); Enter runs the full pivot |
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |

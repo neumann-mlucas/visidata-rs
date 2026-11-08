@@ -1,10 +1,10 @@
- describe: tests/golden/describe/input.csv  csv · sheets 2                column 1/9  row 1/5 · 20%
-column str  type str   count u  nulls u  distinct u min str    max str       mean f  median f
-id          i64              5        0           5 1          5                3.0       3.0
-name        str              5        0           5 ann        eve                ·         ·
-grp         str              5        0           3 a          c                  ·         ·
-amt         f64              4        1           5 1.5        1234567.89 308643.91     3.125
-day         date             4        1           5 2024-01-02 2024-01-06         ·         ·
+ describe: tests/golden/describe/input.csv  csv · sheets 2 · hidden 2    column 1/11  row 1/5 · 20%
+column str   errors u  nulls u  distinct u mode str   min str    max str    sum str    median str
+id                  0        0           5 1          1          5          15         3
+name                0        0           5 ann        ·          ·          ·          ·
+grp                 0        0           3 a          ·          ·          ·          ·
+amt                 0        1           5 1.5        1.5        1234567.89 1234575.64 3.125       3
+day                 0        1           5 2024-01-02 2024-01-02 2024-01-06 ·          ·
 
 
 

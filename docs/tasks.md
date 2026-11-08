@@ -34,7 +34,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 4. - [x] S-26 phase 0 — VisiData key alignment (§0 "phase 0" rows: `Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`) (2–2.5 d), with S-21 A — `=` → `:derive`, `z/` search-expr, `:select` / `:unselect`, `z|` select-expr, regex filter → `gz|` (1 d)
 5. - [x] S-18 A — copy to register: `y gy zy gzy` (0.5–1 d)
 6. - [x] S-18 B — system clipboard: `Y gY zY gzY`, VisiData-style copy command / OSC 52, `vd.option` (Lua API 5)
-7. - [ ] S-25 P1 — translate shipped features' longnames (~26 files); `I` describe switches to VisiData's columns (1.5–2.5 d)
+7. - [x] S-25 P1 — translate shipped features' longnames (~26 files); `I` describe switches to VisiData's columns (1.5–2.5 d) — done 2026-11-08, PASS 30→35 (+6 DuckDB files → 41)
 8. - [x] S-18 C — cell editing `e`, `ge`, `:edit`; edits after the column's last writer; `SetCol.rids` → `Arc<[u64]>`; S-26 A1 quit guard
 9. - [ ] S-21 B — `g=` / `:setexpr` (source sheets only, S-18 D3), `:filter-expr` (1–1.5 d)
 10. - [ ] S-18 D — paste into cells: `zp gzp zx` (1–2 d)
@@ -106,7 +106,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-08, S-25 P1 + DuckDB files): PASS=41, FAIL=0, SKIP=128, UNTESTABLE=19, QUARANTINED=13, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-08, S-25 P1 + DuckDB files): PASS=41, FAIL=0, SKIP=125, UNTESTABLE=19, QUARANTINED=16, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 

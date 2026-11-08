@@ -454,6 +454,14 @@ impl Replay {
             "sort-desc-add" => self.push_sort(&r.col, SortOrder::Desc, true),
             "sort-keys-asc" => self.sort_keys(SortOrder::Asc),
             "sort-keys-desc" => self.sort_keys(SortOrder::Desc),
+            "describe-sheet" => {
+                let id = self.alloc();
+                let parent = self.current_slot()?;
+                let name = format!("{}_describe", parent.name);
+                let d = Sheet::describe_from(&parent.sheet, id).map_err(Runtime)?;
+                self.push_sheet(name, d);
+                Ok(())
+            }
             "freq-col" => {
                 let id = self.next_id;
                 self.next_id += 1;

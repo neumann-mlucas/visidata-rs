@@ -591,3 +591,27 @@ fn edits_and_view_changes_commute() {
         assert!(rows(&a).equals_missing(&rows(&b)), "{edits:?}");
     }
 }
+
+#[test]
+fn describe_counts_failed_casts_as_errors() {
+    let df = df!("n" => [Some("3"), Some("1"), Some("x"), None, Some("3")], "s" => ["a", "b", "a", "b", "c"]).unwrap();
+    let mut parent = Sheet::from_source(
+        0,
+        LoadedSource::from_df(SourceKind::Csv, "t".into(), None, df),
+    );
+    parent.set_type_cast("n".into(), DataType::Int32);
+    let d = Sheet::describe_from(&parent, 1).unwrap();
+    let out = d.view_plan().collect().unwrap();
+    let get = |c: &str| out.column(c).unwrap().get(0).unwrap().to_string();
+    assert_eq!(
+        ["errors", "nulls", "distinct", "mode", "sum", "median"].map(get),
+        ["1", "1", "3", "\"3\"", "\"7\"", "\"3\""]
+    );
+    assert_eq!(
+        out.get_column_names(),
+        [
+            "column", "errors", "nulls", "distinct", "mode", "min", "max", "sum", "median", "mean",
+            "stdev"
+        ]
+    );
+}
