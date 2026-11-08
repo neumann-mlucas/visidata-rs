@@ -22,6 +22,9 @@ File naming: `S-NN-slug.md`.
 | S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | **closed** (iter 14 — honest classification replaced the "~160 PASS" target) → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
 | S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (PASS=29/29 addressable, SKIP=0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
 | S-15 | **Feature inventory** — what the binary actually ships, plus what it doesn't (§10 cut, §10.1 not yet) | cross-cutting | **re-verified 2026-11-05** → [`S-15-feature-inventory.md`](S-15-feature-inventory.md) |
+| S-18 | Cell/row editing + clipboard (Day-1 must-have) | — | **drafted 2026-11-08** — 7 phases A–G, copy first, paste after editing → [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) |
+| S-19 | Macros | — | **drafted 2026-11-08**, after S-18 C → [`S-19-macros.md`](S-19-macros.md) |
+| S-20 | Undo tree | — | **drafted 2026-11-08**, optional, before/with S-18 C → [`S-20-undo-tree.md`](S-20-undo-tree.md) |
 
 **Not drafted yet** (draft only when the work starts):
 
@@ -29,7 +32,5 @@ File naming: `S-NN-slug.md`.
 |---|---|---|---|
 | S-16 | Rest of the Lua data/app API (`vd.frame`, pop sheet, sandbox) + `since`/`deprecate` registry | 3 | first plugin that needs data access from Lua (`vd.toast`, `vd.sheet`, function bindings, `vd.push_sheet` shipped 2026-11-05) |
 | S-17 | Pivot setup sheet (beyond the `:pivot` live preview shipped 2026-11-05) | 2 | the preview proves too little |
-| S-18 | Cell/row editing + clipboard (Day-1 must-have, deferred 2026-11-07) | — | work starts. Sketch: edits are an overlay keyed by row id (`rid`) on top of the lazy plan, applied as the last plan step so sort/filter/undo/`:export` keep working; `:save` writes plan + overlay; clipboard = in-app register (vim-style `y`/`p`) plus optional system clipboard. Unlocks the clipboard/new-row UNTESTABLE corpus bucket. |
-| S-19 | Macros (deferred 2026-11-07) | — | work starts. Sketch: record a resolved `Vec<Action>` (same capture as `.` repeat) and bind it as a Lua function via `vd.bind`; persist as Lua in `init.lua`-adjacent file, not as `.vdj`. |
 
 Writing order constraint: don't draft S-05+ until the matching phase actually starts — reality edits specs for free when written late. S-13/S-14 drafted post-Phase 0 to pin Tier 1 scope + test strategy. S-15 drafted post-Phase 1.5 as the authoritative "what's shipped" reference — update it when a user-visible surface changes.

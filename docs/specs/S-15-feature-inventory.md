@@ -319,8 +319,8 @@ Enumerated here so no one re-asks:
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Spec S-18 drafts when work starts; sketch in `specs/README.md`.
-- **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Spec S-19.
+- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
+- **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
 
 - **Rest of S-10**: `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
