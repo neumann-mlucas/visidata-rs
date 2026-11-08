@@ -218,6 +218,79 @@ fn screen_html(h: &Harness) -> String {
     out + "</pre>"
 }
 
+/// The README screenshot: this case's final screen.
+const README_SVG: (&str, &str) = ("docs-pivot-prompt", "docs/screens/pivot-preview.svg");
+
+/// The screen as an SVG: background rects and text runs on a cell grid,
+/// colors as in the guide's `.screen`.
+fn screen_svg(h: &Harness) -> String {
+    use ratatui::style::{Color, Modifier};
+    const CW: f32 = 8.4; // textLength pins each run to the grid whatever monospace font renders it
+    const LH: u16 = 20;
+    const PAD: f32 = 12.0;
+    let (bg0, fg0) = ("#1a1b26", "#c0caf5");
+    let hex = |c: Color, d: &str| match c {
+        Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        _ => d.to_string(),
+    };
+    let buf = h.term.backend().buffer();
+    let (w, hgt) = (buf.area.width, buf.area.height);
+    let (sw, sh) = (w as f32 * CW + 2.0 * PAD, (hgt * LH) as f32 + 2.0 * PAD);
+    let mut rects = String::new();
+    let mut texts = String::new();
+    for y in 0..hgt {
+        // (start col, cols, bg, fg, bold, text)
+        let mut runs: Vec<(u16, u16, String, String, bool, String)> = Vec::new();
+        let mut x = 0;
+        while x < w {
+            let cell = &buf[(x, y)];
+            let sym = cell.symbol();
+            let cols = sym.width().max(1) as u16;
+            let key = (
+                hex(cell.bg, bg0),
+                hex(cell.fg, fg0),
+                cell.modifier.contains(Modifier::BOLD),
+            );
+            match runs.last_mut() {
+                Some(r) if (&r.2, &r.3, r.4) == (&key.0, &key.1, key.2) => {
+                    r.1 += cols;
+                    r.5.push_str(&esc(sym));
+                }
+                _ => runs.push((x, cols, key.0, key.1, key.2, esc(sym))),
+            }
+            x += cols;
+        }
+        let ty = PAD + (y * LH) as f32;
+        for (x0, cols, bg, fg, bold, text) in runs {
+            let tx = PAD + x0 as f32 * CW;
+            if bg != bg0 {
+                rects.push_str(&format!(
+                    r#"<rect x="{tx:.1}" y="{ty:.1}" width="{:.1}" height="{LH}" fill="{bg}"/>"#,
+                    cols as f32 * CW
+                ));
+                rects.push('\n');
+            }
+            if !text.trim().is_empty() {
+                let weight = if bold { r#" font-weight="700""# } else { "" };
+                texts.push_str(&format!(
+                    r#"<text x="{tx:.1}" y="{:.1}" textLength="{:.1}" fill="{fg}"{weight}>{text}</text>"#,
+                    ty + 14.5,
+                    cols as f32 * CW
+                ));
+                texts.push('\n');
+            }
+        }
+    }
+    format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{sw:.0}" height="{sh:.0}" viewBox="0 0 {sw:.0} {sh:.0}" role="img" aria-label="vdrs terminal screen">
+<rect width="100%" height="100%" rx="8" fill="{bg0}"/>
+{rects}<g font-family="ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="14" xml:space="preserve">
+{texts}</g>
+</svg>
+"#
+    )
+}
+
 /// `docs/index.html` with every `<!-- golden:<case> -->` block re-rendered.
 fn render_guide(guide: &str, html: &std::collections::BTreeMap<String, String>) -> String {
     let mut out = String::new();
@@ -369,6 +442,9 @@ async fn golden_cases() {
             } else {
                 recording_html(&frames)
             };
+            if name == README_SVG.0 {
+                check(PathBuf::from(README_SVG.1), &screen_svg(&h), &mut fails);
+            }
             html.insert(name, block);
         }
         let tsv = csv_text(h.app.sheets.active(), b'\t');
