@@ -2,7 +2,7 @@
 
 Status: **drafted 2026-11-08**, not started. Independent items; each is its own commit with no
 user-visible change except R3–R5. Order: R1 before S-18 C (editing adds code to the same files),
-R2 with S-18 E (both touch row bookkeeping), R3–R5 any time.
+R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha is finished.
 
 ## 0. Review findings, re-checked
 | Finding (review 2026-11-08) | Re-check | Action |
@@ -59,7 +59,7 @@ consistency is a correctness rule:
 - Tests: unit — `082053`, `-01`, `0`, `0.5`, `10` → expected dtypes; golden `zero-padded-ids`;
   `issue964-inner-join` leaves the quarantine if it then passes.
 
-## 5. R5 — Release binaries (0.5–1 d; waits on the 2026-11-05 decision "no prebuilt binaries until the name is settled", `tasks.md`)
+## 5. R5 — Release binaries (0.5–1 d; not before the alpha is finished — decision 2026-11-08)
 - GitHub Actions release workflow on tag `v*`: build `vdrs` for x86_64/aarch64 Linux (musl), macOS
   (x86_64 + arm64), Windows; attach archives + SHA256 to the release. Prefer `cargo-dist` (generates the
   workflow and a shell installer) over a hand-written matrix; pin its version.

@@ -53,7 +53,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 23. - [ ] S-23 B — split panes `Z` / `gZ` / `Tab` (2–3 d); C1–C4 — `:plot` (`.` / `g.`, repeat → vim profile), `:hist`, `:bar`, pan/zoom, region select (8–11 d)
 24. - [ ] S-26 A (rest), B, C, D, E — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
 
-Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries once the release decision below changes.
+Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before).
 
 ## Test layout
 
@@ -223,5 +223,5 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — the `app::scenario` Harness drives the UI without a TTY but is test-only; add a bench target when scroll speed regresses
 - [ ] `rust-toolchain.toml` only when a nightly is needed
-- [x] Release path: `cargo install --path . --locked` from a checkout (decision 2026-11-05); no prebuilt binaries or crates.io until the name is settled (S-24 R5 waits on this decision)
+- [x] Release path: `cargo install --path . --locked` from a checkout (decision 2026-11-05); no prebuilt binaries or crates.io until the alpha is finished (decision 2026-11-08; S-24 R5 ships then)
 - [x] Refactor: dispatch + action handlers moved to `src/app/actions.rs` (`app.rs` keeps loop, jobs, prompts, render, tests)
