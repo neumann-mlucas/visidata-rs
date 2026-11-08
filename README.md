@@ -61,8 +61,8 @@ The install compiles Polars with release optimizations: expect a long build (abo
 45 minutes in one test) and over 1 GB of disk while it runs.
 
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
-arrays, Excel/ODS and SQLite (several sheets/tables → a list; `book.xlsx:Sheet2`
-opens one), and any of these gzipped; Lua loaders add more. Files are scanned
+arrays, Excel/ODS, SQLite (several sheets/tables → a list; `book.xlsx:Sheet2`
+opens one) and DuckDB (through the `duckdb` program), and any of these gzipped; Lua loaders add more. Files are scanned
 lazily: only a 1024-row window is materialized, and row counts, searches and
 pivots run in the background.
 

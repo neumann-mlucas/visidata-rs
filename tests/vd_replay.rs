@@ -20,12 +20,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use polars::prelude::*;
-use visidata_rs::reader;
+use visidata_rs::reader::{self, LoadedSource, SourceKind};
 use visidata_rs::sheet::{Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
+use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 35;
+const MIN_PASS: usize = 41;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -179,6 +180,8 @@ struct Replay {
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
+    /// `$VD_TESTTMP`: scratch for files a script saves and reopens.
+    tmp: tempfile::TempDir,
 }
 
 enum MetaMode {
@@ -237,7 +240,68 @@ impl Replay {
             root,
             next_id: 0,
             cursor: None,
+            tmp: tempfile::tempdir().expect("scratch dir"),
         }
+    }
+
+    /// A script path: `$VD_TESTTMP` → scratch, else relative to the repo root.
+    fn path(&self, input: &str) -> PathBuf {
+        let tmp = self.tmp.path().to_string_lossy();
+        self.root.join(input.replace("$VD_TESTTMP", &tmp))
+    }
+
+    fn alloc(&mut self) -> SheetId {
+        self.next_id += 1;
+        self.next_id - 1
+    }
+
+    /// A file as the app opens it: a `.duckdb` file → its index.
+    fn open_sheet(&mut self, loaded: LoadedSource) -> Sheet {
+        let id = self.alloc();
+        match loaded.kind {
+            SourceKind::Duckdb => Sheet::parts_list(id, loaded, Vec::new()),
+            _ => Sheet::from_source(id, loaded),
+        }
+    }
+
+    /// `open-row` on a duckdb index: the row's table (`キname` or a row number).
+    fn open_index_row(&mut self, row: &str) -> Result<(), StepErr> {
+        use StepErr::Runtime;
+        let s = &self.current_slot()?.sheet;
+        let Origin::Parts { path, kind } = s.origin.clone() else {
+            return Ok(()); // xlsx/sqlite open their first part directly: nothing to enter
+        };
+        let df = s
+            .view_plan()
+            .collect()
+            .map_err(|e| Runtime(e.to_string()))?;
+        let text = |c: &str, i: usize| -> Option<String> {
+            Some(df.column(c).ok()?.get(i).ok()?.get_str()?.to_string())
+        };
+        let i = match row.strip_prefix('キ') {
+            Some(name) => (0..df.height()).find(|&i| text("name", i).as_deref() == Some(name)),
+            None => row.parse().ok(),
+        }
+        .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
+        let name = text("name", i).ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
+        let schema = text("schema_name", i).unwrap_or_else(|| "main".into());
+        let loaded = reader::open_part(&path, kind, &format!("{schema}.{name}"))
+            .map_err(|e| Runtime(e.to_string()))?;
+        let sheet = Sheet::from_source(self.alloc(), loaded);
+        self.push_sheet(name, sheet);
+        Ok(())
+    }
+
+    /// Reread every open index of `db` (after `exec-sql` / `save-sheet`).
+    fn refresh_index(&mut self, db: &Path) -> Result<(), StepErr> {
+        let index = duckdb::index(db).map_err(StepErr::Runtime)?;
+        for slot in &mut self.loaded {
+            if matches!(&slot.sheet.origin, Origin::Parts { path, kind: SourceKind::Duckdb } if path == db)
+            {
+                slot.sheet.plan = index.clone().lazy();
+            }
+        }
+        Ok(())
     }
 
     fn set_current(&mut self, new: usize) {
@@ -331,18 +395,57 @@ impl Replay {
         };
         match r.longname.as_str() {
             "open-file" => {
-                let path = self.root.join(&r.input);
+                let path = self.path(&r.input);
                 let loaded = reader::open(path.as_os_str(), None)
                     .map_err(|e| Runtime(format!("open-file {}: {}", path.display(), e)))?;
-                let id = self.next_id;
-                self.next_id += 1;
                 // Sheet name = file stem (VisiData default); e.g. tests/data1.tsv → data1.
                 let name = Path::new(&r.input)
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("sheet")
                     .to_string();
-                self.push_sheet(name, Sheet::from_source(id, loaded));
+                let sheet = self.open_sheet(loaded);
+                self.push_sheet(name, sheet);
+                Ok(())
+            }
+            // The app's `:save`: a table named after the sheet in a .duckdb file.
+            "save-sheet" => {
+                let path = self.path(&r.input);
+                let slot = self.current_slot()?;
+                let mut df = slot
+                    .sheet
+                    .view_plan()
+                    .collect()
+                    .map_err(|e| Runtime(e.to_string()))?;
+                if duckdb::is_db(&path) {
+                    duckdb::save(&mut df, &path, &slot.name).map_err(Runtime)?;
+                    self.refresh_index(&path)
+                } else {
+                    write_df_by_extension(&mut df, &path).map_err(|e| Runtime(e.to_string()))
+                }
+            }
+            // The app's `:exec-sql`: DDL refreshes the index; a query opens its rows.
+            "exec-sql" => {
+                let s = &self.current_slot()?.sheet;
+                let db = match (&s.origin, &s.source.path) {
+                    (
+                        Origin::Parts {
+                            path,
+                            kind: SourceKind::Duckdb,
+                        },
+                        _,
+                    ) => path.clone(),
+                    (_, Some(p)) if s.kind == SourceKind::Duckdb => p.clone(),
+                    _ => return Err(Runtime("exec-sql: not a .duckdb sheet".into())),
+                };
+                let rows = duckdb::exec(&db, &r.input).map_err(Runtime)?;
+                self.refresh_index(&db)?;
+                if let Some(df) = rows {
+                    let src =
+                        LoadedSource::from_df(SourceKind::Duckdb, "exec-sql".into(), Some(db), df);
+                    let sheet = Sheet::from_source(self.alloc(), src);
+                    self.push_sheet("query".into(), sheet);
+                }
                 Ok(())
             }
             "sort-asc" => self.push_sort(&r.col, SortOrder::Asc, false),
@@ -592,10 +695,11 @@ impl Replay {
                 self.set_current(i);
                 Ok(())
             }
-            // dive-row/open-row: VisiData pushes a sub-sheet. For xlsx/sqlite
-            // loaded as first-sheet-directly, no sub-sheet to enter — noop.
+            // dive-row/open-row: a duckdb index opens the row's table. xlsx/sqlite
+            // load their first part directly: no sub-sheet to enter — noop.
             // For VisiData's columns-sheet / other meta-sheet workflows, this
             // is wrong but we skip those tests elsewhere.
+            "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
             "dive-row" | "open-row" => Ok(()),
             // Slide operations are column/row reorder cosmetic to the data model;
             // our serializer uses key-col ordering + schema order, not slide pos.

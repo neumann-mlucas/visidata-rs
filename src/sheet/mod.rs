@@ -412,23 +412,49 @@ impl Sheet {
         }
     }
 
-    /// List sheet for a multi-part xlsx/sqlite file.
+    /// Table this sheet saves as in a database file, as VisiData names it:
+    /// `data3.tsv` → `data3`, a table opened from `app.duckdb` → its name.
+    pub fn table_name(&self) -> String {
+        let part = self.source.path.as_ref().and_then(|p| {
+            let shown = format!("{}:", p.display());
+            self.source
+                .display_name
+                .strip_prefix(&shown)
+                .map(String::from)
+        });
+        match part {
+            Some(part) if matches!(self.origin, Origin::File) => {
+                part.rsplit('.').next().unwrap_or(&part).to_string()
+            }
+            _ => std::path::Path::new(&self.name)
+                .file_stem()
+                .map_or_else(|| self.name.clone(), |s| s.to_string_lossy().into_owned()),
+        }
+    }
+
+    /// List sheet for a multi-part xlsx/sqlite file, or a duckdb file's index
+    /// (its source already is that list; `parts` is unused).
     pub fn parts_list(id: SheetId, loaded: LoadedSource, parts: Vec<String>) -> Self {
         let path = loaded.path.clone().unwrap_or_default();
         let kind = loaded.kind;
-        let what = if kind == SourceKind::Sqlite {
-            "table"
-        } else {
+        let what = if kind == SourceKind::Xlsx {
             "sheet"
+        } else {
+            "table"
         };
-        let df =
-            DataFrame::new_infer_height(vec![Column::new(what.into(), parts)]).expect("one column");
+        let plan = if kind == SourceKind::Duckdb {
+            loaded.lazy.clone()
+        } else {
+            DataFrame::new_infer_height(vec![Column::new(what.into(), parts)])
+                .expect("one column")
+                .lazy()
+        };
         Sheet {
             id,
             name: format!("{}: {what}s", loaded.display_name),
             kind,
             source: Arc::new(loaded),
-            plan: df.lazy(),
+            plan,
             view: View::default(),
             window: None,
             revision: 0,

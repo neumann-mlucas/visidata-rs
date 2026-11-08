@@ -25,13 +25,13 @@ describe	SKIP describe-sheet
 describe-error	SKIP describe-sheet
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP key-selected
-duckdb-commit-changes	SKIP save-sheet
-duckdb-commit-composite-pk	SKIP save-sheet
-duckdb-commit-no-pk	SKIP save-sheet
-duckdb-exec-sql	SKIP save-sheet
-duckdb-index	SKIP save-sheet
-duckdb-open-alt-schema	SKIP save-sheet
-duckdb-save-sheet	SKIP save-sheet
+duckdb-commit-changes	SKIP add-row
+duckdb-commit-composite-pk	SKIP delete-row
+duckdb-commit-no-pk	SKIP allow-error
+duckdb-exec-sql	PASS
+duckdb-index	PASS
+duckdb-open-alt-schema	PASS
+duckdb-save-sheet	PASS
 duckdb-types	NO_GOLDEN golden is .json
 dup-rows-attrs	SKIP aggregate-col
 edit-fixed	NO_GOLDEN golden is .fixed
@@ -55,8 +55,8 @@ freeze-json	PASS
 freeze-sheet-attrs	SKIP aggregate-col
 freq-dive-except	SKIP dive-except
 freq-error	SKIP aggregate-col
-freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="2018-08-20\t4\t7.84"
-freq-same-int	FAIL line 2: want="2\t1\t1.96" got="3\t50\t98.04"
+freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="2018-07-03\t2\t3.92"
+freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
 freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal" got="count\tfreq_count\tfreq_percent\tfreq_histogram"
@@ -93,15 +93,15 @@ issue3015-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3022-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3103	SKIP addcol-shell
 issue3146-paste	SKIP addcol-new
-issue3146-vds	SKIP save-sheet
+issue3146-vds	SKIP runtime: save: unknown extension '.vds'
 issue3163	SKIP search-keys
 issue3174-deepcopy-append	PASS
 issue3174-deepcopy-concat	PASS
 issue3174-deepcopy-full	PASS
 issue3174-deepcopy-join-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3174-deepcopy-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-issue3175-vds-concat	SKIP save-sheet
-issue3175-vds-full	SKIP save-sheet
+issue3175-vds-concat	SKIP runtime: save: unknown extension '.vds'
+issue3175-vds-full	SKIP runtime: save: unknown extension '.vds'
 issue3178	SKIP runtime: column already exists: B
 issue3187	SKIP runtime: not found: "name" not found
 issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
@@ -139,8 +139,8 @@ listofdictobj	SKIP expand-col-depth
 load-2d-matrix	SKIP runtime: open-file ../visidata/sample_data/arrays.npz: unknown format for ../visidata/sample_data/arrays.npz
 load-conllu	NO_GOLDEN golden is .jsonl
 load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expanded paths were empty (path expansion input: 'paths: [PlRefPath { inner: "../visidata/bin/*.
-load-duckdb	SKIP save-sheet
-load-duckdb-view	SKIP save-sheet
+load-duckdb	PASS
+load-duckdb-view	PASS
 load-fec	SKIP runtime: open-file ../visidata/sample_data/1794685.fec: unknown format for ../visidata/sample_data/1794685.fec
 load-fixed	SKIP runtime: open-file ../visidata/sample_data/countries: unknown format for ../visidata/sample_data/countries
 load-fixed-header0	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
@@ -224,7 +224,7 @@ setcol_precision_less	SKIP setcol-precision-less
 setcol_precision_more	SKIP setcol-precision-more
 sort-levels	PASS
 sortorder	FAIL line 1: want="name\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal"
-sqlite-commit	SKIP save-sheet
+sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	SKIP aggregate-col
 syspaste-crlf	NO_GOLDEN golden is .json

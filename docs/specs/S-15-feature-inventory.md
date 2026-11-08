@@ -35,6 +35,7 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | JSON | `.json` | Polars `JsonReader` (eager) | array of records; a `.json` file holding JSON Lines is sniffed and read as JSONL |
 | Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), all cells as String (downstream `type-*` casts); empty header names preserved |
 | SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`, all columns as String, UTF-8-lossy decode (handles invalid-unicode TEXT) |
+| DuckDB | `.duckdb`, `.ddb` | the `duckdb` program (`vd.option("duckdb_cmd")`), Parquet tempfiles | always VisiData's index (name, schema_name, table_type, rows, cols, keys, source); `<CR>` / `file:schema.table` opens one, typed; `:exec-sql` runs SQL in the file (last query's rows open, index reloads); `:save x.duckdb` = `CREATE OR REPLACE TABLE <sheet>` |
 | stdin | `-` | drained to tempfile, sniffed | csvlens-style fallback |
 | gzip | `*.gz` suffix (any case) | `flate2` → tempfile | one layer; format from the inner extension (`.json.gz`) or `--format` |
 
@@ -175,7 +176,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | `:N` | go to row N |
 | `<Tab>` in `:` | completes the command word (built-ins, actions, `vd.command`s) |
 | `vd.command(name, fn)` | Lua ex command; `fn(args)`; api_version 4 |
-| `vd.option(name, value)` | set an option; only `clipboard_copy_cmd` so far; unknown name = error; api_version 5 |
+| `vd.option(name, value)` | set an option: `clipboard_copy_cmd`, `duckdb_cmd`; unknown name = error; api_version 6 |
 | first-run `init.lua` | written at TUI start when missing: every default commented out (`plugins::default_init_lua`) |
 
 ## 4. Keymap
@@ -285,7 +286,7 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 5 (vd.option)
+vd.api_version                                  -- 6 (vd.option duckdb_cmd)
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
@@ -340,7 +341,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
 - **Export**: schema diff and Lua-aggregator pivots.
-- **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05).
+- **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05). `.duckdb` *files* are read and written through the `duckdb` program (S-09, 2026-11-08); the engine stays Polars.
 
 ## 11. File map (where to look)
 

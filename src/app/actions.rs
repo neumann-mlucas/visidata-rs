@@ -345,6 +345,7 @@ impl App {
                 }
             }
             Action::Sql { query } => self.open_sql(&query),
+            Action::ExecSql { sql } => self.exec_sql(sql),
             Action::Export { path } => self.export(&path),
             Action::HideUniform => {
                 let sheet = self.sheets.active().clone();
@@ -604,11 +605,16 @@ impl App {
         let s = self.sheets.active();
         let plan = s.view_plan();
         let edits = s.edits();
+        let table = s.table_name();
         let path = path.to_string();
         self.spawn_job("save", move || {
             let mut df = plan.collect().map_err(|e| format!("collect: {e}"))?;
-            crate::sheet::write_df_by_extension(&mut df, std::path::Path::new(&path))
-                .map_err(|e| e.to_string())?;
+            let p = std::path::Path::new(&path);
+            if crate::duckdb::is_db(p) {
+                crate::duckdb::save(&mut df, p, &table)?;
+            } else {
+                crate::sheet::write_df_by_extension(&mut df, p).map_err(|e| e.to_string())?;
+            }
             let note = format!("saved {} rows → {path}", df.height());
             Ok(JobDone::Saved { note, edits })
         });
@@ -644,6 +650,7 @@ impl App {
         self.plugins = Some(fresh);
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
         self.clipboard = super::clipboard_for(self.plugins.as_ref());
+        crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.duckdb_cmd()));
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
     }
@@ -814,8 +821,15 @@ impl App {
                 let (path, kind) = (path.clone(), *kind);
                 let s = self.sheets.active();
                 let part = s.window.as_ref().and_then(|df| {
-                    let v = df.columns().first()?.get(s.view.row_cursor).ok()?;
-                    v.get_str().map(String::from)
+                    let at =
+                        |c: &Column| c.get(s.view.row_cursor).ok()?.get_str().map(String::from);
+                    let name = at(df.columns().first()?)?;
+                    match kind {
+                        crate::reader::SourceKind::Duckdb => {
+                            Some(format!("{}.{name}", at(df.column("schema_name").ok()?)?))
+                        }
+                        _ => Some(name),
+                    }
                 });
                 let Some(part) = part else { return };
                 let id = self.sheets.alloc_id();
@@ -886,6 +900,42 @@ impl App {
                 .collect();
             let child = Sheet::rows_with_values(&parent, id, &column, &picked);
             Ok(JobDone::PushSheet(Box::new(child)))
+        });
+    }
+
+    /// `:exec-sql`: run statements in the `.duckdb` file the active sheet came
+    /// from (its index or one of its tables), as VisiData.
+    fn exec_sql(&mut self, sql: String) {
+        use crate::reader::{LoadedSource, SourceKind};
+        let s = self.sheets.active();
+        let db = match (&s.origin, &s.source.path) {
+            (
+                Origin::Parts {
+                    path,
+                    kind: SourceKind::Duckdb,
+                },
+                _,
+            ) => path.clone(),
+            (_, Some(p)) if s.kind == SourceKind::Duckdb => p.clone(),
+            _ => {
+                self.toast = Some("exec-sql: not a .duckdb sheet".into());
+                return;
+            }
+        };
+        let id = self.sheets.alloc_id();
+        self.spawn_job("exec-sql", move || {
+            let rows = crate::duckdb::exec(&db, &sql)?;
+            let index = crate::duckdb::index(&db)?;
+            let rows = rows.map(|df| {
+                let src = LoadedSource::from_df(
+                    SourceKind::Duckdb,
+                    "exec-sql".into(),
+                    Some(db.clone()),
+                    df,
+                );
+                Box::new(Sheet::from_source(id, src))
+            });
+            Ok(JobDone::ExecSql { db, index, rows })
         });
     }
 

@@ -177,6 +177,12 @@ enum JobDone {
         note: String,
     },
     Toast(String),
+    /// `:exec-sql` done: the file's fresh index, and the last query's rows.
+    ExecSql {
+        db: std::path::PathBuf,
+        index: DataFrame,
+        rows: Option<Box<Sheet>>,
+    },
     /// `:save` done: these edits of the sheet are on disk.
     Saved {
         note: String,
@@ -492,6 +498,29 @@ impl App {
                 self.toast = Some(note);
             }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
+            Ok(JobDone::ExecSql { db, index, rows }) => {
+                let ids: Vec<SheetId> = self
+                    .sheets
+                    .iter()
+                    .filter(|s| matches!(&s.origin, Origin::Parts { path, kind: crate::reader::SourceKind::Duckdb } if *path == db))
+                    .map(|s| s.id)
+                    .collect();
+                for id in ids {
+                    let s = self.sheets.find_by_id_mut(id).expect("listed");
+                    s.plan = index.clone().lazy();
+                    s.window = None;
+                    s.view.count_key = None; // the plan, not the view, changed
+                    s.revision += 1;
+                }
+                self.toast = Some(match &rows {
+                    Some(_) => "exec-sql: done".into(),
+                    None => format!("exec-sql: done; {} reloaded", db.display()),
+                });
+                if let Some(sheet) = rows {
+                    self.sheets.push(*sheet);
+                }
+                self.spawn_materialize();
+            }
             Ok(JobDone::PushSheet(sheet)) => {
                 self.sheets.push(*sheet);
                 self.spawn_materialize();

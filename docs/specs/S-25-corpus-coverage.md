@@ -1,6 +1,6 @@
 # S-25 — Corpus coverage: from 29 to ~90 passing VisiData goldens
 
-Status: **drafted 2026-11-08**; P0 done 2026-11-08 (PASS=30 FAIL=0 SKIP=140 UNTESTABLE=19 QUARANTINED=12 NO_GOLDEN=39, ceiling 182; see §1.1); P1 batch 1 (longname aliases, `rename_col`, driver origins) 2026-11-08: PASS=34 FAIL=0 SKIP=134 UNTESTABLE=19 QUARANTINED=14 NO_GOLDEN=39; numeric/date freq in first-seen order 2026-11-08: PASS=35, QUARANTINED=13. Extends S-14 (harness) — no harness redesign.
+Status: **drafted 2026-11-08**; P0 done 2026-11-08 (PASS=30 FAIL=0 SKIP=140 UNTESTABLE=19 QUARANTINED=12 NO_GOLDEN=39, ceiling 182; see §1.1); P1 batch 1 (longname aliases, `rename_col`, driver origins) 2026-11-08: PASS=34 FAIL=0 SKIP=134 UNTESTABLE=19 QUARANTINED=14 NO_GOLDEN=39; numeric/date freq in first-seen order 2026-11-08: PASS=35, QUARANTINED=13. DuckDB files (`src/duckdb.rs`) 2026-11-08: PASS=41 FAIL=0 SKIP=128 UNTESTABLE=19 QUARANTINED=13 NO_GOLDEN=39. Extends S-14 (harness) — no harness redesign.
 Baseline (CI pin `5f67ff8a`, 240 cmdlogs): **PASS=29 FAIL=0 SKIP=0 UNTESTABLE=50 QUARANTINED=121
 NO_GOLDEN=40.**
 
@@ -13,7 +13,7 @@ duckdb/postgres loaders, html, regressions and real columns-sheet tests. Real fi
 | Blocker | Files | Where it goes |
 |---|---|---|
 | Unknown formats (html 5, postgres 5, stata/dta/xpt 4, npy/npz 3, fixed-width 3, zip 2, msgpack 2, xml 2, toml, yaml, h5, png, usv, jsonla, lsv, fec, dir, http) | ~37 | P7 |
-| `save-sheet` to duckdb / sqlite commit / `.vds` | 13 | P7 (duckdb, vds) / out (commit) |
+| `save-sheet` to duckdb / sqlite commit / `.vds` | 13 | duckdb: 6 PASS 2026-11-08 (via the `duckdb` program, S-09); `.vds` 4: P7; commit 3: out |
 | Longnames of shipped features not in the translator: `describe-sheet` 6, `join-selected` 4, `key-selected` 2, `dive-selected`, `dive-except`, `unhide-cols`, `key-col-off`, `freeze-sheet`, `dup-rows-deep` 3, `search-keys`, `select-to-next-selected`, `type-decimal`, `save-all`, `allow-error` 2 | ~26 | P1 |
 | Columns sheet (`columns-selected` 4, `rename-cols-row`, FAIL `sortorder`, `issue3190`) | ~7 (+4 edit-join with S-18 C) | P3 |
 | Runtime: duplicate column names (2), lenient JSON (3), CSV quote edge (`errors.csv`), key lookup (2), join key dtype (1), empty parquet glob (1), geoarrow ext type (1), `join-sheets` with 0 sheets (1) | ~12 | P2 |

@@ -196,6 +196,13 @@ impl Script {
                             py_str(&format!("SELECT * FROM {}", q_ident(&table)))
                         )
                     }
+                    (SourceKind::Duckdb, _) => {
+                        self.need("import duckdb");
+                        format!(
+                            "duckdb.connect({p}, read_only=True).sql({}).pl().lazy()",
+                            py_str(&format!("FROM {}", duckdb_table(part)?))
+                        )
+                    }
                     (SourceKind::Stdin, _) => {
                         return Err("export: stdin can't be re-read".into());
                     }
@@ -254,6 +261,11 @@ impl Script {
                     SourceKind::Arrow => {
                         self.need("INSTALL nanoarrow FROM community;\nLOAD nanoarrow;");
                         format!("SELECT * FROM read_arrow({p})")
+                    }
+                    SourceKind::Duckdb => {
+                        let db = q_ident(&shown);
+                        self.need(&format!("ATTACH IF NOT EXISTS {p} AS {db} (READ_ONLY);"));
+                        format!("SELECT * FROM {db}.{}", duckdb_table(part)?)
                     }
                     SourceKind::Stdin => return Err("export: stdin can't be re-read".into()),
                 })
@@ -1214,6 +1226,13 @@ fn sql_dtype(dt: &DataType) -> &'static str {
         DataType::Datetime(..) => "TIMESTAMP",
         _ => "VARCHAR",
     }
+}
+
+/// `schema.table` of a duckdb part as SQL; an `:exec-sql` result has no table.
+fn duckdb_table(part: Option<&str>) -> Result<String, String> {
+    let part = part.ok_or("export: an :exec-sql result can't be re-read")?;
+    let (schema, table) = part.split_once('.').unwrap_or(("main", part));
+    Ok(format!("{}.{}", q_ident(schema), q_ident(table)))
 }
 
 #[cfg(test)]

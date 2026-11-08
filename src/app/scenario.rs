@@ -696,6 +696,86 @@ async fn parts_list_opens_each_table() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn duckdb_index_exec_sql_open_and_save() {
+    let have = std::process::Command::new("duckdb")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !have {
+        assert!(
+            std::env::var_os("VDRS_REQUIRE_ROUNDTRIP").is_none(),
+            "duckdb isn't usable"
+        );
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("app.duckdb");
+    let mut df = df!("id" => [1i64, 2], "note" => ["a", "b"]).unwrap();
+    crate::duckdb::save(&mut df, &db, "t").unwrap();
+    let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
+    let mut app = App::new(Sheet::parts_list(0, loaded, Vec::new()), None, None);
+    app.spawn_materialize();
+    let mut h = Harness::from_app(app).await;
+    assert!(
+        title(&h).contains("tables") && title(&h).contains("row 1/1"),
+        "{}",
+        title(&h)
+    );
+    // DDL: nothing to show, the index reloads in place.
+    h.keys(":").await;
+    h.type_("exec-sql CREATE SCHEMA o; CREATE TABLE o.t AS SELECT 42 AS x")
+        .await;
+    assert!(
+        title(&h).contains("tables") && title(&h).contains("row 1/2"),
+        "{}",
+        title(&h)
+    );
+    // Same name, other schema: `<CR>` opens o.t, not main.t.
+    h.keys("j <CR>").await;
+    assert!(
+        title(&h).contains(":o.t") && title(&h).contains("row 1/1"),
+        "{}",
+        title(&h)
+    );
+    // A query from a table sheet runs in its file and opens the rows.
+    h.keys(":").await;
+    h.type_("exec-sql SELECT count(*) AS n FROM main.t").await;
+    let n = h
+        .app
+        .sheets
+        .active()
+        .window
+        .as_ref()
+        .unwrap()
+        .column("n")
+        .unwrap()
+        .get(0)
+        .unwrap()
+        .try_extract::<i64>()
+        .unwrap();
+    assert_eq!(n, 2);
+    // `:save` into another .duckdb: a table named after the sheet.
+    h.keys("q").await;
+    let out = dir.path().join("out.duckdb");
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.display())).await;
+    let ix = crate::duckdb::index(&out).unwrap();
+    assert_eq!(
+        ix.column("name").unwrap().get(0).unwrap().get_str(),
+        Some("t")
+    );
+    assert_eq!(
+        ix.column("cols")
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .try_extract::<i64>()
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn tail_on_parquet_directory_picks_up_new_files() {
     let dir = tempfile::tempdir().unwrap();
     let write = |i: i64| {

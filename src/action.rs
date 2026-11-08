@@ -151,6 +151,10 @@ pub enum Action {
     Sql {
         query: String,
     },
+    /// `:exec-sql`: statements run in the active sheet's `.duckdb` file.
+    ExecSql {
+        sql: String,
+    },
     SetCol {
         value: String,
     },
@@ -270,6 +274,7 @@ impl Action {
             | RepeatLast
             | Save { .. }
             | Export { .. }
+            | ExecSql { .. }
             | Undo
             | Redo => false,
             OpenSheetSwitcher => false,

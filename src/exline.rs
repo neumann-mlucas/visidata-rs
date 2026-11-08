@@ -210,6 +210,14 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 query: rest.to_string(),
             }])
         }
+        "exec-sql" => {
+            if rest.is_empty() {
+                return Err(ExError::Usage(":exec-sql <statements> (in a .duckdb file)"));
+            }
+            Ok(vec![Action::ExecSql {
+                sql: rest.to_string(),
+            }])
+        }
         "export" => {
             if rest.is_empty() {
                 return Err(ExError::Usage(":export <path.py|path.sql>"));
@@ -601,6 +609,10 @@ mod tests {
         assert!(matches!(
             &parse("sql SELECT * FROM self").unwrap()[0],
             Action::Sql { .. }
+        ));
+        assert!(matches!(
+            &parse("exec-sql DROP TABLE t; SELECT 1").unwrap()[0],
+            Action::ExecSql { sql } if sql == "DROP TABLE t; SELECT 1"
         ));
         assert!(matches!(
             &parse("export out.py").unwrap()[0],

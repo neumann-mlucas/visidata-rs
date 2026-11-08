@@ -65,6 +65,7 @@ fn main() -> ExitCode {
         plugins::ensure_default_config();
     }
     let (plugins, plugin_warning) = plugins::Plugins::load();
+    visidata_rs::duckdb::set_cmd(plugins.duckdb_cmd());
     let plugins = Some(plugins);
 
     let loaded = match plugins::open(plugins.as_ref(), &cli.path, fmt) {
@@ -88,7 +89,7 @@ fn main() -> ExitCode {
         Some(p) => reader::list_parts(p, loaded.kind).unwrap_or_default(),
         None => Vec::new(),
     };
-    let sheet = if parts.is_empty() {
+    let sheet = if parts.is_empty() && loaded.kind != SourceKind::Duckdb {
         Sheet::from_source(0, loaded)
     } else {
         Sheet::parts_list(0, loaded, parts)

@@ -15,7 +15,8 @@ pub enum SourceKind {
     Json, // JSON array of records; `.json` holding JSON Lines is sniffed back to Jsonl
     Xlsx,
     Sqlite,
-    Stdin, // resolved to one of the above after sniffing
+    Duckdb, // read through the `duckdb` program (crate::duckdb)
+    Stdin,  // resolved to one of the above after sniffing
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -32,6 +33,8 @@ pub enum OpenError {
     Xlsx(String),
     #[error("sqlite: {0}")]
     Sqlite(String),
+    #[error("duckdb: {0}")]
+    Duckdb(String),
     #[error("plugin loader: {0}")]
     Plugin(String),
 }
@@ -194,6 +197,22 @@ pub struct LoadedSource {
 }
 
 impl LoadedSource {
+    /// Rows already in memory (an `:exec-sql` result); `path` is where they came from.
+    pub fn from_df(
+        kind: SourceKind,
+        display_name: String,
+        path: Option<PathBuf>,
+        df: DataFrame,
+    ) -> Self {
+        LoadedSource {
+            kind,
+            display_name,
+            path,
+            lazy: df.lazy(),
+            _tempfile: None,
+        }
+    }
+
     /// Zero-row empty source used as a placeholder by meta-sheets (sheet-switcher etc.).
     pub fn empty() -> Self {
         LoadedSource {
@@ -224,7 +243,8 @@ pub fn open(
     // `book.xlsx:Sheet2` / `app.db:users` — the same name the parts list shows.
     if !path.exists()
         && let Some((file, part)) = s.rsplit_once(':')
-        && let Ok(kind @ (SourceKind::Xlsx | SourceKind::Sqlite)) = detect(Path::new(file))
+        && let Ok(kind @ (SourceKind::Xlsx | SourceKind::Sqlite | SourceKind::Duckdb)) =
+            detect(Path::new(file))
         && Path::new(file).is_file()
     {
         return open_part(Path::new(file), kind, part);
@@ -269,18 +289,23 @@ pub fn list_parts(path: &Path, kind: SourceKind) -> Result<Vec<String>, OpenErro
 }
 
 /// Open one worksheet / table from `list_parts`.
+/// DuckDB parts are `schema.table`.
 pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSource, OpenError> {
-    let df = match kind {
-        SourceKind::Xlsx => open_xlsx(path, Some(part))?,
-        SourceKind::Sqlite => open_sqlite_table(path, Some(part))?,
+    let (lazy, tempfile) = match kind {
+        SourceKind::Xlsx => (open_xlsx(path, Some(part))?.lazy(), None),
+        SourceKind::Sqlite => (open_sqlite_table(path, Some(part))?.lazy(), None),
+        SourceKind::Duckdb => {
+            let (lazy, tmp) = crate::duckdb::open_table(path, part).map_err(OpenError::Duckdb)?;
+            (lazy, Some(tmp))
+        }
         other => return Err(OpenError::Xlsx(format!("{other:?} has no parts"))),
     };
     Ok(LoadedSource {
         kind,
         display_name: format!("{}:{part}", path.display()),
         path: Some(path.to_owned()),
-        lazy: df.lazy(),
-        _tempfile: None,
+        lazy,
+        _tempfile: tempfile,
     })
 }
 
@@ -381,6 +406,7 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("json") => Ok(SourceKind::Json),
         Some("xlsx" | "xls" | "xlsm" | "xlsb" | "ods") => Ok(SourceKind::Xlsx),
         Some("sqlite" | "sqlite3" | "db") => Ok(SourceKind::Sqlite),
+        Some("duckdb" | "ddb") => Ok(SourceKind::Duckdb),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
@@ -442,6 +468,10 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             .lazy(),
         SourceKind::Xlsx => open_xlsx(path, None)?.lazy(),
         SourceKind::Sqlite => open_sqlite_table(path, None)?.lazy(),
+        // Always the table list, as VisiData; `<CR>` opens one (`open_part`).
+        SourceKind::Duckdb => crate::duckdb::index(path)
+            .map_err(OpenError::Duckdb)?
+            .lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
     };
     Ok((lazy, kind))
