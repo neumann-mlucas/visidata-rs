@@ -24,3 +24,4 @@ issue3219-dedupe     # per-cell mixed types in one column (Polars columns are ty
 issue3219-dedupe-int # per-cell mixed types
 issue3219-freq       # per-cell mixed types
 xlsx-color-cells     # xlsx_meta_columns option: per-cell font/fill metadata columns
+issue2988            # xlsx_meta_columns: per-cell xlsx metadata columns (same as xlsx-color-cells)

@@ -25,12 +25,14 @@ use visidata_rs::sheet::{Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 30;
+const MIN_PASS: usize = 34;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
     sheet: String,
     col: String,
+    /// `.vdj` `"col": 1` is a visible-column index (a string is a name).
+    col_index: Option<usize>,
     row: String,
     longname: String,
     input: String,
@@ -68,6 +70,7 @@ fn parse_vd(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
         rows.push(CmdlogRow {
             sheet: get(si),
             col: get(ci),
+            col_index: None,
             row: get(ri),
             longname: get(li),
             input: get(ii),
@@ -85,10 +88,21 @@ fn parse_vdj(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
             continue;
         }
         let v: serde_json::Value = serde_json::from_str(line)?;
-        let get = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        // `row` may be a number (`"row": 1`); null / missing = "".
+        let col_index = v.get("col").and_then(|c| c.as_u64()).map(|i| i as usize);
+        let get = |k: &str| match v.get(k) {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Number(n)) => n.to_string(),
+            _ => String::new(),
+        };
         rows.push(CmdlogRow {
             sheet: get("sheet"),
-            col: get("col"),
+            col: if col_index.is_some() {
+                String::new()
+            } else {
+                get("col")
+            },
+            col_index,
             row: get("row"),
             longname: get("longname"),
             input: get("input"),
@@ -273,6 +287,24 @@ impl Replay {
         {
             self.set_current(i);
         }
+        let indexed;
+        let r = match r.col_index {
+            Some(i) => {
+                let schema = self.current_slot()?.sheet.view_plan().collect_schema();
+                let name = schema
+                    .ok()
+                    .and_then(|s| s.get_at_index(i).map(|(n, _)| n.to_string()));
+                // out of range (e.g. a sheet not modelled yet): the cursor column
+                let name = name.unwrap_or_default();
+                indexed = CmdlogRow {
+                    col: name,
+                    col_index: None,
+                    ..r.clone()
+                };
+                &indexed
+            }
+            None => r,
+        };
         let filled;
         // A sheet's cursor starts on its first column.
         let first_col = self.current_slot().ok().and_then(|s| {
@@ -380,27 +412,29 @@ impl Replay {
                         window: None,
                         revision: 0,
                         state: Default::default(),
-                        origin: Origin::File,
+                        origin: Origin::Copy {
+                            parent: parent_slot.sheet.id,
+                        },
                     };
                     (name, sheet)
                 };
                 self.push_sheet(name, new_sheet);
                 Ok(())
             }
-            "rename-col" => {
-                let slot = self.current_slot_mut()?;
-                let old = r.col.as_str();
-                let new = r.input.as_str();
-                slot.sheet.plan = slot.sheet.plan.clone().rename([old], [new], true);
-                if slot.sheet.view.hidden.remove(old) {
-                    slot.sheet.view.hidden.insert(new.to_string());
-                }
-                for k in slot.sheet.view.keys.iter_mut() {
-                    if k == old {
-                        *k = new.to_string();
-                    }
-                }
+            // `g"` deep copy / `g'` freeze: vdrs `:dup` (a copy of the view;
+            // vdrs sheets share nothing mutable, so deep = shallow).
+            "dup-rows-deep" | "freeze-sheet" => {
+                let id = self.next_id;
+                self.next_id += 1;
+                let slot = self.current_slot()?;
+                let name = format!("{}_copy", slot.name);
+                let new = Sheet::copy_from(&slot.sheet, id);
+                self.push_sheet(name, new);
                 Ok(())
+            }
+            "rename-col" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.rename_col(&r.col, &r.input).map_err(Runtime)
             }
             "hide-col" => {
                 self.current_slot_mut()?
@@ -445,7 +479,7 @@ impl Replay {
                 self.push_sheet(name, sheet);
                 Ok(())
             }
-            "unkey-col" => {
+            "unkey-col" | "key-col-off" => {
                 self.current_slot_mut()?
                     .sheet
                     .view
@@ -530,7 +564,13 @@ impl Replay {
             "edit-cell" => self.setcol_input(&r.col, &r.row, &r.input),
             // join-sheets: consumes sheets-stack selection, builds a joined sheet
             // and makes it current. Input = jointype (append/inner/outer/full).
-            "join-sheets" => self.join_sheets(&r.input, true),
+            // VisiData 3 renamed join-sheets → join-selected
+            "join-sheets" | "join-selected" => self.join_sheets(&r.input, true),
+            // `gv`
+            "unhide-cols" => {
+                self.current_slot_mut()?.sheet.view.hidden.clear();
+                Ok(())
+            }
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
@@ -630,6 +670,10 @@ impl Replay {
     }
 
     fn select_all(&mut self) -> Result<(), StepErr> {
+        if let Some(MetaMode::SheetsStack { selected }) = self.meta_mode.as_mut() {
+            *selected = self.loaded.iter().rev().map(|s| s.name.clone()).collect();
+            return Ok(());
+        }
         let s = &mut self.current_slot_mut()?.sheet;
         let n = s
             .plan
@@ -727,8 +771,16 @@ impl Replay {
     /// In SheetsStack meta mode, `row_key` is a *sheet name* — adds/removes
     /// from the meta-mode `selected` list for a follow-up `join-sheets`.
     fn toggle_single(&mut self, row_key: &str, select: bool, toggle: bool) -> Result<(), StepErr> {
+        // The sheets sheet lists the stack top first; row 0 is itself.
+        let stack: Vec<String> = self.loaded.iter().rev().map(|s| s.name.clone()).collect();
         if let Some(MetaMode::SheetsStack { selected }) = self.meta_mode.as_mut() {
-            let name = row_key.strip_prefix('キ').unwrap_or(row_key).to_string();
+            let mut name = row_key.strip_prefix('キ').unwrap_or(row_key).to_string();
+            if !stack.contains(&name)
+                && let Ok(i) = name.parse::<usize>()
+                && let Some(n) = i.checked_sub(1).and_then(|i| stack.get(i))
+            {
+                name = n.clone();
+            }
             if toggle {
                 if let Some(i) = selected.iter().position(|n| n == &name) {
                     selected.remove(i);
@@ -868,7 +920,9 @@ impl Replay {
                 window: None,
                 revision: 0,
                 state: Default::default(),
-                origin: Origin::File,
+                origin: Origin::Pivot {
+                    parent: parent_slot.sheet.id,
+                },
             };
             (name, sheet)
         };
@@ -1060,7 +1114,12 @@ impl Replay {
                         self.loaded[i].sheet.plan.clone(),
                         left_exprs.clone(),
                         right_exprs,
-                        JoinArgs::new(how.clone()).with_coalesce(JoinCoalesce::CoalesceColumns),
+                        // left rows in order, then right-only ones: as `Sheet::join_from`
+                        JoinArgs {
+                            maintain_order: MaintainOrderJoin::LeftRight,
+                            ..JoinArgs::new(how.clone())
+                                .with_coalesce(JoinCoalesce::CoalesceColumns)
+                        },
                     );
                     // VisiData `merge`: for each non-key col colliding with the
                     // right side (suffixed `_right` by Polars), prefer the right
@@ -1117,7 +1176,11 @@ impl Replay {
             window: None,
             revision: 0,
             state: Default::default(),
-            origin: Origin::File,
+            // a derived sheet: read-only, as in the app (S-18 D3)
+            origin: Origin::Join {
+                left: first.sheet.id,
+                right_name: String::new(),
+            },
         };
         self.push_sheet(joined_name, joined);
         if let Some(slot) = self.loaded.last_mut() {

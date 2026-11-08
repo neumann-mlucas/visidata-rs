@@ -629,6 +629,34 @@ impl Sheet {
         Ok(())
     }
 
+    /// `^` / `:rename`: a `Rename` step, and the view follows the column
+    /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
+    pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
+        if new != old && self.has_column(new) {
+            return Err(format!("column already exists: {new}"));
+        }
+        let step = PlanStep::Rename {
+            old: old.to_string(),
+            new: new.to_string(),
+        };
+        self.apply_step(step).map_err(|e| format!("rename: {e}"))?;
+        let v = &mut self.view;
+        if v.hidden.remove(old) {
+            v.hidden.insert(new.to_string());
+        }
+        let names = v
+            .keys
+            .iter_mut()
+            .chain(v.type_casts.iter_mut().map(|(c, _)| c));
+        let names = names
+            .chain(v.filter.as_mut().map(|f| &mut f.column))
+            .chain(v.sort.iter_mut().map(|k| &mut k.column));
+        for c in names.filter(|c| *c == old) {
+            *c = new.to_string();
+        }
+        Ok(())
+    }
+
     /// `# % ~ @`: show `name` as `dt` (a view cast; the base plan is untouched).
     pub fn set_type_cast(&mut self, name: String, dt: DataType) {
         match self.view.type_casts.iter_mut().find(|(c, _)| *c == name) {

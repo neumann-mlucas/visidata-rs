@@ -109,7 +109,7 @@ impl Sheet {
     }
 
     /// `snap` (taken before a change) becomes the newest undo step.
-    pub(super) fn push_undo(&mut self, snap: Snapshot) {
+    pub fn push_undo(&mut self, snap: Snapshot) {
         let undo = &mut self.state.undo;
         undo.push(snap);
         if undo.len() > UNDO_MAX {
@@ -118,7 +118,7 @@ impl Sheet {
         self.state.redo.clear();
     }
 
-    pub(super) fn snapshot(&self) -> Snapshot {
+    pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             plan: self.plan.clone(),
             view: self.view.clone(),

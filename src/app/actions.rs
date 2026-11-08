@@ -151,40 +151,15 @@ impl App {
                 let Some(old) = self.current_column_name() else {
                     return;
                 };
-                if new_name != old && self.sheets.active().has_column(&new_name) {
-                    self.toast = Some(format!("column already exists: {new_name}"));
-                    return;
-                }
                 let s = self.sheets.active_mut();
-                s.checkpoint();
-                let step = crate::sheet::PlanStep::Rename {
-                    old: old.clone(),
-                    new: new_name.clone(),
-                };
-                if let Err(e) = s.apply_step(step) {
-                    self.toast = Some(format!("rename: {e}"));
-                    return;
-                }
-                if s.view.hidden.remove(&old) {
-                    s.view.hidden.insert(new_name.clone());
-                }
-                for k in s.view.keys.iter_mut() {
-                    if k == &old {
-                        *k = new_name.clone();
+                let before = s.snapshot();
+                match s.rename_col(&old, &new_name) {
+                    Ok(()) => {
+                        s.push_undo(before);
+                        self.spawn_materialize();
                     }
+                    Err(e) => self.toast = Some(e),
                 }
-                for (c, _) in s.view.type_casts.iter_mut() {
-                    if c == &old {
-                        *c = new_name.clone();
-                    }
-                }
-                if let Some(f) = s.view.filter.as_mut().filter(|f| f.column == old) {
-                    f.column = new_name.clone();
-                }
-                for k in s.view.sort.iter_mut().filter(|k| k.column == old) {
-                    k.column = new_name.clone();
-                }
-                self.spawn_materialize();
             }
             Action::TypeCastInt => self.push_type_cast(DataType::Int64),
             Action::TypeCastFloat => self.push_type_cast(DataType::Float64),

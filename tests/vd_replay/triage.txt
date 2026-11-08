@@ -45,13 +45,13 @@ empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	SKIP delete-cells
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP open-new
-extend	SKIP join-selected
+extend	SKIP sheets-all
 fill	NO_GOLDEN golden is .jsonl
 fill-nested	NO_GOLDEN golden is .jsonl
 fill-zero	NO_GOLDEN golden is .json
 format-enum	SKIP setcol-format-enum
 format-enum-freeze	SKIP setcol-format-enum
-freeze-json	SKIP freeze-sheet
+freeze-json	PASS
 freeze-sheet-attrs	SKIP aggregate-col
 freq-dive-except	SKIP dive-except
 freq-error	SKIP aggregate-col
@@ -88,22 +88,22 @@ issue2476	NO_GOLDEN golden is .csv
 issue2524-curcol	UNTESTABLE addcol-expr
 issue2890-parquet-addrow-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue2901-defer-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-issue2988	SKIP unhide-cols
+issue2988	FAIL line 1: want="fill\tfill_cellPyObj\tfill_fontColor\tfill_fillColor\tfill_colorizer\ttext\ttext_cellPyObj\ttext_fontColor\ttext_fillColor\ttext_colorizer" g
 issue3015-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3022-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3103	SKIP addcol-shell
 issue3146-paste	SKIP addcol-new
 issue3146-vds	SKIP save-sheet
 issue3163	SKIP search-keys
-issue3174-deepcopy-append	SKIP dup-rows-deep
-issue3174-deepcopy-concat	SKIP dup-rows-deep
-issue3174-deepcopy-full	SKIP dup-rows-deep
+issue3174-deepcopy-append	PASS
+issue3174-deepcopy-concat	PASS
+issue3174-deepcopy-full	PASS
 issue3174-deepcopy-join-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3174-deepcopy-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3175-vds-concat	SKIP save-sheet
 issue3175-vds-full	SKIP save-sheet
-issue3178	SKIP serialize: duplicate: column 'D' is duplicate
-issue3187	SKIP join-selected
+issue3178	SKIP runtime: column already exists: B
+issue3187	SKIP runtime: not found: "name" not found
 issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
 issue3190-unhide	PASS
 issue3195	SKIP set-envvar
@@ -111,7 +111,7 @@ issue3198	PASS
 issue3198-keycols	PASS
 issue3208-append	PASS
 issue3208-concat	PASS
-issue3208-duplicates	SKIP runtime: duplicate: column 'a' is duplicate
+issue3208-duplicates	SKIP runtime: column already exists: a
 issue3208-reordered	PASS
 issue3214-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3215-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -126,9 +126,9 @@ issue3223-nostat	SKIP allow-error
 issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
-issue964-inner-join	FAIL line 2: want="082053\tM\tPA\tPalermo" got="82014\tM\tPA\tCaccamo"
+issue964-inner-join	FAIL line 2: want="082053\tM\tPA\tPalermo" got="82053\tM\tPA\tPalermo"
 join-cols-single-sheet	SKIP join-cols
-join-concat	SKIP join-selected
+join-concat	SKIP runtime: no sheet named 'sample_columns'
 join-different-types	SKIP runtime: join-sheets needs ≥2 sheets, got 0
 join-extend-mult	FAIL line 1: want="Key\tA\tB\tdata3_E\tdata3_F\tdata2_C\tdata2_D" got="Key\tE\tF\tA\tB"
 join-merge	PASS
@@ -199,7 +199,7 @@ pr2308	NO_GOLDEN golden is .json
 pr2372	SKIP addcol-new
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
 pr2614	SKIP addcol-incr
-pr2647	SKIP join-selected
+pr2647	SKIP runtime: read-only: b&a is derived
 pr2688a	PASS
 pr2688b	PASS
 pr2815	NO_GOLDEN golden is .json
@@ -208,7 +208,7 @@ prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
 quit-perf	NO_GOLDEN assertion-only (no golden in VisiData)
-rank-sheetrank-sorted-cols	SKIP key-col-off
+rank-sheetrank-sorted-cols	SKIP addcol-rank-sheet
 record-aggr	SKIP memo-aggregate
 remove-errors	UNTESTABLE setcol-expr
 rows-select-expr	UNTESTABLE select-expr
