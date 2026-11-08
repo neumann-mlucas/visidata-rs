@@ -1,0 +1,12 @@
+ tests/golden/edit-cell/input.csv  csv                                      qty 3/3  row 3/3 · 100%
+ id i name str   qty i
+    1 zed            2
+    2 b              ·
+    3 c              9
+
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · z| filter · s sel · F freq · I describe · U undo · : ex · q

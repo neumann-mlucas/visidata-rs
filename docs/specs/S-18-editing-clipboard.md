@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -137,6 +137,16 @@ the UI thread. Unit tests always get an in-memory sink (`cfg(test)`), never the 
 §2.2/§2.4; Esc cancels. `ge` = `:setcol` with the prompt prefilled. `:edit <value>` for scripts and
 `vd.bind`. Undo/redo as any step. The cursor stays on the edited cell; sort/filter re-run (an edited
 row can leave the filter; the cursor then behaves as after `:setcol`, to be pinned by a scenario test).
+
+As shipped: `e`/`:edit` reuse `SetCol` with one rid (`value: Option<String>`, `rids: Arc<[u64]>`), so
+`SetCells` waits for the first per-row-values paste (D `zp` multi-cell / G `gzP`). `insert_point`
+(`src/sheet/step.rs`) + `Sheet::insert_edit` rebuild the plan from the base (tail rows, the in-memory
+copy `state.memory_base`, or the source); `:setcol`/`ge` take the same rule. Bool columns take
+`true`/`false` (Polars casts no text to bool); Python export parses date/datetime literals (Polars 2
+dropped text → date casts). `Sheet::editable()` refuses on derived sheets (`:setcol` included). The
+quit guard (S-26 A1) counts edit steps against `state.saved_edits` (set when `:save` finishes):
+`q`/`:q`/`gq`/`<C-q>` ask `… y/N` in the status line, one key; `:q!`/`:qa!`/`:quit!` don't. The
+replay driver still uses its own `edit-cell`/`setcol-input` path; S-25 P1 moves it onto `edit_cell`.
 
 ### D — Paste into cells
 `zp`: register cell → cursor cell. `gzp`: register's first value → current column of selected rows

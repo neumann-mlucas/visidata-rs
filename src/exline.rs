@@ -33,7 +33,13 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
     };
     match cmd {
         "q" | "quit" => Ok(vec![Action::PopSheet]),
-        "qa" | "quit!" => Ok(vec![Action::Quit]),
+        "q!" => Ok(vec![Action::ForcePopSheet]),
+        "qa" => Ok(vec![Action::Quit]),
+        "qa!" | "quit!" => Ok(vec![Action::ForceQuit]),
+        // empty = null
+        "edit" => Ok(vec![Action::EditCell {
+            value: unquote(rest),
+        }]),
         "filter" => {
             const USAGE: &str = ":filter <col> <regex>";
             let (col, pat) = first_arg(rest, USAGE)?;
@@ -265,6 +271,7 @@ pub const COMMANDS: &[&str] = &[
     "describe",
     "diff",
     "dup",
+    "edit",
     "export",
     "filter",
     "hide",
@@ -275,7 +282,9 @@ pub const COMMANDS: &[&str] = &[
     "melt",
     "pivot",
     "q",
+    "q!",
     "qa",
+    "qa!",
     "quit",
     "quit!",
     "redo",

@@ -32,7 +32,7 @@ impl Sheet {
         }
         if sheet.tails_incrementally() {
             sheet.reload_tail_cache()?;
-            sheet.rebuild_tail_plan()?;
+            sheet.rebuild_plan()?;
         }
         Ok(sheet)
     }
@@ -105,12 +105,16 @@ impl Sheet {
                 }
                 Ok(df.lazy())
             }
-            None => Ok(self.source.lazy.clone()),
+            None => Ok(self
+                .state
+                .memory_base
+                .clone()
+                .unwrap_or_else(|| self.source.lazy.clone())),
         }
     }
 
-    /// Plan = current tail rows + this sheet's edits.
-    pub(super) fn rebuild_tail_plan(&mut self) -> PolarsResult<()> {
+    /// Plan = the base (tail rows, in-memory copy, or source) + this sheet's edits.
+    pub(super) fn rebuild_plan(&mut self) -> PolarsResult<()> {
         let mut plan = self.tail_base()?;
         for step in &self.state.steps {
             plan = step.apply(plan)?;
@@ -138,7 +142,7 @@ impl Sheet {
     /// decompressed tempfile alive.
     pub fn set_tail_source(&mut self, loaded: LoadedSource) -> PolarsResult<()> {
         self.source = Arc::new(loaded);
-        self.rebuild_tail_plan()?;
+        self.rebuild_plan()?;
         self.view.count_key = None;
         Ok(())
     }
@@ -181,7 +185,7 @@ impl Sheet {
                 Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
             }
         }
-        self.rebuild_tail_plan()?;
+        self.rebuild_plan()?;
         self.view.count_key = None;
         Ok(true)
     }

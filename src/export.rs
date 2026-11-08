@@ -896,11 +896,26 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             column,
             value,
             rids,
-            ..
+            dtype,
         } => format!(
             "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
-             .then(pl.lit({v}).cast({t}.collect_schema()[{c}])).otherwise(pl.col({c})).alias({c})).drop(\"__rid\")",
-            v = py_str(value),
+             .then({v}).otherwise(pl.col({c})).alias({c})).drop(\"__rid\")",
+            // Polars 2 casts no text to bool/date/datetime: parse those.
+            v = match (value.as_deref(), dtype) {
+                (Some("true"), DataType::Boolean) => "pl.lit(True)".into(),
+                (Some(_), DataType::Boolean) => "pl.lit(False)".into(),
+                (Some(v), DataType::Date) => format!("pl.lit({}).str.to_date()", py_str(v)),
+                (Some(v), DataType::Datetime(..)) => format!(
+                    "pl.lit({}).str.to_datetime().cast({t}.collect_schema()[{c}])",
+                    py_str(v),
+                    c = py_str(column)
+                ),
+                (v, _) => format!(
+                    "pl.lit({}).cast({t}.collect_schema()[{c}])",
+                    v.map_or("None".into(), py_str),
+                    c = py_str(column)
+                ),
+            },
             c = py_str(column)
         ),
     }
@@ -940,7 +955,7 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                 "SELECT * EXCLUDE (__rid) REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST({} AS {}) ELSE {c} END AS {c}) \
                  FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
                 ids.join(", "),
-                q_str(value),
+                value.as_deref().map_or("NULL".into(), q_str),
                 sql_dtype(dtype),
                 c = q_ident(column)
             )

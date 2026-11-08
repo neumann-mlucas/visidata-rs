@@ -154,6 +154,14 @@ pub enum Action {
     SetCol {
         value: String,
     },
+    /// `e` / `:edit <value>`: the cursor cell := value (empty = null) (S-18 C).
+    EditCell {
+        value: String,
+    },
+    /// `e`: prompt prefilled with the cursor cell.
+    StartEditInput,
+    /// `ge`: prompt for `:setcol` (current column, selected rows).
+    StartSetColInput,
     HideUniform,
     DupSheet,
     Describe,
@@ -181,9 +189,13 @@ pub enum Action {
 
     // sheet stack
     PopSheet,
+    /// `:q!`: pop without the unsaved-edits question.
+    ForcePopSheet,
 
     // meta
     Quit,
+    /// `:qa!` / `:quit!`: quit without the unsaved-edits question.
+    ForceQuit,
     /// `<C-c>`: drop the active sheet's background jobs (VisiData cancel-sheet).
     CancelJobs,
     /// `g<C-c>`: drop every background job (VisiData cancel-all).
@@ -249,6 +261,8 @@ impl Action {
         use Action::*;
         match self {
             Quit
+            | ForceQuit
+            | ForcePopSheet
             | CancelJobs
             | CancelAllJobs
             | PopSheet
@@ -267,7 +281,9 @@ impl Action {
             | StartExInput
             | StartSelectInput
             | StartDiffInput
-            | StartRenameColInput => false,
+            | StartRenameColInput
+            | StartEditInput
+            | StartSetColInput => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -307,7 +323,8 @@ impl Action {
             | Join { .. }
             | Derive { .. }
             | Sql { .. }
-            | SetCol { .. } => true,
+            | SetCol { .. }
+            | EditCell { .. } => true,
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
@@ -371,6 +388,8 @@ impl Action {
         ("submit_selected", SubmitSelected),
         ("toggle_plan_panel", TogglePlanPanel),
         ("pop_sheet", PopSheet),
+        ("start_edit_input", StartEditInput),
+        ("start_setcol_input", StartSetColInput),
         ("quit", Quit),
         ("cancel_jobs", CancelJobs),
         ("cancel_all_jobs", CancelAllJobs),

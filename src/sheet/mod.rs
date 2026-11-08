@@ -58,6 +58,10 @@ pub struct SheetState {
     pub widths_view: String,
     /// `memory_plan` has had its one chance.
     pub load_tried: bool,
+    /// The source read into memory by `memory_plan`: the base edits rebuild on.
+    pub memory_base: Option<LazyFrame>,
+    /// Edit steps at the last `:save` (quit guard, S-26 A1).
+    pub saved_edits: usize,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent
@@ -237,6 +241,9 @@ impl Sheets {
     /// Iterate sheets by `(id, name, kind)` for the sheet-switcher view.
     pub fn summaries(&self) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
         self.stack.iter().map(|s| (s.id, s.name.as_str(), s.kind))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Sheet> {
+        self.stack.iter()
     }
     pub fn find_by_id_mut(&mut self, id: SheetId) -> Option<&mut Sheet> {
         self.stack.iter_mut().find(|s| s.id == id)
@@ -622,14 +629,27 @@ impl Sheet {
         Ok(())
     }
 
-    /// `:setcol`: write `value` into `column` on the selected rows. The value
-    /// must fit the column's type (checked here, not at collect time).
-    pub fn set_col(&mut self, column: &str, value: &str) -> Result<usize, String> {
-        let rids: Vec<u64> = self.view.selected.iter().copied().collect();
-        if rids.is_empty() {
-            return Err("no rows selected".into());
+    /// Sheets read from a source take edits; derived ones (freq, pivot,
+    /// join, `:sql`, selected rows, …) don't (S-18 D3).
+    pub fn editable(&self) -> Result<(), String> {
+        if matches!(self.origin, Origin::File | Origin::Tail { .. }) {
+            return Ok(());
         }
-        let dtype = self
+        Err(match &self.state.lineage {
+            Some(l) => format!("read-only: {} is derived from {}", self.name, l.parent.name),
+            None => format!("read-only: {} is derived", self.name),
+        })
+    }
+
+    /// `text` typed into `column`, as stored (None for empty = null), and the
+    /// column's base type. It must fit the column as displayed (after
+    /// `# % ~ @`) and its base type (S-18 §2.4).
+    pub fn edit_value(
+        &self,
+        column: &str,
+        text: &str,
+    ) -> Result<(Option<String>, DataType), String> {
+        let base = self
             .plan
             .clone()
             .collect_schema()
@@ -637,23 +657,77 @@ impl Sheet {
             .get(column)
             .cloned()
             .ok_or_else(|| format!("no column: {column}"))?;
-        df!("v" => [value])
-            .and_then(|d| {
-                d.lazy()
-                    .select([col("v").strict_cast(dtype.clone())])
-                    .collect()
-            })
-            .map_err(|_| format!("{value:?} doesn't fit {column} ({dtype})"))?;
+        if text.is_empty() {
+            return Ok((None, base));
+        }
+        if base == DataType::Boolean {
+            // Polars doesn't cast text to bool
+            let t = text.to_ascii_lowercase();
+            return match t.as_str() {
+                "true" | "false" => Ok((Some(t), base)),
+                _ => Err(format!("{text:?} doesn't fit {column} (bool: true/false)")),
+            };
+        }
+        let fits = |e: Expr| {
+            df!(column => [text])
+                .and_then(|d| d.lazy().select([e.alias("v")]).collect())
+                .is_ok_and(|d| d.column("v").is_ok_and(|c| c.null_count() == 0))
+        };
+        let shown = self
+            .view
+            .type_casts
+            .iter()
+            .find(|(n, _)| n == column)
+            .map(|(_, d)| d);
+        let ok_shown = match shown {
+            Some(DataType::Date) if base == DataType::String => fits(lenient_date(column)),
+            Some(dt) => fits(col(column).strict_cast(dt.clone())),
+            None => true,
+        };
+        let ok_base = fits(col(column).strict_cast(base.clone()));
+        if ok_shown && ok_base {
+            return Ok((Some(text.to_string()), base));
+        }
+        let dtype = if ok_shown { &base } else { shown.unwrap() };
+        Err(format!("{text:?} doesn't fit {column} ({dtype})"))
+    }
+
+    /// `e` / `:edit`: set one cell (row id `rid`) of `column`.
+    pub fn edit_cell(&mut self, column: &str, rid: u64, text: &str) -> Result<(), String> {
+        self.set_rows(column, Arc::from([rid]), text)
+    }
+
+    /// `:setcol` / `ge`: write `text` into `column` on the selected rows.
+    pub fn set_col(&mut self, column: &str, text: &str) -> Result<usize, String> {
+        let rids: Arc<[u64]> = self.view.selected.iter().copied().collect();
+        if rids.is_empty() {
+            self.editable()?;
+            return Err("no rows selected".into());
+        }
+        let n = rids.len();
+        self.set_rows(column, rids, text)?;
+        Ok(n)
+    }
+
+    fn set_rows(&mut self, column: &str, rids: Arc<[u64]>, text: &str) -> Result<(), String> {
+        self.editable()?;
+        let (value, dtype) = self.edit_value(column, text)?;
         let step = PlanStep::SetCol {
             column: column.to_string(),
-            value: value.to_string(),
+            value,
             dtype,
             rids,
         };
-        self.checkpoint();
-        let n = self.view.selected.len();
-        self.apply_step(step).map_err(|e| e.to_string())?;
-        Ok(n)
+        let before = self.snapshot();
+        self.insert_edit(column, step).map_err(|e| e.to_string())?;
+        self.push_undo(before);
+        Ok(())
+    }
+
+    /// Edits since the last `:save` (or open); undoing past a save counts too.
+    pub fn unsaved_edits(&self) -> usize {
+        let edits = self.state.steps.iter().filter(|s| s.is_edit()).count();
+        edits.abs_diff(self.state.saved_edits)
     }
 
     /// Whether the base plan has `name` (hidden columns count: filter/sort may use them).

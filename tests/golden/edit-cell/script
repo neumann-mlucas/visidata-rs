@@ -1,0 +1,5 @@
+l e <C-u>
+> zed
+j l e <C-u> <CR>
+j e <C-u>
+> 9

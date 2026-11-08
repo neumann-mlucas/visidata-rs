@@ -17,12 +17,13 @@ pub enum PlanStep {
         expr: String,
         replaces: bool,
     },
-    /// `:setcol`: `column` := `value` on rows `rids`.
+    /// `:setcol`, `e`: `column` := `value` (None = null) on rows `rids`.
+    /// `rids` behind `Arc` so undo snapshots share them.
     SetCol {
         column: String,
-        value: String,
+        value: Option<String>,
         dtype: DataType,
-        rids: Vec<u64>,
+        rids: Arc<[u64]>,
     },
 }
 
@@ -49,18 +50,45 @@ impl PlanStep {
             } => plan
                 .with_row_index("__vdrs_set", None)
                 .with_column(
-                    when(
-                        col("__vdrs_set")
-                            .cast(DataType::UInt64)
-                            .is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
-                    )
-                    .then(lit(value.to_string()).strict_cast(dtype.clone()))
+                    when(col("__vdrs_set").cast(DataType::UInt64).is_in(
+                        lit(Series::new("ids".into(), &rids[..])).implode(false),
+                        false,
+                    ))
+                    .then(match value {
+                        Some(v) if *dtype == DataType::Boolean => lit(v == "true"),
+                        Some(v) => lit(v.to_string()).strict_cast(dtype.clone()),
+                        None => lit(Null {}).cast(dtype.clone()),
+                    })
                     .otherwise(col(column.as_str()))
                     .alias(column.as_str()),
                 )
                 .drop(cols(["__vdrs_set"])),
         })
     }
+}
+
+impl PlanStep {
+    /// The column this step writes, if any (S-18 §2.2).
+    fn writes(&self) -> Option<&str> {
+        match self {
+            PlanStep::Rename { new, .. } => Some(new),
+            PlanStep::Currency { column } | PlanStep::SetCol { column, .. } => Some(column),
+            PlanStep::Derive { name, .. } => Some(name),
+        }
+    }
+
+    pub fn is_edit(&self) -> bool {
+        matches!(self, PlanStep::SetCol { .. })
+    }
+}
+
+/// Where an edit of `column` goes: right after the last step that writes it,
+/// so later derives that read `column` see the edit (S-18 §2.2).
+pub(super) fn insert_point(steps: &[PlanStep], column: &str) -> usize {
+    steps
+        .iter()
+        .rposition(|s| s.writes() == Some(column))
+        .map_or(0, |i| i + 1)
 }
 
 /// Everything `U` restores.
@@ -77,7 +105,11 @@ const UNDO_MAX: usize = 100;
 impl Sheet {
     /// Remember the current plan/view for `U`; a new change forgets redo history.
     pub fn checkpoint(&mut self) {
-        let snap = self.snapshot();
+        self.push_undo(self.snapshot());
+    }
+
+    /// `snap` (taken before a change) becomes the newest undo step.
+    pub(super) fn push_undo(&mut self, snap: Snapshot) {
         let undo = &mut self.state.undo;
         undo.push(snap);
         if undo.len() > UNDO_MAX {
@@ -112,11 +144,24 @@ impl Sheet {
         self.view.count_key = None; // plan may differ: recount
         if matches!(self.origin, Origin::Tail { .. }) {
             // Snapshots predate rows that arrived since; keep the rows, undo the edit.
-            if let Err(e) = self.rebuild_tail_plan() {
+            if let Err(e) = self.rebuild_plan() {
                 debug_assert!(false, "steps applied before: {e}");
             }
         }
         true
+    }
+
+    /// Put an edit of `column` at its [`insert_point`] and rebuild the plan.
+    /// Unchanged on error; the undo step is the caller's.
+    pub(super) fn insert_edit(&mut self, column: &str, step: PlanStep) -> PolarsResult<()> {
+        let at = insert_point(&self.state.steps, column);
+        self.state.steps.insert(at, step);
+        if let Err(e) = self.rebuild_plan() {
+            self.state.steps.remove(at);
+            return Err(e);
+        }
+        self.view.count_key = None;
+        Ok(())
     }
 
     /// Bake `step` into the plan and remember it for `:export` and `:tail`.
@@ -125,5 +170,40 @@ impl Sheet {
         self.state.steps.push(step);
         self.view.count_key = None; // a filter on the column may match differently
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_point_follows_the_last_writer() {
+        let set = |c: &str| PlanStep::SetCol {
+            column: c.into(),
+            value: None,
+            dtype: DataType::String,
+            rids: Arc::from([0u64]),
+        };
+        let derive = |n: &str| PlanStep::Derive {
+            name: n.into(),
+            expr: "qty * 2".into(),
+            replaces: false,
+        };
+        let rename = PlanStep::Rename {
+            old: "a".into(),
+            new: "qty".into(),
+        };
+        assert_eq!(insert_point(&[], "qty"), 0);
+        // no writer: front, so `total = qty * 2` sees the edit
+        assert_eq!(insert_point(&[derive("total")], "qty"), 0);
+        assert_eq!(insert_point(&[rename.clone(), derive("total")], "qty"), 1);
+        assert_eq!(insert_point(&[set("qty"), derive("total")], "qty"), 1);
+        // a derived column itself: after its Derive (pins the cell)
+        assert_eq!(insert_point(&[derive("total"), set("x")], "total"), 1);
+        let cur = PlanStep::Currency {
+            column: "qty".into(),
+        };
+        assert_eq!(insert_point(&[cur, derive("total"), set("qty")], "qty"), 3);
     }
 }

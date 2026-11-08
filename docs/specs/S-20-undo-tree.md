@@ -1,7 +1,11 @@
 # S-20 — Undo tree
 
-Status: **drafted 2026-11-08**, optional, not started. Independent of S-18 (works for every undoable
-action); worth doing before or with S-18 C so edits never lose a branch.
+Status: **drafted 2026-11-08**, not started; deferred until after S-18 G (decision 2026-11-08: cheap to
+add later, snapshots already immutable). Independent of S-18 (works for every undoable action).
+
+Idea (2026-11-08): ship the tree view as a Lua plugin, an example of extending vdrs with Lua: needs a
+read-only `vd.undo_tree()` (nodes: id, parent, label, time) and a way to jump (`vd.exec(":undo-to N")`,
+S-29) — plus `vd.push_sheet` to show it.
 
 ## 1. Today
 Per sheet `undo`/`redo: Vec<Snapshot>` (max 100); a change after `U` clears `redo`, so that branch is

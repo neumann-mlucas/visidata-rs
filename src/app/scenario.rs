@@ -1433,3 +1433,143 @@ async fn syscopy_sends_tsv_and_lines_to_the_clipboard() {
     let toast = h.app.toast.clone().unwrap();
     assert!(toast.contains("vdrs-no-such-clip-cmd not found"), "{toast}");
 }
+
+fn view_csv(h: &Harness) -> String {
+    csv_text(h.app.sheets.active(), b',')
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_cell_prompt_undo_redo_and_types() {
+    let mut h = csv(b"id,qty,price\n1,2,1.5\n2,3,2.0\n3,,4.0\n").await;
+    h.keys("l e").await; // prefilled with the cell
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "2");
+    h.keys("<C-u>").await;
+    h.type_("5").await;
+    assert_eq!(view_csv(&h), "id,qty,price\n1,5,1.5\n2,3,2.0\n3,,4.0\n");
+    assert_eq!(
+        (h.app.sheets.active().view.row_cursor, h.current_column()),
+        (0, "qty".into())
+    );
+
+    h.keys("e <C-u> 9 <Esc>").await; // Esc changes nothing
+    assert!(view_csv(&h).contains("1,5,1.5"));
+    h.keys("U").await;
+    assert!(view_csv(&h).contains("1,2,1.5"));
+    h.keys("R").await;
+    assert!(view_csv(&h).contains("1,5,1.5"));
+
+    h.keys("e <C-u>").await;
+    h.type_("abc").await;
+    assert_eq!(status(&h), r#""abc" doesn't fit qty (i64)"#);
+    h.keys("j e <C-u> <CR>").await; // empty = null
+    assert_eq!(view_csv(&h), "id,qty,price\n1,5,1.5\n2,,2.0\n3,,4.0\n");
+
+    // the value must fit the column as displayed too: `#` on price
+    h.keys("l #").await;
+    h.keys(":").await;
+    h.type_("edit 2.5").await;
+    assert!(status(&h).contains("doesn't fit price"), "{}", status(&h));
+    h.keys(":").await;
+    h.type_("edit 7").await;
+    assert!(view_csv(&h).contains("2,,7"), "{}", view_csv(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
+    let mut h = csv(b"id,qty,price\n1,2,1.5\n2,3,2.0\n3,1,4.0\n").await;
+    h.keys(":").await;
+    h.type_("derive total = qty * price").await;
+    h.keys("l e <C-u>").await; // qty of id 1
+    h.type_("10").await;
+    let v = view_csv(&h);
+    assert!(v.contains("1,10,1.5,15.0"), "{v}");
+    // the derived column itself: the cell is pinned
+    h.keys("g l e <C-u>").await;
+    h.type_("0").await;
+    assert!(view_csv(&h).contains("1,10,1.5,0.0"), "{}", view_csv(&h));
+    // sort/filter later: the edit stays on its row
+    h.keys("g h l ]").await; // qty desc
+    assert!(view_csv(&h).starts_with("id,qty,price,total\n1,10,1.5,0.0\n"));
+    h.keys("j :").await; // id 2 is second
+    h.type_("edit 4").await;
+    h.keys("[").await;
+    assert_eq!(
+        view_csv(&h),
+        "id,qty,price,total\n3,1,4.0,4.0\n2,4,2.0,8.0\n1,10,1.5,0.0\n"
+    );
+    // ge = setcol prompt on the selected rows
+    h.keys("g h s j s g e").await;
+    h.type_("7").await;
+    assert!(view_csv(&h).starts_with("id,qty,price,total\n7,1,4.0,4.0\n7,4,2.0,8.0\n"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn derived_sheets_refuse_edits_but_copy() {
+    let mut h = csv(b"id,g\n1,a\n2,b\n3,a\n").await;
+    h.keys("l F").await;
+    for keys in ["e", "s g e"] {
+        h.keys(keys).await;
+        assert!(
+            status(&h).starts_with("read-only: "),
+            "{keys}: {}",
+            status(&h)
+        );
+        assert!(h.app.input.is_none());
+    }
+    h.keys(":").await;
+    h.type_("edit x").await;
+    assert!(status(&h).contains("is derived from"), "{}", status(&h));
+    h.keys(":").await;
+    h.type_("setcol x").await;
+    assert!(status(&h).contains("read-only: "), "{}", status(&h));
+    assert!(h.app.sheets.active().state.steps.is_empty());
+    h.keys("y").await;
+    assert_eq!(status(&h), "copied 1 row");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn quit_guard_asks_about_unsaved_edits() {
+    let mut h = csv(b"id,g\n1,a\n2,b\n").await;
+    h.keys("l e <C-u>").await;
+    h.type_("z").await;
+    h.keys("F").await; // a child sheet has no edits: q just pops
+    h.keys("q").await;
+    assert_eq!(h.app.sheets.len(), 1);
+    h.keys("q").await;
+    let ask = format!("discard 1 edit to {}? y/N", h.app.sheets.active().name);
+    assert!(status(&h).contains(&ask), "{}", status(&h));
+    h.keys("n").await;
+    assert_eq!(status(&h), "kept the edits");
+    assert!(!h.app.quit);
+    h.keys("g q").await;
+    assert!(
+        status(&h).contains("quit and discard 1 edit? y/N"),
+        "{}",
+        status(&h)
+    );
+    h.keys("<Esc>").await;
+    assert!(!h.app.quit);
+    // saved: no question
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.csv");
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.display())).await;
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "id,g\n1,z\n2,b\n");
+    h.keys("q").await;
+    assert!(h.app.quit);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn quit_guard_y_and_bang_skip() {
+    let mut h = csv(b"id\n1\n").await;
+    h.keys("e <C-u>").await;
+    h.type_("2").await;
+    h.keys("q y").await;
+    assert!(h.app.quit);
+    let mut h = csv(b"id\n1\n").await;
+    h.keys(":").await;
+    h.type_("edit 2").await;
+    h.keys(":").await;
+    h.type_("q!").await;
+    assert!(h.app.quit);
+}

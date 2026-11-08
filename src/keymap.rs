@@ -313,6 +313,13 @@ impl Keymap {
                 vec![SysCopyCells],
                 "copy current column of selected rows to clipboard",
             ),
+            // editing (S-18 C)
+            ch(vec![k("e")], vec![StartEditInput], "edit current cell"),
+            ch(
+                vec![k("g"), k("e")],
+                vec![StartSetColInput],
+                "set current column of selected rows",
+            ),
             ch(vec![k("U")], vec![Undo], "undo"),
             ch(vec![k("R")], vec![Redo], "redo"),
             ch(

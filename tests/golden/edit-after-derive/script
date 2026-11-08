@@ -1,0 +1,5 @@
+:
+> derive total = qty * price
+l e <C-u>
+> 10
+]

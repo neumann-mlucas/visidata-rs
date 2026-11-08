@@ -112,7 +112,8 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|
 | `OpenSheetSwitcher` | `S` | push meta-sheet listing stack; `<CR>` on row → `SwitchToSheet` |
 | `SwitchToSheet(id)` + `SubmitRow` | `<CR>` | pop sheet-switcher, activate selected |
-| `PopSheet` | `q` | drop active, show one below |
+| `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
+| `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets only (S-18 C) |
 
 ### 3.7 Plan panel
 
@@ -151,7 +152,9 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
-| Set column | `:setcol <value>` | current col on selected rows; value must cast strictly to the column type |
+| Set column | `:setcol <value>` | current col on selected rows; value must fit the displayed and base type; empty = null; placed after the column's last writer |
+| Edit cell | `:edit [value]` | cursor cell, same rules (S-18 C) |
+| Force quit | `:q!`, `:qa!` / `:quit!` | pop / quit without the unsaved-edits question |
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
 | Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection; derived sheets (freq, copy, selected, freq dive, join, sql, pivot, `W`, unpivot, describe, row diff) replay from a parent snapshot (`SheetState.lineage`), one variable/CTE per sheet. Not: schema diff, Lua-agg pivots, stdin |
 | Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
@@ -331,7 +334,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
 - **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
-- **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
+- **Cell/row editing + clipboard** (`delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B, `edit-cell`/`setcol-input` in S-18 C) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
 
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.

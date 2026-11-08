@@ -487,3 +487,107 @@ fn failed_save_through_a_dangling_symlink_keeps_the_link() {
     assert!(std::fs::symlink_metadata(&link).is_ok());
     assert!(!dir.path().join("later.csv").exists());
 }
+
+#[test]
+fn edit_value_fits_display_and_base_types() {
+    let (mut s, _tmp) = sheet_of("i,f,b,t,d\n1,1.5,true,x,2024-01-31\n");
+    s.view.type_casts.push(("d".into(), DataType::Date)); // `@` on text
+    s.view.type_casts.push(("t".into(), DataType::Float64)); // `%` on text
+    let ok = |c: &str, v: &str| s.edit_value(c, v).map(|(v, _)| v);
+    for (c, v) in [
+        ("i", "7"),
+        ("i", "-3"),
+        ("f", "2"),
+        ("f", "1e3"),
+        ("b", "false"),
+    ] {
+        assert_eq!(ok(c, v), Ok(Some(v.into())), "{c}={v}");
+    }
+    assert_eq!(ok("t", "2.5"), Ok(Some("2.5".into())), "stored as text");
+    assert_eq!(ok("d", "2024-02-29"), Ok(Some("2024-02-29".into())));
+    assert_eq!(ok("i", ""), Ok(None), "empty = null");
+    assert_eq!(ok("i", "1.5"), Err(r#""1.5" doesn't fit i (i64)"#.into()));
+    assert_eq!(ok("f", "abc"), Err(r#""abc" doesn't fit f (f64)"#.into()));
+    assert_eq!(ok("t", "abc"), Err(r#""abc" doesn't fit t (f64)"#.into()));
+    assert_eq!(
+        ok("d", "nope"),
+        Err(r#""nope" doesn't fit d (date)"#.into())
+    );
+    assert_eq!(ok("b", "TRUE"), Ok(Some("true".into())));
+    assert!(ok("b", "yes").unwrap_err().contains("bool"));
+    assert!(ok("zz", "1").unwrap_err().starts_with("no column"));
+    s.edit_cell("b", 0, "false").unwrap();
+    let df = s.view_plan().collect().unwrap();
+    assert_eq!(df.column("b").unwrap().bool().unwrap().get(0), Some(false));
+}
+
+#[test]
+fn tail_keeps_edits_as_the_file_grows() {
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    writeln!(tmp, r#"{{"a":1}}"#).unwrap();
+    tmp.flush().unwrap();
+    let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Jsonl)).unwrap();
+    let mut s = Sheet::tail_from(1, loaded, false).unwrap();
+    s.edit_cell("a", 0, "9").unwrap();
+    writeln!(tmp, r#"{{"a":2}}"#).unwrap();
+    tmp.flush().unwrap();
+    assert!(s.refresh_tail().unwrap());
+    let a = s.plan.clone().collect().unwrap();
+    let a: Vec<_> = a.column("a").unwrap().i64().unwrap().iter().collect();
+    assert_eq!(a, [Some(9), Some(2)]);
+}
+
+/// Edits are plan steps and sort/filter are view state, so interleaving
+/// them in any order gives the same rows (seeded loop, S-18 §4 C).
+#[test]
+fn edits_and_view_changes_commute() {
+    let csv: String = std::iter::once("id,v\n".to_string())
+        .chain((0..40).map(|i| format!("{i},{}\n", (i * 7) % 11)))
+        .collect();
+    let mut seed = 0x2545_f491_u64;
+    let mut next = |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    for _ in 0..20 {
+        let edits: Vec<(u64, String)> = (0..5).map(|_| (next(40), next(100).to_string())).collect();
+        let order = if next(2) == 1 {
+            SortOrder::Desc
+        } else {
+            SortOrder::Asc
+        };
+        let sort = vec![
+            SortKey {
+                column: "v".into(),
+                order,
+            },
+            SortKey {
+                column: "id".into(),
+                order: SortOrder::Asc,
+            },
+        ];
+        let filter = format!("{}", next(10));
+        let (mut a, _ta) = sheet_of(&csv);
+        let (mut b, _tb) = sheet_of(&csv);
+        for (rid, v) in &edits {
+            a.edit_cell("v", *rid, v).unwrap();
+        }
+        a.view.sort = sort.clone();
+        a.view.filter = Some(FilterState {
+            column: "v".into(),
+            regex: filter.clone(),
+        });
+        b.view.sort = sort;
+        b.view.filter = Some(FilterState {
+            column: "v".into(),
+            regex: filter,
+        });
+        for (rid, v) in &edits {
+            b.edit_cell("v", *rid, v).unwrap();
+        }
+        let rows = |s: &Sheet| s.view_plan().collect().unwrap();
+        assert!(rows(&a).equals_missing(&rows(&b)), "{edits:?}");
+    }
+}

@@ -40,17 +40,26 @@ impl App {
             self.sheets.active_mut().checkpoint();
         }
         match action {
-            Action::Quit => self.quit = true,
+            Action::Quit => {
+                let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum();
+                if n == 0 {
+                    self.quit = true;
+                } else {
+                    self.ask(Confirm::Quit, format!("quit and discard {}?", edits(n)));
+                }
+            }
+            Action::ForceQuit => self.quit = true,
+            Action::ForcePopSheet => self.pop_sheet(),
             Action::CancelJobs => self.cancel_jobs(false),
             Action::CancelAllJobs => self.cancel_jobs(true),
             Action::PopSheet => {
-                let popped_id = self.sheets.active().id;
-                if self.sheets.pop() {
-                    if let Some(h) = self.materialize_handles.remove(&popped_id) {
-                        h.abort();
+                let s = self.sheets.active();
+                match s.unsaved_edits() {
+                    0 => self.pop_sheet(),
+                    n => {
+                        let q = format!("discard {} to {}?", edits(n), s.name);
+                        self.ask(Confirm::Pop, q);
                     }
-                } else {
-                    self.quit = true;
                 }
             }
             Action::Redraw => {}
@@ -305,6 +314,47 @@ impl App {
                 match s.derive(&name, &expr) {
                     Ok(()) => self.spawn_materialize(),
                     Err(e) => self.toast = Some(format!("derive: {e}")),
+                }
+            }
+            Action::StartEditInput => {
+                let s = self.sheets.active();
+                if let Err(e) = s.editable() {
+                    self.toast = Some(e);
+                    return;
+                }
+                let (Some(column), Some(df)) = (self.current_column_name(), &s.window) else {
+                    return;
+                };
+                let text = df
+                    .column(&column)
+                    .and_then(|c| c.get(s.view.row_cursor))
+                    .map(|v| {
+                        if v.is_null() {
+                            String::new()
+                        } else {
+                            crate::sheet::any_text(&v)
+                        }
+                    });
+                let Ok(text) = text else {
+                    return; // empty view
+                };
+                self.start_input(Prompt::Edit);
+                if let Some((_, line)) = self.input.as_mut() {
+                    line.set(&text);
+                }
+            }
+            Action::StartSetColInput => match self.sheets.active().editable() {
+                Ok(()) => self.start_input(Prompt::SetCol),
+                Err(e) => self.toast = Some(e),
+            },
+            Action::EditCell { value } => {
+                let (Some(column), Some(rid)) = (self.current_column_name(), self.rid_at_cursor())
+                else {
+                    return;
+                };
+                match self.sheets.active_mut().edit_cell(&column, rid, &value) {
+                    Ok(()) => self.spawn_materialize(),
+                    Err(e) => self.toast = Some(e),
                 }
             }
             Action::SetCol { value } => {
@@ -581,16 +631,16 @@ impl App {
     /// all rows — not just the materialized window) so the saved file matches
     /// what the user sees, not raw source data. Overwrites existing files.
     fn save_active(&mut self, path: &str) {
-        let plan = self.sheets.active().view_plan();
+        let s = self.sheets.active();
+        let plan = s.view_plan();
+        let edits = s.state.steps.iter().filter(|s| s.is_edit()).count();
         let path = path.to_string();
         self.spawn_job("save", move || {
             let mut df = plan.collect().map_err(|e| format!("collect: {e}"))?;
             crate::sheet::write_df_by_extension(&mut df, std::path::Path::new(&path))
                 .map_err(|e| e.to_string())?;
-            Ok(JobDone::Toast(format!(
-                "saved {} rows → {path}",
-                df.height()
-            )))
+            let note = format!("saved {} rows → {path}", df.height());
+            Ok(JobDone::Saved { note, edits })
         });
     }
 
@@ -911,6 +961,22 @@ impl App {
         });
     }
 
+    pub(super) fn pop_sheet(&mut self) {
+        let popped_id = self.sheets.active().id;
+        if self.sheets.pop() {
+            if let Some(h) = self.materialize_handles.remove(&popped_id) {
+                h.abort();
+            }
+        } else {
+            self.quit = true;
+        }
+    }
+
+    fn ask(&mut self, c: Confirm, question: String) {
+        self.confirm = Some(c);
+        self.toast = Some(format!("{question} y/N"));
+    }
+
     /// Row id under the cursor; None on an empty view.
     fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
@@ -1106,5 +1172,14 @@ impl App {
         };
         self.sheets.push(child);
         self.spawn_materialize();
+    }
+}
+
+/// `3 edits`.
+fn edits(n: usize) -> String {
+    if n == 1 {
+        "1 edit".into()
+    } else {
+        format!("{n} edits")
     }
 }

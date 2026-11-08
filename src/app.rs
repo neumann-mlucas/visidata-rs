@@ -175,6 +175,11 @@ enum JobDone {
         note: String,
     },
     Toast(String),
+    /// `:save` done: the sheet's edits up to `edits` are on disk.
+    Saved {
+        note: String,
+        edits: usize,
+    },
     /// The job's source, read into memory.
     Loaded(DataFrame),
     /// A tail that can't append, reopened.
@@ -209,6 +214,17 @@ enum Prompt {
     Select,
     Rename,
     Diff,
+    /// `e`, prefilled with the cell.
+    Edit,
+    /// `ge`.
+    SetCol,
+}
+
+/// A y/N question asked in the status line; any other key keeps things as they are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Confirm {
+    Pop,
+    Quit,
 }
 
 impl Prompt {
@@ -233,6 +249,8 @@ impl Prompt {
             Prompt::Select => "select: ",
             Prompt::Rename => "rename: ",
             Prompt::Diff => "diff with: ",
+            Prompt::Edit => "edit: ",
+            Prompt::SetCol => "set selected rows to: ",
         }
     }
 }
@@ -264,6 +282,8 @@ pub struct App {
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
     register: Option<Register>,
+    /// Asked in the status line: unsaved edits would be lost (S-26 A1).
+    confirm: Option<Confirm>,
     /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
     clipboard: crate::clipboard::Clipboard,
     /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
@@ -304,6 +324,7 @@ impl App {
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             register: None,
+            confirm: None,
             clipboard,
             busy: Vec::new(),
             working_since: None,
@@ -450,11 +471,18 @@ impl App {
                 }
             }
             Ok(JobDone::Loaded(df)) => {
-                if let Some(s) = self.sheets.find_by_id_mut(sheet_id)
-                    && s.state.steps.is_empty()
-                {
-                    s.plan = df.lazy();
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    s.state.memory_base = Some(df.clone().lazy());
+                    if s.state.steps.is_empty() {
+                        s.plan = df.lazy();
+                    }
                 }
+            }
+            Ok(JobDone::Saved { note, edits }) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    s.state.saved_edits = edits;
+                }
+                self.toast = Some(note);
             }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
             Ok(JobDone::PushSheet(sheet)) => {
@@ -701,6 +729,17 @@ impl App {
     fn on_key(&mut self, key: Key) {
         // Toast lives until the next key — "clear on next action" without a timer.
         self.toast = None;
+        if let Some(c) = self.confirm.take() {
+            if key.code == KeyCode::Char('y') {
+                match c {
+                    Confirm::Pop => self.pop_sheet(),
+                    Confirm::Quit => self.quit = true,
+                }
+            } else {
+                self.toast = Some("kept the edits".into());
+            }
+            return;
+        }
         if self.input.is_some() {
             self.on_input_key(key);
             self.refresh_pivot_preview();
@@ -879,7 +918,8 @@ impl App {
             return;
         };
         let text = line.text().to_string();
-        if text.is_empty() && prompt != Prompt::Ex {
+        // empty = null for edits
+        if text.is_empty() && !matches!(prompt, Prompt::Ex | Prompt::Edit | Prompt::SetCol) {
             return;
         }
         match prompt {
@@ -932,6 +972,8 @@ impl App {
                 let keys = self.sheets.active().view.keys.clone();
                 self.dispatch_sequence(vec![Action::Diff { path: text, keys }]);
             }
+            Prompt::Edit => self.dispatch_sequence(vec![Action::EditCell { value: text }]),
+            Prompt::SetCol => self.dispatch_sequence(vec![Action::SetCol { value: text }]),
         }
     }
 

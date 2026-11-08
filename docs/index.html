@@ -401,13 +401,14 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <!-- /golden -->
 
 <h2 id="change">Changing data</h2>
-<p>vdrs never modifies your files; changes live in the sheet until you save.</p>
+<p>vdrs never modifies your files; changes live in the sheet until you <code>:save</code>. Closing a sheet with unsaved edits (<kbd>q</kbd>, <kbd>g</kbd><kbd>q</kbd>, <code>:q</code>) asks <code>discard 2 edits to sales.csv? y/N</code>; <code>:q!</code> and <code>:qa!</code> don't ask. Only sheets read from a file take edits; frequency tables, pivots, joins, <code>:sql</code> results and other derived sheets are read-only (copying still works).</p>
 <div class="scroll"><table>
 <tr><th>Command</th><th>Action</th></tr>
 <tr><td><kbd>=</kbd>, <code>:derive total = qty * price</code></td><td>Add a computed column. <kbd>=</kbd> asks for the expression and names the column after it (<code>qty * price</code>); <code>total = qty * price</code> names it <code>total</code> unless <code>total</code> already exists, in which case the whole text is the expression. The expression is SQL (<code>CASE WHEN …</code>, <code>upper(name)</code>, <code>price * 1.2</code>, …).</td></tr>
-<tr><td><code>:setcol 0</code></td><td>Set the current column to a value on the selected rows. The value must fit the column's type.</td></tr>
+<tr><td><kbd>e</kbd>, <code>:edit value</code></td><td>Edit the current cell; <kbd>e</kbd> starts from its value. The value must fit the column as shown (after <kbd>#</kbd> <kbd>%</kbd> <kbd>@</kbd> …) and its type in the file; empty sets it to null. Columns computed from it (<code>:derive</code>) follow the edit; editing a computed cell pins it.</td></tr>
+<tr><td><kbd>g</kbd><kbd>e</kbd>, <code>:setcol 0</code></td><td>Set the current column to a value on the selected rows, with the same type rules.</td></tr>
 <tr><td><code>:uniform</code></td><td>Hide columns that hold a single value.</td></tr>
-<tr><td><kbd>U</kbd>, <kbd>R</kbd></td><td>Undo, redo. Covers column changes, types, sorting, filtering, selection, <code>:derive</code> and <code>:setcol</code> (up to 100 steps per sheet).</td></tr>
+<tr><td><kbd>U</kbd>, <kbd>R</kbd></td><td>Undo, redo. Covers column changes, types, sorting, filtering, selection, <code>:derive</code>, edits and <code>:setcol</code> (up to 100 steps per sheet).</td></tr>
 </table></div>
 
 <p>After <code>:derive total = qty * price</code>:</p>
@@ -448,7 +449,9 @@ print(t3.collect())</code></pre>
 <div class="scroll"><table id="extable">
 <tr><th>Command</th><th>Action</th></tr>
 <tr data-ex="q"><td><code>:q</code>, <code>:quit</code></td><td>Close the current sheet (quit on the last).</td></tr>
-<tr data-ex="qa"><td><code>:qa</code>, <code>:quit!</code></td><td>Quit.</td></tr>
+<tr data-ex="q!"><td><code>:q!</code></td><td>Close the current sheet without asking about unsaved edits.</td></tr>
+<tr data-ex="qa"><td><code>:qa</code></td><td>Quit.</td></tr>
+<tr data-ex="qa!"><td><code>:qa!</code>, <code>:quit!</code></td><td>Quit without asking about unsaved edits.</td></tr>
 <tr data-ex="filter"><td><code>:filter col regex</code></td><td>Filter rows on a column.</td></tr>
 <tr data-ex="unfilter"><td><code>:unfilter</code></td><td>Remove the filter.</td></tr>
 <tr data-ex="sort"><td><code>:sort [+|-]col</code></td><td>Sort ascending (<code>+</code>, default) or descending (<code>-</code>).</td></tr>
@@ -466,6 +469,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="derive"><td><code>:derive name = expr</code></td><td>Add a computed column.</td></tr>
 <tr data-ex="select"><td><code>:select cond</code>, <code>:unselect cond</code></td><td>Select / unselect rows where a SQL condition holds.</td></tr>
 <tr data-ex="setcol"><td><code>:setcol value</code></td><td>Set the current column on selected rows.</td></tr>
+<tr data-ex="edit"><td><code>:edit value</code></td><td>Set the current cell (no value: null).</td></tr>
 <tr data-ex="uniform"><td><code>:uniform</code></td><td>Hide single-valued columns.</td></tr>
 <tr data-ex="dup"><td><code>:dup</code></td><td>Copy the sheet.</td></tr>
 <tr data-ex="describe"><td><code>:describe</code></td><td>Column statistics.</td></tr>
@@ -553,6 +557,8 @@ print(t3.collect())</code></pre>
 <tr data-keys="g Y"><td><kbd>g</kbd><kbd>Y</kbd></td><td>copy selected rows to the system clipboard</td></tr>
 <tr data-keys="z Y"><td><kbd>z</kbd><kbd>Y</kbd></td><td>copy current cell to the system clipboard</td></tr>
 <tr data-keys="g z Y"><td><kbd>g</kbd><kbd>z</kbd><kbd>Y</kbd></td><td>copy current column of selected rows to the system clipboard, one value per line</td></tr>
+<tr data-keys="e"><td><kbd>e</kbd></td><td>edit current cell</td></tr>
+<tr data-keys="g e"><td><kbd>g</kbd><kbd>e</kbd></td><td>set current column of selected rows</td></tr>
 <tr data-keys="U"><td><kbd>U</kbd></td><td>undo</td></tr>
 <tr data-keys="R"><td><kbd>R</kbd></td><td>redo</td></tr>
 <tr data-keys="P"><td><kbd>P</kbd></td><td>plan panel (off → plan → optimized)</td></tr>
@@ -599,7 +605,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 
 <h3>vd.bind(layer, keys, action, description?)</h3>
 <p><code>layer</code> is <code>"sheet"</code> (normal mode) or <code>"input"</code> (prompts). <code>keys</code> is one key or a table of keys forming a chord, written like <code>"x"</code>, <code>"G"</code>, <code>"&lt;C-x&gt;"</code>, <code>"&lt;A-x&gt;"</code>, <code>"&lt;Space&gt;"</code>, <code>"&lt;CR&gt;"</code>, <code>"&lt;Esc&gt;"</code>, <code>"&lt;Tab&gt;"</code>, <code>"&lt;BS&gt;"</code>, <code>"&lt;Del&gt;"</code>, arrows (<code>"&lt;Left&gt;"</code>…), <code>"&lt;Home&gt;"</code>, <code>"&lt;End&gt;"</code>, <code>"&lt;PgUp&gt;"</code>, <code>"&lt;PgDn&gt;"</code>, <code>"&lt;F1&gt;"</code>. Later bindings win over defaults. <code>action</code> is an action name below, an ex command starting with <code>:</code>, or a Lua function to run when the keys are pressed. An unknown action or invalid command is an error at load time; an error inside a function is shown in the status line.</p>
-<p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_searchr_input</code> <code>start_search_all_input</code> <code>start_searchr_all_input</code> <code>start_search_expr_input</code> <code>start_searchr_expr_input</code> <code>start_derive_input</code> <code>start_select_expr_input</code> <code>start_unselect_expr_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>quit</code> <code>cancel_jobs</code> <code>cancel_all_jobs</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>select_col_duplicates</code> <code>dedupe_rows</code> <code>copy_row</code> <code>copy_selected</code> <code>copy_cell</code> <code>copy_cells</code> <code>syscopy_row</code> <code>syscopy_selected</code> <code>syscopy_cell</code> <code>syscopy_cells</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
+<p>Action names: <code>cursor_down</code> <code>cursor_up</code> <code>cursor_left</code> <code>cursor_right</code> <code>page_down</code> <code>page_up</code> <code>goto_top</code> <code>goto_bottom</code> <code>goto_leftmost</code> <code>goto_rightmost</code> <code>freeze_column</code> <code>unfreeze_all</code> <code>hide_col</code> <code>unhide_all</code> <code>key_col</code> <code>unkey_all</code> <code>start_rename_col_input</code> <code>type_cast_int</code> <code>type_cast_float</code> <code>type_cast_string</code> <code>type_cast_date</code> <code>type_cast_currency</code> <code>start_search_input</code> <code>start_searchr_input</code> <code>start_search_all_input</code> <code>start_searchr_all_input</code> <code>start_search_expr_input</code> <code>start_searchr_expr_input</code> <code>start_derive_input</code> <code>start_select_expr_input</code> <code>start_unselect_expr_input</code> <code>start_filter_input</code> <code>start_ex_input</code> <code>search_next</code> <code>search_prev</code> <code>clear_filter</code> <code>clear_sort</code> <code>sort_asc</code> <code>sort_desc</code> <code>open_freq_table</code> <code>open_sheet_switcher</code> <code>submit_row</code> <code>submit_selected</code> <code>toggle_plan_panel</code> <code>pop_sheet</code> <code>start_edit_input</code> <code>start_setcol_input</code> <code>quit</code> <code>cancel_jobs</code> <code>cancel_all_jobs</code> <code>redraw</code> <code>repeat_last</code> <code>toggle_select_row</code> <code>select_row</code> <code>unselect_row</code> <code>select_all</code> <code>unselect_all</code> <code>start_select_input</code> <code>dup_selected</code> <code>dup_sheet</code> <code>select_equal_cell</code> <code>select_col_duplicates</code> <code>dedupe_rows</code> <code>copy_row</code> <code>copy_selected</code> <code>copy_cell</code> <code>copy_cells</code> <code>syscopy_row</code> <code>syscopy_selected</code> <code>syscopy_cell</code> <code>syscopy_cells</code> <code>hide_uniform</code> <code>describe</code> <code>pivot_current</code> <code>start_diff_input</code> <code>undo</code> <code>redo</code>. In the <code>"input"</code> layer only <code>submit_input</code>, <code>cancel_input</code> and <code>input_backspace</code> (or ex commands) do anything.</p>
 
 <h3>vd.unbind(layer, keys)</h3>
 <p>Makes a key do nothing.</p>
