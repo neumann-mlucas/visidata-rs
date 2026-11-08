@@ -222,6 +222,17 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 value: unquote(rest),
             }])
         }
+        "select" | "unselect" => {
+            if rest.is_empty() {
+                return Err(ExError::Usage(
+                    ":select <sql predicate> / :unselect <sql predicate>",
+                ));
+            }
+            Ok(vec![Action::SelectExpr {
+                expr: rest.to_string(),
+                unselect: cmd == "unselect",
+            }])
+        }
         "uniform" | "hide-uniform" => Ok(vec![Action::HideUniform]),
         "dup" => Ok(vec![Action::DupSheet]),
         "describe" => Ok(vec![Action::Describe]),
@@ -270,6 +281,7 @@ pub const COMMANDS: &[&str] = &[
     "redo",
     "rename",
     "save",
+    "select",
     "setcol",
     "sheets",
     "sort",
@@ -283,6 +295,7 @@ pub const COMMANDS: &[&str] = &[
     "uniform",
     "unkey",
     "unpivot",
+    "unselect",
     "unsort",
     "w",
     "write",

@@ -124,6 +124,14 @@ fn preview_sheet(parent: &Sheet, df: DataFrame) -> Sheet {
     s
 }
 
+/// A background job in flight.
+struct Job {
+    sheet_id: SheetId,
+    label: &'static str,
+    /// Drops the job's result; the blocking work itself can't be interrupted.
+    abort: tokio::task::AbortHandle,
+}
+
 /// What a background job hands back to the UI thread.
 enum JobDone {
     /// Push a derived sheet (pivot, dup, describe, sql, join, …).
@@ -137,6 +145,11 @@ enum JobDone {
     Hide(Vec<String>),
     /// Add row ids to the job's sheet selection.
     Select {
+        rids: Vec<u64>,
+        note: String,
+    },
+    /// Remove row ids from the job's sheet selection.
+    Unselect {
         rids: Vec<u64>,
         note: String,
     },
@@ -155,7 +168,21 @@ enum JobDone {
 /// Which prompt the input line belongs to; decides what `<CR>` does with the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Prompt {
-    Search,
+    /// `/` `?` `g/` `g?`.
+    Search {
+        all_columns: bool,
+        backward: bool,
+    },
+    /// `z/` `z?`.
+    SearchExpr {
+        backward: bool,
+    },
+    /// `=`.
+    Derive,
+    /// `z|` `z\`.
+    SelectExpr {
+        unselect: bool,
+    },
     Filter,
     Ex,
     Select,
@@ -166,7 +193,20 @@ enum Prompt {
 impl Prompt {
     fn label(self) -> &'static str {
         match self {
-            Prompt::Search => "/",
+            Prompt::Search {
+                all_columns,
+                backward,
+            } => match (all_columns, backward) {
+                (false, false) => "/",
+                (false, true) => "?",
+                (true, false) => "g/",
+                (true, true) => "g?",
+            },
+            Prompt::SearchExpr { backward: false } => "search by expr: ",
+            Prompt::SearchExpr { backward: true } => "searchr by expr: ",
+            Prompt::Derive => "new column expr= ",
+            Prompt::SelectExpr { unselect: false } => "select by expr: ",
+            Prompt::SelectExpr { unselect: true } => "unselect by expr: ",
             Prompt::Filter => "filter: ",
             Prompt::Ex => ":",
             Prompt::Select => "select: ",
@@ -202,8 +242,8 @@ pub struct App {
     theme: Theme,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
-    /// Labels of background jobs in flight, shown in the status bar.
-    busy: Vec<&'static str>,
+    /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
+    busy: Vec<Job>,
     /// When the current stretch of background work started.
     working_since: Option<Instant>,
     /// Spinner frame on screen, so ticks redraw only when it changes.
@@ -309,18 +349,18 @@ impl App {
     }
 
     /// Run `work` on the blocking pool; its result lands in `on_job_done`.
-    /// Polars collects can't be interrupted, so there's no cancel: a selection
-    /// or jump for a sheet that's gone is dropped, while a finished `PushSheet`
-    /// still opens on top of whatever is active.
+    /// A selection or jump for a sheet that's gone is dropped, while a
+    /// finished `PushSheet` still opens on top of whatever is active.
+    /// `cancel_jobs` drops the result (Polars collects can't be interrupted, so
+    /// the work runs on in the pool and its result is discarded).
     fn spawn_job(
         &mut self,
         label: &'static str,
         work: impl FnOnce() -> Result<JobDone, String> + Send + 'static,
     ) {
-        self.busy.push(label);
         let sheet_id = self.sheets.active().id;
         let tx = self.materialize_tx.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let result = tokio::task::spawn_blocking(work)
                 .await
                 .unwrap_or_else(|e| Err(format!("job crashed: {e}")));
@@ -332,6 +372,30 @@ impl App {
                 })
                 .await;
         });
+        self.busy.push(Job {
+            sheet_id,
+            label,
+            abort: handle.abort_handle(),
+        });
+    }
+
+    /// `<C-c>` / `g<C-c>`: drop the active sheet's (or every) background job.
+    fn cancel_jobs(&mut self, all: bool) {
+        let active = self.sheets.active().id;
+        let before = self.busy.len();
+        self.busy.retain(|j| {
+            let drop = all || j.sheet_id == active;
+            if drop {
+                j.abort.abort();
+            }
+            !drop
+        });
+        let n = before - self.busy.len();
+        self.toast = Some(match n {
+            0 => "no background jobs".into(),
+            1 => "cancelled 1 job".into(),
+            n => format!("cancelled {n} jobs"),
+        });
     }
 
     fn on_job_done(
@@ -340,8 +404,15 @@ impl App {
         label: &'static str,
         result: Result<JobDone, String>,
     ) {
-        if let Some(i) = self.busy.iter().position(|l| *l == label) {
-            self.busy.remove(i);
+        match self
+            .busy
+            .iter()
+            .position(|j| j.sheet_id == sheet_id && j.label == label)
+        {
+            Some(i) => {
+                self.busy.remove(i);
+            }
+            None => return, // cancelled
         }
         match result {
             Err(e) => self.toast = Some(format!("{label}: {e}")),
@@ -381,6 +452,15 @@ impl App {
             Ok(JobDone::Select { rids, note }) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
                     std::sync::Arc::make_mut(&mut s.view.selected).extend(rids);
+                    self.toast = Some(note);
+                }
+            }
+            Ok(JobDone::Unselect { rids, note }) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    let sel = std::sync::Arc::make_mut(&mut s.view.selected);
+                    for r in rids {
+                        sel.remove(&r);
+                    }
                     self.toast = Some(note);
                 }
             }
@@ -754,10 +834,35 @@ impl App {
             return;
         }
         match prompt {
-            Prompt::Search => {
-                self.sheets.active_mut().view.search = Some(SearchState { needle: text });
-                self.dispatch_sequence(vec![Action::SearchNext]);
+            Prompt::Search {
+                all_columns,
+                backward,
+            } => {
+                if let Err(e) = regex::Regex::new(&text) {
+                    self.toast = Some(format!("bad regex: {e}"));
+                    return;
+                }
+                self.start_search(SearchState {
+                    pattern: text,
+                    all_columns,
+                    backward,
+                    expr: false,
+                });
             }
+            Prompt::SearchExpr { backward } => self.start_search(SearchState {
+                pattern: text,
+                all_columns: false,
+                backward,
+                expr: true,
+            }),
+            Prompt::Derive => {
+                let (name, expr) = derive_input(&text, |n| self.sheets.active().has_column(n));
+                self.dispatch_sequence(vec![Action::Derive { name, expr }]);
+            }
+            Prompt::SelectExpr { unselect } => self.dispatch_sequence(vec![Action::SelectExpr {
+                expr: text,
+                unselect,
+            }]),
             Prompt::Filter => {
                 if let Some(column) = self.current_column_name() {
                     self.dispatch_sequence(vec![Action::SetFilter {
@@ -968,6 +1073,23 @@ fn complete_command(line: &mut LineEdit, lua: Vec<String>) -> Option<String> {
 }
 
 /// Default keymap plus Lua patches, and the theme `init.lua` picked.
+/// `=` input: `name = expr` names the column when `name` is a new column;
+/// otherwise the whole text is the expression and names it (VisiData), so
+/// `region = 'east'` on a sheet with `region` is a boolean column.
+fn derive_input(text: &str, exists: impl Fn(&str) -> bool) -> (String, String) {
+    let text = text.trim();
+    if let Some((name, expr)) = text.split_once('=') {
+        let name = name.trim();
+        let plain = !name.is_empty()
+            && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && !expr.starts_with('=');
+        if plain && !exists(name) && !expr.trim().is_empty() {
+            return (name.to_string(), expr.trim().to_string());
+        }
+    }
+    (text.to_string(), text.to_string())
+}
+
 fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme) {
     let mut keymap = Keymap::defaults();
     let mut theme = Theme::dark();

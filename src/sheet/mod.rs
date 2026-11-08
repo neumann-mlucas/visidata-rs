@@ -316,7 +316,14 @@ impl Default for View {
 
 #[derive(Debug, Clone)]
 pub struct SearchState {
-    pub needle: String,
+    /// Regex (case-insensitive), or a SQL predicate when `expr`.
+    pub pattern: String,
+    /// `g/` / `g?`: every visible column; else the cursor column at each `n`.
+    pub all_columns: bool,
+    /// `?` / `z?`: `n` walks up, `N` down.
+    pub backward: bool,
+    /// `z/` / `z?`: `pattern` is a SQL predicate (S-21).
+    pub expr: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -498,20 +505,7 @@ impl Sheet {
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
-        let mut lf = self.filtered_plan(with_rid);
-        if !self.view.sort.is_empty() {
-            let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
-            let desc: Vec<bool> = self
-                .view
-                .sort
-                .iter()
-                .map(|k| k.order == SortOrder::Desc)
-                .collect();
-            let opts = SortMultipleOptions::default()
-                .with_order_descending_multi(desc)
-                .with_maintain_order(true);
-            lf = lf.sort(by, opts);
-        }
+        let mut lf = self.sorted_plan(with_rid);
         // Visible-column projection: keys first (in key-col order), then schema
         // order for the rest; drop hidden. Skipped when nothing to project.
         if (!self.view.hidden.is_empty() || !self.view.keys.is_empty())
@@ -541,6 +535,26 @@ impl Sheet {
                         .collect::<Vec<_>>(),
                 );
             }
+        }
+        lf
+    }
+
+    /// `view_plan` before the visible-column projection: the view's rows in
+    /// view order, hidden columns included (expression predicates may name them).
+    fn sorted_plan(&self, with_rid: bool) -> LazyFrame {
+        let mut lf = self.filtered_plan(with_rid);
+        if !self.view.sort.is_empty() {
+            let by: Vec<&str> = self.view.sort.iter().map(|k| k.column.as_str()).collect();
+            let desc: Vec<bool> = self
+                .view
+                .sort
+                .iter()
+                .map(|k| k.order == SortOrder::Desc)
+                .collect();
+            let opts = SortMultipleOptions::default()
+                .with_order_descending_multi(desc)
+                .with_maintain_order(true);
+            lf = lf.sort(by, opts);
         }
         lf
     }
@@ -700,9 +714,14 @@ impl Sheet {
         rid_values(&self.filtered_plan(true).select([col(ROW_ID)]).collect()?)
     }
 
-    /// Rows of the full view holding `needle` (case-insensitive, literal) in any
-    /// column, as `(view row, first matching column)`, in view order.
-    pub fn search_hits(&self, needle: &str) -> PolarsResult<Vec<(u64, usize)>> {
+    /// Rows of the full view where `pattern` (regex, case-insensitive, as
+    /// VisiData) matches `column`, or any visible column when `None`, as
+    /// `(view row, first matching column)`, in view order.
+    pub fn search_hits(
+        &self,
+        pattern: &str,
+        column: Option<&str>,
+    ) -> PolarsResult<Vec<(u64, usize)>> {
         let plan = self.view_plan();
         let names: Vec<String> = plan
             .clone()
@@ -710,26 +729,28 @@ impl Sheet {
             .iter_names()
             .map(|n| n.to_string())
             .collect();
-        let width = names.len();
-        if width == 0 {
+        let searched: Vec<usize> = (0..names.len())
+            .filter(|&i| column.is_none_or(|c| names[i] == c))
+            .collect();
+        if searched.is_empty() {
             return Ok(Vec::new());
         }
         let hit = |i: usize| format!("__vdrs_hit{i}");
+        let pattern = format!("(?i){pattern}");
         let mut select = vec![col("__vdrs_row")];
-        select.extend(names.iter().enumerate().map(|(i, n)| {
-            col(n.as_str())
+        select.extend(searched.iter().map(|&i| {
+            col(names[i].as_str())
                 .cast(DataType::String)
                 .str()
-                .to_lowercase()
-                .str()
-                .contains_literal(lit(needle.to_lowercase()))
+                .contains(lit(pattern.as_str()), true)
                 .fill_null(false)
                 .alias(hit(i).as_str())
         }));
-        let any = (0..width)
-            .map(|i| col(hit(i).as_str()))
+        let any = searched
+            .iter()
+            .map(|&i| col(hit(i).as_str()))
             .reduce(|a, b| a.or(b))
-            .expect("width > 0");
+            .expect("searched is not empty");
         let df = plan
             .with_row_index("__vdrs_row", None)
             .select(select)
@@ -737,16 +758,62 @@ impl Sheet {
             .collect()?;
         let rows = df.column("__vdrs_row")?.cast(&DataType::UInt64)?;
         let rows = rows.u64()?;
-        let flags = (0..width)
-            .map(|i| df.column(hit(i).as_str())?.bool().cloned())
+        let flags = searched
+            .iter()
+            .map(|&i| Ok((i, df.column(hit(i).as_str())?.bool()?.clone())))
             .collect::<PolarsResult<Vec<_>>>()?;
         Ok((0..df.height())
             .filter_map(|r| {
                 let row = rows.get(r)?;
-                let c = flags.iter().position(|f| f.get(r) == Some(true))?;
+                let c = flags.iter().find(|(_, f)| f.get(r) == Some(true))?.0;
                 Some((row, c))
             })
             .collect())
+    }
+
+    /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
+    /// hidden columns included. Refused unless it is a boolean.
+    fn predicate(&self, lf: &LazyFrame, pred: &str) -> Result<Expr, String> {
+        let e = polars::sql::sql_expr(pred).map_err(|e| format!("expr: {e}"))?;
+        let schema = lf
+            .clone()
+            .select([e.clone().alias("__vdrs_pred")])
+            .collect_schema()
+            .map_err(|e| format!("expr: {e}"))?;
+        match schema.get("__vdrs_pred") {
+            Some(DataType::Boolean) => Ok(e.fill_null(false)),
+            _ => Err(format!("expr: not a boolean: {pred}")),
+        }
+    }
+
+    /// View rows (positions in view order) where `pred` holds (`z/`).
+    pub fn expr_hits(&self, pred: &str) -> Result<Vec<u64>, String> {
+        let lf = self.sorted_plan(false).with_row_index("__vdrs_row", None);
+        let p = self.predicate(&lf, pred)?;
+        let df = lf
+            .filter(p)
+            .select([col("__vdrs_row").cast(DataType::UInt64)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        Ok(df
+            .column("__vdrs_row")
+            .map_err(|e| e.to_string())?
+            .u64()
+            .map_err(|e| e.to_string())?
+            .into_no_null_iter()
+            .collect())
+    }
+
+    /// Row ids of view rows where `pred` holds (`:select`, `z|`).
+    pub fn rids_where(&self, pred: &str) -> Result<Vec<u64>, String> {
+        let lf = self.filtered_plan(true);
+        let p = self.predicate(&lf, pred)?;
+        let df = lf
+            .filter(p)
+            .select([col(ROW_ID)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        rid_values(&df).map_err(|e| e.to_string())
     }
 }
 

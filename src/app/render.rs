@@ -303,7 +303,14 @@ impl App {
                 self.theme.toast(),
             )),
             (_, _, Some(c), _) => Line::from(format!("count: {c}")),
-            _ if !self.busy.is_empty() => Line::from(format!("working: {}…", self.busy.join(", "))),
+            _ if !self.busy.is_empty() => Line::from(format!(
+                "working: {}…",
+                self.busy
+                    .iter()
+                    .map(|j| j.label)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
             (_, _, _, true) => Line::from(format!(
                 "pending: {}",
                 self.pending

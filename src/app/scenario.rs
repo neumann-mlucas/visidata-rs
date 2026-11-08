@@ -87,6 +87,11 @@ impl Harness {
         self.app.draw(&mut self.term).unwrap();
     }
 
+    /// Name of the column under the cursor.
+    pub fn current_column(&self) -> String {
+        self.app.current_column_name().unwrap_or_default()
+    }
+
     pub fn screen(&self) -> String {
         let buf = self.term.backend().buffer();
         (0..buf.area.height)
@@ -157,7 +162,11 @@ async fn title_shows_what_shapes_the_view_and_always_the_position() {
 #[tokio::test(flavor = "multi_thread")]
 async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
     let mut h = Harness::new(3).await;
-    h.app.busy.push("x");
+    h.app.busy.push(Job {
+        sheet_id: h.app.sheets.active().id,
+        label: "x",
+        abort: tokio::spawn(async {}).abort_handle(),
+    });
     h.app.working_since = Some(Instant::now() - Duration::from_secs(1));
     h.app.sheets.active_mut().revision += 1;
     h.app.draw(&mut h.term).unwrap();
@@ -255,11 +264,11 @@ async fn navigate_search_filter_save_across_windows() {
 
     h.keys("]").await; // sort desc on id
     assert_eq!(first_cell(&h), "5000");
-    h.keys("z o g g /").await;
+    h.keys("z o g g g /").await;
     h.type_("name_4999").await;
     assert!(title(&h).contains("row 4999/5000"), "{}", title(&h));
 
-    h.keys("0 l l z |").await; // filter grp
+    h.keys("0 l l g z |").await; // filter grp
     h.type_("^3$").await;
     let want = (1..=5000).filter(|i| i % 7 == 3).count();
     assert!(
@@ -813,7 +822,7 @@ async fn tab_completes_ex_command_names() {
     h.keys("<Tab>").await;
     assert_eq!(h.app.input.as_ref().unwrap().1.text(), "dedupe-rows ");
     h.keys("<C-u>").await;
-    h.type_no_enter("unse").await;
+    h.type_no_enter("unselect-").await;
     h.keys("<Tab>").await; // unselect-all, unselect-row → common prefix
     assert_eq!(h.app.input.as_ref().unwrap().1.text(), "unselect-");
     assert!(
@@ -910,7 +919,7 @@ async fn long_values_further_down_widen_their_column() {
 async fn cursor_column_scrolls_into_view() {
     let mut h = Harness::new(10).await;
     h.term = Terminal::new(ratatui::backend::TestBackend::new(16, 5)).unwrap();
-    h.keys("$").await;
+    h.keys("g l").await;
     assert!(
         h.screen().lines().nth(1).unwrap().contains("amt"),
         "{}",
@@ -1060,7 +1069,7 @@ async fn tail_shows_an_unterminated_last_line() {
 #[tokio::test(flavor = "multi_thread")]
 async fn derive_over_the_filtered_column_recounts() {
     let mut h = csv(b"n\n1\n1\n2\n").await;
-    h.keys("z |").await;
+    h.keys("g z |").await;
     h.type_("^1$").await;
     assert!(title(&h).contains("row 1/2"), "{}", title(&h));
     h.keys(":").await;
@@ -1073,7 +1082,7 @@ async fn keys_during_a_pending_window_act_on_the_new_columns() {
     let mut h = csv(b"a,b,c\n1,2,3\n").await;
     h.keys("- -").await; // no pump between: both must land
     assert_eq!(h.app.sheets.active().view.hidden.len(), 2);
-    h.keys("g -").await;
+    h.keys("g v").await;
     h.keys("- F").await; // freq on the column now under the cursor
     assert!(title(&h).contains("freq(b)"), "{}", title(&h));
     assert_eq!(h.app.toast, None);
@@ -1235,4 +1244,109 @@ async fn a_half_written_last_row_does_not_set_column_types() {
     let df = h.app.sheets.active().view_plan().collect().unwrap();
     assert_eq!(df.height(), 2);
     assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
+}
+
+/// S-26 phase 0: keys VisiData binds mean what they mean there.
+#[tokio::test(flavor = "multi_thread")]
+async fn visidata_keys_currency_columns_uniform() {
+    let mut h = csv(b"a,price,k\n1,$1.50,x\n2,$2.00,x\n").await;
+    h.keys("l $").await; // type-currency
+    let s = h.app.sheets.active();
+    let df = s.view_plan().collect().unwrap();
+    assert_eq!(df.column("price").unwrap().dtype(), &DataType::Float64);
+    h.keys("g l").await;
+    assert_eq!(h.current_column(), "k");
+    h.keys("g h").await;
+    assert_eq!(h.current_column(), "a");
+    h.keys("g -").await; // hide-uniform-cols
+    assert!(h.app.sheets.active().view.hidden.contains("k"));
+    h.keys("g v").await; // unhide-cols
+    assert!(h.app.sheets.active().view.hidden.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn slash_searches_the_current_column_g_slash_all() {
+    // `x1` sits in column b on row 1 and in column a on row 3
+    let mut h = csv(b"a,b\np,x1\nq,y\nx1,z\n").await;
+    h.keys("/").await; // cursor on a
+    h.type_("^X").await; // regex, case-insensitive
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+    h.keys("g g g /").await;
+    h.type_("x1").await; // starts after the cursor row, as VisiData
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+    assert_eq!(h.current_column(), "a");
+    h.keys("n").await; // wraps
+    assert_eq!(h.app.sheets.active().view.row_cursor, 0);
+    assert_eq!(h.current_column(), "b");
+    h.keys("g g g h ?").await; // backward from the top wraps
+    h.type_("q").await;
+    assert_eq!(h.app.sheets.active().view.row_cursor, 1);
+    h.keys("?").await;
+    h.type_("(").await;
+    assert!(
+        h.app
+            .toast
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("bad regex")
+    );
+}
+
+/// S-21 A: `z/`, `z|`, `z\`, `:select`, `=`.
+#[tokio::test(flavor = "multi_thread")]
+async fn expression_keys_search_select_and_derive() {
+    let mut h = csv(b"qty,price\n1,10\n5,2\n3,4\n").await;
+    h.keys("z /").await;
+    h.type_("qty * price >= 12").await;
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+    h.keys("n").await; // the only match: wraps back to it
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+
+    h.keys("z |").await;
+    h.type_("qty > 1").await;
+    assert_eq!(h.app.sheets.active().view.selected.len(), 2);
+    h.keys("z \\").await;
+    h.type_("price = 2").await;
+    assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+    h.keys(":").await;
+    h.type_("select qty + 1").await;
+    assert!(
+        h.app
+            .toast
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a boolean")
+    );
+    assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+
+    h.keys("=").await;
+    h.type_("qty * price").await;
+    assert!(h.app.sheets.active().has_column("qty * price"));
+    h.keys("=").await;
+    h.type_("total = qty * price").await;
+    assert!(h.app.sheets.active().has_column("total"));
+    h.keys("=").await;
+    h.type_("qty = 5").await; // qty exists: the whole text is the expression
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.column("qty = 5").unwrap().dtype(), &DataType::Boolean);
+    assert_eq!(df.column("qty").unwrap().dtype(), &DataType::Int64);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_c_cancels_jobs_and_gq_quits() {
+    let mut h = Harness::new(3).await;
+    h.app.spawn_job("slow", || {
+        std::thread::sleep(Duration::from_millis(300));
+        Ok(JobDone::Toast("done".into()))
+    });
+    h.keys("<C-c>").await;
+    assert_eq!(h.app.toast.as_deref(), Some("cancelled 1 job"));
+    assert!(!h.app.quit);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    h.pump().await;
+    assert_eq!(h.app.toast.as_deref(), Some("cancelled 1 job"));
+    h.keys("<Space>").await;
+    assert!(matches!(h.app.input, Some((Prompt::Ex, _))));
+    h.keys("<Esc> g q").await;
+    assert!(h.app.quit);
 }

@@ -329,9 +329,35 @@ fn search_hits_scan_full_view_in_view_order() {
         order: SortOrder::Asc,
     });
     // sorted: bob,1 carol,2 alice,3 ; "AR" hits carol (name) only, "3" hits alice (n)
-    assert_eq!(s.search_hits("AR").unwrap(), vec![(1, 0)]);
-    assert_eq!(s.search_hits("3").unwrap(), vec![(2, 1)]);
-    assert!(s.search_hits("zzz").unwrap().is_empty());
+    assert_eq!(s.search_hits("AR", None).unwrap(), vec![(1, 0)]);
+    assert_eq!(s.search_hits("3", None).unwrap(), vec![(2, 1)]);
+    assert!(s.search_hits("zzz", None).unwrap().is_empty());
+    // one column, regex (VisiData `/`)
+    assert!(s.search_hits("3", Some("name")).unwrap().is_empty());
+    assert_eq!(
+        s.search_hits("^(b|c)", Some("name")).unwrap(),
+        vec![(0, 0), (1, 0)]
+    );
+}
+
+#[test]
+fn expr_hits_and_rids_where_take_boolean_sql() {
+    let (mut s, _tmp) = make_sheet(); // alice,3 bob,1 carol,2
+    s.view.sort.push(SortKey {
+        column: "n".into(),
+        order: SortOrder::Asc,
+    });
+    s.view.hidden.insert("n".into()); // predicates may name hidden columns
+    // view: bob,1 carol,2 alice,3
+    assert_eq!(s.expr_hits("n >= 2").unwrap(), vec![1, 2]);
+    // rids are base positions: alice 0, carol 2
+    let mut rids = s.rids_where("n >= 2").unwrap();
+    rids.sort();
+    assert_eq!(rids, vec![0, 2]);
+    assert_eq!(s.rids_where("name = 'bob'").unwrap(), vec![1]);
+    let e = s.rids_where("n + 1").unwrap_err();
+    assert!(e.contains("not a boolean"), "{e}");
+    assert!(s.rids_where("nope > 1").unwrap_err().starts_with("expr:"));
 }
 
 #[test]

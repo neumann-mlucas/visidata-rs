@@ -35,6 +35,8 @@ impl App {
         }
         match action {
             Action::Quit => self.quit = true,
+            Action::CancelJobs => self.cancel_jobs(false),
+            Action::CancelAllJobs => self.cancel_jobs(true),
             Action::PopSheet => {
                 let popped_id = self.sheets.active().id;
                 if self.sheets.pop() {
@@ -174,12 +176,25 @@ impl App {
             Action::TypeCastString => self.push_type_cast(DataType::String),
             Action::TypeCastDate => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
-            Action::StartSearchInput => self.start_input(Prompt::Search),
+            Action::StartSearchInput {
+                all_columns,
+                backward,
+            } => self.start_input(Prompt::Search {
+                all_columns,
+                backward,
+            }),
+            Action::StartSearchExprInput { backward } => {
+                self.start_input(Prompt::SearchExpr { backward })
+            }
+            Action::StartDeriveInput => self.start_input(Prompt::Derive),
+            Action::StartSelectExprInput { unselect } => {
+                self.start_input(Prompt::SelectExpr { unselect })
+            }
             Action::StartFilterInput => self.start_input(Prompt::Filter),
             Action::StartExInput => self.start_input(Prompt::Ex),
             Action::ExCommand(text) => self.run_ex(&text),
-            Action::SearchNext => self.search_jump(true),
-            Action::SearchPrev => self.search_jump(false),
+            Action::SearchNext => self.search_jump(false),
+            Action::SearchPrev => self.search_jump(true),
             Action::SetFilter { column, regex } => {
                 let s = self.sheets.active_mut();
                 s.view.filter = Some(FilterState { column, regex });
@@ -239,6 +254,7 @@ impl App {
             }
             Action::StartSelectInput => self.start_input(Prompt::Select),
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
+            Action::SelectExpr { expr, unselect } => self.select_by_expr(expr, unselect),
             Action::DupSelected => self.open_dup_selected(),
             Action::DedupeRows => {
                 let id = self.sheets.alloc_id();
@@ -478,25 +494,46 @@ impl App {
         self.settle_jump_bottom();
     }
 
-    fn search_jump(&mut self, forward: bool) {
+    /// A new `/` `?` `g/` `g?` `z/` `z?` search: remember it, jump to the first hit.
+    pub(super) fn start_search(&mut self, st: SearchState) {
+        self.sheets.active_mut().view.search = Some(st);
+        self.dispatch_sequence(vec![Action::SearchNext]);
+    }
+
+    /// `n` (`reverse` false) / `N`: next hit in the search's direction, or
+    /// against it, wrapping. A column search looks in the cursor column.
+    fn search_jump(&mut self, reverse: bool) {
         let s = self.sheets.active();
-        let Some(needle) = s.view.search.as_ref().map(|st| st.needle.clone()) else {
+        let Some(st) = s.view.search.clone() else {
             self.toast = Some("no search; press / first".into());
             return;
         };
+        let backward = st.backward != reverse;
         let cur = s.view.window_offset + s.view.row_cursor as u64;
+        let cur_col = s.view.col_cursor;
+        let column = (!st.all_columns && !st.expr)
+            .then(|| self.current_column_name())
+            .flatten();
         let sheet = s.clone();
-        // ponytail: full scan per n/N; cache hits per (needle, view) if big files lag.
+        // ponytail: full scan per n/N; cache hits per (pattern, view) if big files lag.
         self.spawn_job("search", move || {
-            let hits = sheet.search_hits(&needle).map_err(|e| e.to_string())?;
-            let next = if forward {
-                hits.iter().find(|(r, _)| *r > cur).or(hits.first())
+            let hits: Vec<(u64, usize)> = if st.expr {
+                let rows = sheet.expr_hits(&st.pattern)?;
+                rows.into_iter().map(|r| (r, cur_col)).collect()
             } else {
+                sheet
+                    .search_hits(&st.pattern, column.as_deref())
+                    .map_err(|e| e.to_string())?
+            };
+            let next = if backward {
                 hits.iter().rev().find(|(r, _)| *r < cur).or(hits.last())
+            } else {
+                hits.iter().find(|(r, _)| *r > cur).or(hits.first())
             };
             Ok(match next.copied() {
                 Some((row, col)) => JobDone::Jump { row, col },
-                None => JobDone::Toast(format!("no match for /{needle}")),
+                None if st.expr => JobDone::Toast(format!("no rows where {}", st.pattern)),
+                None => JobDone::Toast(format!("no match for /{}", st.pattern)),
             })
         });
     }
@@ -584,7 +621,7 @@ impl App {
             return;
         }
         // One reopen at a time: a change meanwhile is seen on a later tick.
-        let reopening = self.busy.contains(&"tail reopen");
+        let reopening = self.busy.iter().any(|j| j.label == "tail reopen");
         let active = self.sheets.active_mut();
         if !reopening && let Some(path) = active.tail_needs_reopen() {
             let kind = active.kind;
@@ -918,6 +955,26 @@ impl App {
                 .map_err(|e| e.to_string())?;
             let note = format!("selected {} rows matching /{pat}", rids.len());
             Ok(JobDone::Select { rids, note })
+        });
+    }
+
+    /// `:select` / `:unselect` / `z|` / `z\`: rows where a SQL predicate holds.
+    fn select_by_expr(&mut self, expr: String, unselect: bool) {
+        let sheet = self.sheets.active().clone();
+        self.spawn_job("select", move || {
+            let rids = sheet.rids_where(&expr)?;
+            let n = rids.len();
+            Ok(if unselect {
+                JobDone::Unselect {
+                    rids,
+                    note: format!("unselected {n} rows where {expr}"),
+                }
+            } else {
+                JobDone::Select {
+                    rids,
+                    note: format!("selected {n} rows where {expr}"),
+                }
+            })
         });
     }
 

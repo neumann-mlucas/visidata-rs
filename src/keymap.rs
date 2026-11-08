@@ -71,17 +71,19 @@ impl Keymap {
         let mut full_seq = pending.to_vec();
         full_seq.push(next);
 
-        // last-declaration-wins: iterate in reverse so later shadows earlier
-        for c in chords.iter().rev() {
-            if c.on == full_seq {
-                return Dispatch::Fire(c.run.clone());
-            }
+        // Last declaration wins, also between an exact chord and longer ones it
+        // prefixes: `vd.bind("sheet", "<Space> f", …)` makes `<Space>` a leader
+        // even though the defaults bind `<Space>` alone.
+        let is_prefix =
+            |c: &Chord| c.on.len() > full_seq.len() && c.on[..full_seq.len()] == full_seq[..];
+        let exact = chords.iter().rposition(|c| c.on == full_seq);
+        let last_prefix = chords.iter().rposition(is_prefix);
+        if let Some(i) = exact
+            && last_prefix.is_none_or(|p| p < i)
+        {
+            return Dispatch::Fire(chords[i].run.clone());
         }
-        let prefix: Vec<Chord> = chords
-            .iter()
-            .filter(|c| c.on.len() > full_seq.len() && c.on[..full_seq.len()] == full_seq[..])
-            .cloned()
-            .collect();
+        let prefix: Vec<Chord> = chords.iter().filter(|c| is_prefix(c)).cloned().collect();
         if prefix.is_empty() {
             Dispatch::Miss
         } else {
@@ -112,14 +114,21 @@ impl Keymap {
                 vec![CursorRight { count: None }],
                 "right",
             ),
+            ch(vec![k("<C-f>")], vec![PageDown], "page down"),
+            ch(vec![k("<C-b>")], vec![PageUp], "page up"),
             ch(vec![k("<C-d>")], vec![PageDown], "page down"),
             ch(vec![k("<C-u>")], vec![PageUp], "page up"),
             ch(vec![k("<PgDn>")], vec![PageDown], "page down"),
             ch(vec![k("<PgUp>")], vec![PageUp], "page up"),
             ch(vec![k("g"), k("g")], vec![GotoTop], "top"),
             ch(vec![k("G")], vec![GotoBottom], "bottom"),
+            ch(vec![k("g"), k("h")], vec![GotoLeftmost], "leftmost column"),
             ch(vec![k("0")], vec![GotoLeftmost], "leftmost column"),
-            ch(vec![k("$")], vec![GotoRightmost], "rightmost column"),
+            ch(
+                vec![k("g"), k("l")],
+                vec![GotoRightmost],
+                "rightmost column",
+            ),
             // freeze
             ch(
                 vec![k("z"), k("s")],
@@ -129,7 +138,12 @@ impl Keymap {
             ch(vec![k("z"), k("c")], vec![UnfreezeAll], "unfreeze all"),
             // column meta
             ch(vec![k("-")], vec![HideCol], "hide current column"),
-            ch(vec![k("g"), k("-")], vec![UnhideAll], "unhide all"),
+            ch(vec![k("g"), k("v")], vec![UnhideAll], "unhide all columns"),
+            ch(
+                vec![k("g"), k("-")],
+                vec![HideUniform],
+                "hide columns with one distinct value",
+            ),
             ch(vec![k("!")], vec![KeyCol], "toggle current column as key"),
             ch(vec![k("z"), k("!")], vec![UnkeyAll], "unset all keys"),
             ch(
@@ -142,12 +156,54 @@ impl Keymap {
             ch(vec![k("%")], vec![TypeCastFloat], "type: float"),
             ch(vec![k("~")], vec![TypeCastString], "type: string"),
             ch(vec![k("@")], vec![TypeCastDate], "type: date"),
+            ch(vec![k("$")], vec![TypeCastCurrency], "type: currency"),
             // search / filter
-            ch(vec![k("/")], vec![StartSearchInput], "search forward"),
+            ch(
+                vec![k("/")],
+                vec![StartSearchInput {
+                    all_columns: false,
+                    backward: false,
+                }],
+                "search current column (regex)",
+            ),
+            ch(
+                vec![k("?")],
+                vec![StartSearchInput {
+                    all_columns: false,
+                    backward: true,
+                }],
+                "search current column backward",
+            ),
+            ch(
+                vec![k("g"), k("/")],
+                vec![StartSearchInput {
+                    all_columns: true,
+                    backward: false,
+                }],
+                "search all columns",
+            ),
+            ch(
+                vec![k("g"), k("?")],
+                vec![StartSearchInput {
+                    all_columns: true,
+                    backward: true,
+                }],
+                "search all columns backward",
+            ),
+            ch(
+                vec![k("z"), k("/")],
+                vec![StartSearchExprInput { backward: false }],
+                "search by SQL predicate",
+            ),
+            ch(
+                vec![k("z"), k("?")],
+                vec![StartSearchExprInput { backward: true }],
+                "search by SQL predicate backward",
+            ),
             ch(vec![k("n")], vec![SearchNext], "next match"),
             ch(vec![k("N")], vec![SearchPrev], "prev match"),
             ch(
-                vec![k("z"), k("|")],
+                vec![k("g"), k("z"), k("|")],
                 vec![StartFilterInput],
                 "filter current column by regex",
             ),
@@ -166,6 +222,16 @@ impl Keymap {
                 vec![k("|")],
                 vec![StartSelectInput],
                 "select by regex on current column",
+            ),
+            ch(
+                vec![k("z"), k("|")],
+                vec![StartSelectExprInput { unselect: false }],
+                "select rows by SQL predicate",
+            ),
+            ch(
+                vec![k("z"), k("\\")],
+                vec![StartSelectExprInput { unselect: true }],
+                "unselect rows by SQL predicate",
             ),
             ch(
                 vec![k("\"")],
@@ -228,10 +294,31 @@ impl Keymap {
             ),
             // ex-line
             ch(vec![k(":")], vec![StartExInput], "ex command"),
+            ch(
+                vec![k("<Space>")],
+                vec![StartExInput],
+                "ex command (any command by name)",
+            ),
+            ch(
+                vec![k("=")],
+                vec![StartDeriveInput],
+                "new column from SQL expression",
+            ),
             // repeat / sheet stack / quit
             ch(vec![k(".")], vec![RepeatLast], "repeat last action"),
             ch(vec![k("q")], vec![PopSheet], "pop sheet / quit if last"),
-            ch(vec![k("<C-c>")], vec![Quit], "quit"),
+            ch(vec![k("g"), k("q")], vec![Quit], "quit all sheets"),
+            ch(vec![k("<C-q>")], vec![Quit], "quit"),
+            ch(
+                vec![k("<C-c>")],
+                vec![CancelJobs],
+                "cancel this sheet's background jobs",
+            ),
+            ch(
+                vec![k("g"), k("<C-c>")],
+                vec![CancelAllJobs],
+                "cancel all background jobs",
+            ),
             ch(vec![k("<C-l>")], vec![Redraw], "redraw"),
         ];
         let input = vec![

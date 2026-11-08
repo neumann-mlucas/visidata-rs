@@ -1,6 +1,6 @@
 # S-15 — Feature inventory (what `visidata-rs` actually ships)
 
-Status: **landed 2026-10-16**, re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of that day, §3.11 the 2026-11-07 additions. Planned work: `../tasks.md` roadmap.
+Status: **landed 2026-10-16**; keys re-aligned with VisiData 2026-11-08 (S-26 phase 0, S-21 A); re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of that day, §3.11 the 2026-11-07 additions. Planned work: `../tasks.md` roadmap.
 
 User-facing reference: [`docs/index.html`](../index.html) (GitHub Pages). Unit tests fail if it misses a default key binding or documents an ex command that doesn't exist. This is the authoritative list of what the `vdrs` binary and companion crate expose. Update when a user-visible surface changes.
 Phase: n/a (cross-cutting documentation)
@@ -52,21 +52,22 @@ Full enum: `src/action.rs`. Grouped by category:
 |---|---|---|
 | `CursorDown`, `CursorUp` | `j`, `k` | row ±1; supports count prefix (`3j`) |
 | `CursorLeft`, `CursorRight` | `h`, `l` | col ±1 |
-| `PageDown`, `PageUp` | `<C-d>`/`<PgDn>`, `<C-u>`/`<PgUp>` | one screen of rows |
+| `PageDown`, `PageUp` | `<C-f>`/`<C-d>`/`<PgDn>`, `<C-b>`/`<C-u>`/`<PgUp>` | one screen of rows |
 | `GotoTop`, `GotoBottom` | `gg`, `G` | first/last row of the whole view (G waits for the background row count) |
 
 All vertical moves go through `App::goto_row`, which re-centres the 1024-row window when the target is outside it. The title shows `row N/total` (1-based; `?` while counting).
-| `GotoLeftmost`, `GotoRightmost` | `0`, `$` | first/last column |
+| `GotoLeftmost`, `GotoRightmost` | `gh` or `0`, `gl` | first/last column |
 
 ### 3.2 Column meta (data-affecting via `View` state, not plan mutation)
 
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
 | `FreezeColumn` / `UnfreezeAll` | `zs` / `zc` | — | pin cols up to the cursor to the left of the viewport |
-| `HideCol` / `UnhideAll` | `-` / `g-` | `:hide` / `:unhide` | View.hidden set |
+| `HideCol` / `UnhideAll` | `-` / `gv` | `:hide` / `:unhide` | View.hidden set |
+| `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
 | `StartRenameColInput` → `RenameCol { new_name }` | `^` | `:rename NEW` | plan.rename() + updates hidden/keys/casts/filter/sort refs; refuses an existing name |
-| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / (no key — use `:type currency`) | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
+| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
 
 ### 3.3 Sort / filter / search
 
@@ -74,10 +75,11 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 |---|---|---|---|
 | `SortAsc` / `SortDesc` | `[` / `]` | `:sort [+-]<col>` | adds/updates current col as a sort key (multi-col) |
 | `ClearSort` | `zo` | `:unsort` | drop sort state |
-| `FilterCurrentColumn { regex }` / `SetFilter { column, regex }` | `z\|` (prompts) | `:filter <col> <regex>` | regex over the column's text (any dtype); bad regex / unknown column rejected with a toast |
+| `FilterCurrentColumn { regex }` / `SetFilter { column, regex }` | `gz\|` (prompts) | `:filter <col> <regex>` | regex over the column's text (any dtype); bad regex / unknown column rejected with a toast |
 | `ClearFilter` | `zf` | `:unfilter` | — |
-| `SearchNext` / `SearchPrev` | `n` / `N` | — | next/prev row of the whole view, wrapping |
-| `StartSearchInput` | `/` | — | case-insensitive literal match in any column of the whole view |
+| `SearchNext` / `SearchPrev` | `n` / `N` | — | next hit in the search's direction / against it, whole view, wrapping |
+| `StartSearchInput { all_columns, backward }` | `/` `?` / `g/` `g?` | — | case-insensitive regex in the cursor column (at each `n`) / every visible column (VisiData search-col / search-cols) |
+| `StartSearchExprInput { backward }` | `z/` / `z?` | — | next row where a SQL predicate holds (hidden columns allowed) |
 
 Selections key on row ids (position in the base plan), so they survive sort and filter.
 
@@ -99,6 +101,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
 | `SelectByRegex { regex }` | — | regex over current col, whole view |
 | `StartSelectInput` → prompt | `\|` | — |
+| `SelectExpr { expr, unselect }` | `z\|` / `z\\` (prompt) | `:select <pred>` / `:unselect <pred>`: rows where a SQL predicate holds; background job |
 | `DupSelected` | `"` | new sheet filtered to selected rows via `Sheet::dup_selected_from` |
 
 ### 3.6 Sheet stack
@@ -119,9 +122,11 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 
 | Action | Key | Semantics |
 |---|---|---|
-| `StartExInput` → `ExCommand(str)` | `:` | — |
+| `StartExInput` → `ExCommand(str)` | `:`, `<Space>` | — |
+| `StartDeriveInput` | `=` | new column from a SQL expression, named after it; `name = expr` names it when `name` is new |
 | `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `view_plan()` (casts + filter + sort + visible cols); writer by extension (csv/tsv/parquet/ipc/jsonl/json); unknown extension errors without touching the file; `:w` and `:write` aliases |
-| `Quit` | `<C-c>` | hard exit |
+| `Quit` | `gq`, `<C-q>` | exit |
+| `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
 | `RepeatLast` | `.` | capture of resolved Action (not keystrokes) |
 | `Redraw` | `^L` | force repaint |
 
@@ -148,7 +153,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
 | Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection; derived sheets (freq, copy, selected, freq dive, join, sql, pivot, `W`, unpivot, describe, row diff) replay from a parent snapshot (`SheetState.lineage`), one variable/CTE per sheet. Not: schema diff, Lua-agg pivots, stdin |
 | Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
-| Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform` | run on the blocking pool; status line shows `working: …` |
+| Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform`, `z\|`, `z/` | run on the blocking pool; status line shows `working: …`; `<C-c>` drops them |
 | Readers | — | ISO-only CSV/TSV date inference (others stay text); lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
 | Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized |
 
@@ -321,7 +326,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Nested data** (`expand-col`, `unfurl-col`): JSON/JSONL/Parquet/Arrow already load nested fields as native `struct`/`list` columns; the expand/unfurl operations are missing. Plan: [`S-22-nested-data.md`](S-22-nested-data.md).
 - **Plots** (`plot-column`, histograms): plan [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) part C.
 - **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
-- **Expression keys** `=` `g=` `z/` over Polars SQL: [`S-21-expressions.md`](S-21-expressions.md).
+- **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
 - **Cell/row editing + clipboard** (`edit-cell`, `delete-row`, `add-row`, `open-new`, `copy-*`, `paste-*`, `setcol-clipboard`) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).

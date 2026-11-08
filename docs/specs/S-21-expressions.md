@@ -1,6 +1,6 @@
 # S-21 — Expression columns and expression selection (`=`, `:select`)
 
-Status: **drafted 2026-11-08**, not started.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 with S-26 phase 0 (`=`, `z/` `z?`, `z|` `z\`, `:select` / `:unselect`, filter → `gz|`). The `=`/`z/`/`z|` prompts don't share the ex history yet. `=` with `name = expr` names the column only when `name` doesn't exist (else `qty = 5` would replace `qty`); otherwise the whole text is the expression.
 Depends on: S-15 (`:derive`, `:sql`), S-04 (keymap); phase B on S-18 C (`Arc` rid set, D3 read-only derived sheets). Touches S-14 (UNTESTABLE list).
 Direction: §9.5 stays — no Python runtime. This spec gives VisiData's *keys* and *workflow* an
 expression language vdrs already has (Polars SQL), and leaves a Python-flavoured subset as an

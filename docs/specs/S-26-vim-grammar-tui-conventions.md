@@ -1,6 +1,6 @@
 # S-26 — Vim grammar and TUI conventions
 
-Status: **drafted 2026-11-08**, not started.
+Status: **drafted 2026-11-08**; phase 0 shipped 2026-11-08 (see §0.1). Parts A–E not started.
 Depends on: S-04 (keymap, counts, `.`), S-18 (register, edit keys, D1–D6), S-19 (macros on `m`),
 S-20 (undo tree), S-23 B (splits). Constraint: direction §9.2 — the **default** keymap feels like
 VisiData from keystroke 1; deviations need a reason. So this spec has two layers:
@@ -38,14 +38,26 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 | `gv` | — | `unhide-cols` | unhide all | reselect last visual range | phase 0 |
 | `<C-c>` | quit | `cancel-sheet` | cancel the sheet's background jobs (`gCtrl+C` all); quit all = `gq`, hard quit = `<C-q>` | `<C-c>` cancels too; `:qa` | phase 0 |
 | `D` | diff prompt | `cmdlog-sheet` (cut, §9.5) | diff prompt (R-e) | same | — (kept) |
-| `<C-d>` / `<C-u>` | page down / up | `save-cmdlog` (cut, §9.5) / — | page = `<C-f>` / `<C-b>` / PgDn / PgUp | half page (as vimcompat) | phase 0 |
+| `<C-d>` / `<C-u>` | page down / up | `save-cmdlog` (cut, §9.5) / — | page, plus `<C-f>` / `<C-b>` (VisiData) / PgDn / PgUp; `<C-d>` kept under R-e, `<C-u>` is free | half page (as vimcompat) | phase 0 |
 | `<C-r>` | — | `reload-sheet` | `:refresh` (S-30 A; asks first if the sheet has unsaved edits) | redo | S-30 A |
 | `<C-o>` / `<C-i>` | — | `sysopen-*` (external program) | — | jumplist back / forward | phase A |
 | `zs` / `zc` | freeze / unfreeze cols | `select-before` / `go-col-number` | freeze/unfreeze until those ship (R-d), then `:freeze` / `:unfreeze` | — | when they ship |
 | `zo` | clear sort | `open-cell-file` | clear sort until that ships (R-d), then `:unsort` | — | when it ships |
 | `z\|` | regex filter | `select-expr` | select-expr; filter = `gz\|` + `:filter` | same | S-21 A |
 | `P` | plan panel | `paste-before` | paste-before; `:plan` | same | S-18 F (D1) |
-| `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`) | `/` all columns (vim searches the whole buffer) | phase 0 |
+| `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`); case-insensitive regex, as VisiData's default `regex_flags` | `/` all columns (vim searches the whole buffer) | phase 0 |
+
+### 0.1 Phase 0 as shipped (2026-11-08)
+- Default keymap: `Space` → `:`; `$` currency, `gh`/`gl` first/last column (`0` kept); `g-` `:uniform`,
+  `gv` unhide-cols; `<C-c>` / `g<C-c>` cancel jobs (the result is dropped; Polars work can't be
+  interrupted, it finishes in the pool), `gq` / `<C-q>` quit; `<C-f>` / `<C-b>` page; `/` `?` `g/` `g?`.
+  With S-21 A: `=`, `z/` `z?`, `z|` `z\`, `:select` / `:unselect`; regex filter on `gz|`.
+- Keymap resolver: a later binding that a key prefixes beats an earlier exact one, so
+  `vd.bind("sheet", "<Space> f", …)` makes `<Space>` a leader again.
+- Old vdrs meanings waiting for the vim profile (part D): `$` last column, `/` all columns, `<C-c>`
+  quit is not kept (`:qa`). Until part D they are one `vd.bind` away (`vd.bind("sheet", "$",
+  "goto_rightmost")`).
+- Shipped in one commit, with the guide, recordings, doc-sync tests and S-15.
 
 Phase 0 is one commit per row group, each updating the guide, its recordings, the doc-sync test,
 S-15 §3–4 and the `init.lua` template. Tests: scenario per moved key (old key does the VisiData thing,

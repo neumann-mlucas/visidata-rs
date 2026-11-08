@@ -93,6 +93,15 @@ pub enum Action {
     StartSelectInput, // `|` → prompt for regex
     SelectEqualCell,  // `,` → rows whose current column equals the cursor cell
     DupSelected,      // `"` → new sheet with selected rows only
+    /// `:select` / `:unselect` / `z|` / `z\`: rows where a SQL predicate holds (S-21).
+    SelectExpr {
+        expr: String,
+        unselect: bool,
+    },
+    /// `z|` / `z\` → prompt for a predicate.
+    StartSelectExprInput {
+        unselect: bool,
+    },
     /// Rows whose current-column value already occurred above, in view order.
     SelectColDuplicates,
     /// New sheet keeping each key's first row (all columns when no keys).
@@ -143,7 +152,17 @@ pub enum Action {
     Redo,
 
     // input modes
-    StartSearchInput,
+    /// `/` `?` (cursor column) and `g/` `g?` (all columns), as VisiData.
+    StartSearchInput {
+        all_columns: bool,
+        backward: bool,
+    },
+    /// `z/` / `z?`: search by SQL predicate.
+    StartSearchExprInput {
+        backward: bool,
+    },
+    /// `=`: new column from a SQL expression.
+    StartDeriveInput,
     StartFilterInput,
     SubmitInput,
     CancelInput,
@@ -154,6 +173,10 @@ pub enum Action {
 
     // meta
     Quit,
+    /// `<C-c>`: drop the active sheet's background jobs (VisiData cancel-sheet).
+    CancelJobs,
+    /// `g<C-c>`: drop every background job (VisiData cancel-all).
+    CancelAllJobs,
     RepeatLast,
     Redraw,
 }
@@ -202,6 +225,7 @@ impl Action {
                 | Action::SelectAll
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
+                | Action::SelectExpr { .. }
                 | Action::SelectEqualCell
                 | Action::SelectColDuplicates
                 | Action::HideUniform
@@ -213,12 +237,26 @@ impl Action {
     pub fn repeatable(&self) -> bool {
         use Action::*;
         match self {
-            Quit | PopSheet | Redraw | RepeatLast | Save { .. } | Export { .. } | Undo | Redo => {
-                false
-            }
+            Quit
+            | CancelJobs
+            | CancelAllJobs
+            | PopSheet
+            | Redraw
+            | RepeatLast
+            | Save { .. }
+            | Export { .. }
+            | Undo
+            | Redo => false,
             OpenSheetSwitcher => false,
-            StartSearchInput | StartFilterInput | StartExInput | StartSelectInput
-            | StartDiffInput | StartRenameColInput => false,
+            StartSearchInput { .. }
+            | StartSearchExprInput { .. }
+            | StartDeriveInput
+            | StartSelectExprInput { .. }
+            | StartFilterInput
+            | StartExInput
+            | StartSelectInput
+            | StartDiffInput
+            | StartRenameColInput => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -248,6 +286,7 @@ impl Action {
             | SelectAll
             | UnselectAll
             | SelectByRegex { .. }
+            | SelectExpr { .. }
             | SelectEqualCell
             | SelectColDuplicates
             | DupSelected => true,
@@ -293,7 +332,15 @@ impl Action {
         ("type_cast_string", TypeCastString),
         ("type_cast_date", TypeCastDate),
         ("type_cast_currency", TypeCastCurrency),
-        ("start_search_input", StartSearchInput),
+        ("start_search_input", StartSearchInput { all_columns: false, backward: false }),
+        ("start_searchr_input", StartSearchInput { all_columns: false, backward: true }),
+        ("start_search_all_input", StartSearchInput { all_columns: true, backward: false }),
+        ("start_searchr_all_input", StartSearchInput { all_columns: true, backward: true }),
+        ("start_search_expr_input", StartSearchExprInput { backward: false }),
+        ("start_searchr_expr_input", StartSearchExprInput { backward: true }),
+        ("start_derive_input", StartDeriveInput),
+        ("start_select_expr_input", StartSelectExprInput { unselect: false }),
+        ("start_unselect_expr_input", StartSelectExprInput { unselect: true }),
         ("start_filter_input", StartFilterInput),
         ("start_ex_input", StartExInput),
         ("submit_input", SubmitInput),
@@ -312,6 +359,8 @@ impl Action {
         ("toggle_plan_panel", TogglePlanPanel),
         ("pop_sheet", PopSheet),
         ("quit", Quit),
+        ("cancel_jobs", CancelJobs),
+        ("cancel_all_jobs", CancelAllJobs),
         ("redraw", Redraw),
         ("repeat_last", RepeatLast),
         ("toggle_select_row", ToggleSelectRow),
