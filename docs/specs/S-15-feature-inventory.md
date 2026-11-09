@@ -150,7 +150,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 
 | Surface | Key / command | Semantics |
 |---|---|---|
-| Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null) |
+| Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null); rows dived from a freq sheet are a freq sheet again (`Origin::Freq` kept), so `<CR>` goes on to the source |
 | Describe | `I`, `:describe` | VisiData's describe sheet: per visible column `sheet` `column` `type` (sheet, type hidden), errors (failed type casts), nulls, distinct (null = one value), mode (first seen on ties); numbers: min max sum median mean stdev (sample); dates: min max, median when the count is odd (VisiData `#ERR` → empty) (background job) |
 | Pivot | `W` | key cols × current col, counts; no keys → one row of counts |
 | Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background, Lua aggs too); Enter runs the full pivot |
@@ -237,7 +237,7 @@ Each returns a new `Sheet` with an `Origin` enum entry so the lineage is visible
 - `Origin::Unpivot { parent }`
 - `Origin::Diff { left, right_name }`
 - `Origin::Tail { path, follow }`
-- `Origin::Selected { parent }` — `"` dup of selected rows, and freq dives
+- `Origin::Selected { parent }` — `"` dup of selected rows, and freq dives (a dive from a freq-of-freq keeps `Origin::Freq`)
 - `Origin::Copy { parent }` — `g"` / `:dup`
 - `Origin::Describe { parent }` — `I`
 - `Origin::Sql { parent }` — `:sql`

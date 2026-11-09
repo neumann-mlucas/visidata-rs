@@ -59,7 +59,7 @@ freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="2018-07-03\t2\t3.92"
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
-freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal" got="count\tfreq_count\tfreq_percent\tfreq_histogram"
+freqtbl-openrow	PASS
 frozen-attrs	SKIP aggregate-col
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr

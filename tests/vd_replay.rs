@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 45;
+const MIN_PASS: usize = 46;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -275,6 +275,42 @@ impl Replay {
     fn open_index_row(&mut self, row: &str) -> Result<(), StepErr> {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
+        if let Origin::Freq { parent, column } = s.origin.clone() {
+            // the source rows with the cursor row's value (first column), as `<CR>`
+            let vals = s
+                .plan
+                .clone()
+                .select([nth(0).as_expr()])
+                .collect()
+                .map_err(|e| Runtime(e.to_string()))?;
+            let vals = &vals.columns()[0];
+            let i = match row.strip_prefix('キ') {
+                Some(v) => (0..vals.len()).find(|&i| {
+                    vals.get(i)
+                        .is_ok_and(|a| a.str_value().trim_matches('"') == v)
+                }),
+                None => row.parse().ok(),
+            }
+            .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
+            let picked = [vals
+                .get(i)
+                .map_err(|e| Runtime(e.to_string()))?
+                .into_static()];
+            let p = self
+                .loaded
+                .iter()
+                .find(|l| l.sheet.id == parent)
+                .ok_or_else(|| Runtime("open-row: freq parent gone".into()))?;
+            let sheet = Sheet::rows_with_values(&p.sheet, self.next_id, &column, &picked);
+            self.next_id += 1;
+            let name = format!(
+                "{}_{}",
+                self.current_slot()?.name,
+                row.trim_start_matches('キ')
+            );
+            self.push_sheet(name, sheet);
+            return Ok(());
+        }
         let Origin::Parts { path, kind } = s.origin.clone() else {
             // xlsx/sqlite open their first part directly; `キname` names another
             let (Some(name), Some(path)) = (row.strip_prefix('キ'), s.source.path.clone()) else {

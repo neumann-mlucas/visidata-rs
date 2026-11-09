@@ -13,7 +13,6 @@ numeric_binning      # set-option numeric_binning: freq bins numeric ranges
 freq-fmtstr          # column fmtstr (`%Y-%m`) changes freq keys
 
 # Correctness fixes (S-25 P2)
-freqtbl-openrow      # freq open-row: dive to the parent rows of the cursor value
 
 # Permanent: VisiData semantics vdrs doesn't model
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)

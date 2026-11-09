@@ -569,6 +569,21 @@ async fn freq_dive_opens_matching_rows() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn freq_rows_picked_from_a_freq_sheet_still_dive() {
+    let mut h = Harness::new(5000).await; // grp 1, 2: 715 rows; 0, 3..=6: 714
+    h.keys("l l F").await;
+    h.keys("l F").await; // freq of the freq sheet's count
+    h.keys("<CR>").await; // count 715 comes first: grp 1 and 2
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    h.keys("<CR>").await; // and the source rows of the first one
+    assert!(
+        title(&h).contains("grp=1") && title(&h).contains("row 1/715"),
+        "{}",
+        title(&h)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn derive_setcol_and_undo_redo() {
     let mut h = Harness::new(5).await;
     h.keys(":").await;

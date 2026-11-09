@@ -187,7 +187,11 @@ impl Sheet {
             [one] => format!("{column}={}", any_text(one)),
             many => format!("{column} in {} values", many.len()),
         };
-        let origin = Origin::Selected { parent: parent.id };
+        // freq rows picked from a freq sheet still dive to the source rows, as VisiData
+        let origin = match &parent.origin {
+            Origin::Freq { .. } => parent.origin.clone(),
+            _ => Origin::Selected { parent: parent.id },
+        };
         let text = values
             .iter()
             .map(|v| (!v.is_null()).then(|| any_text(v)))
