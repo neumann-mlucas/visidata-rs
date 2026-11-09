@@ -1,0 +1,2 @@
+:
+> join {dir}/right.csv id extend

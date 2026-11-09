@@ -103,7 +103,7 @@ issue3174-deepcopy-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3175-vds-concat	SKIP runtime: save: unknown extension '.vds'
 issue3175-vds-full	SKIP runtime: save: unknown extension '.vds'
 issue3178	SKIP runtime: column already exists: B
-issue3187	SKIP runtime: cannot locate row '': no key columns set
+issue3187	SKIP runtime: not found: "name" not found
 issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
 issue3190-unhide	PASS
 issue3195	SKIP set-envvar
@@ -130,7 +130,7 @@ issue964-inner-join	PASS
 join-cols-single-sheet	SKIP join-cols
 join-concat	SKIP runtime: no sheet named 'sample_columns'
 join-different-types	SKIP runtime: join-sheets needs ≥2 sheets, got 0
-join-extend-mult	FAIL line 1: want="Key\tA\tB\tdata3_E\tdata3_F\tdata2_C\tdata2_D" got="Key\tE\tF\tA\tB"
+join-extend-mult	PASS
 join-merge	PASS
 join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
 jump-sheet	PASS
@@ -199,7 +199,7 @@ pr2308	NO_GOLDEN golden is .json
 pr2372	SKIP addcol-new
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
 pr2614	SKIP addcol-incr
-pr2647	SKIP runtime: read-only: b&a is derived
+pr2647	SKIP runtime: read-only: b+a is derived
 pr2688a	PASS
 pr2688b	PASS
 pr2815	NO_GOLDEN golden is .json

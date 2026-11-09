@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 44;
+const MIN_PASS: usize = 45;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -170,8 +170,9 @@ struct SheetSlot {
 struct Replay {
     loaded: Vec<SheetSlot>,
     current: Option<usize>,
-    /// The previous `current` (for VisiData `vd.sheets[:2]` MRU semantics).
-    prev_current: Option<usize>,
+    /// VisiData's sheet stack (most recent last; `vd.sheets[:2]` = the last
+    /// two): using a sheet moves it on top, `quit-sheet` takes it off.
+    stack: Vec<usize>,
     meta_mode: Option<MetaMode>,
     /// Resolution root for `open-file` paths. VisiData runs tests from the repo
     /// root, so inputs like `tests/sort-levels.tsv` resolve relative to there.
@@ -239,7 +240,7 @@ impl Replay {
         Self {
             loaded: Vec::new(),
             current: None,
-            prev_current: None,
+            stack: Vec::new(),
             meta_mode: None,
             root,
             next_id: 0,
@@ -322,10 +323,9 @@ impl Replay {
     }
 
     fn set_current(&mut self, new: usize) {
-        if self.current != Some(new) {
-            self.prev_current = self.current;
-            self.current = Some(new);
-        }
+        self.stack.retain(|&i| i != new);
+        self.stack.push(new);
+        self.current = Some(new);
     }
 
     fn current_slot(&self) -> Result<&SheetSlot, StepErr> {
@@ -457,12 +457,12 @@ impl Replay {
                 };
                 let rows = duckdb::exec(&db, &r.input).map_err(Runtime)?;
                 self.refresh_index(&db)?;
-                if let Some(df) = rows {
-                    let src =
-                        LoadedSource::from_df(SourceKind::Duckdb, "exec-sql".into(), Some(db), df);
-                    let sheet = Sheet::from_source(self.alloc(), src);
-                    self.push_sheet("query".into(), sheet);
-                }
+                // VisiData pushes a query sheet even for statements without rows
+                let df = rows.unwrap_or_default();
+                let src =
+                    LoadedSource::from_df(SourceKind::Duckdb, "exec-sql".into(), Some(db), df);
+                let sheet = Sheet::from_source(self.alloc(), src);
+                self.push_sheet("query".into(), sheet);
                 Ok(())
             }
             "sort-asc" => self.push_sort(&r.col, SortOrder::Asc, false),
@@ -647,8 +647,16 @@ impl Replay {
             }
             // quit-sheet: clear meta mode if any; otherwise no-op (we don't
             // model the parent sheet stack).
-            "quit-sheet" => {
+            // a meta view closes; a data sheet leaves the stack
+            "quit-sheet" if self.meta_mode.is_some() => {
                 self.meta_mode = None;
+                Ok(())
+            }
+            "quit-sheet" => {
+                if let Some(cur) = self.stack.pop() {
+                    self.loaded[cur].name.insert(0, '\0'); // no longer found by name
+                }
+                self.current = self.stack.last().copied();
                 Ok(())
             }
             // edit-cell / set-cell-input while in a meta view: no-op (we don't
@@ -1167,7 +1175,11 @@ impl Replay {
             .current
             .ok_or_else(|| StepErr::Runtime("no current".into()))?;
         let prev = self
-            .prev_current
+            .stack
+            .iter()
+            .rev()
+            .nth(1)
+            .copied()
             .ok_or_else(|| StepErr::Runtime("join-sheets-top2: no previous sheet".into()))?;
         let selected = vec![
             self.loaded[cur].name.clone(),
@@ -1328,12 +1340,23 @@ impl Replay {
                             .map_err(|e| StepErr::Runtime(e.to_string()))
                     };
                     let l = numbered(acc, &left_exprs, "__vdrs_l", "__vdrs_lk")?;
-                    let r = numbered(
-                        self.loaded[i].sheet.data_plan(),
-                        &right_exprs,
-                        "__vdrs_r",
-                        "__vdrs_rk",
-                    )?;
+                    let mut right = self.loaded[i].sheet.data_plan();
+                    if jt == "extend" {
+                        // VisiData names every extended column `<sheet>_<column>`
+                        let names: Vec<String> = right
+                            .collect_schema()
+                            .map_err(|e| StepErr::Runtime(e.to_string()))?
+                            .iter_names()
+                            .filter(|n| !right_keys.iter().any(|k| k == n.as_str()))
+                            .map(|n| n.to_string())
+                            .collect();
+                        let to: Vec<String> = names
+                            .iter()
+                            .map(|n| format!("{}_{n}", self.loaded[i].name))
+                            .collect();
+                        right = right.rename(names, to, true);
+                    }
+                    let r = numbered(right, &right_exprs, "__vdrs_r", "__vdrs_rk")?;
                     acc = l
                         .join(
                             r,
@@ -1394,7 +1417,7 @@ impl Replay {
         };
         let id = self.next_id;
         self.next_id += 1;
-        let joined_name = selected.join("&");
+        let joined_name = selected.join("+"); // VisiData's name
         let first = &self.loaded[slot_idxs[0]];
         // VisiData's join keeps first-sheet's keys on the result so subsequent
         // sort-keys / column-order reflect them. Inherit here.

@@ -378,6 +378,13 @@ fn file_name(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
+/// `:join … extend` names the other sheet's columns `<prefix>_<column>`, as
+/// VisiData: its file name without the extension.
+pub(crate) fn extend_prefix(right: &Sheet) -> &str {
+    let name = file_name(&right.name);
+    name.split_once('.').map_or(name, |(stem, _)| stem)
+}
+
 impl Sheet {
     pub fn from_source(id: SheetId, loaded: LoadedSource) -> Self {
         let name = loaded.display_name.clone();

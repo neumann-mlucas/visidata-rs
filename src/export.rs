@@ -902,7 +902,24 @@ fn join_code(
         (_, true) => {
             let on: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
             let on = on.join(", ");
-            let h = if how == "merge" { "full" } else { how };
+            let h = match how {
+                "merge" => "full",
+                "extend" => "left",
+                h => h,
+            };
+            let r = &if how == "extend" {
+                let pairs: Vec<String> = rn
+                    .iter()
+                    .filter(|n| !keys.contains(n))
+                    .map(|n| {
+                        let to = format!("{}_{n}", crate::sheet::extend_prefix(right));
+                        format!("{}: {}", py_str(n), py_str(&to))
+                    })
+                    .collect();
+                format!("{r}.rename({{{}}})", pairs.join(", "))
+            } else {
+                r.to_string()
+            };
             // VisiData's order, as `Sheet::join_from` (a diff orders itself)
             let numbered = |t: &str, row: &str, first: &str| match flag {
                 Some(_) => t.to_string(),
@@ -946,13 +963,16 @@ fn join_code(
         (_, false) => {
             let jt = match how {
                 "inner" => "INNER",
-                "left" => "LEFT",
+                "left" | "extend" => "LEFT",
                 _ => "FULL OUTER",
             };
             let rcols: Vec<String> = rn
                 .iter()
                 .map(|n| {
-                    if dups.contains(&n) {
+                    if how == "extend" && !keys.contains(n) {
+                        let to = format!("{}_{n}", crate::sheet::extend_prefix(right));
+                        format!("{} AS {}", q_ident(n), q_ident(&to))
+                    } else if dups.contains(&n) {
                         format!("{} AS {}", q_ident(n), q_ident(&format!("{n}_right")))
                     } else {
                         q_ident(n)

@@ -159,7 +159,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Select equal | `,` | rows whose current col equals the cursor cell |
 | Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet undo tree of (plan, view, steps) snapshots, 100 states; a change after `U` branches; `R` = child last made or come back from (S-20) |
 | Undo history | `:earlier [n]` / `:later [n]`, `:undotree` (`open_undo_tree`) | walk states in creation order across branches; a sheet of states (id, parent, ago, change, `*` current), `Enter` restores one (S-20) |
-| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | same-named keys; rows in VisiData's order (keys as first seen, left then right-only, each key's rows together); merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
+| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|extend\|append]` | same-named keys; rows in VisiData's order (keys as first seen, left then right-only, each key's rows together); merge = full + right non-null wins; extend = left + right non-key columns renamed `<name>_<col>` (name = file name before its first `.`); append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
 | Set column | `:setcol <value>` | current col on selected rows; value must fit the displayed and base type; empty = null; placed after the column's last writer |

@@ -176,7 +176,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }])
         }
         "join" => {
-            const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|merge] | :join <file|sheet> [append|concat]";
+            const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|merge|extend] | :join <file|sheet> [append|concat]";
             let a = split_args(rest, USAGE)?;
             let (source, keys, how) = match a.as_slice() {
                 [s, k, h] => (s.clone(), comma_list(k), h.clone()),
@@ -186,7 +186,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 _ => return Err(ExError::Usage(USAGE)),
             };
             let keyless = matches!(how.as_str(), "append" | "concat");
-            if !matches!(how.as_str(), "inner" | "left" | "full" | "merge") && !keyless
+            if !matches!(how.as_str(), "inner" | "left" | "full" | "merge" | "extend") && !keyless
                 || (keys.is_empty() && !keyless)
             {
                 return Err(ExError::Usage(USAGE));

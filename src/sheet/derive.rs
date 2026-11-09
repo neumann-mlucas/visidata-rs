@@ -518,7 +518,7 @@ impl Sheet {
         } else {
             let jt = match how {
                 "inner" => JoinType::Inner,
-                "left" => JoinType::Left,
+                "left" | "extend" => JoinType::Left,
                 "full" | "merge" => JoinType::Full,
                 other => return Err(format!("unknown join type: {other}")),
             };
@@ -532,6 +532,23 @@ impl Sheet {
                 let min = col(row).cast(DataType::Int64).min();
                 let min = min.over(on.clone()).map_err(|e| e.to_string())?;
                 Ok(p.with_row_index(row, None).with_column(min.alias(first)))
+            };
+            let right = if how == "extend" {
+                let names: Vec<String> = right
+                    .clone()
+                    .collect_schema()
+                    .map_err(|e| e.to_string())?
+                    .iter_names()
+                    .filter(|n| !keys.iter().any(|k| k == n.as_str()))
+                    .map(|n| n.to_string())
+                    .collect();
+                let to: Vec<String> = names
+                    .iter()
+                    .map(|n| format!("{}_{n}", extend_prefix(right_sheet)))
+                    .collect();
+                right.rename(names, to, true)
+            } else {
+                right
             };
             let l = numbered(l, JL, JLK)?;
             let right = numbered(right, JR, JRK)?;
