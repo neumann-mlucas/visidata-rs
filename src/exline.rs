@@ -262,6 +262,11 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }
         "uniform" | "hide-uniform" => Ok(vec![Action::HideUniform]),
         "dup" => Ok(vec![Action::DupSheet]),
+        "plan" => Ok(vec![Action::TogglePlanPanel]),
+        "sidebar" if rest.is_empty() => Ok(vec![Action::ToggleSidebar]),
+        "sidebar" => crate::action::SidebarPage::parse(rest)
+            .map(|page| vec![Action::ShowSidebar { page }])
+            .ok_or(ExError::Usage("sidebar [column|cell|help|plan|plan-opt]")),
         "describe" => Ok(vec![Action::Describe]),
         "undo" => Ok(vec![Action::Undo]),
         "redo" => Ok(vec![Action::Redo]),
@@ -325,6 +330,8 @@ pub const COMMANDS: &[&str] = &[
     "unhide",
     "unhide-cols",
     "uniform",
+    "plan",
+    "sidebar",
     "unkey",
     "unpivot",
     "unselect",

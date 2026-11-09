@@ -22,7 +22,7 @@ use tokio_stream::StreamExt;
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::action::Action;
+use crate::action::{Action, SidebarPage};
 use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
 use crate::lineedit::LineEdit;
@@ -192,6 +192,11 @@ enum JobDone {
     Loaded(DataFrame),
     /// A tail that can't append, reopened.
     TailSource(Box<crate::reader::LoadedSource>),
+    /// The sidebar's column stats, for the key they were computed for.
+    SidebarStats {
+        key: String,
+        stats: Result<DataFrame, String>,
+    },
     /// `:pivot` preview for the ex-line text it was computed from.
     PivotPreview {
         text: String,
@@ -266,13 +271,6 @@ impl Prompt {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum PlanMode {
-    Off,
-    Normal,
-    Optimized,
-}
-
 pub struct App {
     /// Lua VM for the session: keymap patches applied in `new`; loader rules
     /// consulted when `:diff` opens a file.
@@ -286,7 +284,11 @@ pub struct App {
     toast: Option<String>,
     input: Option<(Prompt, LineEdit)>,
     ex_history: crate::exline::History,
-    plan_mode: PlanMode,
+    /// The open sidebar page (S-23 A); `sidebar_page` is the one `b` reopens.
+    sidebar: Option<SidebarPage>,
+    sidebar_page: SidebarPage,
+    /// The column page's stats: (what they were computed for, one `I` row).
+    sidebar_stats: Option<(String, Result<DataFrame, String>)>,
     /// While typing `:pivot …`: hints, then a pivot of the first rows.
     pivot_preview: Option<PivotPreview>,
     theme: Theme,
@@ -332,7 +334,9 @@ impl App {
             toast: plugin_warning,
             input: None,
             ex_history: crate::exline::History::load(),
-            plan_mode: PlanMode::Off,
+            sidebar: None, // L1: starts closed, as VisiData
+            sidebar_page: SidebarPage::Column,
+            sidebar_stats: None,
             pivot_preview: None,
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
@@ -481,6 +485,11 @@ impl App {
         match result {
             Err(e) => self.toast = Some(format!("{label}: {e}")),
             Ok(JobDone::Toast(t)) => self.toast = Some(t),
+            Ok(JobDone::SidebarStats { key, stats }) => {
+                if self.sidebar_stats.as_ref().is_some_and(|(k, _)| *k == key) {
+                    self.sidebar_stats = Some((key, stats));
+                }
+            }
             Ok(JobDone::PivotPreview { text, result }) => {
                 if let Some(p) = self.pivot_preview.as_mut().filter(|p| p.text == text) {
                     p.body = result.map_err(|e| format!("{e}\n\n{}", PIVOT_USAGE));
@@ -852,6 +861,49 @@ impl App {
                 }
             }
         }
+    }
+
+    /// The column page's stats for the cursor column, recomputed in the
+    /// background when the column or the sheet's data changed.
+    fn refresh_sidebar_stats(&mut self) {
+        if self.sidebar != Some(SidebarPage::Column) {
+            return;
+        }
+        let Some(column) = self.current_column_name() else {
+            return;
+        };
+        let s = self.sheets.active();
+        // ponytail: edits/undo show up as step or undo counts; a cheap proxy
+        // for "the data changed", recomputes on selection changes too.
+        let key = format!(
+            "{}|{column}|{}|{}|{}",
+            s.id,
+            s.count_key(),
+            s.state.steps.len(),
+            s.state.undo.len()
+        );
+        if self.sidebar_stats.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let mut one = s.clone();
+        one.view.sort.clear();
+        one.view.keys.clear();
+        one.view.hidden = one
+            .view_plan()
+            .collect_schema()
+            .map(|sc| {
+                sc.iter_names()
+                    .filter(|n| n.as_str() != column)
+                    .map(|n| n.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.sidebar_stats = Some((key.clone(), Err("computing…".into())));
+        self.spawn_job("stats", move || {
+            let stats = Sheet::describe_from(&one, 0)
+                .and_then(|d| d.plan.collect().map_err(|e| e.to_string()));
+            Ok(JobDone::SidebarStats { key, stats })
+        });
     }
 
     /// Keep the `:pivot` preview in step with the ex-line text.

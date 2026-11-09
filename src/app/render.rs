@@ -12,6 +12,7 @@ impl App {
         let working = !s.is_loaded() || s.is_counting() || !self.busy.is_empty();
         self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
         self.drawn_spin = self.spin();
+        self.refresh_sidebar_stats();
         term.draw(|f| self.render(f))?;
         Ok(())
     }
@@ -39,7 +40,7 @@ impl App {
             .is_some()
             .then_some(())
             .and(self.pivot_preview.as_ref());
-        let (sheet_area, plan_area) = if self.plan_mode == PlanMode::Off && preview.is_none() {
+        let (sheet_area, plan_area) = if self.sidebar.is_none() && preview.is_none() {
             (main_area, None)
         } else {
             let halves = Layout::default()
@@ -81,7 +82,7 @@ impl App {
         if let Some(area) = plan_area {
             match self.pivot_preview.as_ref().filter(|_| self.input.is_some()) {
                 Some(p) => self.render_pivot_preview(f, area, p),
-                None => self.render_plan_panel(f, area),
+                None => self.render_sidebar(f, area),
             }
         }
 
@@ -123,14 +124,47 @@ impl App {
         }
     }
 
-    pub(super) fn render_plan_panel(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
+    pub(super) fn render_sidebar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
+        let Some(page) = self.sidebar else { return };
         let s = self.sheets.active();
-        let (title, body) = match self.plan_mode {
-            PlanMode::Normal => ("plan", s.window_plan().describe_plan()),
-            PlanMode::Optimized => ("plan (opt)", s.window_plan().describe_optimized_plan()),
-            PlanMode::Off => return,
+        let column = self.current_column_name().unwrap_or_default();
+        let err = |e: PolarsError| format!("<error>: {e}");
+        let (title, text) = match page {
+            SidebarPage::Plan => (
+                "plan".into(),
+                s.window_plan().describe_plan().unwrap_or_else(err),
+            ),
+            SidebarPage::PlanOpt => (
+                "plan (opt)".into(),
+                s.window_plan()
+                    .describe_optimized_plan()
+                    .unwrap_or_else(err),
+            ),
+            SidebarPage::Column => (format!("column: {column}"), self.column_page()),
+            SidebarPage::Cell => {
+                let v = s
+                    .window()
+                    .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok());
+                let text = match v {
+                    Some(v) if !v.is_null() => crate::sheet::any_text(&v),
+                    Some(_) => "null".into(),
+                    None => String::new(),
+                };
+                (format!("cell: {column}"), text)
+            }
+            SidebarPage::Help => {
+                let lines: Vec<String> = self
+                    .keymap
+                    .chords(Layer::Sheet)
+                    .iter()
+                    .map(|c| {
+                        let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
+                        format!("{:>6}  {}", keys.join(" "), c.desc)
+                    })
+                    .collect();
+                ("help".into(), lines.join("\n"))
+            }
         };
-        let text = body.unwrap_or_else(|e| format!("<error>: {e}"));
         let block = ratatui::widgets::Block::default()
             .title(format!(" {title} "))
             .borders(ratatui::widgets::Borders::ALL)
@@ -139,6 +173,28 @@ impl App {
             .block(block)
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(p, area);
+    }
+
+    /// The column page: one stat per line, as `I` names them.
+    fn column_page(&self) -> String {
+        match &self.sidebar_stats {
+            None => String::new(),
+            Some((_, Err(e))) => e.clone(),
+            Some((_, Ok(df))) => {
+                let mut out = Vec::new();
+                for c in df.columns() {
+                    if c.name() == "sheet" || c.name() == "column" {
+                        continue;
+                    }
+                    let v = match c.get(0) {
+                        Ok(v) if !v.is_null() => crate::sheet::any_text(&v),
+                        _ => "·".into(),
+                    };
+                    out.push(format!("{:<9}{v}", c.name().as_str()));
+                }
+                out.join("\n")
+            }
+        }
     }
 
     pub(super) fn render_which_key(&self, f: &mut ratatui::Frame<'_>, area: Rect) {

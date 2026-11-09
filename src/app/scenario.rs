@@ -1594,6 +1594,48 @@ async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
     assert!(view_csv(&h).starts_with("id,qty,price,total\n7,1,4.0,4.0\n7,4,2.0,8.0\n"));
 }
 
+/// S-23 A: `b` opens the sidebar on the cursor column's stats, `Ctrl+G`
+/// cycles its pages, `:plan` keeps the plan → optimized → off cycle.
+#[tokio::test(flavor = "multi_thread")]
+async fn sidebar_pages() {
+    let mut h = csv(b"id,qty,note\n1,2,a\n2,,b\n3,4,a long note that wraps\n").await;
+    assert!(!h.screen().contains("column: "), "starts closed");
+    h.keys("l b").await;
+    let scr = h.screen();
+    assert!(scr.contains("column: qty"), "{scr}");
+    for line in ["type     i64", "nulls    1", "distinct 3", "sum      6"] {
+        assert!(scr.contains(line), "{line}\n{scr}");
+    }
+    h.keys("l").await; // follows the cursor
+    assert!(h.screen().contains("mode     a"), "{}", h.screen());
+
+    h.keys("j j <C-g>").await;
+    assert!(h.screen().contains("cell: note"), "{}", h.screen());
+    assert!(h.screen().contains("a long note"), "{}", h.screen());
+    h.keys("<C-g>").await;
+    assert!(h.screen().contains(" help "), "{}", h.screen());
+    assert!(h.screen().contains("     j  down"), "{}", h.screen());
+    h.keys("<C-g>").await;
+    assert!(h.screen().contains(" plan "), "{}", h.screen());
+    h.keys("b").await;
+    assert_eq!(h.app.sidebar, None);
+    h.keys("b").await; // reopens the last page
+    assert_eq!(h.app.sidebar, Some(SidebarPage::Plan));
+
+    h.keys(":").await;
+    h.type_("plan").await;
+    assert!(h.screen().contains("plan (opt)"), "{}", h.screen());
+    h.keys(":").await;
+    h.type_("plan").await;
+    assert_eq!(h.app.sidebar, None);
+    h.keys(":").await;
+    h.type_("sidebar cell").await;
+    assert_eq!(h.app.sidebar, Some(SidebarPage::Cell));
+    h.keys(":").await;
+    h.type_("sidebar nope").await;
+    assert!(status(&h).contains("usage: sidebar"), "{}", status(&h));
+}
+
 /// S-18 D: `zp` `gzp` paste copied cells, `zx` `gzx` cut them.
 #[tokio::test(flavor = "multi_thread")]
 async fn paste_and_cut_cells() {

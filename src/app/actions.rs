@@ -303,12 +303,23 @@ impl App {
                 });
             }
             Action::TogglePlanPanel => {
-                self.plan_mode = match self.plan_mode {
-                    PlanMode::Off => PlanMode::Normal,
-                    PlanMode::Normal => PlanMode::Optimized,
-                    PlanMode::Optimized => PlanMode::Off,
+                self.sidebar = match self.sidebar {
+                    Some(SidebarPage::Plan) => Some(SidebarPage::PlanOpt),
+                    Some(SidebarPage::PlanOpt) => None,
+                    _ => Some(SidebarPage::Plan),
                 };
             }
+            Action::ToggleSidebar => {
+                self.sidebar = match self.sidebar {
+                    Some(_) => None,
+                    None => Some(self.sidebar_page),
+                };
+            }
+            Action::CycleSidebar => {
+                let page = self.sidebar.map_or(self.sidebar_page, SidebarPage::next);
+                (self.sidebar, self.sidebar_page) = (Some(page), page);
+            }
+            Action::ShowSidebar { page } => (self.sidebar, self.sidebar_page) = (Some(page), page),
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
             Action::Derive { name, expr } => {
                 let s = self.sheets.active_mut();

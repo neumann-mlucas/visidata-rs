@@ -1,6 +1,6 @@
 # S-23 — Layout: sidebar, split panes, plots
 
-Status: **drafted 2026-11-08**, not started. Three independent parts, ship in order A → B → C.
+Status: **drafted 2026-11-08**; A shipped 2026-11-08. Three independent parts, ship in order A → B → C.
 Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 ## 1. What exists (verified in `src/app.rs`)
@@ -26,6 +26,13 @@ A right-hand panel that shows text about the current context; the plan panel bec
   and S-18 F's first commit only frees `P`.
 - Rendering: reuse the plan-panel split; pivot preview keeps priority while typing `:pivot`.
 - Width: 35 % (today's value); `vd.option("sidebar_width", 35)` via S-18 D6 if asked.
+
+As shipped: `App.sidebar: Option<SidebarPage>` replaces `PlanMode`; `b` reopens the last page
+(column at start), `Ctrl+G` cycles column → cell → help → plan, `:sidebar [page]`, `:plan` and `P`
+keep the plan → optimized → closed cycle. The column page runs `describe_from` on a copy of the sheet
+that shows only the cursor column, as a background job keyed by sheet, column, filters/casts, step
+and undo counts (ponytail: a selection change recomputes too). Help lists the sheet layer's chords
+in keymap order and doesn't scroll (ponytail: add scrolling when someone needs the bottom of it).
 
 ## 3. Part B — Split panes (2–3 d)
 - Model: `App.panes: Vec<Pane>` (1 or 2), `Pane { sheet: SheetId, area: Rect, viewport_rows }`,

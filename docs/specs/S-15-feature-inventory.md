@@ -124,7 +124,8 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 
 | Action | Key | Semantics |
 |---|---|---|
-| `TogglePlanPanel` | `P` | cycles Off → Normal (`describe_plan`) → Optimized (`describe_optimized_plan`) |
+| `TogglePlanPanel` | `P`, `:plan` | sidebar's plan page: Off → Normal (`describe_plan`) → Optimized (`describe_optimized_plan`) |
+| `ToggleSidebar` / `CycleSidebar` / `ShowSidebar` | `b` / `Ctrl+G` / `:sidebar [page]` | right-hand sidebar (35 %, starts closed): column (one `I` row for the cursor column, background job keyed by sheet/column/filters/steps), cell (full value), help (sheet-layer bindings), plan (S-23 A) |
 
 ### 3.8 Meta
 

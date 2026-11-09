@@ -364,7 +364,13 @@ impl Keymap {
                 vec![SubmitRow],
                 "open row: sheet list → sheet, freq → matching rows",
             ),
-            // plan panel
+            // sidebar (S-23 A)
+            ch(vec![k("b")], vec![ToggleSidebar], "toggle sidebar"),
+            ch(
+                vec![k("<C-g>")],
+                vec![CycleSidebar],
+                "sidebar: next page (column, cell, help, plan)",
+            ),
             ch(
                 vec![k("P")],
                 vec![TogglePlanPanel],

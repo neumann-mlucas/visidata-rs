@@ -78,8 +78,17 @@ pub enum Action {
     /// `g<CR>`: like `SubmitRow` for every selected row (freq dive).
     SubmitSelected,
 
-    // plan panel
+    // sidebar (S-23 A)
+    /// `:plan`, `P`: the sidebar's plan page → optimized plan → closed.
     TogglePlanPanel,
+    /// `b`: open the sidebar on its last page, or close it.
+    ToggleSidebar,
+    /// `Ctrl+G`: next page (column → cell → help → plan), opening it.
+    CycleSidebar,
+    /// `:sidebar <page>`.
+    ShowSidebar {
+        page: SidebarPage,
+    },
 
     // selection (VisiData style)
     ToggleSelectRow,
@@ -233,6 +242,43 @@ pub enum Action {
     Redraw,
 }
 
+/// What the sidebar shows (S-23 A).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarPage {
+    /// Stats of the cursor column (one row of `I`).
+    Column,
+    /// The cursor cell's full value, wrapped.
+    Cell,
+    /// The sheet layer's key bindings.
+    Help,
+    /// The query plan; `PlanOpt` after the optimizer.
+    Plan,
+    PlanOpt,
+}
+
+impl SidebarPage {
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "column" => Self::Column,
+            "cell" => Self::Cell,
+            "help" => Self::Help,
+            "plan" => Self::Plan,
+            "plan-opt" | "optimized" => Self::PlanOpt,
+            _ => return None,
+        })
+    }
+
+    /// `Ctrl+G` order.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Column => Self::Cell,
+            Self::Cell => Self::Help,
+            Self::Help => Self::Plan,
+            Self::Plan | Self::PlanOpt => Self::Column,
+        }
+    }
+}
+
 impl Action {
     /// True = re-materialize the window after dispatch; false = cosmetic.
     /// Paging/`G` aren't listed: their handlers re-materialize only when the window slides.
@@ -340,6 +386,7 @@ impl Action {
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
             OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
             SubmitRow | SubmitSelected | TogglePlanPanel => true,
+            ToggleSidebar | CycleSidebar | ShowSidebar { .. } => true,
             ToggleSelectRow
             | SelectRow
             | UnselectRow
@@ -424,6 +471,8 @@ impl Action {
         ("submit_row", SubmitRow),
         ("submit_selected", SubmitSelected),
         ("toggle_plan_panel", TogglePlanPanel),
+        ("toggle_sidebar", ToggleSidebar),
+        ("cycle_sidebar", CycleSidebar),
         ("pop_sheet", PopSheet),
         ("start_edit_input", StartEditInput),
         ("start_setcol_input", StartSetColInput),
