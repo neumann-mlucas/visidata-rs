@@ -187,9 +187,17 @@ impl Sheet {
             [one] => format!("{column}={}", any_text(one)),
             many => format!("{column} in {} values", many.len()),
         };
-        // freq rows picked from a freq sheet still dive to the source rows, as VisiData
+        // freq rows picked from a freq sheet still dive to the source rows, as
+        // VisiData — while the value column is still first (the dive reads it)
+        let first = |mut p: LazyFrame| {
+            p.collect_schema()
+                .ok()
+                .and_then(|s| s.get_at_index(0).map(|(n, _)| n.clone()))
+        };
         let origin = match &parent.origin {
-            Origin::Freq { .. } => parent.origin.clone(),
+            Origin::Freq { .. } if first(parent.view_plan()) == first(parent.plan.clone()) => {
+                parent.origin.clone()
+            }
             _ => Origin::Selected { parent: parent.id },
         };
         let text = values

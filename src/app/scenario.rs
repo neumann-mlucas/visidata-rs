@@ -581,6 +581,13 @@ async fn freq_rows_picked_from_a_freq_sheet_still_dive() {
         "{}",
         title(&h)
     );
+    // with grp hidden on the freq sheet the dived rows lack it: no dive on
+    h.keys("q q q").await;
+    h.keys("g h -").await;
+    h.keys("F").await;
+    h.keys("<CR>").await;
+    h.keys("<CR>").await;
+    assert_eq!(status(&h), "<CR>: nothing to open here", "{}", h.screen());
 }
 
 #[tokio::test(flavor = "multi_thread")]
