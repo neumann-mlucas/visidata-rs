@@ -270,7 +270,12 @@ impl App {
             Action::PasteCell | Action::PasteCells => {
                 self.paste_cells(action == Action::PasteCells)
             }
-            Action::CutCell | Action::CutCells => self.cut(action == Action::CutCells),
+            Action::CutCell | Action::CutCells => {
+                self.clear_cells(action == Action::CutCells, true)
+            }
+            Action::DeleteCell | Action::DeleteCells => {
+                self.clear_cells(action == Action::DeleteCells, false)
+            }
             Action::DeleteRow | Action::CutRow => self.delete_rows(false, action == Action::CutRow),
             Action::DeleteSelected | Action::CutSelected => {
                 self.delete_rows(true, action == Action::CutSelected)
@@ -1250,8 +1255,9 @@ impl App {
         }
     }
 
-    /// `zx` / `gzx`: copy the cell(s) to the register, then null them.
-    fn cut(&mut self, selected: bool) {
+    /// `zx` / `gzx` (`copy`): copy the cell(s) to the register, then null
+    /// them; `zd` / `gzd`: just null them.
+    fn clear_cells(&mut self, selected: bool, copy: bool) {
         let s = self.sheets.active();
         if let Err(e) = s.editable() {
             self.toast = Some(e);
@@ -1267,7 +1273,7 @@ impl App {
         let rid = self.rid_at_cursor();
         // The copy job clones the sheet now, before the edit below; a refused
         // copy (toast says why) cuts nothing.
-        if !self.copy(selected, true) {
+        if copy && !self.copy(selected, true) {
             return;
         }
         let s = self.sheets.active_mut();
@@ -1279,7 +1285,7 @@ impl App {
         };
         match done {
             Ok(()) => self.spawn_materialize(),
-            Err(e) => self.toast = Some(format!("cut: {e}")),
+            Err(e) => self.toast = Some(e),
         }
     }
 

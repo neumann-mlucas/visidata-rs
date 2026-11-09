@@ -107,6 +107,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `CopyRow` / `CopySelected` / `CopyCell` / `CopyCells` | `y` / `gy` / `zy` / `gzy` | register (`App.register`, one per app): cursor row / selected rows in view order (every column, hidden too, typed) / cursor cell / current column of selected rows; background job; over 10M cells refused (S-18 A) |
 | `SysCopyRow` / `SysCopySelected` / `SysCopyCell` / `SysCopyCells` | `Y` / `gY` / `zY` / `gzY` | same rows as text to the system clipboard: visible columns as TSV with header / raw cell / one value per line; `clipboard_copy_cmd` or OSC 52 (S-18 B) |
 | `PasteCell` / `PasteCells` / `CutCell` / `CutCells` | `zp` / `gzp` / `zx` / `gzx` | copied cells → cursor cell (first value) / current column of selected rows in view order, cycled (one `SetCells` step; all must fit, else refused whole); cut = copy, then null (S-18 D) |
+| `DeleteCell` / `DeleteCells` | `zd` / `gzd` | null the cursor cell / current column of selected rows, register untouched (VisiData `delete-cell(s)`) |
 | `DeleteRow` / `DeleteSelected` / `CutRow` / `CutSelected` | `d` / `gd` / `x` / `gx` | a `DeleteRows` step: the rows are masked after all steps (row ids stay base positions); cursor stays, so the next row moves up; deleted rows leave the selection; `x`/`gx` copy (as `y`/`gy`) first (S-18 E) |
 
 ### 3.6 Sheet stack

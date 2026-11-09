@@ -7,7 +7,7 @@ const KEYS: &[&str] = &[
     "j", "k", "h", "l", "G", "g g", "0", "$", "<C-d>", "<C-u>", "-", "g -", "!", "z !", "[", "]",
     "z o", "s", "t", "u", "g s", "g u", ",", "#", "%", "~", "@", "F", "S", "I", "W", "q", "<CR>",
     "g <CR>", "\"", "g \"", "U", "R", ".", "z s", "z c", "P", "n", "N", "z f", "1", "2", "5", "d",
-    "g d", "x", "y", "z y", "z p", "g z p", "z x",
+    "g d", "x", "y", "z y", "z p", "g z p", "z x", "z d",
 ];
 
 /// Prompt openers paired with what to type; a tenth of the steps use these.

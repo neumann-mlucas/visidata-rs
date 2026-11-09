@@ -124,6 +124,9 @@ pub enum Action {
     /// `zx` `gzx`: copy the cursor cell / selected rows' cells, then null them.
     CutCell,
     CutCells,
+    /// `zd` `gzd`: null the cursor cell / the current column of selected rows.
+    DeleteCell,
+    DeleteCells,
     /// `d` `gd` `x` `gx` (S-18 E): delete the cursor row / selected rows;
     /// `x` `gx` copy them to the register first.
     DeleteRow,
@@ -360,7 +363,7 @@ impl Action {
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
-            PasteCell | PasteCells | CutCell | CutCells => true,
+            PasteCell | PasteCells | CutCell | CutCells | DeleteCell | DeleteCells => true,
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
         }
     }
@@ -453,6 +456,8 @@ impl Action {
         ("paste_cells", PasteCells),
         ("cut_cell", CutCell),
         ("cut_cells", CutCells),
+        ("delete_cell", DeleteCell),
+        ("delete_cells", DeleteCells),
         ("delete_row", DeleteRow),
         ("delete_selected", DeleteSelected),
         ("cut_row", CutRow),

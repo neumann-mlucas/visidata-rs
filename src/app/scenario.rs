@@ -1643,6 +1643,17 @@ async fn paste_and_cut_cells() {
         "{}",
         view_csv(&h)
     );
+
+    // zd / gzd: empty without touching the register
+    h.keys("g g z d").await;
+    assert!(
+        view_csv(&h).starts_with("id,qty,note\n1,,a\n"),
+        "{}",
+        view_csv(&h)
+    );
+    assert_eq!(h.app.register.as_ref().unwrap().df.height(), 3);
+    h.keys("g z d").await;
+    assert_eq!(view_csv(&h), "id,qty,note\n1,,a\n2,,b\n3,,c\n4,,d\n");
 }
 
 /// S-18 E: `d` `gd` `x` `gx` delete rows; edits after a delete still hit
@@ -1687,7 +1698,9 @@ async fn delete_and_cut_rows() {
 async fn derived_sheets_refuse_edits_but_copy() {
     let mut h = csv(b"id,g\n1,a\n2,b\n3,a\n").await;
     h.keys("l F").await;
-    for keys in ["e", "s g e", "g =", "z x", "g z x", "d", "g d", "x", "g x"] {
+    for keys in [
+        "e", "s g e", "g =", "z x", "g z x", "z d", "g z d", "d", "g d", "x", "g x",
+    ] {
         h.keys(keys).await;
         assert!(
             status(&h).starts_with("read-only: "),

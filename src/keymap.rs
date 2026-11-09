@@ -312,6 +312,12 @@ impl Keymap {
                 vec![PasteCells],
                 "paste into current column of selected rows",
             ),
+            ch(vec![k("z"), k("d")], vec![DeleteCell], "empty current cell"),
+            ch(
+                vec![k("g"), k("z"), k("d")],
+                vec![DeleteCells],
+                "empty current column of selected rows",
+            ),
             ch(vec![k("z"), k("x")], vec![CutCell], "cut current cell"),
             ch(
                 vec![k("g"), k("z"), k("x")],

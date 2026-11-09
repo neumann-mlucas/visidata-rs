@@ -173,7 +173,7 @@ casts; Python `with_row_index` + `is_in`, SQL `row_number()` + `NOT IN`). This s
 cost: `__vdrs_rid` would reach every schema reader (`:sql`, freq, describe, Lua, export). F (added
 rows) is the first step that breaks "steps keep rows"; it brings the real column or the side table
 §2.3 already names. Replay: `delete-row`, `delete-selected`, `cut-row`, `cut-selected`, and
-`delete-cell(s)` (VisiData `zd`/`gzd`, nulls; the app has no key for them yet) translated: PASS 41 → 42
+`delete-cell(s)` (VisiData `zd`/`gzd`, nulls; keys added 2026-11-08) translated: PASS 41 → 42
 (`1410a`).
 
 ### F — Add/paste rows
