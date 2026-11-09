@@ -1391,8 +1391,10 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                 .map(|c| c.dtype().clone())
                 .unwrap_or(DataType::String);
             format!(
-                "SELECT * EXCLUDE (__v, __hit) REPLACE (CASE WHEN __hit THEN TRY_CAST(__v AS {}) ELSE {c} END AS {c}) \
-                 FROM ({q}) LEFT JOIN (VALUES {}) AS __p(__rid, __v, __hit) USING (__rid)",
+                // a join doesn't keep row order: number the rows, sort back
+                "SELECT * EXCLUDE (__v, __hit, __ord) REPLACE (CASE WHEN __hit THEN TRY_CAST(__v AS {}) ELSE {c} END AS {c}) \
+                 FROM (SELECT *, row_number() OVER () AS __ord FROM ({q})) \
+                 LEFT JOIN (VALUES {}) AS __p(__rid, __v, __hit) USING (__rid) ORDER BY __ord",
                 sql_dtype(&dtype),
                 rows.join(", "),
                 c = q_ident(column)
