@@ -14,6 +14,7 @@ mod tail;
 mod tests;
 mod undo;
 
+pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use step::{ADDED_RID, POS, PlanStep};
 pub use undo::{Snapshot, UndoState, UndoTree};
 

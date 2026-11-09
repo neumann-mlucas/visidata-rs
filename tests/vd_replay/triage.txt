@@ -126,7 +126,7 @@ issue3223-nostat	SKIP allow-error
 issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
-issue964-inner-join	FAIL line 2: want="082053\tM\tPA\tPalermo" got="82053\tM\tPA\tPalermo"
+issue964-inner-join	PASS
 join-cols-single-sheet	SKIP join-cols
 join-concat	SKIP runtime: no sheet named 'sample_columns'
 join-different-types	SKIP runtime: join-sheets needs ≥2 sheets, got 0

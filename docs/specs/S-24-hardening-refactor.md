@@ -1,6 +1,6 @@
 # S-24 — Hardening: module layout, sheet invariants, typed readers, release binaries
 
-Status: **drafted 2026-11-08**; R1 and R2 shipped. Independent items; each is its own commit with no
+Status: **drafted 2026-11-08**; R1, R2 and R4 shipped (R4 2026-11-09: integer columns with a value like `082053` / `-01` stay text, checked on the rows inference saw; exported scripts name every text column's type so DuckDB/Polars don't re-infer; `issue964-inner-join` then also needed VisiData's join order: keys as first seen, each key's rows together, done in `Sheet::join_from`, both exports and the replay driver; DuckDB `PIVOT` columns now follow first-seen order too, via `IN (subquery)`). Independent items; each is its own commit with no
 user-visible change except R3–R5. Order: R1 before S-18 C (editing adds code to the same files),
 R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha is finished (direction §9.12: every planned feature in `docs/` implemented, tests robust).
 

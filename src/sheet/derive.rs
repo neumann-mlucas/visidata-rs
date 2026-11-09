@@ -524,10 +524,30 @@ impl Sheet {
             };
             let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
             let mut args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
-            // Left rows in their order, as VisiData; pivots of the join then
-            // order their columns the same way every run (and in the export).
             args.maintain_order = MaintainOrderJoin::LeftRight;
-            let mut joined = l.join(right, on.clone(), on, args);
+            // VisiData's order: keys as first seen (left rows, then right-only
+            // keys), each key's rows together, left row then right row. Pivots
+            // of the join then order their columns the same way every run.
+            let numbered = |p: LazyFrame, row: &str, first: &str| -> Result<LazyFrame, String> {
+                let min = col(row).cast(DataType::Int64).min();
+                let min = min.over(on.clone()).map_err(|e| e.to_string())?;
+                Ok(p.with_row_index(row, None).with_column(min.alias(first)))
+            };
+            let l = numbered(l, JL, JLK)?;
+            let right = numbered(right, JR, JRK)?;
+            let mut joined = l
+                .join(right, on.clone(), on, args)
+                .sort_by_exprs(
+                    [
+                        col(JLK).fill_null(col(JRK) + lit(JOIN_RIGHT_KEYS)),
+                        col(JL),
+                        col(JR),
+                    ],
+                    SortMultipleOptions::default()
+                        .with_nulls_last(true)
+                        .with_maintain_order(true),
+                )
+                .drop(cols([JL, JLK, JR, JRK]));
             if how == "merge" {
                 // Polars suffixes colliding right columns `_right`; fold them in.
                 let names: Vec<String> = joined
@@ -604,3 +624,11 @@ impl Sheet {
         )
     }
 }
+
+/// `join_from` order helpers (also written by `:export`).
+pub(crate) const JL: &str = "__vdrs_l";
+pub(crate) const JLK: &str = "__vdrs_lk";
+pub(crate) const JR: &str = "__vdrs_r";
+pub(crate) const JRK: &str = "__vdrs_rk";
+/// Right-only keys sort after every left key.
+pub(crate) const JOIN_RIGHT_KEYS: i64 = 1 << 40;

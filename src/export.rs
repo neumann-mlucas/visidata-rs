@@ -840,6 +840,8 @@ fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
         .collect())
 }
 
+use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
+
 /// `:join` of view `p` (sheet `left`) with view `r` (sheet `right`).
 /// `flag`: one more right column to carry through (row diff).
 #[allow(clippy::too_many_arguments)]
@@ -896,12 +898,27 @@ fn join_code(
         ),
         (_, true) => {
             let on: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
+            let on = on.join(", ");
             let h = if how == "merge" { "full" } else { how };
+            // VisiData's order, as `Sheet::join_from` (a diff orders itself)
+            let numbered = |t: &str, row: &str, first: &str| match flag {
+                Some(_) => t.to_string(),
+                None => format!(
+                    "{t}.with_row_index(\"{row}\").with_columns(pl.col(\"{row}\").cast(pl.Int64).min().over([{on}]).alias(\"{first}\"))"
+                ),
+            };
             let mut e = format!(
-                "{p}.join({r}, on=[{}], how={}, coalesce=True, maintain_order=\"left_right\")",
-                on.join(", "),
+                "{}.join({}, on=[{on}], how={}, coalesce=True, maintain_order=\"left_right\")",
+                numbered(p, JL, JLK),
+                numbered(r, JR, JRK),
                 py_str(h)
             );
+            if flag.is_none() {
+                e += &format!(
+                    ".sort([pl.col(\"{JLK}\").fill_null(pl.col(\"{JRK}\") + {JOIN_RIGHT_KEYS}), \"{JL}\", \"{JR}\"], \
+                     nulls_last=True, maintain_order=True).drop([\"{JL}\", \"{JLK}\", \"{JR}\", \"{JRK}\"])"
+                );
+            }
             if how == "merge" && !dups.is_empty() {
                 let fold: Vec<String> = dups
                     .iter()
@@ -939,13 +956,35 @@ fn join_code(
                     }
                 })
                 .chain(flag.map(q_ident))
+                .chain(
+                    flag.is_none()
+                        .then(|| [JR.to_string(), JRK.to_string()])
+                        .into_iter()
+                        .flatten(),
+                )
                 .collect();
             let using: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
+            let part = using.join(", ");
+            // VisiData's order, as `Sheet::join_from` (a diff orders itself)
+            let numbered = |t: &str, row: &str, first: &str| match flag {
+                Some(_) => t.to_string(),
+                None => format!(
+                    "(SELECT *, min({row}) OVER (PARTITION BY {part}) AS {first} \
+                     FROM (SELECT *, row_number() OVER () AS {row} FROM {t}))"
+                ),
+            };
             let mut q = format!(
-                "SELECT * FROM {p} {jt} JOIN (SELECT {} FROM {r}) USING ({})",
+                "SELECT * FROM {} {jt} JOIN (SELECT {} FROM {}) USING ({part})",
+                numbered(p, JL, JLK),
                 rcols.join(", "),
-                using.join(", ")
+                numbered(r, JR, JRK),
             );
+            if flag.is_none() {
+                q = format!(
+                    "SELECT * EXCLUDE ({JL}, {JLK}, {JR}, {JRK}) FROM ({q} \
+                     ORDER BY coalesce({JLK}, {JRK} + {JOIN_RIGHT_KEYS}), {JL} NULLS LAST, {JR} NULLS LAST)"
+                );
+            }
             if how == "merge" && !dups.is_empty() {
                 let fold: Vec<String> = dups
                     .iter()
@@ -1415,9 +1454,12 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
     } else {
         format!(" GROUP BY {}", k.join(", "))
     };
+    // PIVOT sorts the new columns by name; the app keeps them as first seen.
+    let text = format!("coalesce(CAST({on} AS VARCHAR), 'null')");
     format!(
-        "SELECT * FROM (PIVOT (SELECT {select}coalesce(CAST({on} AS VARCHAR), 'null') AS {on}, {agg} AS __v \
-         FROM {p} GROUP BY {}) ON {on} USING first(__v){group})",
+        "SELECT * FROM (PIVOT (SELECT {select}{text} AS {on}, {agg} AS __v \
+         FROM {p} GROUP BY {}) ON {on} IN (SELECT {on} FROM (SELECT {text} AS {on}, \
+         row_number() OVER () AS __r FROM {p}) GROUP BY {on} ORDER BY min(__r)) USING first(__v){group})",
         by.join(", ")
     )
 }
@@ -1442,11 +1484,12 @@ fn csv_columns(s: &Sheet) -> Result<std::sync::Arc<polars::prelude::Schema>, Str
     }
 }
 
-/// CSV columns that loaded as dates (only ISO does; `reader::scan_csv`).
+/// CSV columns whose type a script must name: dates (only ISO loads as one)
+/// and text (`082053` stays text; `reader::csv_schema`).
 fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
     Ok(csv_columns(s)?
         .iter()
-        .filter(|(_, d)| crate::reader::is_date(d))
+        .filter(|(_, d)| crate::reader::is_date(d) || **d == DataType::String)
         .map(|(n, d)| (n.to_string(), d.clone()))
         .collect())
 }
@@ -1461,7 +1504,10 @@ fn py_csv_args(s: &Sheet) -> Result<String, String> {
     }
     let dates: Vec<String> = csv_dates(s)?
         .iter()
-        .map(|(n, d)| format!("{}: pl.{}", py_str(n), py_temporal(d)))
+        .map(|(n, d)| match d {
+            DataType::String => format!("{}: pl.Utf8", py_str(n)),
+            d => format!("{}: pl.{}", py_str(n), py_temporal(d)),
+        })
         .collect();
     if !dates.is_empty() {
         args += &format!(", schema_overrides={{{}}}", dates.join(", "));

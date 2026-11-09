@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 42;
+const MIN_PASS: usize = 43;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -1309,17 +1309,42 @@ impl Replay {
                         .take(left_keys.len())
                         .map(|k| col(k.as_str()))
                         .collect();
-                    acc = acc.join(
+                    // VisiData's order, as `Sheet::join_from`: keys as first
+                    // seen (left, then right-only), each key's rows together.
+                    let numbered = |p: LazyFrame, keys: &[Expr], row: &str, first: &str| {
+                        let min = col(row).cast(DataType::Int64).min().over(keys);
+                        min.map(|m| p.with_row_index(row, None).with_column(m.alias(first)))
+                            .map_err(|e| StepErr::Runtime(e.to_string()))
+                    };
+                    let l = numbered(acc, &left_exprs, "__vdrs_l", "__vdrs_lk")?;
+                    let r = numbered(
                         self.loaded[i].sheet.data_plan(),
-                        left_exprs.clone(),
-                        right_exprs,
-                        // left rows in order, then right-only ones: as `Sheet::join_from`
-                        JoinArgs {
-                            maintain_order: MaintainOrderJoin::LeftRight,
-                            ..JoinArgs::new(how.clone())
-                                .with_coalesce(JoinCoalesce::CoalesceColumns)
-                        },
-                    );
+                        &right_exprs,
+                        "__vdrs_r",
+                        "__vdrs_rk",
+                    )?;
+                    acc = l
+                        .join(
+                            r,
+                            left_exprs.clone(),
+                            right_exprs,
+                            JoinArgs {
+                                maintain_order: MaintainOrderJoin::LeftRight,
+                                ..JoinArgs::new(how.clone())
+                                    .with_coalesce(JoinCoalesce::CoalesceColumns)
+                            },
+                        )
+                        .sort_by_exprs(
+                            [
+                                col("__vdrs_lk").fill_null(col("__vdrs_rk") + lit(1i64 << 40)),
+                                col("__vdrs_l"),
+                                col("__vdrs_r"),
+                            ],
+                            SortMultipleOptions::default()
+                                .with_nulls_last(true)
+                                .with_maintain_order(true),
+                        )
+                        .drop(cols(["__vdrs_l", "__vdrs_lk", "__vdrs_r", "__vdrs_rk"]));
                     // VisiData `merge`: for each non-key col colliding with the
                     // right side (suffixed `_right` by Polars), prefer the right
                     // value, fall back to left when right is null. Then drop the

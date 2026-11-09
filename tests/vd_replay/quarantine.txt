@@ -13,7 +13,6 @@ numeric_binning      # set-option numeric_binning: freq bins numeric ranges
 freq-fmtstr          # column fmtstr (`%Y-%m`) changes freq keys
 
 # Correctness fixes (S-25 P2)
-issue964-inner-join  # zero-padded ids read as int (S-24 R4)
 load-sqlite-view     # sqlite views not listed with tables
 join-extend-mult     # extend join: `<sheet>_` prefixes on clashing columns
 freqtbl-openrow      # freq open-row: dive to the parent rows of the cursor value

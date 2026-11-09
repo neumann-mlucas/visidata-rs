@@ -507,6 +507,14 @@ fn all_iso(values: &StringChunked) -> bool {
     values.iter().flatten().all(|v| ISO.is_match(v))
 }
 
+/// Some value is an integer with a leading zero: `082053`, `-01`, not `0`.
+fn zero_padded(values: &StringChunked) -> bool {
+    values.iter().flatten().any(|v| {
+        let digits = v.trim().trim_start_matches(['+', '-']);
+        digits.len() > 1 && digits.starts_with('0')
+    })
+}
+
 /// Text column `name` (checked by `all_iso`) as date type `dtype`.
 fn parse_iso(name: &str, dtype: &DataType) -> Expr {
     let strict = StrptimeOptions {
@@ -553,23 +561,37 @@ fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
 
 /// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
 /// and Polars would guess day-first, so other layouts stay text until `@`.
+/// Integers written with a leading zero (`082053`: zip codes, ids) stay text,
+/// so no digit is lost (S-24 R4).
 fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
     let mut schema = (*csv_reader(path, sep)?.finish()?.collect_schema()?).clone();
-    let text: Vec<Expr> = schema
+    let checked: Vec<Expr> = schema
         .iter()
-        .filter(|(_, d)| **d == DataType::String)
+        .filter(|(_, d)| **d == DataType::String || d.is_integer())
         .map(|(n, _)| col(n.clone()))
         .collect();
-    if text.is_empty() {
+    if checked.is_empty() {
         return Ok(Arc::new(schema));
     }
-    // Polars' date inference costs 10-40x plain inference per cell, so it only
-    // names the type here. Every row inference saw must be ISO and parse.
+    // The same rows inference saw, as text. Polars' date inference costs
+    // 10-40x plain inference per cell, so it only names the type here: every
+    // row must be ISO and parse.
+    let as_text: Schema = schema
+        .iter()
+        .map(|(n, d)| {
+            let d = if d.is_integer() {
+                DataType::String
+            } else {
+                d.clone()
+            };
+            (n.clone(), d)
+        })
+        .collect();
     let values = csv_reader(path, sep)?
-        .with_schema(Some(Arc::new(schema.clone())))
+        .with_schema(Some(Arc::new(as_text)))
         .with_infer_schema_length(Some(0))
         .finish()?
-        .select(text)
+        .select(checked)
         .limit(if file_is_small(path) {
             u32::MAX
         } else {
@@ -577,6 +599,12 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
         })
         .collect()?;
     for c in values.columns() {
+        if schema.get(c.name()).is_some_and(DataType::is_integer) {
+            if zero_padded(c.str()?) {
+                schema.set_dtype(c.name(), DataType::String);
+            }
+            continue;
+        }
         if c.null_count() == c.len() || !all_iso(c.str()?) {
             continue;
         }
@@ -684,6 +712,21 @@ mod tests {
             detect(Path::new("x.wat")),
             Err(OpenError::UnknownFormat { .. })
         ));
+    }
+
+    #[test]
+    fn zero_padded_integers_stay_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.csv");
+        std::fs::write(&path, "zip,neg,z,f,n\n082053,-01,0,0.5,10\n1,2,0,1.5,7\n").unwrap();
+        let src = open(path.as_os_str(), None).unwrap();
+        let df = src.lazy.collect().unwrap();
+        let types: Vec<String> = df.dtypes().iter().map(|d| d.to_string()).collect();
+        assert_eq!(types, ["str", "str", "i64", "f64", "i64"]);
+        assert_eq!(
+            df.column("zip").unwrap().get(0).unwrap(),
+            AnyValue::String("082053")
+        );
     }
 
     #[test]
