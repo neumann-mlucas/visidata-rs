@@ -371,11 +371,6 @@ impl Keymap {
                 vec![CycleSidebar],
                 "sidebar: next page (column, cell, help, plan)",
             ),
-            ch(
-                vec![k("P")],
-                vec![TogglePlanPanel],
-                "toggle plan side-panel",
-            ),
             // ex-line
             ch(vec![k(":")], vec![StartExInput], "ex command"),
             ch(
