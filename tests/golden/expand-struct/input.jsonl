@@ -1,0 +1,3 @@
+{"id":1,"user":{"name":"ann","geo":{"lat":1.5,"lon":2}},"n":7}
+{"id":2,"user":{"name":"bob","geo":{"lat":3.0,"lon":4}},"n":8}
+{"id":3,"user":null,"n":9}

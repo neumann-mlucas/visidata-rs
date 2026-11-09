@@ -377,6 +377,27 @@ impl Keymap {
                 vec![SysPasteCellsSelected],
                 "paste clipboard into selected rows from the cursor column",
             ),
+            // nested data (S-22)
+            ch(
+                vec![k("(")],
+                vec![ExpandCol { depth: 1 }],
+                "expand struct column into a column per field",
+            ),
+            ch(
+                vec![k("z"), k("(")],
+                vec![StartExpandDepthInput],
+                "expand struct column N levels deep",
+            ),
+            ch(
+                vec![k("g"), k("(")],
+                vec![ExpandCols],
+                "expand every visible struct column",
+            ),
+            ch(
+                vec![k(")")],
+                vec![ContractCol],
+                "fold expanded columns back into their struct",
+            ),
             // editing (S-18 C)
             ch(vec![k("e")], vec![StartEditInput], "edit current cell"),
             ch(

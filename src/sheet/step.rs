@@ -53,6 +53,14 @@ pub enum PlanStep {
     AddRows {
         rows: Arc<DataFrame>,
     },
+    /// `(` (S-22): struct `column`'s fields as columns right after it.
+    /// `fields`: (path into the struct, new column name); `after`: the
+    /// columns that followed `column` when expanded.
+    Expand {
+        column: String,
+        fields: Vec<(Vec<String>, String)>,
+        after: Vec<String>,
+    },
 }
 
 /// First id of an added row; source rows' ids are positions, far below.
@@ -134,6 +142,25 @@ impl PlanStep {
                 )
                 .drop(cols(["__vdrs_v", "__vdrs_hit"])),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => plan,
+            PlanStep::Expand {
+                column,
+                fields,
+                after,
+            } => {
+                let kids = fields.iter().map(|(path, name)| {
+                    path.iter()
+                        .fold(col(column.as_str()), |e, f| e.struct_().field_by_name(f))
+                        .alias(name.as_str())
+                });
+                let head = all().exclude_cols(after.clone()).as_expr();
+                let tail = cols(after.clone()).as_expr();
+                plan.select(
+                    std::iter::once(head)
+                        .chain(kids)
+                        .chain([tail])
+                        .collect::<Vec<_>>(),
+                )
+            }
         })
     }
 }
@@ -148,7 +175,9 @@ impl PlanStep {
             | PlanStep::SetExpr { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
-            PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => None,
+            PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } | PlanStep::Expand { .. } => {
+                None
+            }
         }
     }
 
@@ -241,6 +270,7 @@ impl PlanStep {
             }
             PlanStep::DeleteRows { rids } => format!("delete {}", rows(rids.len())),
             PlanStep::AddRows { rows: r } => format!("add {}", rows(r.height())),
+            PlanStep::Expand { column, .. } => format!("expand {column}"),
         }
     }
 

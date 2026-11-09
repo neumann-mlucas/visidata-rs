@@ -129,14 +129,7 @@ impl App {
                         keys.push(c.clone());
                     }
                     // Keying reorders columns; keep the cursor on the same column.
-                    if let Some(i) = s
-                        .view_plan()
-                        .collect_schema()
-                        .ok()
-                        .and_then(|sc| sc.index_of(&c))
-                    {
-                        s.view.col_cursor = i;
-                    }
+                    self.goto_column(&c);
                     self.spawn_materialize();
                 }
             }
@@ -496,6 +489,21 @@ impl App {
                         "at the {} state",
                         if n > 0 { "oldest" } else { "newest" }
                     ));
+                }
+            }
+            Action::ExpandCol { depth } => self.expand(Some(depth)),
+            Action::ExpandCols => self.expand(None),
+            Action::StartExpandDepthInput => self.start_input(Prompt::ExpandDepth),
+            Action::ContractCol => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                match self.sheets.active_mut().contract(&c) {
+                    Ok(parent) => {
+                        self.spawn_materialize();
+                        self.goto_column(&parent);
+                    }
+                    Err(e) => self.toast = Some(e),
                 }
             }
             Action::OpenUndoTree => {
@@ -1351,6 +1359,40 @@ impl App {
     }
 
     /// The active sheet's visible columns, in screen order.
+    /// Cursor onto visible column `name`, if it is one.
+    fn goto_column(&mut self, name: &str) {
+        let s = self.sheets.active_mut();
+        if let Some(i) = s
+            .view_plan()
+            .collect_schema()
+            .ok()
+            .and_then(|sc| sc.index_of(name))
+        {
+            s.view.col_cursor = i;
+        }
+    }
+
+    /// `(` `z(` (`depth`) on the cursor column; `g(` (`None`): all of them.
+    fn expand(&mut self, depth: Option<usize>) {
+        let done = match depth {
+            // the cursor stays put: on the first new column, the struct hidden
+            Some(depth) => match self.current_column_name() {
+                Some(c) => self.sheets.active_mut().expand(&c, depth),
+                None => return,
+            },
+            None => self.sheets.active_mut().expand_all().map(|n| {
+                self.toast = Some(format!(
+                    "expanded {n} struct column{}",
+                    if n == 1 { "" } else { "s" }
+                ));
+            }),
+        };
+        match done {
+            Ok(()) => self.spawn_materialize(),
+            Err(e) => self.toast = Some(e),
+        }
+    }
+
     fn visible_cols(&self) -> Vec<String> {
         let s = self.sheets.active();
         s.view_plan()

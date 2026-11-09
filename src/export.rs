@@ -1292,6 +1292,26 @@ fn py_from_text(e: &str, dtype: &DataType) -> String {
 fn py_step(t: &str, step: &PlanStep) -> String {
     match step {
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
+        PlanStep::Expand {
+            column,
+            fields,
+            after,
+        } => {
+            let kids = fields.iter().map(|(path, name)| {
+                let get: String = path
+                    .iter()
+                    .map(|f| format!(".struct.field({})", py_str(f)))
+                    .collect();
+                format!("pl.col({}){get}.alias({})", py_str(column), py_str(name))
+            });
+            let after_: Vec<String> = after.iter().map(|c| py_str(c)).collect();
+            let cols: Vec<String> =
+                std::iter::once(format!("pl.all().exclude([{}])", after_.join(", ")))
+                    .chain(kids)
+                    .chain(after_.iter().map(|c| format!("pl.col({c})")))
+                    .collect();
+            format!("{t} = {t}.select([{}])", cols.join(", "))
+        }
         PlanStep::Rename { old, new } => {
             format!("{t} = {t}.rename({{{}: {}}})", py_str(old), py_str(new))
         }
@@ -1392,6 +1412,25 @@ fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
 fn sql_step(q: String, step: &PlanStep) -> String {
     match step {
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
+        PlanStep::Expand {
+            column,
+            fields,
+            after,
+        } => {
+            let kids = fields.iter().map(|(path, name)| {
+                let get = path.iter().fold(q_ident(column), |e, f| {
+                    format!("struct_extract({e}, {})", q_str(f))
+                });
+                format!("{get} AS {}", q_ident(name))
+            });
+            let after: Vec<String> = after.iter().map(|c| q_ident(c)).collect();
+            let head = match after.is_empty() {
+                true => "*".to_string(),
+                false => format!("* EXCLUDE ({})", after.join(", ")),
+            };
+            let cols: Vec<String> = std::iter::once(head).chain(kids).chain(after).collect();
+            format!("SELECT {} FROM ({q})", cols.join(", "))
+        }
         PlanStep::Rename { old, new } => format!(
             "SELECT * RENAME ({} AS {}) FROM ({q})",
             q_ident(old),

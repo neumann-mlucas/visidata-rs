@@ -382,7 +382,42 @@ fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
         AnyValue::Date(_) | AnyValue::Datetime(_, _, _) | AnyValue::Duration(_, _) => {
             (av.to_string(), DtypeHint::Date)
         }
+        AnyValue::List(s) => {
+            let items: Vec<String> = s.iter().take(LIST_SHOWN).map(|v| nested_text(&v)).collect();
+            let more = if s.len() > LIST_SHOWN { ", …" } else { "" };
+            (
+                format!("[{}{more}] ({})", items.join(", "), s.len()),
+                DtypeHint::None,
+            )
+        }
+        AnyValue::Struct(_, _, fields) => {
+            let vals: Vec<AnyValue> = av._iter_struct_av().collect();
+            (struct_text(fields, &vals), DtypeHint::None)
+        }
+        AnyValue::StructOwned(p) => (struct_text(&p.1, &p.0), DtypeHint::None),
         other => (printable(&other.to_string()), DtypeHint::None),
+    }
+}
+
+/// List items a cell shows before `…`; the width cuts it shorter anyway.
+const LIST_SHOWN: usize = 10;
+
+/// `{name: ann, geo: {…}}`: keys one level deep (S-22 §2).
+fn struct_text(fields: &[Field], vals: &[AnyValue]) -> String {
+    let kv: Vec<String> = fields
+        .iter()
+        .zip(vals)
+        .map(|(f, v)| format!("{}: {}", f.name, nested_text(v)))
+        .collect();
+    format!("{{{}}}", kv.join(", "))
+}
+
+/// A value inside a list or struct: nested ones as `{…}` / `[…]`.
+fn nested_text(v: &AnyValue) -> String {
+    match v {
+        AnyValue::List(_) => "[…]".into(),
+        AnyValue::Struct(..) | AnyValue::StructOwned(_) => "{…}".into(),
+        v => display_av(v),
     }
 }
 
@@ -419,6 +454,7 @@ pub fn dtype_badge(dt: &DataType) -> String {
         DataType::Duration(_) => "dur".into(),
         DataType::Time => "time".into(),
         DataType::List(_) => "list".into(),
+        DataType::Struct(_) => "struct".into(),
         DataType::Null => "null".into(),
         other => format!("{other:?}").chars().take(5).collect(),
     }

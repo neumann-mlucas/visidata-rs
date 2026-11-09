@@ -2053,3 +2053,52 @@ async fn undo_tree_keeps_branches() {
     h.type_("earlier").await;
     assert_eq!(status(&h), "at the oldest state");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn expand_and_contract_a_struct_column() {
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".jsonl")
+        .tempfile()
+        .unwrap();
+    writeln!(
+        tmp,
+        r#"{{"id":1,"user":{{"name":"ann","geo":{{"lat":1.5,"lon":2}}}},"tags":["a","b"]}}"#
+    )
+    .unwrap();
+    writeln!(
+        tmp,
+        r#"{{"id":2,"user":{{"name":"bob","geo":{{"lat":3.0,"lon":4}}}},"tags":[]}}"#
+    )
+    .unwrap();
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tmp).await;
+    let header = |h: &Harness| h.screen().lines().nth(1).unwrap().to_string();
+    assert!(
+        h.screen().contains("{name: ann, geo: {…}}"),
+        "{}",
+        h.screen()
+    );
+    assert!(h.screen().contains("[a, b] (2)"), "{}", h.screen());
+    assert!(header(&h).contains("user struct"), "{}", header(&h));
+    h.keys("l (").await;
+    assert_eq!(h.current_column(), "user.name");
+    assert!(
+        header(&h).contains("user.geo") && !header(&h).contains("user "),
+        "{}",
+        header(&h)
+    );
+    assert!(h.screen().contains("{lat: 1.5, lon: 2}"), "{}", h.screen());
+    h.keys("l )").await; // from user.geo: back to user
+    assert_eq!(h.current_column(), "user");
+    assert!(!header(&h).contains("user.name"), "{}", header(&h));
+    h.keys("U").await; // the fold undone
+    assert_eq!(h.current_column(), "user.geo");
+    h.keys("U").await; // and the expansion
+    assert!(!header(&h).contains("user.name"), "{}", header(&h));
+    h.keys("z (").await;
+    h.type_("2").await;
+    assert!(header(&h).contains("user.geo.lat"), "{}", header(&h));
+    h.keys("g (").await;
+    assert_eq!(status(&h), "expanded 0 struct columns");
+}

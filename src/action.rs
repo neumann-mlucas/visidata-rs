@@ -165,6 +165,15 @@ pub enum Action {
     },
     /// `:undotree`: a sheet of the current sheet's undo states.
     OpenUndoTree,
+    /// `(` `z(` (S-22): struct column → a column per field, `depth` levels.
+    ExpandCol {
+        depth: usize,
+    },
+    StartExpandDepthInput,
+    /// `g(`: every visible struct column, one level.
+    ExpandCols,
+    /// `)`: fold expanded columns back into their struct.
+    ContractCol,
 
     // ex-line
     StartExInput,
@@ -388,7 +397,8 @@ impl Action {
             | StartEditInput
             | StartSetColInput
             | StartSetExprInput
-            | StartAddRowsInput => false,
+            | StartAddRowsInput
+            | StartExpandDepthInput => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -440,6 +450,7 @@ impl Action {
             PasteCell | PasteCells | CutCell | CutCells | DeleteCell | DeleteCells => true,
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
             AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
+            ExpandCol { .. } | ExpandCols | ContractCol => true,
         }
     }
 }
@@ -553,6 +564,10 @@ impl Action {
         ("undo", Undo),
         ("redo", Redo),
         ("open_undo_tree", OpenUndoTree),
+        ("expand_col", ExpandCol { depth: 1 }),
+        ("start_expand_depth_input", StartExpandDepthInput),
+        ("expand_cols", ExpandCols),
+        ("contract_col", ContractCol),
         ]
     };
 

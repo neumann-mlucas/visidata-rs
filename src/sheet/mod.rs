@@ -8,6 +8,7 @@ use crate::reader::{LoadedSource, SourceKind};
 
 mod derive;
 mod diff;
+mod nested;
 mod step;
 mod tail;
 #[cfg(test)]
