@@ -566,6 +566,12 @@ impl Script {
                 py_str(&f.regex)
             ));
         }
+        if let Some(p) = &v.filter_expr {
+            ops.push(format!(
+                ".filter(pl.sql_expr({}).fill_null(False))",
+                py_str(p)
+            ));
+        }
         if !v.sort.is_empty() {
             let by: Vec<String> = v.sort.iter().map(|k| py_str(&k.column)).collect();
             let desc: Vec<&str> = v
@@ -648,12 +654,19 @@ impl Script {
             None => "*".into(),
         };
         let mut sql = format!("SELECT {cols}\nFROM ({q})");
+        let mut wheres = Vec::new();
         if let Some(f) = &v.filter {
-            sql += &format!(
-                "\nWHERE regexp_matches(CAST({} AS VARCHAR), {})",
+            wheres.push(format!(
+                "regexp_matches(CAST({} AS VARCHAR), {})",
                 q_ident(&f.column),
                 q_str(&f.regex)
-            );
+            ));
+        }
+        if let Some(p) = &v.filter_expr {
+            wheres.push(format!("coalesce(({p}), false)"));
+        }
+        if !wheres.is_empty() {
+            sql += &format!("\nWHERE {}", wheres.join(" AND "));
         }
         if !v.sort.is_empty() {
             let by: Vec<String> = v
@@ -1041,6 +1054,14 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             },
             c = py_str(column)
         ),
+        PlanStep::SetExpr {
+            column, expr, rids, ..
+        } => format!(
+            "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
+             .then(pl.sql_expr({}).cast({t}.collect_schema()[{c}], strict=False)).otherwise(pl.col({c})).alias({c})).drop(\"__rid\")",
+            py_str(expr),
+            c = py_str(column)
+        ),
     }
 }
 
@@ -1079,6 +1100,21 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                  FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
                 ids.join(", "),
                 value.as_deref().map_or("NULL".into(), q_str),
+                sql_dtype(dtype),
+                c = q_ident(column)
+            )
+        }
+        PlanStep::SetExpr {
+            column,
+            expr,
+            dtype,
+            rids,
+        } => {
+            let ids: Vec<String> = rids.iter().map(u64::to_string).collect();
+            format!(
+                "SELECT * EXCLUDE (__rid) REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST(({expr}) AS {}) ELSE {c} END AS {c}) \
+                 FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
+                ids.join(", "),
                 sql_dtype(dtype),
                 c = q_ident(column)
             )

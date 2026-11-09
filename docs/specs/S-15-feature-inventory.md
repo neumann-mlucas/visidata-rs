@@ -115,6 +115,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SwitchToSheet(id)` + `SubmitRow` | `<CR>` | pop sheet-switcher, activate selected |
 | `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
 | `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets only (S-18 C) |
+| `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
 
 ### 3.7 Plan panel
 
@@ -154,6 +155,8 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
 | Set column | `:setcol <value>` | current col on selected rows; value must fit the displayed and base type; empty = null; placed after the column's last writer |
+| Set by expression | `:setexpr <sql expr>` | `PlanStep::SetExpr`: current col on selected rows := Polars SQL expr over base columns, non-strict cast to the column's type (result type must fit: same, numeric→numeric, any→text); placed after the last writer of the column and of every column it reads; exported as `pl.when(...)` / `CASE WHEN __rid IN` |
+| Predicate filter | `:filter-expr [<pred>]` | `View.filter_expr`: rows where the SQL predicate holds over the typed view (null = false), ANDed with the regex filter; no arg / `zf` / `:unfilter` clears; undoable; rename of a column it reads is refused; exported as `.filter(pl.sql_expr(..))` / `WHERE` |
 | Edit cell | `:edit [value]` | cursor cell, same rules (S-18 C) |
 | Force quit | `:q!`, `:qa!` / `:quit!` | pop / quit without the unsaved-edits question |
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |

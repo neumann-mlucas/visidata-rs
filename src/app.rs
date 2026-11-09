@@ -226,6 +226,8 @@ enum Prompt {
     Edit,
     /// `ge`.
     SetCol,
+    /// `g=`.
+    SetExpr,
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
@@ -259,6 +261,7 @@ impl Prompt {
             Prompt::Diff => "diff with: ",
             Prompt::Edit => "edit: ",
             Prompt::SetCol => "set selected rows to: ",
+            Prompt::SetExpr => "set selected rows to expr= ",
         }
     }
 }
@@ -1011,6 +1014,7 @@ impl App {
             }
             Prompt::Edit => self.dispatch_sequence(vec![Action::EditCell { value: text }]),
             Prompt::SetCol => self.dispatch_sequence(vec![Action::SetCol { value: text }]),
+            Prompt::SetExpr => self.dispatch_sequence(vec![Action::SetExpr { expr: text }]),
         }
     }
 

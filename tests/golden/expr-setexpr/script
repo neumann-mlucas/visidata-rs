@@ -1,0 +1,5 @@
+:
+> select qty > 2
+l l
+g =
+> qty * price + 1

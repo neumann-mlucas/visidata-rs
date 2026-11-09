@@ -275,6 +275,8 @@ pub struct View {
     pub window_rows: u32,
     pub search: Option<SearchState>,
     pub filter: Option<FilterState>,
+    /// `:filter-expr`: keep rows where this SQL predicate holds (S-21 B).
+    pub filter_expr: Option<String>,
     pub sort: Vec<SortKey>,
     /// Selected rows by [`ROW_ID`]; survive sort and filter. Shared: every
     /// undo snapshot and job clones the view; only a selection change copies.
@@ -309,6 +311,7 @@ impl Default for View {
             window_rows: DEFAULT_WINDOW_ROWS,
             search: None,
             filter: None,
+            filter_expr: None,
             sort: Vec::new(),
             selected: Default::default(),
             hidden: std::collections::BTreeSet::new(),
@@ -649,7 +652,27 @@ impl Sheet {
                     .contains(lit(f.regex.as_str()), true),
             );
         }
+        // Checked by `set_filter_expr`; an expression that stopped parsing
+        // can't happen (rename refuses to orphan it).
+        if let Some(e) = self
+            .view
+            .filter_expr
+            .as_deref()
+            .and_then(|p| polars::sql::sql_expr(p).ok())
+        {
+            lf = lf.filter(e.fill_null(false));
+        }
         lf
+    }
+
+    /// `:filter-expr <pred>`: replace the predicate filter; `None` clears it.
+    pub fn set_filter_expr(&mut self, pred: Option<&str>) -> Result<(), String> {
+        if let Some(p) = pred {
+            self.check_predicate(p)?;
+        }
+        self.view.filter_expr = pred.map(String::from);
+        self.view.count_key = None;
+        Ok(())
     }
 
     /// One-row `len` query over `filtered_plan`. Sort/projection don't change
@@ -661,7 +684,10 @@ impl Sheet {
     /// Identifies the row count `count_plan` yields; when it changes, recount.
     /// Plan replacements (tail refresh, currency cast) reset `view.count_key` instead.
     pub fn count_key(&self) -> String {
-        format!("{:?}|{:?}", self.view.filter, self.view.type_casts)
+        format!(
+            "{:?}|{:?}|{:?}",
+            self.view.filter, self.view.filter_expr, self.view.type_casts
+        )
     }
 
     /// `:derive name = <sql expr>` on the base plan. Validated against the schema.
@@ -685,6 +711,14 @@ impl Sheet {
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
         if new != old && self.has_column(new) {
             return Err(format!("column already exists: {new}"));
+        }
+        let reads = |p: &str| {
+            polars::sql::sql_expr(p).is_ok_and(|e| e.meta().root_names().iter().any(|n| n == old))
+        };
+        if new != old && self.view.filter_expr.as_deref().is_some_and(reads) {
+            return Err(format!(
+                ":filter-expr reads {old}; clear it (:unfilter) first"
+            ));
         }
         let step = PlanStep::Rename {
             old: old.to_string(),
@@ -793,6 +827,47 @@ impl Sheet {
         }
         let n = rids.len();
         self.set_rows(column, rids, text)?;
+        Ok(n)
+    }
+
+    /// `:setexpr` / `g=`: `column` := SQL `expr` on the selected rows. The
+    /// expression reads the base columns (as `:derive`), not the view's casts;
+    /// its type must fit the column's.
+    pub fn set_expr(&mut self, column: &str, expr: &str) -> Result<usize, String> {
+        self.editable()?;
+        let rids: Arc<[u64]> = self.view.selected.iter().copied().collect();
+        if rids.is_empty() {
+            return Err("no rows selected".into());
+        }
+        let e = polars::sql::sql_expr(expr).map_err(|e| format!("expr: {e}"))?;
+        // Steps after the insert point write neither `column` nor what `expr`
+        // reads, so the current plan has their types there.
+        let schema = self
+            .plan
+            .clone()
+            .select([col(column).alias("__t"), e.alias("__v")])
+            .collect_schema()
+            .map_err(|e| format!("expr: {e}"))?;
+        let (Some(want), Some(got)) = (schema.get("__t"), schema.get("__v")) else {
+            return Err("expr: no result".into());
+        };
+        let fits = got == want
+            || got == &DataType::Null
+            || (want.is_numeric() && got.is_numeric())
+            || (want == &DataType::String && !got.is_nested());
+        if !fits {
+            return Err(format!("expr: {got} doesn't fit {column} ({want})"));
+        }
+        let n = rids.len();
+        let step = PlanStep::SetExpr {
+            column: column.to_string(),
+            expr: expr.to_string(),
+            dtype: want.clone(),
+            rids,
+        };
+        let before = self.snapshot();
+        self.insert_edit(column, step).map_err(|e| e.to_string())?;
+        self.push_undo(before);
         Ok(n)
     }
 

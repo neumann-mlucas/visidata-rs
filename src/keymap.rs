@@ -320,6 +320,11 @@ impl Keymap {
                 vec![StartSetColInput],
                 "set current column of selected rows",
             ),
+            ch(
+                vec![k("g"), k("=")],
+                vec![StartSetExprInput],
+                "set current column of selected rows to SQL expression",
+            ),
             ch(vec![k("U")], vec![Undo], "undo"),
             ch(vec![k("R")], vec![Redo], "redo"),
             ch(

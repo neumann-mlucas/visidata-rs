@@ -36,7 +36,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 6. - [x] S-18 B — system clipboard: `Y gY zY gzY`, VisiData-style copy command / OSC 52, `vd.option` (Lua API 5)
 7. - [x] S-25 P1 — translate shipped features' longnames (~26 files); `I` describe switches to VisiData's columns (1.5–2.5 d) — done 2026-11-08, PASS 30→35 (+6 DuckDB files → 41)
 8. - [x] S-18 C — cell editing `e`, `ge`, `:edit`; edits after the column's last writer; `SetCol.rids` → `Arc<[u64]>`; S-26 A1 quit guard
-9. - [ ] S-21 B — `g=` / `:setexpr` (source sheets only, S-18 D3), `:filter-expr` (1–1.5 d)
+9. - [x] S-21 B — `g=` / `:setexpr` (source sheets only, S-18 D3), `:filter-expr` (1–1.5 d) — done 2026-11-08
 10. - [ ] S-18 D — paste into cells: `zp gzp zx` (1–2 d)
 11. - [ ] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d)
 12. - [ ] S-23 A + S-18 F — sidebar `b` / `Ctrl+G` (pages plan, column, cell, help; `:plan` = `:sidebar plan`, `P` freed), then add/paste rows `a ga p P`, `A` open-new (4–6 d)

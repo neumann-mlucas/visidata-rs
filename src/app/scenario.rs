@@ -1598,7 +1598,7 @@ async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
 async fn derived_sheets_refuse_edits_but_copy() {
     let mut h = csv(b"id,g\n1,a\n2,b\n3,a\n").await;
     h.keys("l F").await;
-    for keys in ["e", "s g e"] {
+    for keys in ["e", "s g e", "g ="] {
         h.keys(keys).await;
         assert!(
             status(&h).starts_with("read-only: "),
@@ -1612,6 +1612,9 @@ async fn derived_sheets_refuse_edits_but_copy() {
     assert!(status(&h).contains("is derived from"), "{}", status(&h));
     h.keys(":").await;
     h.type_("setcol x").await;
+    assert!(status(&h).contains("read-only: "), "{}", status(&h));
+    h.keys(":").await;
+    h.type_("setexpr 1").await;
     assert!(status(&h).contains("read-only: "), "{}", status(&h));
     assert!(h.app.sheets.active().state.steps.is_empty());
     h.keys("y").await;
@@ -1706,4 +1709,31 @@ async fn a_cancelled_job_result_does_not_take_a_newer_jobs_place() {
         .on_job_done(2, id, "search", Ok(JobDone::Toast("fresh".into())));
     assert_eq!(h.app.toast.as_deref(), Some("fresh"));
     assert!(h.app.busy.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn filter_expr_shows_in_the_title_undoes_and_unfilters() {
+    let mut h = csv(b"id,v\n1,10\n2,20\n3,30\n").await;
+    h.keys(":").await;
+    h.type_("filter-expr v > 15").await;
+    assert!(
+        title(&h).contains("filter v > 15") && title(&h).contains("row 1/2"),
+        "{}",
+        title(&h)
+    );
+    h.keys(":").await;
+    h.type_("filter-expr v || 'x'").await;
+    assert!(status(&h).contains("not a boolean"), "{}", status(&h));
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    h.keys("U").await;
+    assert!(
+        !title(&h).contains("filter") && title(&h).contains("row 1/3"),
+        "{}",
+        title(&h)
+    );
+    h.keys(":").await;
+    h.type_("filter-expr v > 15").await;
+    h.keys(":").await;
+    h.type_("unfilter").await;
+    assert!(title(&h).contains("row 1/3"), "{}", title(&h));
 }

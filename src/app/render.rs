@@ -232,6 +232,9 @@ impl App {
         if let Some(fl) = &s.view.filter {
             chips.push(format!("filter {}~{}", fl.column, fl.regex));
         }
+        if let Some(p) = &s.view.filter_expr {
+            chips.push(format!("filter {p}"));
+        }
         if !s.view.sort.is_empty() {
             let keys: Vec<String> = s
                 .view

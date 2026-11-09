@@ -641,3 +641,74 @@ fn describe_handles_every_column_kind() {
     let out = d.view_plan().collect().unwrap();
     assert_eq!(out.height(), 7, "{out}");
 }
+
+fn ints(s: &Sheet, c: &str) -> Vec<Option<i64>> {
+    let df = s.view_plan().collect().unwrap();
+    df.column(c).unwrap().i64().unwrap().iter().collect()
+}
+
+#[test]
+fn set_expr_writes_selected_rows_only_and_checks_types() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,\n3,30\n");
+    assert_eq!(s.set_expr("v", "id * 100"), Err("no rows selected".into()));
+    Arc::make_mut(&mut s.view.selected).extend([0u64, 2]);
+    assert_eq!(s.set_expr("v", "id * 100"), Ok(2));
+    assert_eq!(ints(&s, "v"), [Some(100), None, Some(300)]); // row 1 keeps its null
+    assert!(s.edits().len() == 1 && s.unsaved_edits() == 1);
+    let e = s.set_expr("v", "'x' || id").unwrap_err();
+    assert_eq!(e, "expr: str doesn't fit v (i64)");
+    assert!(
+        s.set_expr("v", "nope + 1")
+            .unwrap_err()
+            .starts_with("expr:")
+    );
+    assert_eq!(s.edits().len(), 1, "a refused expression adds no step");
+    assert!(s.time_travel(true));
+    assert_eq!(ints(&s, "v"), [Some(10), None, Some(30)]);
+}
+
+#[test]
+fn set_expr_reading_a_derived_column_goes_after_its_derive() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n");
+    s.derive("twice", "v * 2").unwrap();
+    Arc::make_mut(&mut s.view.selected).extend([1u64]);
+    s.set_expr("id", "twice + 1").unwrap();
+    assert!(matches!(
+        s.state.steps.last(),
+        Some(PlanStep::SetExpr { .. })
+    ));
+    assert_eq!(ints(&s, "id"), [Some(1), Some(41)]);
+    // An edit `twice` doesn't read still lands before it.
+    s.set_expr("v", "0").unwrap();
+    assert!(matches!(s.state.steps[0], PlanStep::SetExpr { .. }));
+    assert_eq!(ints(&s, "twice"), [Some(20), Some(0)]);
+}
+
+#[test]
+fn filter_expr_keeps_matching_rows_with_the_regex_filter() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n3,30\n4,40\n");
+    s.set_filter_expr(Some("v >= 20")).unwrap();
+    assert_eq!(ints(&s, "id"), [Some(2), Some(3), Some(4)]);
+    s.view.filter = Some(FilterState {
+        column: "id".into(),
+        regex: "[34]".into(),
+    });
+    assert_eq!(ints(&s, "id"), [Some(3), Some(4)]);
+    assert_eq!(
+        s.set_filter_expr(Some("v + 1")),
+        Err("expr: not a boolean: v + 1".into())
+    );
+    assert_eq!(
+        s.view.filter_expr.as_deref(),
+        Some("v >= 20"),
+        "a bad predicate keeps the old one"
+    );
+    assert!(
+        s.rename_col("v", "w")
+            .unwrap_err()
+            .contains(":filter-expr reads v")
+    );
+    s.rename_col("id", "key").unwrap();
+    s.set_filter_expr(None).unwrap();
+    assert_eq!(ints(&s, "key"), [Some(3), Some(4)]);
+}

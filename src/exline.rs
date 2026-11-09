@@ -236,6 +236,19 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 value: unquote(rest),
             }])
         }
+        "setexpr" => {
+            if rest.is_empty() {
+                return Err(ExError::Usage(
+                    ":setexpr <sql expression> (current column, selected rows)",
+                ));
+            }
+            Ok(vec![Action::SetExpr {
+                expr: rest.to_string(),
+            }])
+        }
+        "filter-expr" => Ok(vec![Action::SetFilterExpr {
+            expr: (!rest.is_empty()).then(|| rest.to_string()),
+        }]),
         "select" | "unselect" => {
             if rest.is_empty() {
                 return Err(ExError::Usage(
@@ -281,6 +294,7 @@ pub const COMMANDS: &[&str] = &[
     "dup",
     "edit",
     "export",
+    "filter-expr",
     "filter",
     "hide",
     "hide-uniform",
@@ -300,6 +314,7 @@ pub const COMMANDS: &[&str] = &[
     "save",
     "select",
     "setcol",
+    "setexpr",
     "sheets",
     "sort",
     "sql",

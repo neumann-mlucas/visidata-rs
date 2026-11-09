@@ -25,6 +25,30 @@ pub enum PlanStep {
         dtype: DataType,
         rids: Arc<[u64]>,
     },
+    /// `:setexpr`, `g=`: `column` := SQL `expr` on rows `rids`, cast to the
+    /// column's type `dtype` (S-21 B).
+    SetExpr {
+        column: String,
+        expr: String,
+        dtype: DataType,
+        rids: Arc<[u64]>,
+    },
+}
+
+/// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask.
+fn on_rows(plan: LazyFrame, column: &str, rids: &[u64], v: Expr) -> LazyFrame {
+    plan.with_row_index("__vdrs_set", None)
+        .with_column(
+            when(
+                col("__vdrs_set")
+                    .cast(DataType::UInt64)
+                    .is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
+            )
+            .then(v)
+            .otherwise(col(column))
+            .alias(column),
+        )
+        .drop(cols(["__vdrs_set"]))
 }
 
 impl PlanStep {
@@ -47,22 +71,27 @@ impl PlanStep {
                 value,
                 dtype,
                 rids,
-            } => plan
-                .with_row_index("__vdrs_set", None)
-                .with_column(
-                    when(col("__vdrs_set").cast(DataType::UInt64).is_in(
-                        lit(Series::new("ids".into(), &rids[..])).implode(false),
-                        false,
-                    ))
-                    .then(match value {
-                        Some(v) if *dtype == DataType::Boolean => lit(v == "true"),
-                        Some(v) => lit(v.to_string()).strict_cast(dtype.clone()),
-                        None => lit(Null {}).cast(dtype.clone()),
-                    })
-                    .otherwise(col(column.as_str()))
-                    .alias(column.as_str()),
-                )
-                .drop(cols(["__vdrs_set"])),
+            } => on_rows(
+                plan,
+                column,
+                rids,
+                match value {
+                    Some(v) if *dtype == DataType::Boolean => lit(v == "true"),
+                    Some(v) => lit(v.to_string()).strict_cast(dtype.clone()),
+                    None => lit(Null {}).cast(dtype.clone()),
+                },
+            ),
+            PlanStep::SetExpr {
+                column,
+                expr,
+                dtype,
+                rids,
+            } => on_rows(
+                plan,
+                column,
+                rids,
+                polars::sql::sql_expr(expr)?.cast(dtype.clone()),
+            ),
         })
     }
 }
@@ -72,13 +101,31 @@ impl PlanStep {
     fn writes(&self) -> Option<&str> {
         match self {
             PlanStep::Rename { new, .. } => Some(new),
-            PlanStep::Currency { column } | PlanStep::SetCol { column, .. } => Some(column),
+            PlanStep::Currency { column }
+            | PlanStep::SetCol { column, .. }
+            | PlanStep::SetExpr { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
         }
     }
 
     pub fn is_edit(&self) -> bool {
-        matches!(self, PlanStep::SetCol { .. })
+        matches!(self, PlanStep::SetCol { .. } | PlanStep::SetExpr { .. })
+    }
+
+    /// Columns this step reads besides the one it writes.
+    fn reads(&self) -> Vec<String> {
+        match self {
+            PlanStep::SetExpr { expr, .. } => polars::sql::sql_expr(expr)
+                .map(|e| {
+                    e.meta()
+                        .root_names()
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -153,8 +200,13 @@ impl Sheet {
 
     /// Put an edit of `column` at its [`insert_point`] and rebuild the plan.
     /// Unchanged on error; the undo step is the caller's.
+    /// An expression edit also goes after the last writer of each column it reads.
     pub(super) fn insert_edit(&mut self, column: &str, step: PlanStep) -> PolarsResult<()> {
-        let at = insert_point(&self.state.steps, column);
+        let at = std::iter::once(column.to_string())
+            .chain(step.reads())
+            .map(|c| insert_point(&self.state.steps, &c))
+            .max()
+            .unwrap_or(0);
         self.state.steps.insert(at, step);
         if let Err(e) = self.rebuild_plan() {
             self.state.steps.remove(at);

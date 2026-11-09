@@ -30,7 +30,10 @@ impl App {
             self.toast = Some(format!("no column: {column}"));
             return;
         }
-        if let Action::SelectExpr { expr, .. } = &action
+        if let Action::SelectExpr { expr, .. }
+        | Action::SetFilterExpr {
+            expr: Some(expr), ..
+        } = &action
             && let Err(e) = self.sheets.active().check_predicate(expr)
         {
             self.toast = Some(e);
@@ -193,7 +196,9 @@ impl App {
                 s.view.row_offset = 0;
             }
             Action::ClearFilter => {
-                let had = self.sheets.active_mut().view.filter.take().is_some();
+                let v = &mut self.sheets.active_mut().view;
+                let had = v.filter.take().is_some() | v.filter_expr.take().is_some();
+                v.count_key = None;
                 if had {
                     self.spawn_materialize();
                 }
@@ -322,6 +327,32 @@ impl App {
                 Ok(()) => self.start_input(Prompt::SetCol),
                 Err(e) => self.toast = Some(e),
             },
+            Action::StartSetExprInput => match self.sheets.active().editable() {
+                Ok(()) => self.start_input(Prompt::SetExpr),
+                Err(e) => self.toast = Some(e),
+            },
+            Action::SetExpr { expr } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                match self.sheets.active_mut().set_expr(&column, &expr) {
+                    Ok(n) => {
+                        self.toast = Some(format!("set {column} on {n} rows"));
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(format!("setexpr: {e}")),
+                }
+            }
+            Action::SetFilterExpr { expr } => {
+                let s = self.sheets.active_mut();
+                match s.set_filter_expr(expr.as_deref()) {
+                    // `affects_data`: dispatch re-materializes.
+                    Ok(()) => {
+                        (s.view.window_offset, s.view.row_cursor, s.view.row_offset) = (0, 0, 0)
+                    }
+                    Err(e) => self.toast = Some(format!("filter-expr: {e}")),
+                }
+            }
             Action::EditCell { value } => {
                 let (Some(column), Some(rid)) = (self.current_column_name(), self.rid_at_cursor())
                 else {

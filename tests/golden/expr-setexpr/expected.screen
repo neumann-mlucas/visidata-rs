@@ -1,0 +1,12 @@
+ tests/golden/expr-setexpr/input.csv  csv · sel 3                          price 3/3  row 1/5 · 20%
+ id i  qty i  price f
+    1      1     10.5
+    2      3     61.0
+    3      5    37.25
+    4      2     99.0
+    5      4        ·
+
+
+
+
+set price on 3 rows

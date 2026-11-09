@@ -155,6 +155,14 @@ pub enum Action {
     ExecSql {
         sql: String,
     },
+    /// `:setexpr`, `g=`: current column := SQL expression, selected rows.
+    SetExpr {
+        expr: String,
+    },
+    /// `:filter-expr`: keep rows where the predicate holds; `None` clears.
+    SetFilterExpr {
+        expr: Option<String>,
+    },
     SetCol {
         value: String,
     },
@@ -166,6 +174,7 @@ pub enum Action {
     StartEditInput,
     /// `ge`: prompt for `:setcol` (current column, selected rows).
     StartSetColInput,
+    StartSetExprInput,
     HideUniform,
     DupSheet,
     Describe,
@@ -215,6 +224,7 @@ impl Action {
         matches!(
             self,
             Action::SetFilter { .. }
+                | Action::SetFilterExpr { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -241,6 +251,7 @@ impl Action {
                 | Action::FreezeColumn
                 | Action::UnfreezeAll
                 | Action::SetFilter { .. }
+                | Action::SetFilterExpr { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -288,7 +299,8 @@ impl Action {
             | StartDiffInput
             | StartRenameColInput
             | StartEditInput
-            | StartSetColInput => false,
+            | StartSetColInput
+            | StartSetExprInput => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -329,6 +341,8 @@ impl Action {
             | Derive { .. }
             | Sql { .. }
             | SetCol { .. }
+            | SetExpr { .. }
+            | SetFilterExpr { .. }
             | EditCell { .. } => true,
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
@@ -395,6 +409,7 @@ impl Action {
         ("pop_sheet", PopSheet),
         ("start_edit_input", StartEditInput),
         ("start_setcol_input", StartSetColInput),
+        ("start_setexpr_input", StartSetExprInput),
         ("quit", Quit),
         ("cancel_jobs", CancelJobs),
         ("cancel_all_jobs", CancelAllJobs),

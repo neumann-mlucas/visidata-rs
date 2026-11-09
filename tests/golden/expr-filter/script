@@ -1,0 +1,2 @@
+:
+> filter-expr qty > 2 AND price < 50
