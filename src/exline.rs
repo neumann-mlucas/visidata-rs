@@ -270,6 +270,19 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "describe" => Ok(vec![Action::Describe]),
         "undo" => Ok(vec![Action::Undo]),
         "redo" => Ok(vec![Action::Redo]),
+        "earlier" | "later" => {
+            let n: i64 = match rest {
+                "" => 1,
+                n => n
+                    .parse()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or(ExError::Usage("earlier [n] / later [n]"))?,
+            };
+            let n = if cmd == "later" { -n } else { n };
+            Ok(vec![Action::TimeWalk { n }])
+        }
+        "undotree" | "undo-tree" => Ok(vec![Action::OpenUndoTree]),
         // `:42` → row 42, as in vim.
         n if n.bytes().all(|b| b.is_ascii_digit()) && rest.is_empty() => {
             let row: usize = n.parse().map_err(|_| ExError::Unknown(n.to_string()))?;
@@ -315,6 +328,9 @@ pub const COMMANDS: &[&str] = &[
     "quit",
     "quit!",
     "redo",
+    "earlier",
+    "later",
+    "undotree",
     "rename",
     "save",
     "select",

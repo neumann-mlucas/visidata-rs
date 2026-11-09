@@ -7,7 +7,8 @@ const KEYS: &[&str] = &[
     "j", "k", "h", "l", "G", "g g", "0", "$", "<C-d>", "<C-u>", "-", "g -", "!", "z !", "[", "]",
     "z o", "s", "t", "u", "g s", "g u", ",", "#", "%", "~", "@", "F", "S", "I", "W", "q", "<CR>",
     "g <CR>", "\"", "g \"", "U", "R", ".", "z s", "z c", "P", "n", "N", "z f", "1", "2", "5", "d",
-    "g d", "x", "y", "z y", "z p", "g z p", "z x", "z d", "a", "p", "A", "z P",
+    "g d", "x", "y", "z y", "z p", "g z p", "z x", "z d", "a", "p", "A", "z P", "U", "R",
+    "U", // history-heavy (S-20)
 ];
 
 /// Prompt openers paired with what to type; a tenth of the steps use these.
@@ -22,6 +23,8 @@ const PROMPTS: &[(&str, &str)] = &[
     (":", "filter grp a"),
     (":", "sort -id"),
     (":", "type currency"),
+    (":", "earlier 2"),
+    (":", "later"),
 ];
 
 fn next(state: &mut u64) -> usize {
@@ -111,7 +114,7 @@ async fn undo_then_redo_round_trips_the_view() {
     }
     let edited = csv_text(h.app.sheets.active(), b',');
     assert_ne!(start, edited);
-    let depth = h.app.sheets.active().state.undo.len();
+    let depth = h.app.sheets.active().state.undo.depth();
     for _ in 0..depth {
         h.keys("U").await;
     }

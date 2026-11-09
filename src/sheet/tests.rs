@@ -934,3 +934,118 @@ fn a_refused_region_paste_changes_nothing() {
     assert!(s.time_travel(true));
     assert_eq!(view_ids(&s), [1, 2]);
 }
+
+/// S-20: what a state looks like, to compare on revisits.
+fn fingerprint(s: &Sheet) -> String {
+    let mut df = s.view_plan().collect().unwrap();
+    let mut out = Vec::new();
+    CsvWriter::new(&mut out).finish(&mut df).unwrap();
+    format!(
+        "{:?}|{:?}|{:?}|{}",
+        s.state.steps,
+        s.view.hidden,
+        s.view.selected,
+        String::from_utf8(out).unwrap()
+    )
+}
+
+#[test]
+fn a_change_after_undo_branches_and_earlier_reaches_the_other_branch() {
+    let (mut s, _t) = sheet_of("id,v\n1,a\n2,b\n");
+    let open = fingerprint(&s);
+    s.edit_cell("v", 0, "x").unwrap(); // state 1
+    let one = fingerprint(&s);
+    assert!(s.time_travel(true));
+    s.checkpoint(); // state 2, a sibling of 1
+    s.view.hidden.insert("v".into());
+    let two = fingerprint(&s);
+    let labels: Vec<String> = s.undo_states().into_iter().map(|u| u.label).collect();
+    assert_eq!(labels, ["opened", "edit v = x", "hide v"]);
+    assert!(s.time_travel(true));
+    assert_eq!(fingerprint(&s), open);
+    assert!(s.time_travel(false)); // the child last come back from
+    assert_eq!(fingerprint(&s), two);
+    assert!(s.time_walk(1)); // :earlier: state 1, on the other branch
+    assert_eq!(fingerprint(&s), one);
+    assert!(s.time_walk(-1)); // :later
+    assert_eq!(fingerprint(&s), two);
+    assert!(!s.time_walk(-1), "newest");
+    assert!(s.time_walk(5)); // clamps to the oldest
+    assert_eq!(fingerprint(&s), open);
+    assert!(!s.time_walk(1), "oldest");
+    assert!(s.goto_state(1));
+    assert_eq!(fingerprint(&s), one);
+    assert!(s.time_travel(true) && s.time_travel(false));
+    assert_eq!(fingerprint(&s), one, "R retraces a jump");
+}
+
+#[test]
+fn eviction_drops_old_branches_first_and_keeps_the_current_path() {
+    let (mut s, _t) = sheet_of("id\n1\n");
+    for _ in 0..5 {
+        s.checkpoint(); // a branch that will be undone
+    }
+    for _ in 0..5 {
+        assert!(s.time_travel(true));
+    }
+    for i in 0..120 {
+        s.edit_cell("id", 0, &i.to_string()).unwrap();
+    }
+    let states = s.undo_states();
+    assert_eq!(states.len(), 100);
+    assert_eq!(s.state.undo.depth(), 99, "one line: the current path");
+    assert!(
+        states.iter().all(|u| u.id > 5),
+        "the undone branch went first"
+    );
+    for _ in 0..99 {
+        assert!(s.time_travel(true));
+    }
+    assert!(!s.time_travel(true));
+    assert_eq!(view_ids(&s), [20]); // the 21st edit's state is the oldest kept
+}
+
+/// Seeded random walk: every state, revisited by any route, is as it was.
+#[test]
+fn every_state_comes_back_exactly() {
+    let (mut s, _t) = sheet_of("id,v\n1,a\n2,b\n3,c\n");
+    let mut seen: std::collections::HashMap<u64, String> = Default::default();
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut rand = |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    seen.insert(s.state.undo.current(), fingerprint(&s));
+    for step in 0..400 {
+        match rand(8) {
+            0 => drop(s.edit_cell("v", rand(3), &step.to_string())),
+            1 => {
+                s.checkpoint();
+                let c = ["id", "v"][rand(2) as usize].to_string();
+                if !s.view.hidden.remove(&c) {
+                    s.view.hidden.insert(c);
+                }
+            }
+            2 => drop(s.delete_rows(vec![rand(3)])),
+            3 => {
+                s.checkpoint();
+                std::sync::Arc::make_mut(&mut s.view.selected).insert(rand(3));
+            }
+            4 => drop(s.time_travel(true)),
+            5 => drop(s.time_travel(false)),
+            6 => drop(s.time_walk(rand(4) as i64 - 2)),
+            _ => {
+                let ids: Vec<u64> = s.undo_states().iter().map(|u| u.id).collect();
+                s.goto_state(ids[rand(ids.len() as u64) as usize]);
+            }
+        }
+        let fp = fingerprint(&s);
+        let id = s.state.undo.current();
+        if let Some(was) = seen.get(&id) {
+            assert_eq!(*was, fp, "state {id} changed (step {step})");
+        }
+        seen.insert(id, fp);
+    }
+}

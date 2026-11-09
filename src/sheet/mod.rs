@@ -12,8 +12,10 @@ mod step;
 mod tail;
 #[cfg(test)]
 mod tests;
+mod undo;
 
-pub use step::{ADDED_RID, POS, PlanStep, Snapshot};
+pub use step::{ADDED_RID, POS, PlanStep};
+pub use undo::{Snapshot, UndoState, UndoTree};
 
 pub type SheetId = u32;
 
@@ -45,9 +47,8 @@ pub struct SheetState {
     window_rids: Vec<u64>,
     /// Edits baked into `plan`, in order — replayed by `:export`.
     pub steps: Vec<PlanStep>,
-    /// Undo / redo history of (plan, view, steps), newest last.
-    pub undo: Vec<Snapshot>,
-    pub redo: Vec<Snapshot>,
+    /// Undo history of (plan, view, steps), a tree (S-20).
+    pub undo: UndoTree,
     /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
     pub tail: Option<TailCache>,
     /// `:tail`: size + mtime at the last refresh; unchanged means nothing to do.
@@ -149,6 +150,10 @@ pub enum Origin {
         parent: SheetId,
     },
     SheetSwitcher,
+    /// `:undotree` of sheet `parent`; `Enter` makes a state current there.
+    UndoTree {
+        parent: SheetId,
+    },
     Diff {
         left: SheetId,
         right_name: String,
@@ -338,7 +343,7 @@ pub struct SearchState {
     pub expr: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FilterState {
     pub column: String,
     pub regex: String,
@@ -350,7 +355,7 @@ pub enum SortOrder {
     Desc,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SortKey {
     pub column: String,
     pub order: SortOrder,
@@ -607,8 +612,7 @@ impl Sheet {
     pub fn derived(mut self, parent: &Sheet, how: Derivation) -> Self {
         let mut p = parent.clone();
         p.window = None;
-        p.state.undo.clear();
-        p.state.redo.clear();
+        p.state.undo = UndoTree::default();
         self.state.lineage = Some(Box::new(Lineage { parent: p, how }));
         self
     }
@@ -1129,6 +1133,20 @@ impl Sheet {
         values: Option<&DataFrame>,
         n: usize,
     ) -> Result<Vec<u64>, String> {
+        let before = self.snapshot();
+        let ids = self.insert_rows(anchor, after, values, n)?;
+        self.push_undo(before);
+        Ok(ids)
+    }
+
+    /// [`Self::add_rows`] without the undo step.
+    fn insert_rows(
+        &mut self,
+        anchor: Option<u64>,
+        after: bool,
+        values: Option<&DataFrame>,
+        n: usize,
+    ) -> Result<Vec<u64>, String> {
         self.editable()?;
         let n = values.map_or(n, DataFrame::height);
         if n == 0 {
@@ -1192,7 +1210,6 @@ impl Sheet {
             .iter()
             .take_while(|s| matches!(s, PlanStep::AddRows { .. }))
             .count();
-        let before = self.snapshot();
         self.state.steps.insert(
             at,
             PlanStep::AddRows {
@@ -1203,7 +1220,6 @@ impl Sheet {
             self.state.steps.remove(at);
             return Err(e.to_string());
         }
-        self.push_undo(before);
         self.invalidate(Reason::Rows);
         Ok(ids)
     }
@@ -1324,10 +1340,7 @@ impl Sheet {
         }
         rids.truncate(lines.len());
         let before = self.snapshot();
-        let undo_len = self.state.undo.len();
-        let done = self.paste_region_steps(cols, &mut rids, lines);
-        self.state.undo.truncate(undo_len);
-        match done {
+        match self.paste_region_steps(cols, &mut rids, lines) {
             Ok(n) => {
                 self.push_undo(before);
                 Ok(n)
@@ -1358,7 +1371,7 @@ impl Sheet {
                 .map_err(|e| e.to_string())?
                 .first()
                 .copied();
-            rids.extend(self.add_rows(last, true, None, lines.len() - rids.len())?);
+            rids.extend(self.insert_rows(last, true, None, lines.len() - rids.len())?);
         }
         let mut n = 0;
         for (i, column) in cols.iter().enumerate() {

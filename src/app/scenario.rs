@@ -1405,10 +1405,10 @@ async fn expression_keys_search_select_and_derive() {
     h.keys("z \\").await;
     h.type_("price = 2").await;
     assert_eq!(h.app.sheets.active().view.selected.len(), 1);
-    let undo_depth = h.app.sheets.active().state.undo.len();
+    let undo_depth = h.app.sheets.active().state.undo.depth();
     h.keys(":").await;
     h.type_("select qty + 1").await;
-    assert_eq!(h.app.sheets.active().state.undo.len(), undo_depth); // no empty undo step
+    assert_eq!(h.app.sheets.active().state.undo.depth(), undo_depth); // no empty undo step
     assert!(
         h.app
             .toast
@@ -1994,4 +1994,40 @@ async fn terminal_paste_and_syspaste_cells() {
     h.keys("z P").await;
     h.pump().await;
     assert_eq!(view_csv(&h), "id,v,w\n40,a,x\n2,b,y\n10,z1,z2\n");
+}
+
+/// S-20: a change after `U` keeps the undone branch; `:undotree` lists the
+/// states and `Enter` goes back to one; `:earlier` / `:later` walk them.
+#[tokio::test(flavor = "multi_thread")]
+async fn undo_tree_keeps_branches() {
+    let mut h = csv(b"id,v\n1,a\n2,b\n").await;
+    h.keys("l e <C-u>").await;
+    h.type_("x").await; // state 1
+    h.keys("U").await;
+    h.keys("-").await; // state 2: hide v, a branch beside 1
+    assert_eq!(view_csv(&h), "id\n1\n2\n");
+    h.keys(":").await;
+    h.type_("undotree").await;
+    h.pump().await;
+    let screen = h.screen();
+    for want in ["opened", "  edit v = x", "  hide v"] {
+        assert!(screen.contains(want), "{want}\n{screen}");
+    }
+    assert_eq!(
+        h.app.sheets.active().view.row_cursor,
+        2,
+        "on the current state"
+    );
+    h.keys("k <CR>").await; // state 1
+    assert_eq!(status(&h), "at state 1");
+    assert_eq!(view_csv(&h), "id,v\n1,x\n2,b\n");
+    h.keys(":").await;
+    h.type_("later").await;
+    assert_eq!(view_csv(&h), "id\n1\n2\n");
+    h.keys(":").await;
+    h.type_("earlier 9").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n2,b\n");
+    h.keys(":").await;
+    h.type_("earlier").await;
+    assert_eq!(status(&h), "at the oldest state");
 }

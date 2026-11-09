@@ -486,6 +486,24 @@ impl App {
                     Ok(JobDone::PushSheet(Box::new(child)))
                 });
             }
+            Action::TimeWalk { n } => {
+                if self.sheets.active_mut().time_walk(n) {
+                    let at = self.sheets.active().state.undo.current();
+                    self.toast = Some(format!("at state {at}"));
+                    self.spawn_materialize();
+                } else {
+                    self.toast = Some(format!(
+                        "at the {} state",
+                        if n > 0 { "oldest" } else { "newest" }
+                    ));
+                }
+            }
+            Action::OpenUndoTree => {
+                let id = self.sheets.alloc_id();
+                let tree = Sheet::undo_tree_of(self.sheets.active(), id);
+                self.sheets.push(tree);
+                self.spawn_materialize();
+            }
             Action::Undo | Action::Redo => {
                 let undo = matches!(action, Action::Undo);
                 if self.sheets.active_mut().time_travel(undo) {
@@ -920,6 +938,24 @@ impl App {
     fn submit_row(&mut self) {
         match &self.sheets.active().origin {
             Origin::SheetSwitcher => self.switch_to_row_sheet(),
+            Origin::UndoTree { parent } => {
+                let parent = *parent;
+                let s = self.sheets.active();
+                let state = s
+                    .window()
+                    .and_then(|df| df.column("state").ok()?.get(s.view.row_cursor).ok())
+                    .and_then(|v| v.try_extract::<u64>().ok());
+                let Some(state) = state else { return };
+                self.sheets.pop();
+                if !self.sheets.switch_to(parent) {
+                    self.toast = Some("undotree: that sheet was closed".into());
+                    return;
+                }
+                if self.sheets.active_mut().goto_state(state) {
+                    self.toast = Some(format!("at state {state}"));
+                    self.spawn_materialize();
+                }
+            }
             Origin::Freq { .. } => self.dive_freq(false),
             Origin::Parts { path, kind } => {
                 let (path, kind) = (path.clone(), *kind);

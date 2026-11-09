@@ -41,7 +41,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 11. - [x] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d) — done 2026-11-08
 12. - [x] S-23 A + S-18 F — sidebar `b` / `Ctrl+G` (pages plan, column, cell, help; `:plan` = `:sidebar plan`, `P` freed), then add/paste rows `a ga p P`, `A` open-new (4–6 d) — done 2026-11-08
 13. - [x] S-18 G — system paste in: bracketed paste → register, `zP` `gzP`, `clipboard_paste_cmd` (1 d) — done 2026-11-09
-14. - [ ] S-20 — undo tree (1–2 d); deferred here 2026-11-08. Tree view as a Lua plugin example (`vd.undo_tree()`)
+14. - [x] S-20 — undo tree: branches, `:earlier` / `:later`, `:undotree` (1–2 d) — done 2026-11-09; the Lua `vd.undo_tree()` example waits for S-29 `vd.exec`
 15. - [ ] S-24 R3 + S-25 P2 — typed xlsx/sqlite; correctness fixes from FAIL/runtime buckets, incl. S-24 R4 zero-padded ids (3–4 d)
 16. - [ ] S-22 A/B/C — `(` `z(` `g(` expand, `)` contract; `zM` unfurl sheet; `:type json` (2.5–3 d)
 17. - [ ] S-25 P3 — columns sheet `C` (3–5 d); P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d)

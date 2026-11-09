@@ -214,6 +214,36 @@ impl PlanStep {
         })())
     }
 
+    /// A few words for `:undotree`.
+    pub fn summary(&self) -> String {
+        let rows = |n: usize| format!("{n} row{}", if n == 1 { "" } else { "s" });
+        match self {
+            PlanStep::Rename { old, new } => format!("rename {old} → {new}"),
+            PlanStep::Currency { column } => format!("type {column} currency"),
+            PlanStep::Derive { name, expr, .. } => format!("derive {name} = {expr}"),
+            PlanStep::SetCol {
+                column,
+                value,
+                rids,
+                ..
+            } => match (rids.len(), value) {
+                (1, Some(v)) => format!("edit {column} = {v}"),
+                (n, Some(v)) => format!("setcol {column} = {v} on {}", rows(n)),
+                (n, None) => format!("empty {column} on {}", rows(n)),
+            },
+            PlanStep::SetExpr {
+                column, expr, rids, ..
+            } => {
+                format!("setexpr {column} = {expr} on {}", rows(rids.len()))
+            }
+            PlanStep::SetCells { column, patch } => {
+                format!("paste into {column} on {}", rows(patch.height()))
+            }
+            PlanStep::DeleteRows { rids } => format!("delete {}", rows(rids.len())),
+            PlanStep::AddRows { rows: r } => format!("add {}", rows(r.height())),
+        }
+    }
+
     /// Columns this step reads besides the one it writes.
     fn reads(&self) -> Vec<String> {
         match self {
@@ -240,66 +270,7 @@ pub(super) fn insert_point(steps: &[PlanStep], column: &str) -> usize {
         .map_or(0, |i| i + 1)
 }
 
-/// Everything `U` restores.
-#[derive(Clone)]
-pub struct Snapshot {
-    pub plan: LazyFrame,
-    pub view: View,
-    pub steps: Vec<PlanStep>,
-}
-
-/// Undo depth per sheet.
-const UNDO_MAX: usize = 100;
-
 impl Sheet {
-    /// Remember the current plan/view for `U`; a new change forgets redo history.
-    pub fn checkpoint(&mut self) {
-        self.push_undo(self.snapshot());
-    }
-
-    /// `snap` (taken before a change) becomes the newest undo step.
-    pub fn push_undo(&mut self, snap: Snapshot) {
-        let undo = &mut self.state.undo;
-        undo.push(snap);
-        if undo.len() > UNDO_MAX {
-            undo.remove(0);
-        }
-        self.state.redo.clear();
-    }
-
-    pub fn snapshot(&self) -> Snapshot {
-        Snapshot {
-            plan: self.plan.clone(),
-            view: self.view.clone(),
-            steps: self.state.steps.clone(),
-        }
-    }
-
-    /// Step back (`undo = true`) or forward through history. False when empty.
-    pub fn time_travel(&mut self, undo: bool) -> bool {
-        let (from, to) = if undo {
-            (&mut self.state.undo, &mut self.state.redo)
-        } else {
-            (&mut self.state.redo, &mut self.state.undo)
-        };
-        let Some(snap) = from.pop() else {
-            return false;
-        };
-        to.push(Snapshot {
-            plan: std::mem::replace(&mut self.plan, snap.plan),
-            view: std::mem::replace(&mut self.view, snap.view),
-            steps: std::mem::replace(&mut self.state.steps, snap.steps),
-        });
-        self.invalidate(Reason::Rows); // plan may differ: recount
-        if matches!(self.origin, Origin::Tail { .. }) {
-            // Snapshots predate rows that arrived since; keep the rows, undo the edit.
-            if let Err(e) = self.rebuild_plan() {
-                debug_assert!(false, "steps applied before: {e}");
-            }
-        }
-        true
-    }
-
     /// Put an edit of `column` at its [`insert_point`] and rebuild the plan.
     /// Unchanged on error; the undo step is the caller's.
     /// An expression edit also goes after the last writer of each column it reads.

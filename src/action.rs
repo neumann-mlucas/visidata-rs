@@ -158,6 +158,13 @@ pub enum Action {
     PasteBefore,
     /// `A`: a new empty sheet with one column, `A`.
     OpenNew,
+    /// `:earlier n` / `:later n` (S-20): `n` undo states back (`n < 0`: on)
+    /// in the order they were made, across branches.
+    TimeWalk {
+        n: i64,
+    },
+    /// `:undotree`: a sheet of the current sheet's undo states.
+    OpenUndoTree,
 
     // ex-line
     StartExInput,
@@ -365,7 +372,9 @@ impl Action {
             | Export { .. }
             | ExecSql { .. }
             | Undo
-            | Redo => false,
+            | Redo
+            | TimeWalk { .. }
+            | OpenUndoTree => false,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -543,6 +552,7 @@ impl Action {
         ("start_diff_input", StartDiffInput),
         ("undo", Undo),
         ("redo", Redo),
+        ("open_undo_tree", OpenUndoTree),
         ]
     };
 

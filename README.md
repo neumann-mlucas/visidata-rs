@@ -69,7 +69,7 @@ pivots run in the background.
 Basics (VisiData's keys): `hjkl` move, `gg`/`G` top/bottom, `/` search the column (`g/` all), `[`/`]` sort, `gz|` filter,
 `F` frequency table (`Enter` opens a value's rows), `I` describe, `W` pivot,
 `s`/`gs`/`|`/`,` select (`z|` by SQL condition), `=` new column, `"` sheet of selected rows, `-` hide, `!` key column,
-`#%~@` type casts, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo, `b` sidebar, `S` sheet list, `:` ex
+`#%~@` type casts, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `b` sidebar, `S` sheet list, `:` ex
 commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
 `:tail -f`, …), `q` back, `gq` quit, `Ctrl-c` cancels background work. `:pivot` previews its result while you type;
 `:export` writes a Polars or DuckDB script that rebuilds the view, including
@@ -79,7 +79,7 @@ derived sheets.
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
 - Punchlist: [`docs/tasks.md`](docs/tasks.md)
-- Planned: undo tree ([S-20](docs/specs/S-20-undo-tree.md)), macros ([S-19](docs/specs/S-19-macros.md)). Edits
+- Planned: macros ([S-19](docs/specs/S-19-macros.md)). Edits
   ([S-18](docs/specs/S-18-editing-clipboard.md)) never touch the file you opened until `:save`
 - Config: `$XDG_CONFIG_HOME/vdrs/init.lua`, hot-reloaded: `vd.bind` (to an action, ex
   command or Lua function), `vd.register_loader`, `vd.register_aggregator`,

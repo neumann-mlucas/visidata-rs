@@ -904,7 +904,7 @@ impl App {
             s.id,
             s.count_key(),
             s.state.steps.len(),
-            s.state.undo.len()
+            s.state.undo.current()
         );
         if self.sidebar_stats.as_ref().is_some_and(|(k, _)| *k == key) {
             return;

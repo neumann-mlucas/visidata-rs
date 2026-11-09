@@ -157,7 +157,8 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
-| Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet snapshots of (plan, view, steps), depth 100 |
+| Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet undo tree of (plan, view, steps) snapshots, 100 states; a change after `U` branches; `R` = child last made or come back from (S-20) |
+| Undo history | `:earlier [n]` / `:later [n]`, `:undotree` (`open_undo_tree`) | walk states in creation order across branches; a sheet of states (id, parent, ago, change, `*` current), `Enter` restores one (S-20) |
 | Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|append]` | same-named keys; merge = full + right non-null wins; append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |
@@ -357,7 +358,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 | Concern | File |
 |---|---|
-| Sheet / View / LazyFrame plan | `src/sheet/mod.rs`; derived sheets `derive.rs`, diff `diff.rs`, tail `tail.rs`, `PlanStep` + undo `step.rs`, tests `tests.rs` |
+| Sheet / View / LazyFrame plan | `src/sheet/mod.rs`; derived sheets `derive.rs`, diff `diff.rs`, tail `tail.rs`, `PlanStep` `step.rs`, undo tree `undo.rs`, tests `tests.rs` |
 | Reader (CSV/TSV/Parquet/Arrow/Jsonl/Json/Xlsx/Sqlite/stdin + gzip) | `src/reader.rs` |
 | App loop, jobs, prompts | `src/app.rs`; rendering `src/app/render.rs`; unit tests `src/app/tests.rs`; `scenario` end-to-end tests `src/app/scenario.rs` |
 | Action dispatch + handlers | `src/app/actions.rs` |
