@@ -292,6 +292,15 @@ impl Keymap {
                 vec![CopyCells],
                 "copy current column of selected rows",
             ),
+            // delete / cut rows (S-18 E)
+            ch(vec![k("d")], vec![DeleteRow], "delete current row"),
+            ch(
+                vec![k("g"), k("d")],
+                vec![DeleteSelected],
+                "delete selected rows",
+            ),
+            ch(vec![k("x")], vec![CutRow], "cut current row"),
+            ch(vec![k("g"), k("x")], vec![CutSelected], "cut selected rows"),
             // paste / cut cells (S-18 D)
             ch(
                 vec![k("z"), k("p")],
@@ -442,7 +451,7 @@ mod tests {
     fn unknown_misses() {
         let km = Keymap::defaults();
         assert!(matches!(
-            km.resolve(Layer::Sheet, &[], key("x")),
+            km.resolve(Layer::Sheet, &[], key("X")),
             Dispatch::Miss
         ));
     }

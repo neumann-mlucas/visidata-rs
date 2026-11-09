@@ -1,6 +1,6 @@
 # S-25 P0 triage: every corpus file's first blocker, quarantine ignored.
 # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
-1410a	SKIP delete-cell
+1410a	PASS
 1410b	SKIP serialize: ExpectedObjectColon at character 33 (',')
 1410c	SKIP type-len
 add-col-dup-attrs	SKIP addcol-new
@@ -10,7 +10,7 @@ aggregators-cols	SKIP addcol-aggregate
 aggregators-errors	SKIP aggregate-col
 aggregators-set	SKIP aggregate-cols
 append	PASS
-avg-nulls	SKIP delete-cells
+avg-nulls	SKIP aggregate-col
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	SKIP addcol-capture
 column-copy	SKIP aggregate-col
@@ -26,7 +26,7 @@ describe-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP key-selected
 duckdb-commit-changes	SKIP add-row
-duckdb-commit-composite-pk	SKIP delete-row
+duckdb-commit-composite-pk	SKIP add-row
 duckdb-commit-no-pk	SKIP allow-error
 duckdb-exec-sql	PASS
 duckdb-index	PASS
@@ -42,7 +42,7 @@ edit-joinregular-2	SKIP columns-selected
 edit-type	FAIL line 6: want="Quantity\t0\t0\t10\t1\t144\t403.00\t2\t7.90\t21.57" got="Quantity\t0\t0\t10\t1\t144\t403.0\t2\t7.901960784313726\t21.57244066114058"
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	UNTESTABLE addcol-expr
-error-passthru	SKIP delete-cells
+error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP open-new
 extend	SKIP sheets-all

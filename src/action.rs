@@ -124,6 +124,12 @@ pub enum Action {
     /// `zx` `gzx`: copy the cursor cell / selected rows' cells, then null them.
     CutCell,
     CutCells,
+    /// `d` `gd` `x` `gx` (S-18 E): delete the cursor row / selected rows;
+    /// `x` `gx` copy them to the register first.
+    DeleteRow,
+    DeleteSelected,
+    CutRow,
+    CutSelected,
 
     // ex-line
     StartExInput,
@@ -355,6 +361,7 @@ impl Action {
             CopyRow | CopySelected | CopyCell | CopyCells => true,
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
             PasteCell | PasteCells | CutCell | CutCells => true,
+            DeleteRow | DeleteSelected | CutRow | CutSelected => true,
         }
     }
 }
@@ -446,6 +453,10 @@ impl Action {
         ("paste_cells", PasteCells),
         ("cut_cell", CutCell),
         ("cut_cells", CutCells),
+        ("delete_row", DeleteRow),
+        ("delete_selected", DeleteSelected),
+        ("cut_row", CutRow),
+        ("cut_selected", CutSelected),
         ("hide_uniform", HideUniform),
         ("describe", Describe),
         ("pivot_current", PivotCurrent),

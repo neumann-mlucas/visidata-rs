@@ -718,8 +718,16 @@ impl Sheet {
 
     fn filtered_plan_with(&self, with_rid: bool, errs: bool) -> LazyFrame {
         let mut lf = self.plan.clone();
-        if with_rid {
+        let deleted = self.deleted_rids();
+        if with_rid || !deleted.is_empty() {
             lf = lf.with_row_index(ROW_ID, None);
+        }
+        if !deleted.is_empty() {
+            let ids = lit(Series::new("ids".into(), deleted)).implode(false);
+            lf = lf.filter(col(ROW_ID).cast(DataType::UInt64).is_in(ids, false).not());
+            if !with_rid {
+                lf = lf.drop(cols([ROW_ID]));
+            }
         }
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
@@ -985,6 +993,42 @@ impl Sheet {
         let shown: std::collections::HashSet<u64> = out.iter().copied().collect();
         out.extend(sel.into_iter().filter(|r| !shown.contains(r)));
         Ok(out)
+    }
+
+    /// Row ids of deleted rows (`DeleteRows` steps), ascending.
+    pub fn deleted_rids(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = self
+            .state
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlanStep::DeleteRows { rids } => Some(rids.iter().copied()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// `d` / `gd`: delete rows `rids`; they leave the selection too. Returns
+    /// how many were deleted.
+    pub fn delete_rows(&mut self, rids: Vec<u64>) -> Result<usize, String> {
+        self.editable()?;
+        if rids.is_empty() {
+            return Err("no rows selected".into());
+        }
+        self.checkpoint();
+        let sel = Arc::make_mut(&mut self.view.selected);
+        for r in &rids {
+            sel.remove(r);
+        }
+        let n = rids.len();
+        self.state
+            .steps
+            .push(PlanStep::DeleteRows { rids: rids.into() });
+        self.invalidate(Reason::Rows);
+        Ok(n)
     }
 
     /// `gzp` (VisiData setcol-clipboard): copied `values` into `column` on the

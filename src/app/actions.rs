@@ -271,6 +271,10 @@ impl App {
                 self.paste_cells(action == Action::PasteCells)
             }
             Action::CutCell | Action::CutCells => self.cut(action == Action::CutCells),
+            Action::DeleteRow | Action::CutRow => self.delete_rows(false, action == Action::CutRow),
+            Action::DeleteSelected | Action::CutSelected => {
+                self.delete_rows(true, action == Action::CutSelected)
+            }
             Action::DedupeRows => {
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active().clone();
@@ -1276,6 +1280,46 @@ impl App {
         match done {
             Ok(()) => self.spawn_materialize(),
             Err(e) => self.toast = Some(format!("cut: {e}")),
+        }
+    }
+
+    /// `d` `gd` `x` `gx`: the cursor row stays put, so the next row moves up
+    /// under it. `cut` copies the rows first; a refused copy deletes nothing.
+    fn delete_rows(&mut self, selected: bool, cut: bool) {
+        let s = self.sheets.active();
+        if let Err(e) = s.editable() {
+            self.toast = Some(e);
+            return;
+        }
+        let rids: Vec<u64> = if selected {
+            s.view.selected.iter().copied().collect()
+        } else {
+            self.rid_at_cursor().into_iter().collect()
+        };
+        if rids.is_empty() {
+            self.toast = Some(
+                if selected {
+                    "no rows selected"
+                } else {
+                    "no rows"
+                }
+                .into(),
+            );
+            return;
+        }
+        // The copy job clones the sheet now, before the delete.
+        if cut && !self.copy(selected, false) {
+            return;
+        }
+        match self.sheets.active_mut().delete_rows(rids) {
+            Ok(n) => {
+                if !cut {
+                    let s = if n == 1 { "" } else { "s" };
+                    self.toast = Some(format!("deleted {} row{s}", grouped(n as u64)));
+                }
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(e),
         }
     }
 

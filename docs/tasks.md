@@ -38,7 +38,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 8. - [x] S-18 C — cell editing `e`, `ge`, `:edit`; edits after the column's last writer; `SetCol.rids` → `Arc<[u64]>`; S-26 A1 quit guard
 9. - [x] S-21 B — `g=` / `:setexpr` (source sheets only, S-18 D3), `:filter-expr` (1–1.5 d) — done 2026-11-08
 10. - [x] S-18 D — paste into cells: `zp gzp zx gzx` (1–2 d) — done 2026-11-08
-11. - [ ] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d)
+11. - [x] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d) — done 2026-11-08
 12. - [ ] S-23 A + S-18 F — sidebar `b` / `Ctrl+G` (pages plan, column, cell, help; `:plan` = `:sidebar plan`, `P` freed), then add/paste rows `a ga p P`, `A` open-new (4–6 d)
 13. - [ ] S-18 G — system paste in: bracketed paste → register, `gzP` (1 d)
 14. - [ ] S-20 — undo tree (1–2 d); deferred here 2026-11-08. Tree view as a Lua plugin example (`vd.undo_tree()`)
@@ -106,7 +106,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-08, S-25 P1 + DuckDB files): PASS=41, FAIL=0, SKIP=125, UNTESTABLE=19, QUARANTINED=16, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-08, S-18 E): PASS=42, FAIL=0, SKIP=123, UNTESTABLE=20, QUARANTINED=16, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 

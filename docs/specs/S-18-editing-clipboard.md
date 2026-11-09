@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes); phase E shipped 2026-11-08 (see the E notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -164,6 +164,17 @@ whole paste. `zp` pastes the register's first cell (VisiData: the last `zy` valu
 Do §2.3 first, as its own commit with no visible change (all existing tests must pass unchanged — the
 proof the rid switch is safe). Then `DeleteRows`. `d` keeps the cursor on the next row; `gd` on the
 selection; `x`/`gx` = copy then delete.
+
+As shipped: no rid column yet. Every step so far keeps rows (rename, currency, derive, the edits), so
+a row's id is still its position in the base, and `DeleteRows { rids }` is not applied in the chain:
+`filtered_plan` numbers the base and drops deleted ids after all steps, so edits before or after a
+delete keep their rows and nothing renumbers. `:export` does the same (the mask comes before the view's
+casts; Python `with_row_index` + `is_in`, SQL `row_number()` + `NOT IN`). This skips the plan column's
+cost: `__vdrs_rid` would reach every schema reader (`:sql`, freq, describe, Lua, export). F (added
+rows) is the first step that breaks "steps keep rows"; it brings the real column or the side table
+§2.3 already names. Replay: `delete-row`, `delete-selected`, `cut-row`, `cut-selected`, and
+`delete-cell(s)` (VisiData `zd`/`gzd`, nulls; the app has no key for them yet) translated: PASS 41 → 42
+(`1410a`).
 
 ### F — Add/paste rows
 First, as its own commit: `P` stops toggling the plan panel; `:plan` (from S-23 A, which ships with or

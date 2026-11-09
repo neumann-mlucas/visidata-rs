@@ -39,6 +39,12 @@ pub enum PlanStep {
         column: String,
         patch: Arc<DataFrame>,
     },
+    /// `d`, `gd`, `x`, `gx`: rows `rids` are gone. Not applied in the step
+    /// chain: every step keeps rows, so a row id stays its position in the
+    /// base; `filtered_plan` drops these rows after all steps (S-18 §2.3).
+    DeleteRows {
+        rids: Arc<[u64]>,
+    },
 }
 
 /// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask.
@@ -120,6 +126,7 @@ impl PlanStep {
                         .alias(column.as_str()),
                 )
                 .drop(cols(["__vdrs_set", "__vdrs_v", "__vdrs_hit"])),
+            PlanStep::DeleteRows { .. } => plan,
         })
     }
 }
@@ -134,13 +141,17 @@ impl PlanStep {
             | PlanStep::SetExpr { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
+            PlanStep::DeleteRows { .. } => None,
         }
     }
 
     pub fn is_edit(&self) -> bool {
         matches!(
             self,
-            PlanStep::SetCol { .. } | PlanStep::SetExpr { .. } | PlanStep::SetCells { .. }
+            PlanStep::SetCol { .. }
+                | PlanStep::SetExpr { .. }
+                | PlanStep::SetCells { .. }
+                | PlanStep::DeleteRows { .. }
         )
     }
 

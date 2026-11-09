@@ -1645,11 +1645,49 @@ async fn paste_and_cut_cells() {
     );
 }
 
+/// S-18 E: `d` `gd` `x` `gx` delete rows; edits after a delete still hit
+/// their rows; `U` brings rows back in place.
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_and_cut_rows() {
+    let mut h = csv(b"id,v\n1,a\n2,b\n3,c\n4,d\n5,e\n").await;
+    h.keys("g d").await;
+    assert_eq!(status(&h), "no rows selected");
+    h.keys("j d").await; // id 2; the cursor stays on the row that moved up
+    assert_eq!(view_csv(&h), "id,v\n1,a\n3,c\n4,d\n5,e\n");
+    assert_eq!(status(&h), "deleted 1 row");
+    assert_eq!(h.app.sheets.active().view.row_cursor, 1);
+    h.keys("l e <C-u>").await; // id 3 now under the cursor
+    h.type_("C").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n3,C\n4,d\n5,e\n");
+
+    // gd on a sorted view drops the selection's rows and their selection
+    h.keys("h ]").await;
+    h.keys("g g s j s").await; // id desc: 5, 4 selected
+    h.keys("g d").await;
+    assert_eq!(view_csv(&h), "id,v\n3,C\n1,a\n");
+    assert!(h.app.sheets.active().view.selected.is_empty());
+    h.keys("[").await;
+    h.keys("g g x").await; // cut id 1 into the register
+    let r = h.app.register.clone().unwrap();
+    assert_eq!((r.kind, r.df.height()), (RegisterKind::Rows, 1));
+    assert_eq!(view_csv(&h), "id,v\n3,C\n");
+
+    // undo: x, [, gd (with its selection), then the edit stays
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n3,C\n");
+    h.keys("U U").await;
+    assert_eq!(view_csv(&h), "id,v\n5,e\n4,d\n3,C\n1,a\n");
+    assert_eq!(h.app.sheets.active().view.selected.len(), 2);
+    h.keys("g x").await;
+    assert_eq!(h.app.register.as_ref().unwrap().df.height(), 2);
+    assert_eq!(view_csv(&h), "id,v\n3,C\n1,a\n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn derived_sheets_refuse_edits_but_copy() {
     let mut h = csv(b"id,g\n1,a\n2,b\n3,a\n").await;
     h.keys("l F").await;
-    for keys in ["e", "s g e", "g =", "z x", "g z x"] {
+    for keys in ["e", "s g e", "g =", "z x", "g z x", "d", "g d", "x", "g x"] {
         h.keys(keys).await;
         assert!(
             status(&h).starts_with("read-only: "),

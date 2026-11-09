@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 41;
+const MIN_PASS: usize = 42;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -690,6 +690,22 @@ impl Replay {
             "cut-cells" => {
                 self.clip_copy(&r.col, None)?;
                 self.setcol_input_gang(&r.col, "")
+            }
+            // `zd` / `gzd`: null the cell(s); the same edit as `e` with nothing.
+            "delete-cell" => self.setcol_input(&r.col, &r.row, ""),
+            "delete-cells" => self.setcol_input_gang(&r.col, ""),
+            "delete-row" | "cut-row" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let rid = view_rid(s, &r.row)?;
+                s.delete_rows(vec![rid]).map(drop).map_err(StepErr::Runtime)
+            }
+            "delete-selected" | "cut-selected" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let rids: Vec<u64> = s.view.selected.iter().copied().collect();
+                if rids.is_empty() {
+                    return Ok(());
+                }
+                s.delete_rows(rids).map(drop).map_err(StepErr::Runtime)
             }
             "paste-cell" => {
                 let text = match self.clip.as_ref().map(|c| c.get(0)) {

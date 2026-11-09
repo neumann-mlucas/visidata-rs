@@ -133,7 +133,7 @@ impl Script {
         match self.lang {
             Lang::Py => {
                 let t = self.bind(src);
-                for step in &s.state.steps {
+                for step in steps(s) {
                     let line = py_step(&t, step);
                     self.py(line);
                 }
@@ -141,7 +141,7 @@ impl Script {
             }
             Lang::Sql => {
                 let mut q = src;
-                for step in &s.state.steps {
+                for step in steps(s) {
                     q = sql_step(q, step);
                 }
                 Ok(self.bind(q))
@@ -531,8 +531,15 @@ impl Script {
         let base = self.base(s)?;
         let v = &s.view;
         let mut ops = Vec::new();
-        if rid {
+        let deleted = s.deleted_rids();
+        if rid || !deleted.is_empty() {
             ops.push(".with_row_index(\"__rid\")".to_string());
+        }
+        if !deleted.is_empty() {
+            ops.push(format!(".filter(~pl.col(\"__rid\").is_in({deleted:?}))"));
+            if !rid {
+                ops.push(".drop(\"__rid\")".into());
+            }
         }
         for (c, dt) in &v.type_casts {
             let e = py_str(&err_col(c));
@@ -611,11 +618,20 @@ impl Script {
     fn view_query(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
         let base = self.base(s)?;
         let v = &s.view;
-        let mut q = if rid {
+        let deleted = s.deleted_rids();
+        let mut q = if rid || !deleted.is_empty() {
             format!("SELECT *, row_number() OVER () - 1 AS __rid FROM {base}")
         } else {
             format!("SELECT * FROM {base}")
         };
+        if !deleted.is_empty() {
+            let ids: Vec<String> = deleted.iter().map(u64::to_string).collect();
+            let keep = if rid { "" } else { " EXCLUDE (__rid)" };
+            q = format!(
+                "SELECT *{keep} FROM ({q}) WHERE __rid NOT IN ({})",
+                ids.join(", ")
+            );
+        }
         if !v.type_casts.is_empty() {
             let mut flags = String::new();
             let casts: Vec<String> = v
@@ -1014,8 +1030,18 @@ fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String, String> {
     })
 }
 
+/// The steps that rebuild the base; deleted rows are masked by the view
+/// (`py_view` / `view_query`), as in `Sheet::filtered_plan`.
+fn steps(s: &Sheet) -> impl Iterator<Item = &PlanStep> {
+    s.state
+        .steps
+        .iter()
+        .filter(|s| !matches!(s, PlanStep::DeleteRows { .. }))
+}
+
 fn py_step(t: &str, step: &PlanStep) -> String {
     match step {
+        PlanStep::DeleteRows { .. } => String::new(), // see `steps`
         PlanStep::Rename { old, new } => {
             format!("{t} = {t}.rename({{{}: {}}})", py_str(old), py_str(new))
         }
@@ -1116,6 +1142,7 @@ fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
 /// Each plan step wraps the query so far (DuckDB `* RENAME` / `* REPLACE`).
 fn sql_step(q: String, step: &PlanStep) -> String {
     match step {
+        PlanStep::DeleteRows { .. } => q, // see `steps`
         PlanStep::Rename { old, new } => format!(
             "SELECT * RENAME ({} AS {}) FROM ({q})",
             q_ident(old),

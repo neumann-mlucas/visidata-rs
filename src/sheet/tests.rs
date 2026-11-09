@@ -794,3 +794,25 @@ fn every_plan_step_recounts() {
         s.land_count(&k, Some(2));
     }
 }
+
+/// S-18 E: deleted rows leave every view of the rows; row ids don't shift.
+#[test]
+fn deleted_rows_are_masked_and_ids_stay() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n3,30\n4,40\n");
+    Arc::make_mut(&mut s.view.selected).extend([1u64, 3]);
+    assert_eq!(s.delete_rows(vec![1]), Ok(1));
+    assert_eq!(s.view.selected.iter().copied().collect::<Vec<_>>(), [3]);
+    assert_eq!(s.view_rids().unwrap(), [0, 2, 3]);
+    let n = s.count_plan().collect().unwrap();
+    assert_eq!(
+        n.columns()[0].get(0).unwrap().try_extract::<u64>().unwrap(),
+        3
+    );
+    // an edit after the delete still lands on its row
+    s.edit_cell("v", 2, "33").unwrap();
+    assert_eq!(ints(&s, "v"), [Some(10), Some(33), Some(40)]);
+    assert_eq!(s.delete_rows(vec![]), Err("no rows selected".into()));
+    assert!(s.time_travel(true) && s.time_travel(true));
+    assert_eq!(ints(&s, "v"), [Some(10), Some(20), Some(30), Some(40)]);
+    assert_eq!(s.view.selected.len(), 2, "undo brings the selection back");
+}
