@@ -1,0 +1,12 @@
+ tests/golden/setcol-clipboard/input.csv  csv · sort id▼ · sel 2            when 4/4  row 2/4 · 50%
+ id ▼  qty i ok bool  when date
+    4      2 ·        2024-02-29
+    3      3 ✓        2024-01-01
+    2      2 ·        2024-02-29
+    1      2 ✓        2024-01-01
+
+
+
+
+
+pasted into when on 2 rows

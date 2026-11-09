@@ -117,6 +117,13 @@ pub enum Action {
     SysCopySelected,
     SysCopyCell,
     SysCopyCells,
+    /// `zp` `gzp` (S-18 D): the copied cell into the cursor cell / the copied
+    /// cells into the current column of selected rows (repeated to fill).
+    PasteCell,
+    PasteCells,
+    /// `zx` `gzx`: copy the cursor cell / selected rows' cells, then null them.
+    CutCell,
+    CutCells,
 
     // ex-line
     StartExInput,
@@ -347,6 +354,7 @@ impl Action {
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
+            PasteCell | PasteCells | CutCell | CutCells => true,
         }
     }
 }
@@ -434,6 +442,10 @@ impl Action {
         ("syscopy_selected", SysCopySelected),
         ("syscopy_cell", SysCopyCell),
         ("syscopy_cells", SysCopyCells),
+        ("paste_cell", PasteCell),
+        ("paste_cells", PasteCells),
+        ("cut_cell", CutCell),
+        ("cut_cells", CutCells),
         ("hide_uniform", HideUniform),
         ("describe", Describe),
         ("pivot_current", PivotCurrent),

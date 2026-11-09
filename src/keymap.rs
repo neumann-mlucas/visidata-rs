@@ -292,6 +292,23 @@ impl Keymap {
                 vec![CopyCells],
                 "copy current column of selected rows",
             ),
+            // paste / cut cells (S-18 D)
+            ch(
+                vec![k("z"), k("p")],
+                vec![PasteCell],
+                "paste into current cell",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("p")],
+                vec![PasteCells],
+                "paste into current column of selected rows",
+            ),
+            ch(vec![k("z"), k("x")], vec![CutCell], "cut current cell"),
+            ch(
+                vec![k("g"), k("z"), k("x")],
+                vec![CutCells],
+                "cut current column of selected rows",
+            ),
             // system clipboard (S-18 B)
             ch(
                 vec![k("Y")],

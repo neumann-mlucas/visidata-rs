@@ -1594,11 +1594,62 @@ async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
     assert!(view_csv(&h).starts_with("id,qty,price,total\n7,1,4.0,4.0\n7,4,2.0,8.0\n"));
 }
 
+/// S-18 D: `zp` `gzp` paste copied cells, `zx` `gzx` cut them.
+#[tokio::test(flavor = "multi_thread")]
+async fn paste_and_cut_cells() {
+    let mut h = csv(b"id,qty,note\n1,2,a\n2,3,b\n3,,c\n4,5,d\n").await;
+    h.keys("l z p").await;
+    assert_eq!(status(&h), "nothing copied");
+    h.keys("y").await;
+    h.keys("z p").await;
+    assert_eq!(status(&h), "zp pastes cells: copy with zy or gzy");
+
+    h.keys("z y").await;
+    h.keys("j z p").await; // qty 2 into id 2
+    assert_eq!(view_csv(&h), "id,qty,note\n1,2,a\n2,2,b\n3,,c\n4,5,d\n");
+    h.keys("U").await;
+    assert!(view_csv(&h).contains("2,3,b"));
+
+    // gzp cycles the copied cells over the selected rows in view order
+    h.keys("g g s j s g z y").await; // copy qty of ids 1, 2: [2, 3]
+    h.keys("g u g g j s j s j s h ]").await; // select ids 2..4; sort id desc
+    h.keys("l g z p").await; // view order 4, 3, 2 gets 2, 3, 2
+    assert_eq!(status(&h), "pasted into qty on 3 rows");
+    h.keys("h [").await;
+    assert_eq!(view_csv(&h), "id,qty,note\n1,2,a\n2,2,b\n3,3,c\n4,2,d\n");
+    h.keys("U U h [").await; // undo the sort and the paste; sort asc again
+    assert!(view_csv(&h).contains("2,3,b"), "{}", view_csv(&h));
+
+    // a value that doesn't fit refuses the whole paste
+    h.keys("g g l l z y").await;
+    h.keys("h g z p").await; // note "a" into qty
+    assert_eq!(status(&h), r#"paste: "a" doesn't fit qty (i64)"#);
+
+    // zx: cell to the register, then null
+    h.keys("g g z x").await;
+    assert!(
+        view_csv(&h).starts_with("id,qty,note\n1,,a\n"),
+        "{}",
+        view_csv(&h)
+    );
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(r.df.column("qty").unwrap().i64().unwrap().get(0), Some(2));
+    h.keys("g z x").await; // selected rows
+    assert_eq!(h.app.register.as_ref().unwrap().df.height(), 3);
+    assert_eq!(view_csv(&h), "id,qty,note\n1,,a\n2,,b\n3,,c\n4,,d\n");
+    h.keys("U U").await;
+    assert!(
+        view_csv(&h).starts_with("id,qty,note\n1,2,a\n2,3,b\n"),
+        "{}",
+        view_csv(&h)
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn derived_sheets_refuse_edits_but_copy() {
     let mut h = csv(b"id,g\n1,a\n2,b\n3,a\n").await;
     h.keys("l F").await;
-    for keys in ["e", "s g e", "g ="] {
+    for keys in ["e", "s g e", "g =", "z x", "g z x"] {
         h.keys(keys).await;
         assert!(
             status(&h).starts_with("read-only: "),

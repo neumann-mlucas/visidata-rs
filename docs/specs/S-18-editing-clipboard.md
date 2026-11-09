@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -149,8 +149,16 @@ quit guard (S-26 A1) counts edit steps against `state.saved_edits` (set when `:s
 replay driver still uses its own `edit-cell`/`setcol-input` path; S-25 P1 moves it onto `edit_cell`.
 
 ### D — Paste into cells
-`zp`: register cell → cursor cell. `gzp`: register's first value → current column of selected rows
+`zp`: register cell → cursor cell. `gzp`: register's cells → current column of selected rows
 (VisiData `setcol-clipboard`). `zx`: copy cell, then set null. All reuse `SetCells`/`SetCol`.
+
+As shipped: `gzp` follows VisiData's `setValuesTyped(onlySelectedRows, *clipcells)`: every copied
+cell, cycled over the selected rows in view order (selected rows the filter hides follow, in row
+order); one value is a `SetCol`, more a `SetCells` (patch of rid → typed value, one left join;
+exported as a joined literal frame / `VALUES`). Any value that doesn't fit the column refuses the
+whole paste. `zp` pastes the register's first cell (VisiData: the last `zy` value; same after `zy`).
+`gzx` (cut-cells) ships too. A rows register (`y`) gives a message. Replay: `copy-cell(s)`,
+`paste-cell`, `cut-cell(s)`, `setcol-clipboard` translated; `pr2372` still waits on `addcol-new`.
 
 ### E — Stable rids + delete
 Do §2.3 first, as its own commit with no visible change (all existing tests must pass unchanged — the

@@ -9,7 +9,7 @@
 
 use std::path::Path;
 
-use polars::prelude::DataType;
+use polars::prelude::{DataFrame, DataType};
 
 use crate::reader::SourceKind;
 use crate::sheet::{
@@ -1062,7 +1062,55 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             py_str(expr),
             c = py_str(column)
         ),
+        PlanStep::SetCells { column, patch } => {
+            let (rids, vals) = patch_lists(patch);
+            let vals: Vec<String> = vals
+                .iter()
+                .map(|v| v.as_deref().map_or("None".into(), py_str))
+                .collect();
+            let c = py_str(column);
+            // Polars 2 casts no text to bool/date/datetime: parse those.
+            let v = match patch.column("__vdrs_v").map(|c| c.dtype().clone()) {
+                Ok(DataType::Boolean) => "(pl.col(\"__v\") == \"true\")".to_string(),
+                Ok(DataType::Date) => "pl.col(\"__v\").str.to_date()".into(),
+                Ok(DataType::Datetime(..)) => {
+                    format!("pl.col(\"__v\").str.to_datetime().cast({t}.collect_schema()[{c}])")
+                }
+                _ => format!("pl.col(\"__v\").cast({t}.collect_schema()[{c}])"),
+            };
+            format!(
+                "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.col(\"__rid\").cast(pl.UInt64))\
+                 .join(pl.DataFrame({{\"__rid\": {rids:?}, \"__v\": [{}]}}, schema={{\"__rid\": pl.UInt64, \"__v\": pl.Utf8}})\
+                 .lazy().with_columns(pl.lit(True).alias(\"__hit\")), on=\"__rid\", how=\"left\", maintain_order=\"left\")\
+                 .with_columns(pl.when(pl.col(\"__hit\").is_not_null()).then({v}).otherwise(pl.col({c})).alias({c}))\
+                 .drop(\"__rid\", \"__v\", \"__hit\")",
+                vals.join(", ")
+            )
+        }
     }
+}
+
+/// A `SetCells` patch as row ids and value texts (null = None).
+fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
+    let rids = patch
+        .column("__vdrs_rid")
+        .and_then(|c| c.cast(&DataType::UInt64))
+        .map(|c| {
+            c.u64()
+                .map(|a| a.into_no_null_iter().collect())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    let vals = patch
+        .column("__vdrs_v")
+        .and_then(|c| c.cast(&DataType::String))
+        .map(|c| {
+            c.str()
+                .map(|a| a.iter().map(|v| v.map(String::from)).collect())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    (rids, vals)
 }
 
 /// Each plan step wraps the query so far (DuckDB `* RENAME` / `* REPLACE`).
@@ -1116,6 +1164,26 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                  FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
                 ids.join(", "),
                 sql_dtype(dtype),
+                c = q_ident(column)
+            )
+        }
+        PlanStep::SetCells { column, patch } => {
+            let (rids, vals) = patch_lists(patch);
+            let rows: Vec<String> = rids
+                .iter()
+                .zip(&vals)
+                .map(|(r, v)| format!("({r}, {}, true)", v.as_deref().map_or("NULL".into(), q_str)))
+                .collect();
+            let dtype = patch
+                .column("__vdrs_v")
+                .map(|c| c.dtype().clone())
+                .unwrap_or(DataType::String);
+            format!(
+                "SELECT * EXCLUDE (__rid) FROM (SELECT * EXCLUDE (__v, __hit) REPLACE (CASE WHEN __hit THEN TRY_CAST(__v AS {}) ELSE {c} END AS {c}) \
+                 FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q})) \
+                 LEFT JOIN (VALUES {}) AS __p(__rid, __v, __hit) USING (__rid) ORDER BY __rid)",
+                sql_dtype(&dtype),
+                rows.join(", "),
                 c = q_ident(column)
             )
         }

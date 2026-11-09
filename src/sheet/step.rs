@@ -33,6 +33,12 @@ pub enum PlanStep {
         dtype: DataType,
         rids: Arc<[u64]>,
     },
+    /// `gzp`: a value per row. `patch` holds `__vdrs_rid` (u64) and
+    /// `__vdrs_v` (the column's type); applied as one left join (S-18 §2.1).
+    SetCells {
+        column: String,
+        patch: Arc<DataFrame>,
+    },
 }
 
 /// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask.
@@ -92,6 +98,28 @@ impl PlanStep {
                 rids,
                 polars::sql::sql_expr(expr)?.cast(dtype.clone()),
             ),
+            PlanStep::SetCells { column, patch } => plan
+                .with_row_index("__vdrs_set", None)
+                .with_column(col("__vdrs_set").cast(DataType::UInt64))
+                .join(
+                    (**patch)
+                        .clone()
+                        .lazy()
+                        .with_column(lit(true).alias("__vdrs_hit")),
+                    [col("__vdrs_set")],
+                    [col("__vdrs_rid")],
+                    JoinArgs {
+                        maintain_order: MaintainOrderJoin::Left,
+                        ..JoinArgs::new(JoinType::Left)
+                    },
+                )
+                .with_column(
+                    when(col("__vdrs_hit").is_not_null())
+                        .then(col("__vdrs_v"))
+                        .otherwise(col(column.as_str()))
+                        .alias(column.as_str()),
+                )
+                .drop(cols(["__vdrs_set", "__vdrs_v", "__vdrs_hit"])),
         })
     }
 }
@@ -103,13 +131,17 @@ impl PlanStep {
             PlanStep::Rename { new, .. } => Some(new),
             PlanStep::Currency { column }
             | PlanStep::SetCol { column, .. }
-            | PlanStep::SetExpr { column, .. } => Some(column),
+            | PlanStep::SetExpr { column, .. }
+            | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
         }
     }
 
     pub fn is_edit(&self) -> bool {
-        matches!(self, PlanStep::SetCol { .. } | PlanStep::SetExpr { .. })
+        matches!(
+            self,
+            PlanStep::SetCol { .. } | PlanStep::SetExpr { .. } | PlanStep::SetCells { .. }
+        )
     }
 
     /// Columns this step reads besides the one it writes.

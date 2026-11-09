@@ -259,6 +259,10 @@ impl App {
             Action::SysCopySelected => self.syscopy(true, false),
             Action::SysCopyCell => self.syscopy(false, true),
             Action::SysCopyCells => self.syscopy(true, true),
+            Action::PasteCell | Action::PasteCells => {
+                self.paste_cells(action == Action::PasteCells)
+            }
+            Action::CutCell | Action::CutCells => self.cut(action == Action::CutCells),
             Action::DedupeRows => {
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active().clone();
@@ -1182,6 +1186,83 @@ impl App {
             };
             Ok(JobDone::Copy(Box::new(Register { kind, df })))
         });
+    }
+
+    /// `zp` / `gzp`: the copied cells (`zy` `gzy`) into the current column.
+    fn paste_cells(&mut self, selected: bool) {
+        let Some(column) = self.current_column_name() else {
+            return;
+        };
+        let values = match &self.register {
+            Some(Register {
+                kind: RegisterKind::Cells,
+                df,
+            }) => df.columns()[0].clone(),
+            Some(_) => {
+                self.toast = Some("zp pastes cells: copy with zy or gzy".into());
+                return;
+            }
+            None => {
+                self.toast = Some("nothing copied".into());
+                return;
+            }
+        };
+        let s = self.sheets.active_mut();
+        let done = if selected {
+            s.paste_cells(&column, &values)
+                .map(|n| format!("pasted into {column} on {} rows", grouped(n as u64)))
+        } else {
+            let Some(rid) = self.rid_at_cursor() else {
+                return;
+            };
+            let text = match values.get(0) {
+                Ok(v) if !v.is_null() => crate::sheet::any_text(&v),
+                _ => String::new(),
+            };
+            self.sheets
+                .active_mut()
+                .edit_cell(&column, rid, &text)
+                .map(|()| String::new())
+        };
+        match done {
+            Ok(note) => {
+                if !note.is_empty() {
+                    self.toast = Some(note);
+                }
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("paste: {e}")),
+        }
+    }
+
+    /// `zx` / `gzx`: copy the cell(s) to the register, then null them.
+    fn cut(&mut self, selected: bool) {
+        let s = self.sheets.active();
+        if let Err(e) = s.editable() {
+            self.toast = Some(e);
+            return;
+        }
+        let Some(column) = self.current_column_name() else {
+            return;
+        };
+        if selected && s.view.selected.is_empty() {
+            self.toast = Some("no rows selected".into());
+            return;
+        }
+        let rid = self.rid_at_cursor();
+        // The copy job clones the sheet now, before the edit below.
+        self.copy(selected, true);
+        let s = self.sheets.active_mut();
+        let done = if selected {
+            s.set_col(&column, "").map(drop)
+        } else {
+            let Some(rid) = rid else { return };
+            s.edit_cell(&column, rid, "")
+        };
+        match done {
+            Ok(()) => self.spawn_materialize(),
+            Err(e) => self.toast = Some(format!("cut: {e}")),
+        }
     }
 
     fn open_dup_selected(&mut self) {

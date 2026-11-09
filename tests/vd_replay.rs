@@ -182,6 +182,8 @@ struct Replay {
     cursor: Option<HashMap<usize, (String, String)>>,
     /// `$VD_TESTTMP`: scratch for files a script saves and reopens.
     tmp: tempfile::TempDir,
+    /// The register's cells (`copy-cell(s)`), for `paste-cell` / `setcol-clipboard`.
+    clip: Option<Column>,
 }
 
 enum MetaMode {
@@ -241,6 +243,7 @@ impl Replay {
             next_id: 0,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
+            clip: None,
         }
     }
 
@@ -686,8 +689,37 @@ impl Replay {
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" => Ok(()),
-            // Copy to the register (S-18 A) leaves the sheet unchanged; paste is S-18 D/F.
-            "copy-row" | "copy-selected" | "copy-cell" | "copy-cells" => Ok(()),
+            // Copying rows leaves the sheet unchanged; row paste is S-18 F.
+            "copy-row" | "copy-selected" => Ok(()),
+            "copy-cell" => self.clip_copy(&r.col, Some(&r.row)),
+            "copy-cells" => self.clip_copy(&r.col, None),
+            "cut-cell" => {
+                self.clip_copy(&r.col, Some(&r.row))?;
+                self.setcol_input(&r.col, &r.row, "")
+            }
+            "cut-cells" => {
+                self.clip_copy(&r.col, None)?;
+                self.setcol_input_gang(&r.col, "")
+            }
+            "paste-cell" => {
+                let text = match self.clip.as_ref().map(|c| c.get(0)) {
+                    Some(Ok(v)) if !v.is_null() => visidata_rs::sheet::any_text(&v),
+                    _ => String::new(),
+                };
+                self.setcol_input(&r.col, &r.row, &text)
+            }
+            "setcol-clipboard" => {
+                let Some(clip) = self.clip.clone() else {
+                    return Ok(());
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                if s.view.selected.is_empty() {
+                    return Ok(());
+                }
+                s.paste_cells(&r.col, &clip)
+                    .map(drop)
+                    .map_err(StepErr::Runtime)
+            }
             // the system clipboard never changes the sheet
             "syscopy-row" | "syscopy-selected" | "syscopy-cell" | "syscopy-cells" => Ok(()),
             // Widening a column shows a hidden (width 0) one.
@@ -940,6 +972,23 @@ impl Replay {
         let s = &mut self.current_slot_mut()?.sheet;
         let rid = view_rid(s, row_key)?;
         s.edit_cell(col_name, rid, value).map_err(StepErr::Runtime)
+    }
+
+    /// `zy` (`row` = its key) / `gzy` (selected rows, view order): `col` to the register.
+    fn clip_copy(&mut self, col: &str, row: Option<&str>) -> Result<(), StepErr> {
+        let rt = |e: PolarsError| StepErr::Runtime(e.to_string());
+        let s = &self.current_slot()?.sheet;
+        let pos = match row {
+            Some(k) => {
+                let rid = view_rid(s, k)?;
+                let rids = s.view_rids().map_err(rt)?;
+                Some(rids.iter().position(|&r| r == rid).unwrap_or_default() as u64)
+            }
+            None => None,
+        };
+        let df = s.copy_rows(pos).map_err(rt)?;
+        self.clip = Some(df.column(col).map_err(rt)?.clone());
+        Ok(())
     }
 
     /// VisiData `ge`: `col_name` := `value` on the selected rows (`:setcol`).

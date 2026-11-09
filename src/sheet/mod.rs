@@ -770,29 +770,64 @@ impl Sheet {
         column: &str,
         text: &str,
     ) -> Result<(Option<String>, DataType), String> {
+        if text.is_empty() {
+            return Ok((None, self.base_type(column)?));
+        }
         let base = self
-            .plan
+            .edit_values(column, &[Some(text.to_string())])?
+            .dtype()
+            .clone();
+        let text = match base {
+            DataType::Boolean => text.to_ascii_lowercase(),
+            _ => text.to_string(),
+        };
+        Ok((Some(text), base))
+    }
+
+    fn base_type(&self, column: &str) -> Result<DataType, String> {
+        self.plan
             .clone()
             .collect_schema()
             .map_err(|e| e.to_string())?
             .get(column)
             .cloned()
-            .ok_or_else(|| format!("no column: {column}"))?;
-        if text.is_empty() {
-            return Ok((None, base));
-        }
+            .ok_or_else(|| format!("no column: {column}"))
+    }
+
+    /// `edit_value` for many texts at once (`gzp`): the values in the column's
+    /// base type, or the first text that doesn't fit. None = null.
+    pub fn edit_values(&self, column: &str, texts: &[Option<String>]) -> Result<Series, String> {
+        let base = self.base_type(column)?;
+        let refuse = |i: usize, dtype: &dyn std::fmt::Display| {
+            let t = texts[i].as_deref().unwrap_or_default();
+            format!("{t:?} doesn't fit {column} ({dtype})")
+        };
         if base == DataType::Boolean {
             // Polars doesn't cast text to bool
-            let t = text.to_ascii_lowercase();
-            return match t.as_str() {
-                "true" | "false" => Ok((Some(t), base)),
-                _ => Err(format!("{text:?} doesn't fit {column} (bool: true/false)")),
-            };
+            let vals = texts.iter().enumerate().map(|(i, t)| {
+                match t.as_deref().map(str::to_ascii_lowercase).as_deref() {
+                    None => Ok(None),
+                    Some("true") => Ok(Some(true)),
+                    Some("false") => Ok(Some(false)),
+                    Some(_) => Err(refuse(i, &"bool: true/false")),
+                }
+            });
+            let vals: Vec<Option<bool>> = vals.collect::<Result<_, _>>()?;
+            return Ok(Series::new(column.into(), vals));
         }
-        let fits = |e: Expr| {
-            df!(column => [text])
-                .and_then(|d| d.lazy().select([e.alias("v")]).collect())
-                .is_ok_and(|d| d.column("v").is_ok_and(|c| c.null_count() == 0))
+        let df = DataFrame::new_infer_height(vec![Column::new(column.into(), texts)])
+            .map_err(|e| e.to_string())?;
+        // The first text a (non-strict) cast turns into null.
+        let first_bad = |e: Expr| -> Result<Option<usize>, String> {
+            let out = df
+                .clone()
+                .lazy()
+                .select([e.alias("v")])
+                .collect()
+                .map_err(|e| e.to_string())?;
+            let v = out.column("v").map_err(|e| e.to_string())?;
+            Ok((0..texts.len())
+                .find(|&i| texts[i].is_some() && v.get(i).is_ok_and(|x| x.is_null())))
         };
         let shown = self
             .view
@@ -800,17 +835,92 @@ impl Sheet {
             .iter()
             .find(|(n, _)| n == column)
             .map(|(_, d)| d);
-        let ok_shown = match shown {
-            Some(DataType::Date) if base == DataType::String => fits(lenient_date(column)),
-            Some(dt) => fits(col(column).strict_cast(dt.clone())),
-            None => true,
+        let shown_e = match shown {
+            Some(DataType::Date) if base == DataType::String => Some(lenient_date(column)),
+            Some(dt) => Some(col(column).cast(dt.clone())),
+            None => None,
         };
-        let ok_base = fits(col(column).strict_cast(base.clone()));
-        if ok_shown && ok_base {
-            return Ok((Some(text.to_string()), base));
+        if let (Some(e), Some(dt)) = (shown_e, shown)
+            && let Some(i) = first_bad(e)?
+        {
+            return Err(refuse(i, dt));
         }
-        let dtype = if ok_shown { &base } else { shown.unwrap() };
-        Err(format!("{text:?} doesn't fit {column} ({dtype})"))
+        if let Some(i) = first_bad(col(column).cast(base.clone()))? {
+            return Err(refuse(i, &base));
+        }
+        let out = df
+            .lazy()
+            .select([col(column).cast(base)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        Ok(out
+            .column(column)
+            .map_err(|e| e.to_string())?
+            .as_materialized_series()
+            .clone())
+    }
+
+    /// Selected row ids in view order (sort applied); selected rows the
+    /// filter hides follow, in row order.
+    pub fn selected_in_view_order(&self) -> PolarsResult<Vec<u64>> {
+        let sel: Vec<u64> = self.view.selected.iter().copied().collect();
+        let df = self
+            .sorted_plan(true)
+            .filter(col(ROW_ID).is_in(
+                lit(Series::new("ids".into(), &sel[..])).implode(false),
+                false,
+            ))
+            .select([col(ROW_ID)])
+            .collect()?;
+        let mut out = rid_values(&df)?;
+        let shown: std::collections::HashSet<u64> = out.iter().copied().collect();
+        out.extend(sel.into_iter().filter(|r| !shown.contains(r)));
+        Ok(out)
+    }
+
+    /// `gzp` (VisiData setcol-clipboard): copied `values` into `column` on the
+    /// selected rows in view order, repeating them to fill. All of them must
+    /// fit, or nothing changes.
+    pub fn paste_cells(&mut self, column: &str, values: &Column) -> Result<usize, String> {
+        self.editable()?;
+        if values.is_empty() {
+            return Err("nothing to paste".into());
+        }
+        let rids = self.selected_in_view_order().map_err(|e| e.to_string())?;
+        if rids.is_empty() {
+            return Err("no rows selected".into());
+        }
+        let texts: Vec<Option<String>> = values
+            .cast(&DataType::String)
+            .map_err(|e| e.to_string())?
+            .str()
+            .map_err(|e| e.to_string())?
+            .iter()
+            .map(|v| v.map(String::from))
+            .collect();
+        let typed = self.edit_values(column, &texts)?;
+        if let [one] = &texts[..] {
+            return self.set_col(column, one.as_deref().unwrap_or_default());
+        }
+        let n = rids.len();
+        let idx = IdxCa::from_vec(
+            "i".into(),
+            (0..n).map(|i| (i % texts.len()) as IdxSize).collect(),
+        );
+        let vals = typed.take(&idx).map_err(|e| e.to_string())?;
+        let patch = DataFrame::new_infer_height(vec![
+            Column::new("__vdrs_rid".into(), rids),
+            vals.with_name("__vdrs_v".into()).into_column(),
+        ])
+        .map_err(|e| e.to_string())?;
+        let step = PlanStep::SetCells {
+            column: column.to_string(),
+            patch: Arc::new(patch),
+        };
+        let before = self.snapshot();
+        self.insert_edit(column, step).map_err(|e| e.to_string())?;
+        self.push_undo(before);
+        Ok(n)
     }
 
     /// `e` / `:edit`: set one cell (row id `rid`) of `column`.

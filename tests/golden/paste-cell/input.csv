@@ -1,0 +1,5 @@
+id,qty,ok,note
+1,2,true,a
+2,3,false,b
+3,,true,c
+4,5,,d

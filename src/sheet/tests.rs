@@ -674,6 +674,24 @@ fn set_expr_writes_selected_rows_only_and_checks_types() {
 }
 
 #[test]
+fn paste_cells_cycles_over_selected_rows_in_view_order() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n3,30\n4,40\n");
+    let vals = Column::new("c".into(), ["7", "8"]);
+    assert_eq!(s.paste_cells("v", &vals), Err("no rows selected".into()));
+    Arc::make_mut(&mut s.view.selected).extend([0u64, 2, 3]);
+    s.set_filter_expr(Some("id <> 3")).unwrap(); // hides rid 2: it goes last
+    assert_eq!(s.paste_cells("v", &vals), Ok(3));
+    s.set_filter_expr(None).unwrap();
+    assert_eq!(ints(&s, "v"), [Some(7), Some(20), Some(7), Some(8)]);
+    let bad = Column::new("c".into(), [Some("9"), None, Some("x")]);
+    assert_eq!(
+        s.paste_cells("v", &bad),
+        Err(r#""x" doesn't fit v (i64)"#.into())
+    );
+    assert_eq!(s.edits().len(), 1, "a refused paste adds no step");
+}
+
+#[test]
 fn set_expr_reading_a_derived_column_goes_after_its_derive() {
     let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n");
     s.derive("twice", "v * 2").unwrap();
