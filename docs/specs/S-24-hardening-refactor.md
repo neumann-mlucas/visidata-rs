@@ -1,6 +1,6 @@
 # S-24 — Hardening: module layout, sheet invariants, typed readers, release binaries
 
-Status: **drafted 2026-11-08**, not started. Independent items; each is its own commit with no
+Status: **drafted 2026-11-08**; R1 and R2 shipped. Independent items; each is its own commit with no
 user-visible change except R3–R5. Order: R1 before S-18 C (editing adds code to the same files),
 R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha is finished (direction §9.12: every planned feature in `docs/` implemented, tests robust).
 
@@ -37,6 +37,14 @@ consistency is a correctness rule:
   `count_key = None`, `window =`) go through the methods.
 - Proof: suite passes; new unit tests — a stale `land_window` is ignored; every `PlanStep` apply calls
   `invalidate` (one test over all step kinds).
+
+As shipped (2026-11-08): `window`, `revision`, `state.loaded_rev`/`counting`/`window_rids`,
+`view.total_rows`/`count_key` are private to `sheet`. Readers: `window()`, `window_rids()`,
+`revision()`, `loaded_revision()`, `is_loaded()`, `is_counting()`, `row_count()`. Writers:
+`begin_window()` (a materialize starts), `land_window`/`land_error` (dropped unless current),
+`start_count`/`land_count` (dropped unless the key is current), `set_window` (pre-built rows),
+`invalidate(Reason::Rows | Reason::Plan)`. `view.window_offset` stays public: only cursor
+navigation writes it, and every write is followed by a materialize; a setter would enforce nothing.
 
 ## 3. R3 — Typed xlsx and sqlite columns (1 d)
 - xlsx (calamine `Data`): per column, if every non-empty cell is `Int` → i64, `Float`/`Int` → f64,

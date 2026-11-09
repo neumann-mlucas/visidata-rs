@@ -13,7 +13,7 @@ impl App {
     }
 
     pub(super) fn dispatch(&mut self, action: Action) {
-        let before_rev = self.sheets.active().revision;
+        let before_rev = self.sheets.active().revision();
         let affects = action.affects_data();
         if !matches!(action, Action::GotoBottom) {
             self.sheets.active_mut().view.jump_bottom = false;
@@ -92,7 +92,7 @@ impl App {
             }
             Action::GotoRightmost => {
                 let s = self.sheets.active_mut();
-                if let Some(df) = &s.window
+                if let Some(df) = s.window()
                     && df.width() > 0
                 {
                     s.view.col_cursor = df.width() - 1;
@@ -196,9 +196,9 @@ impl App {
                 s.view.row_offset = 0;
             }
             Action::ClearFilter => {
-                let v = &mut self.sheets.active_mut().view;
-                let had = v.filter.take().is_some() | v.filter_expr.take().is_some();
-                v.count_key = None;
+                let s = self.sheets.active_mut();
+                let had = s.view.filter.take().is_some() | s.view.filter_expr.take().is_some();
+                s.invalidate(crate::sheet::Reason::Rows);
                 if had {
                     self.spawn_materialize();
                 }
@@ -314,7 +314,7 @@ impl App {
                     self.toast = Some(e);
                     return;
                 }
-                let (Some(column), Some(df)) = (self.current_column_name(), &s.window) else {
+                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
                     return;
                 };
                 let text = df
@@ -440,8 +440,7 @@ impl App {
                     return;
                 };
                 let Some(value) = s
-                    .window
-                    .as_ref()
+                    .window()
                     .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok())
                     .map(|v| v.into_static())
                 else {
@@ -460,7 +459,7 @@ impl App {
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SubmitInput | Action::CancelInput | Action::InputBackspace => {}
         }
-        if affects && self.sheets.active().revision == before_rev {
+        if affects && self.sheets.active().revision() == before_rev {
             self.spawn_materialize();
         }
     }
@@ -481,10 +480,10 @@ impl App {
     /// Returns true when the target was already inside the window.
     pub(super) fn goto_row(&mut self, target: u64) -> bool {
         let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return false };
+        let Some(df) = s.window() else { return false };
         let rows = df.height() as u64;
         let (off, wr) = (s.view.window_offset, s.view.window_rows as u64);
-        let last = match s.view.total_rows {
+        let last = match s.row_count() {
             Some(t) => t.saturating_sub(1),
             None if rows == wr => u64::MAX, // full window: more rows may follow
             None => (off + rows).saturating_sub(1),
@@ -495,7 +494,7 @@ impl App {
             return true;
         }
         let mut new_off = target.saturating_sub(wr / 2);
-        if let Some(t) = s.view.total_rows {
+        if let Some(t) = s.row_count() {
             new_off = new_off.min(t.saturating_sub(wr));
         }
         if new_off == off {
@@ -509,7 +508,7 @@ impl App {
 
     fn move_cursor_cols(&mut self, delta: isize) {
         let s = self.sheets.active_mut();
-        let Some(df) = &s.window else { return };
+        let Some(df) = s.window() else { return };
         let cols = df.width();
         if cols == 0 {
             return;
@@ -732,7 +731,7 @@ impl App {
         let follow = matches!(active.origin, Origin::Tail { follow: true, .. });
         let v = &active.view;
         let abs = v.window_offset + v.row_cursor as u64;
-        let was_at_bottom = match (v.total_rows, &active.window) {
+        let was_at_bottom = match (active.row_count(), active.window()) {
             (Some(total), _) => abs + 1 >= total,
             (None, Some(df)) => v.row_cursor + 1 >= df.height(),
             (None, None) => true,
@@ -863,7 +862,7 @@ impl App {
             Origin::Parts { path, kind } => {
                 let (path, kind) = (path.clone(), *kind);
                 let s = self.sheets.active();
-                let part = s.window.as_ref().and_then(|df| {
+                let part = s.window().and_then(|df| {
                     let at =
                         |c: &Column| c.get(s.view.row_cursor).ok()?.get_str().map(String::from);
                     let name = at(df.columns().first()?)?;
@@ -889,7 +888,7 @@ impl App {
     /// Sheet list: pull the row's `id` and raise that sheet.
     fn switch_to_row_sheet(&mut self) {
         let s = self.sheets.active();
-        let Some(df) = &s.window else { return };
+        let Some(df) = s.window() else { return };
         let ri = s.view.row_cursor;
         let Ok(av) = df.column("id").and_then(|c| c.get(ri)) else {
             return;
@@ -1043,7 +1042,7 @@ impl App {
     /// Row id under the cursor; None on an empty view.
     fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
-        s.state.window_rids.get(s.view.row_cursor).copied()
+        s.window_rids().get(s.view.row_cursor).copied()
     }
 
     fn toggle_select_current(&mut self) {

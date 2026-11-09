@@ -25,8 +25,10 @@ pub struct Sheet {
     pub source: Arc<LoadedSource>, // keeps tempfile anchor alive across derived sheets
     pub plan: LazyFrame,
     pub view: View,
-    pub window: Option<DataFrame>, // None until first materialize lands
-    pub revision: u64,
+    // The window and its bookkeeping change only through the methods under
+    // "Window" below (S-24 R2): a stale result can't land, a plan change recounts.
+    window: Option<DataFrame>, // None until first materialize lands
+    revision: u64,
     pub origin: Origin,
     /// Bookkeeping that isn't part of what the sheet shows.
     pub state: SheetState,
@@ -36,11 +38,11 @@ pub struct Sheet {
 #[derive(Default, Clone)]
 pub struct SheetState {
     /// `revision` of the last materialize result applied (Ok or Err).
-    pub loaded_rev: u64,
+    loaded_rev: u64,
     /// A row count for the current `count_key` is in flight.
-    pub counting: bool,
+    counting: bool,
     /// [`ROW_ID`] of each row of `window`, split off when the window lands.
-    pub window_rids: Vec<u64>,
+    window_rids: Vec<u64>,
     /// Edits baked into `plan`, in order — replayed by `:export`.
     pub steps: Vec<PlanStep>,
     /// Undo / redo history of (plan, view, steps), newest last.
@@ -291,10 +293,10 @@ pub struct View {
     /// Pending type casts, applied before serialize. Last-write-wins per column.
     pub type_casts: Vec<(String, DataType)>,
     /// Row count of the filtered view; `None` while counting or after a failed count.
-    pub total_rows: Option<u64>,
+    total_rows: Option<u64>,
     /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
     /// `None` forces a recount on the next materialize.
-    pub count_key: Option<String>,
+    count_key: Option<String>,
     /// `G` pending: put the cursor on the last data row once window + count land.
     pub jump_bottom: bool,
 }
@@ -494,6 +496,113 @@ impl Sheet {
         self
     }
 
+    // ---- Window (S-24 R2) ----
+
+    /// The materialized rows on screen; `None` before the first lands.
+    pub fn window(&self) -> Option<&DataFrame> {
+        self.window.as_ref()
+    }
+
+    /// [`ROW_ID`] of each `window` row (empty for pre-built windows).
+    pub fn window_rids(&self) -> &[u64] {
+        &self.state.window_rids
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// The revision `window` was made for.
+    pub fn loaded_revision(&self) -> u64 {
+        self.state.loaded_rev
+    }
+
+    /// The latest materialize (or its error) has landed.
+    pub fn is_loaded(&self) -> bool {
+        self.state.loaded_rev == self.revision
+    }
+
+    pub fn is_counting(&self) -> bool {
+        self.state.counting
+    }
+
+    /// Rows in the filtered view, once counted.
+    pub fn row_count(&self) -> Option<u64> {
+        self.view.total_rows
+    }
+
+    /// Show `df` as is (previews, tests): no row ids, counts as loaded.
+    pub fn set_window(&mut self, df: DataFrame) {
+        self.window = Some(df);
+        self.state.window_rids.clear();
+        self.state.loaded_rev = self.revision;
+    }
+
+    /// A materialize starts: results of older revisions won't land.
+    pub fn begin_window(&mut self) -> u64 {
+        self.revision = self.revision.wrapping_add(1);
+        self.revision
+    }
+
+    /// The rows may differ: recount. `Plan`: the plan was replaced under the
+    /// view, so the window goes too and in-flight results are dropped.
+    pub fn invalidate(&mut self, why: Reason) {
+        self.view.count_key = None;
+        if why == Reason::Plan {
+            self.window = None;
+            self.begin_window();
+        }
+    }
+
+    /// A materialize of revision `rev` finished. Applied only if `rev` is
+    /// current; its [`ROW_ID`] column is split off into `window_rids`.
+    pub fn land_window(&mut self, rev: u64, df: DataFrame) -> bool {
+        if rev != self.revision {
+            return false;
+        }
+        self.state.loaded_rev = rev;
+        let (rids, df) = match rid_values(&df) {
+            Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
+            Err(_) => (Vec::new(), df), // pre-built windows carry no ids
+        };
+        // Polars 0.44 returns every scan column when only the row index
+        // is selected, i.e. when all columns are hidden.
+        self.window = Some(df.drop_many(self.view.hidden.iter().map(String::as_str)));
+        self.state.window_rids = rids;
+        true
+    }
+
+    /// A materialize of revision `rev` failed; `false` if it was stale.
+    pub fn land_error(&mut self, rev: u64) -> bool {
+        let current = rev == self.revision;
+        if current {
+            self.state.loaded_rev = rev;
+        }
+        current
+    }
+
+    /// The count key to count for, if the row count is stale; marks it in flight.
+    pub fn start_count(&mut self) -> Option<String> {
+        let key = self.count_key();
+        if self.view.count_key.as_ref() == Some(&key) {
+            return None;
+        }
+        self.view.count_key = Some(key.clone());
+        self.view.total_rows = None;
+        self.state.counting = true;
+        Some(key)
+    }
+
+    /// A count for `key` finished (`None` = failed); `false` if it was stale.
+    pub fn land_count(&mut self, key: &str, total: Option<u64>) -> bool {
+        if self.view.count_key.as_deref() != Some(key) {
+            return false;
+        }
+        self.state.counting = false;
+        self.view.total_rows = total;
+        true
+    }
+
     /// Record how `self` was derived from `parent` (snapshot without history).
     pub fn derived(mut self, parent: &Sheet, how: Derivation) -> Self {
         let mut p = parent.clone();
@@ -671,7 +780,7 @@ impl Sheet {
             self.check_predicate(p)?;
         }
         self.view.filter_expr = pred.map(String::from);
-        self.view.count_key = None;
+        self.invalidate(Reason::Rows);
         Ok(())
     }
 
@@ -702,7 +811,7 @@ impl Sheet {
         self.checkpoint();
         self.plan = plan;
         self.state.steps.push(step);
-        self.view.count_key = None; // a filter on `name` may match differently now
+        self.invalidate(Reason::Rows); // a filter on `name` may match differently now
         Ok(())
     }
 
@@ -1347,6 +1456,15 @@ pub fn any_text(v: &AnyValue) -> String {
 pub fn rid_values(df: &DataFrame) -> PolarsResult<Vec<u64>> {
     let c = df.column(ROW_ID)?.cast(&DataType::UInt64)?;
     Ok(c.u64()?.into_no_null_iter().collect())
+}
+
+/// What [`Sheet::invalidate`] drops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reason {
+    /// Rows may differ (an edit, a derive, a filter): the count.
+    Rows,
+    /// The plan was replaced from outside: the count and the window.
+    Plan,
 }
 
 /// Write a DataFrame to disk, picking the writer by file extension.

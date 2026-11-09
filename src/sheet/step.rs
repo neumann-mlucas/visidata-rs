@@ -220,7 +220,7 @@ impl Sheet {
             view: std::mem::replace(&mut self.view, snap.view),
             steps: std::mem::replace(&mut self.state.steps, snap.steps),
         });
-        self.view.count_key = None; // plan may differ: recount
+        self.invalidate(Reason::Rows); // plan may differ: recount
         if matches!(self.origin, Origin::Tail { .. }) {
             // Snapshots predate rows that arrived since; keep the rows, undo the edit.
             if let Err(e) = self.rebuild_plan() {
@@ -244,7 +244,7 @@ impl Sheet {
             self.state.steps.remove(at);
             return Err(e);
         }
-        self.view.count_key = None;
+        self.invalidate(Reason::Rows);
         Ok(())
     }
 
@@ -252,7 +252,7 @@ impl Sheet {
     pub fn apply_step(&mut self, step: PlanStep) -> PolarsResult<()> {
         self.plan = step.apply(self.plan.clone())?;
         self.state.steps.push(step);
-        self.view.count_key = None; // a filter on the column may match differently
+        self.invalidate(Reason::Rows); // a filter on the column may match differently
         Ok(())
     }
 }

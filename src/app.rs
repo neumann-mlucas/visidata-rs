@@ -27,7 +27,7 @@ use crate::key::Key;
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
 use crate::lineedit::LineEdit;
 use crate::sheet::{
-    FilterState, Origin, ROW_ID, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
+    FilterState, Origin, SearchState, Sheet, SheetId, Sheets, SortKey, SortOrder, View,
 };
 use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view, refresh_widths};
@@ -121,7 +121,7 @@ fn preview_sheet(parent: &Sheet, df: DataFrame) -> Sheet {
         df.clone().lazy(),
         Origin::Copy { parent: parent.id },
     );
-    s.window = Some(df);
+    s.set_window(df);
     s
 }
 
@@ -407,7 +407,7 @@ impl App {
     #[cfg(test)]
     fn settled(&self) -> bool {
         let s = self.sheets.active();
-        s.state.loaded_rev == s.revision && !s.state.counting && self.busy.is_empty()
+        s.is_loaded() && !s.is_counting() && self.busy.is_empty()
     }
 
     /// Run `work` on the blocking pool; its result lands in `on_job_done`.
@@ -511,9 +511,7 @@ impl App {
                 for id in ids {
                     let s = self.sheets.find_by_id_mut(id).expect("listed");
                     s.plan = index.clone().lazy();
-                    s.window = None;
-                    s.view.count_key = None; // the plan, not the view, changed
-                    s.revision += 1;
+                    s.invalidate(crate::sheet::Reason::Plan);
                 }
                 self.toast = Some(match &rows {
                     Some(_) => "exec-sql: done".into(),
@@ -585,9 +583,8 @@ impl App {
 
     fn spawn_materialize(&mut self) {
         let s = self.sheets.active_mut();
-        s.revision = s.revision.wrapping_add(1);
+        let rev = s.begin_window();
         let sheet_id = s.id;
-        let rev = s.revision;
         let plan = s.window_plan_with_rids();
         if let Some(h) = self.materialize_handles.remove(&sheet_id) {
             h.abort();
@@ -624,13 +621,9 @@ impl App {
     /// supersede (blocking work can't be); stale results are dropped by key.
     fn spawn_count_if_stale(&mut self) {
         let s = self.sheets.active_mut();
-        let key = s.count_key();
-        if s.view.count_key.as_ref() == Some(&key) {
+        let Some(key) = s.start_count() else {
             return;
-        }
-        s.view.count_key = Some(key.clone());
-        s.view.total_rows = None;
-        s.state.counting = true;
+        };
         let (sheet_id, plan) = (s.id, s.count_plan());
         let tx = self.materialize_tx.clone();
         tokio::spawn(async move {
@@ -661,7 +654,7 @@ impl App {
         if !s.view.jump_bottom {
             return;
         }
-        match s.view.total_rows {
+        match s.row_count() {
             // In-window → done; otherwise the slide's window lands and settles again.
             Some(total) => {
                 if total == 0 || self.goto_row(total - 1) {
@@ -669,7 +662,7 @@ impl App {
                 }
             }
             None => {
-                if let Some(h) = s.window.as_ref().map(|df| df.height()).filter(|h| *h > 0) {
+                if let Some(h) = s.window().map(|df| df.height()).filter(|h| *h > 0) {
                     s.view.row_cursor = h - 1;
                 }
             }
@@ -701,19 +694,9 @@ impl App {
                 let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
                     return;
                 };
-                if revision != s.revision {
+                if !s.land_window(revision, df) {
                     return;
                 }
-                s.state.loaded_rev = revision;
-                let (rids, df) = match crate::sheet::rid_values(&df) {
-                    Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
-                    Err(_) => (Vec::new(), df), // pre-built windows carry no ids
-                };
-                // Polars 0.44 returns every scan column when only the row index
-                // is selected, i.e. when all columns are hidden.
-                let df = df.drop_many(s.view.hidden.iter().map(String::as_str));
-                s.state.window_rids = rids;
-                s.window = Some(df);
                 if sheet_id == self.sheets.active().id {
                     self.settle_jump_bottom();
                     self.load_into_memory();
@@ -733,12 +716,11 @@ impl App {
                 let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
                     return;
                 };
-                if s.view.count_key.as_ref() != Some(&key) {
+                if !s.land_count(&key, total.as_ref().ok().copied()) {
                     return;
                 }
-                s.state.counting = false;
                 match total {
-                    Ok(n) => s.view.total_rows = Some(n),
+                    Ok(_) => {}
                     Err(e) => {
                         s.view.jump_bottom = false; // nothing to settle on
                         self.toast = Some(format!("row count: {e}"));
@@ -757,10 +739,9 @@ impl App {
                 let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
                     return;
                 };
-                if revision != s.revision {
+                if !s.land_error(revision) {
                     return;
                 }
-                s.state.loaded_rev = revision;
                 self.toast = Some(format!("materialize: {err}"));
             }
         }
@@ -893,7 +874,7 @@ impl App {
             return;
         }
         let s = self.sheets.active();
-        let columns: Vec<String> = s.window.as_ref().map_or_else(Vec::new, |df| {
+        let columns: Vec<String> = s.window().map_or_else(Vec::new, |df| {
             df.get_column_names()
                 .iter()
                 .map(|n| n.to_string())
@@ -1049,7 +1030,7 @@ impl App {
         };
         let s = self.sheets.active();
         let v = &s.view;
-        let df = s.window.as_ref();
+        let df = s.window();
         let ctx = crate::plugins::SheetCtx {
             name: &s.name,
             row: v.window_offset + v.row_cursor as u64 + 1,
@@ -1088,8 +1069,8 @@ impl App {
     /// is out of date (a key hit right after `-`), so ask the plan instead.
     fn current_column_name(&self) -> Option<String> {
         let s = self.sheets.active();
-        let names: Vec<String> = match &s.window {
-            Some(df) if s.state.loaded_rev == s.revision => df
+        let names: Vec<String> = match s.window() {
+            Some(df) if s.is_loaded() => df
                 .get_column_names()
                 .iter()
                 .map(|n| n.to_string())

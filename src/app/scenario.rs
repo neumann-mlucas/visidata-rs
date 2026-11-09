@@ -169,7 +169,7 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
         abort: tokio::spawn(async {}).abort_handle(),
     });
     h.app.working_since = Some(Instant::now() - Duration::from_secs(1));
-    h.app.sheets.active_mut().revision += 1;
+    h.app.sheets.active_mut().begin_window();
     h.app.draw(&mut h.term).unwrap();
     assert!(
         title(&h).contains(|c| SPINNER.contains(&c)),
@@ -180,7 +180,8 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
     assert!(buf[(1, 3)].modifier.contains(Modifier::DIM));
 
     h.app.busy.clear();
-    h.app.sheets.active_mut().state.loaded_rev += 1;
+    let s = h.app.sheets.active_mut();
+    s.land_error(s.revision());
     h.app.draw(&mut h.term).unwrap();
     assert!(h.app.working_since.is_none());
     assert!(!title(&h).contains(|c| SPINNER.contains(&c)));
@@ -744,8 +745,7 @@ async fn duckdb_index_exec_sql_open_and_save() {
         .app
         .sheets
         .active()
-        .window
-        .as_ref()
+        .window()
         .unwrap()
         .column("n")
         .unwrap()

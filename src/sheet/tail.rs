@@ -143,7 +143,7 @@ impl Sheet {
     pub fn set_tail_source(&mut self, loaded: LoadedSource) -> PolarsResult<()> {
         self.source = Arc::new(loaded);
         self.rebuild_plan()?;
-        self.view.count_key = None;
+        self.invalidate(Reason::Rows);
         Ok(())
     }
 
@@ -186,7 +186,7 @@ impl Sheet {
             }
         }
         self.rebuild_plan()?;
-        self.view.count_key = None;
+        self.invalidate(Reason::Rows);
         Ok(true)
     }
 }

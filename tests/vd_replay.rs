@@ -516,20 +516,10 @@ impl Replay {
                     let parent_slot = self.current_slot()?;
                     let name = format!("{}_copy", parent_slot.name);
                     let plan = parent_slot.sheet.plan.clone();
-                    let sheet = Sheet {
-                        id,
-                        name: name.clone(),
-                        kind: parent_slot.sheet.kind,
-                        source: parent_slot.sheet.source.clone(),
-                        plan,
-                        view: Default::default(),
-                        window: None,
-                        revision: 0,
-                        state: Default::default(),
-                        origin: Origin::Copy {
-                            parent: parent_slot.sheet.id,
-                        },
+                    let origin = Origin::Copy {
+                        parent: parent_slot.sheet.id,
                     };
+                    let sheet = Sheet::child(&parent_slot.sheet, id, name.clone(), plan, origin);
                     (name, sheet)
                 };
                 self.push_sheet(name, new_sheet);
@@ -1071,20 +1061,10 @@ impl Replay {
                 DataFrame::new_infer_height(series).map_err(|e| StepErr::Runtime(e.to_string()))?;
             let id = self.next_id;
             let name = format!("pivot({col_name})-{}", parent_slot.name);
-            let sheet = Sheet {
-                id,
-                name: name.clone(),
-                kind: parent_slot.sheet.kind,
-                source: parent_slot.sheet.source.clone(),
-                plan: out_df.lazy(),
-                view: Default::default(),
-                window: None,
-                revision: 0,
-                state: Default::default(),
-                origin: Origin::Pivot {
-                    parent: parent_slot.sheet.id,
-                },
+            let origin = Origin::Pivot {
+                parent: parent_slot.sheet.id,
             };
+            let sheet = Sheet::child(&parent_slot.sheet, id, name.clone(), out_df.lazy(), origin);
             (name, sheet)
         };
         self.next_id += 1;
@@ -1322,27 +1302,15 @@ impl Replay {
         self.next_id += 1;
         let joined_name = selected.join("&");
         let first = &self.loaded[slot_idxs[0]];
-        let kind = first.sheet.kind;
-        let source = first.sheet.source.clone();
         // VisiData's join keeps first-sheet's keys on the result so subsequent
         // sort-keys / column-order reflect them. Inherit here.
         let inherited_keys = first.sheet.view.keys.clone();
-        let joined = Sheet {
-            id,
-            name: joined_name.clone(),
-            kind,
-            source,
-            plan: result,
-            view: Default::default(),
-            window: None,
-            revision: 0,
-            state: Default::default(),
-            // a derived sheet: read-only, as in the app (S-18 D3)
-            origin: Origin::Join {
-                left: first.sheet.id,
-                right_name: String::new(),
-            },
+        // a derived sheet: read-only, as in the app (S-18 D3)
+        let origin = Origin::Join {
+            left: first.sheet.id,
+            right_name: String::new(),
         };
+        let joined = Sheet::child(&first.sheet, id, joined_name.clone(), result, origin);
         self.push_sheet(joined_name, joined);
         if let Some(slot) = self.loaded.last_mut() {
             slot.sheet.view.keys = inherited_keys;

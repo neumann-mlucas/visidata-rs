@@ -35,10 +35,10 @@ fn check_invariants(h: &Harness, seed: u64, log: &[&str]) {
     let s = h.app.sheets.active();
     let tail = &log[log.len().saturating_sub(12)..];
     let ctx = || format!("seed {seed}, last keys {tail:?}, sheet {:?}", s.name);
-    if s.state.loaded_rev != s.revision {
+    if !s.is_loaded() {
         return; // a failed or dropped result: the next window restates this
     }
-    let Some(df) = &s.window else { return };
+    let Some(df) = s.window() else { return };
     assert!(
         df.height() == 0 || s.view.row_cursor < df.height(),
         "row cursor {} past {} rows: {}",
@@ -54,9 +54,9 @@ fn check_invariants(h: &Harness, seed: u64, log: &[&str]) {
         ctx()
     );
     assert!(
-        s.state.window_rids.is_empty() || s.state.window_rids.len() == df.height(),
+        s.window_rids().is_empty() || s.window_rids().len() == df.height(),
         "{} row ids for {} rows: {}",
-        s.state.window_rids.len(),
+        s.window_rids().len(),
         df.height(),
         ctx()
     );

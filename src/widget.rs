@@ -72,7 +72,7 @@ impl<'a> Widget for SheetWidget<'a> {
 impl SheetWidget<'_> {
     fn draw(self, area: Rect, buf: &mut Buffer) {
         let th = self.theme;
-        let Some(df) = self.sheet.window.as_ref() else {
+        let Some(df) = self.sheet.window() else {
             let msg = "loading…";
             paint_run(
                 buf,
@@ -213,8 +213,7 @@ impl SheetWidget<'_> {
             let row_hi = ri == view.row_cursor;
             let selected = self
                 .sheet
-                .state
-                .window_rids
+                .window_rids()
                 .get(ri)
                 .is_some_and(|rid| view.selected.contains(rid));
             let stripe = ri % 2 == 1;
@@ -431,9 +430,9 @@ pub fn dtype_badge(dt: &DataType) -> String {
 /// Column widths of the loaded window, measured once per window. Scrolling
 /// through one view only widens them, so columns don't jump.
 pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
-    let Some(df) = &s.window else { return };
+    let Some(df) = s.window() else { return };
     let key = (
-        s.state.loaded_rev,
+        s.loaded_revision(),
         df.width(),
         df.height(),
         render.is_some(),
@@ -520,7 +519,7 @@ mod tests {
         tmp.flush().unwrap();
         let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
         let mut sheet = Sheet::from_source(0, loaded);
-        sheet.window = Some(sheet.plan.clone().collect().unwrap());
+        sheet.set_window(sheet.plan.clone().collect().unwrap());
 
         let backend = TestBackend::new(60, 6);
         let mut term = Terminal::new(backend).unwrap();

@@ -9,7 +9,7 @@ impl App {
         B::Error: Send + Sync + 'static,
     {
         let s = self.sheets.active();
-        let working = s.state.loaded_rev != s.revision || s.state.counting || !self.busy.is_empty();
+        let working = !s.is_loaded() || s.is_counting() || !self.busy.is_empty();
         self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
         self.drawn_spin = self.spin();
         term.draw(|f| self.render(f))?;
@@ -59,8 +59,8 @@ impl App {
         let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
         let s = self.sheets.active_mut();
         refresh_widths(s, render);
-        if let Some(df) = &s.window {
-            clamp_view(&mut s.view, df, sheet_area, &s.state.widths);
+        if let Some(df) = s.window().cloned() {
+            clamp_view(&mut s.view, &df, sheet_area, &s.state.widths);
         }
 
         self.render_titlebar(f, chunks[0]);
@@ -74,7 +74,7 @@ impl App {
         );
         // Rows from the old window, while a slow new one is on its way.
         let s = self.sheets.active();
-        if s.state.loaded_rev != s.revision && self.spin().is_some() {
+        if !s.is_loaded() && self.spin().is_some() {
             f.buffer_mut()
                 .set_style(sheet_area, Style::default().add_modifier(Modifier::DIM));
         }
@@ -201,21 +201,19 @@ impl App {
             ..
         } = s.view;
         let (rows, cols) = s
-            .window
-            .as_ref()
+            .window()
             .map(|df| (df.height(), df.width()))
             .unwrap_or((0, 0));
         let abs_row = window_offset + row_cursor as u64 + u64::from(rows > 0); // 1-based
         let col = col_cursor + usize::from(cols > 0); // 1-based
-        let total = s.view.total_rows;
+        let total = s.row_count();
         let percent = total
             .filter(|t| *t > 0)
             .map_or_else(String::new, |t| format!(" · {}%", abs_row * 100 / t));
         let total = total.map_or_else(|| "?".to_string(), grouped);
         let position = format!(" row {}/{total}{percent} ", grouped(abs_row));
         let col_name = s
-            .window
-            .as_ref()
+            .window()
             .and_then(|df| df.get_column_names().get(col_cursor).map(|n| n.to_string()))
             .unwrap_or_default();
         let column = format!(" {} {col}/{cols} ", truncate_head(&col_name, 24));

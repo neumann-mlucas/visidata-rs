@@ -10,7 +10,7 @@ fn test_app() -> (App, tempfile::NamedTempFile) {
     let loaded = crate::reader::open(tmp.path().as_os_str(), csv).unwrap();
     let mut app = App::new(Sheet::from_source(0, loaded), None, None);
     let s = app.sheets.active_mut();
-    s.window = Some(s.window_plan().collect().unwrap());
+    s.set_window(s.window_plan().collect().unwrap());
     (app, tmp)
 }
 
@@ -19,9 +19,9 @@ fn paged_app() -> (App, tempfile::NamedTempFile) {
     let (mut app, tmp) = test_app();
     let s = app.sheets.active_mut();
     s.view.window_rows = 2;
-    s.window = Some(s.window_plan().collect().unwrap());
-    s.view.total_rows = Some(3);
-    s.view.count_key = Some(s.count_key());
+    s.set_window(s.window_plan().collect().unwrap());
+    let key = s.start_count().unwrap();
+    s.land_count(&key, Some(3));
     (app, tmp)
 }
 
@@ -30,7 +30,7 @@ fn land_window(app: &mut App) {
     let s = app.sheets.active();
     let msg = MaterializeResult::Ok {
         sheet_id: s.id,
-        revision: s.revision,
+        revision: s.revision(),
         df: s.window_plan_with_rids().collect().unwrap(),
     };
     app.on_materialize(msg);
@@ -62,8 +62,8 @@ async fn goto_bottom_slides_to_last_data_row() {
 async fn goto_bottom_before_count_settles_when_count_lands() {
     let (mut app, _tmp) = paged_app();
     let s = app.sheets.active_mut();
-    s.view.total_rows = None;
     let key = s.count_key();
+    s.land_count(&key, None); // counting: no total yet
     app.dispatch(Action::GotoBottom);
     let v = &app.sheets.active().view;
     assert_eq!((v.window_offset, v.row_cursor, v.jump_bottom), (0, 1, true));
@@ -78,7 +78,7 @@ async fn goto_bottom_before_count_settles_when_count_lands() {
         key: "stale".into(),
         total: Ok(99),
     });
-    assert_eq!(app.sheets.active().view.total_rows, None);
+    assert_eq!(app.sheets.active().row_count(), None);
     app.on_materialize(MaterializeResult::Count {
         sheet_id: 0,
         key,
@@ -93,7 +93,9 @@ async fn goto_bottom_before_count_settles_when_count_lands() {
 #[tokio::test(flavor = "multi_thread")]
 async fn cursor_move_cancels_pending_goto_bottom() {
     let (mut app, _tmp) = paged_app();
-    app.sheets.active_mut().view.total_rows = None;
+    let s = app.sheets.active_mut();
+    let key = s.count_key();
+    s.land_count(&key, None);
     app.dispatch(Action::GotoBottom);
     app.dispatch(Action::CursorUp { count: None });
     assert!(!app.sheets.active().view.jump_bottom);
@@ -176,7 +178,7 @@ async fn selection_follows_its_row_across_sort_and_filter() {
     });
     land_window(&mut app); // bob, carol, alice
     let s = app.sheets.active();
-    assert_eq!(s.state.window_rids, vec![1, 2, 0]);
+    assert_eq!(s.window_rids(), vec![1, 2, 0]);
     assert_eq!(s.view.selected.iter().copied().collect::<Vec<_>>(), vec![0]);
     app.dispatch(Action::SetFilter {
         column: "name".into(),

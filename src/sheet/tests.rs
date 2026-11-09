@@ -736,3 +736,61 @@ fn filter_expr_keeps_matching_rows_with_the_regex_filter() {
     s.set_filter_expr(None).unwrap();
     assert_eq!(ints(&s, "key"), [Some(3), Some(4)]);
 }
+
+#[test]
+fn a_stale_window_or_count_never_lands() {
+    let (mut s, _t) = sheet_of("id\n1\n2\n");
+    let old = s.begin_window();
+    let new = s.begin_window();
+    let df = s.window_plan_with_rids().collect().unwrap();
+    assert!(!s.land_window(old, df.clone()));
+    assert!(s.window().is_none() && !s.is_loaded());
+    assert!(!s.land_error(old));
+    assert!(s.land_window(new, df));
+    assert!(s.is_loaded());
+    assert_eq!(s.window_rids(), [0, 1]);
+    assert_eq!(s.window().unwrap().get_column_names(), ["id"]);
+
+    let key = s.start_count().unwrap();
+    assert_eq!(s.start_count(), None, "already counting this key");
+    assert!(!s.land_count("stale", Some(9)));
+    assert!(s.is_counting() && s.row_count().is_none());
+    assert!(s.land_count(&key, Some(2)));
+    assert_eq!(s.row_count(), Some(2));
+    s.invalidate(Reason::Plan);
+    assert!(s.window().is_none() && !s.is_loaded());
+}
+
+/// Every way a plan step lands makes the row count stale (S-24 R2).
+#[test]
+fn every_plan_step_recounts() {
+    let (mut s, _t) = sheet_of("id,v\n1,$10\n2,$20\n");
+    Arc::make_mut(&mut s.view.selected).insert(0);
+    let k = s.start_count().unwrap();
+    s.land_count(&k, Some(2));
+    type Step = (&'static str, fn(&mut Sheet));
+    let steps: [Step; 8] = [
+        ("currency", |s| {
+            s.apply_step(PlanStep::Currency { column: "v".into() })
+                .unwrap()
+        }),
+        ("derive", |s| s.derive("w", "id * 2").unwrap()),
+        ("rename", |s| s.rename_col("w", "x").unwrap()),
+        ("setcol", |s| _ = s.set_col("id", "5").unwrap()),
+        ("edit", |s| s.edit_cell("id", 1, "6").unwrap()),
+        ("setexpr", |s| _ = s.set_expr("id", "id + 1").unwrap()),
+        ("paste", |s| {
+            _ = s
+                .paste_cells("id", &Column::new("c".into(), ["7", "8"]))
+                .unwrap()
+        }),
+        ("undo", |s| assert!(s.time_travel(true))),
+    ];
+    for (what, step) in steps {
+        step(&mut s);
+        let k = s
+            .start_count()
+            .unwrap_or_else(|| panic!("{what} left the count current"));
+        s.land_count(&k, Some(2));
+    }
+}
