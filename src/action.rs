@@ -36,6 +36,8 @@ pub enum Action {
     TypeCastString,
     TypeCastDate,
     TypeCastCurrency,
+    /// `:type json` (S-22 C): decode JSON text into lists / structs.
+    TypeCastJson,
 
     // search / filter / sort
     SearchNext,
@@ -169,11 +171,18 @@ pub enum Action {
     ExpandCol {
         depth: usize,
     },
-    StartExpandDepthInput,
-    /// `g(`: every visible struct column, one level.
-    ExpandCols,
+    /// `z(` `gz(` (`all`): ask how many levels.
+    StartExpandDepthInput {
+        all: bool,
+    },
+    /// `g(` `gz(`: every visible struct column, `depth` levels.
+    ExpandCols {
+        depth: usize,
+    },
     /// `)`: fold expanded columns back into their struct.
     ContractCol,
+    /// `zM`: a sheet with a row per item of the current column.
+    UnfurlCol,
 
     // ex-line
     StartExInput,
@@ -398,7 +407,7 @@ impl Action {
             | StartSetColInput
             | StartSetExprInput
             | StartAddRowsInput
-            | StartExpandDepthInput => false,
+            | StartExpandDepthInput { .. } => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -418,6 +427,7 @@ impl Action {
             | UnkeyAll
             | RenameCol { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
+            TypeCastJson => true,
             SearchNext | SearchPrev | SetFilter { .. } | ClearFilter => true,
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
             OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
@@ -450,7 +460,7 @@ impl Action {
             PasteCell | PasteCells | CutCell | CutCells | DeleteCell | DeleteCells => true,
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
             AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
-            ExpandCol { .. } | ExpandCols | ContractCol => true,
+            ExpandCol { .. } | ExpandCols { .. } | ContractCol | UnfurlCol => true,
         }
     }
 }
@@ -485,6 +495,7 @@ impl Action {
         ("type_cast_string", TypeCastString),
         ("type_cast_date", TypeCastDate),
         ("type_cast_currency", TypeCastCurrency),
+        ("type_cast_json", TypeCastJson),
         ("start_search_input", StartSearchInput { all_columns: false, backward: false }),
         ("start_searchr_input", StartSearchInput { all_columns: false, backward: true }),
         ("start_search_all_input", StartSearchInput { all_columns: true, backward: false }),
@@ -565,9 +576,11 @@ impl Action {
         ("redo", Redo),
         ("open_undo_tree", OpenUndoTree),
         ("expand_col", ExpandCol { depth: 1 }),
-        ("start_expand_depth_input", StartExpandDepthInput),
-        ("expand_cols", ExpandCols),
+        ("start_expand_depth_input", StartExpandDepthInput { all: false }),
+        ("start_expand_all_depth_input", StartExpandDepthInput { all: true }),
+        ("expand_cols", ExpandCols { depth: 1 }),
         ("contract_col", ContractCol),
+        ("unfurl_col", UnfurlCol),
         ]
     };
 

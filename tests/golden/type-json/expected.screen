@@ -1,0 +1,12 @@
+ tests/golden/type-json/input.csv  csv · hidden 2                      payload.c 3/3  row 1/3 · 33%
+ id i  payload.a i payload.c bool
+    1            1 ·
+    2            · ·
+    3            2 ✓
+
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

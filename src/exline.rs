@@ -162,7 +162,8 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 ["string" | "str"] => Ok(vec![Action::TypeCastString]),
                 ["date"] => Ok(vec![Action::TypeCastDate]),
                 ["currency"] => Ok(vec![Action::TypeCastCurrency]),
-                _ => Err(ExError::Usage(":type int|float|string|date|currency")),
+                ["json"] => Ok(vec![Action::TypeCastJson]),
+                _ => Err(ExError::Usage(":type int|float|string|date|currency|json")),
             }
         }
         // Persist current sheet. Writer picked by extension; `.csv/.tsv/.parquet/

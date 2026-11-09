@@ -1,0 +1,12 @@
+ …furl(tags): tests/golden/unfurl-list/input.jsonl  jsonl · sheets 2  tags_value 3/4  row 1/4 · 25%
+ id i  tags_key i tags_value str   n i
+    1           0 a                  7
+    1           1 b                  7
+    3           0 ·                  9
+    4           0 c                 10
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

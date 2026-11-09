@@ -162,6 +162,15 @@ impl App {
             Action::TypeCastString => self.push_type_cast(DataType::String),
             Action::TypeCastDate => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
+            Action::TypeCastJson => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                match self.sheets.active_mut().json_decode(&c) {
+                    Ok(()) => self.spawn_materialize(),
+                    Err(e) => self.toast = Some(e),
+                }
+            }
             Action::StartSearchInput {
                 all_columns,
                 backward,
@@ -452,6 +461,20 @@ impl App {
                     ))
                 });
             }
+            Action::UnfurlCol => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                let id = self.sheets.alloc_id();
+                match Sheet::unfurl_from(self.sheets.active(), id, &c) {
+                    Ok(s) => {
+                        self.sheets.push(s);
+                        self.spawn_materialize();
+                        self.goto_column(&format!("{c}_value"));
+                    }
+                    Err(e) => self.toast = Some(e),
+                }
+            }
             Action::DupSheet => {
                 let id = self.sheets.alloc_id();
                 let copy = Sheet::copy_from(self.sheets.active(), id);
@@ -491,9 +514,9 @@ impl App {
                     ));
                 }
             }
-            Action::ExpandCol { depth } => self.expand(Some(depth)),
-            Action::ExpandCols => self.expand(None),
-            Action::StartExpandDepthInput => self.start_input(Prompt::ExpandDepth),
+            Action::ExpandCol { depth } => self.expand(depth, false),
+            Action::ExpandCols { depth } => self.expand(depth, true),
+            Action::StartExpandDepthInput { all } => self.start_input(Prompt::ExpandDepth { all }),
             Action::ContractCol => {
                 let Some(c) = self.current_column_name() else {
                     return;
@@ -1372,15 +1395,15 @@ impl App {
         }
     }
 
-    /// `(` `z(` (`depth`) on the cursor column; `g(` (`None`): all of them.
-    fn expand(&mut self, depth: Option<usize>) {
-        let done = match depth {
+    /// `(` `z(` on the cursor column; `g(` `gz(` (`all`): every struct column.
+    fn expand(&mut self, depth: usize, all: bool) {
+        let done = match all {
             // the cursor stays put: on the first new column, the struct hidden
-            Some(depth) => match self.current_column_name() {
+            false => match self.current_column_name() {
                 Some(c) => self.sheets.active_mut().expand(&c, depth),
                 None => return,
             },
-            None => self.sheets.active_mut().expand_all().map(|n| {
+            true => self.sheets.active_mut().expand_all(depth).map(|n| {
                 self.toast = Some(format!(
                     "expanded {n} struct column{}",
                     if n == 1 { "" } else { "s" }

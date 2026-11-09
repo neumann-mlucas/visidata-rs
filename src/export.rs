@@ -570,6 +570,7 @@ impl Script {
                 diff_code(py, &j, &l.parent, other, keys)?
             }
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
+            Derivation::Unfurl { column } => unfurl_code(py, &p, &l.parent, column)?,
             Derivation::PivotCount { keys, on } => {
                 let on_py = py_str(on);
                 match (py, keys.is_empty()) {
@@ -844,6 +845,104 @@ fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
 }
 
 use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
+
+/// `zM` of view `p`, as `Sheet::unfurl_from`.
+fn unfurl_code(py: bool, p: &str, parent: &Sheet, column: &str) -> Result<String, String> {
+    use crate::sheet::{UNFURL_ROW as U, Unfurl, unfurl_kind};
+    let cols = columns(parent)?;
+    let dt = &cols
+        .iter()
+        .find(|(n, _)| n == column)
+        .ok_or_else(|| format!("export: no column {column}"))?
+        .1;
+    let kind = unfurl_kind(dt)?;
+    let is_struct = matches!(kind, Unfurl::Struct { .. });
+    let (key, val) = (format!("{column}_key"), format!("{column}_value"));
+    let names = |k: String, v: String, q: &dyn Fn(&str) -> String| -> String {
+        cols.iter()
+            .map(|(n, _)| match n == column {
+                true => format!("{k}, {v}"),
+                false => q(n),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Ok(if py {
+        let c = py_str(column);
+        let items = match &kind {
+            Unfurl::List => format!("pl.col({c})"),
+            Unfurl::Struct { fields, text } => {
+                let cast = if *text { ".cast(pl.Utf8)" } else { "" };
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|f| {
+                        format!(
+                            "pl.struct(pl.lit({f}).alias(\"k\"), pl.col({c}).struct.field({f}){cast}.alias(\"v\"))",
+                            f = py_str(f)
+                        )
+                    })
+                    .collect();
+                format!("pl.concat_list([{}])", parts.join(", "))
+            }
+            Unfurl::Scalar => format!("pl.concat_list([pl.col({c})])"),
+        };
+        let (k, v) = if is_struct {
+            (
+                format!("pl.col({c}).struct.field(\"k\")"),
+                format!("pl.col({c}).struct.field(\"v\")"),
+            )
+        } else {
+            (
+                format!("pl.int_range(pl.len(), dtype=pl.Int64).over(\"{U}\")"),
+                format!("pl.col({c})"),
+            )
+        };
+        format!(
+            "{p}.with_row_index(\"{U}\").with_columns({items}.alias({c})).explode({c}).select([{}])",
+            names(
+                format!("{k}.alias({})", py_str(&key)),
+                format!("{v}.alias({})", py_str(&val)),
+                &|n| format!("pl.col({})", py_str(n))
+            )
+        )
+    } else {
+        let c = q_ident(column);
+        let items = match &kind {
+            Unfurl::List => format!("CASE WHEN {c} IS NULL THEN [NULL] ELSE {c} END"),
+            Unfurl::Struct { fields, text } => {
+                let parts: Vec<String> = fields
+                    .iter()
+                    .map(|f| {
+                        let v = format!("struct_extract({c}, {})", q_str(f));
+                        let v = if *text {
+                            format!("CAST({v} AS VARCHAR)")
+                        } else {
+                            v
+                        };
+                        format!("{{'k': {}, 'v': {v}}}", q_str(f))
+                    })
+                    .collect();
+                format!("[{}]", parts.join(", "))
+            }
+            Unfurl::Scalar => format!("[{c}]"),
+        };
+        let (k, v) = if is_struct {
+            ("struct_extract(__e, 'k')", "struct_extract(__e, 'v')")
+        } else {
+            ("__i", "__e")
+        };
+        format!(
+            "SELECT {} FROM (SELECT *, generate_subscripts(__l, 1) - 1 AS __i, unnest(__l) AS __e \
+             FROM (SELECT *, row_number() OVER () AS {U}, {items} AS __l FROM {p}) WHERE len(__l) > 0) \
+             ORDER BY {U}, __i",
+            names(
+                format!("{k} AS {}", q_ident(&key)),
+                format!("{v} AS {}", q_ident(&val)),
+                &|n| q_ident(n)
+            )
+        )
+    })
+}
 
 /// `:join` of view `p` (sheet `left`) with view `r` (sheet `right`).
 /// `flag`: one more right column to carry through (row diff).
@@ -1292,6 +1391,11 @@ fn py_from_text(e: &str, dtype: &DataType) -> String {
 fn py_step(t: &str, step: &PlanStep) -> String {
     match step {
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
+        PlanStep::Json { column, dtype } => format!(
+            "{t} = {t}.with_columns(pl.col({c}).str.json_decode({}))",
+            py_json_dtype(dtype),
+            c = py_str(column)
+        ),
         PlanStep::Expand {
             column,
             fields,
@@ -1412,6 +1516,11 @@ fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
 fn sql_step(q: String, step: &PlanStep) -> String {
     match step {
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
+        PlanStep::Json { column, dtype } => format!(
+            "SELECT * REPLACE (from_json({c}, {}) AS {c}) FROM ({q})",
+            q_str(&json_structure(dtype)),
+            c = q_ident(column)
+        ),
         PlanStep::Expand {
             column,
             fields,
@@ -1708,6 +1817,50 @@ fn sql_lenient_date() -> String {
 }
 
 /// Python string literal.
+/// A type `:type json` inferred, as Polars Python writes it.
+fn py_json_dtype(dt: &DataType) -> String {
+    match dt {
+        DataType::Struct(fs) => {
+            let fs: Vec<String> = fs
+                .iter()
+                .map(|f| format!("{}: {}", py_str(&f.name), py_json_dtype(f.dtype())))
+                .collect();
+            format!("pl.Struct({{{}}})", fs.join(", "))
+        }
+        DataType::List(inner) => format!("pl.List({})", py_json_dtype(inner)),
+        DataType::Null => "pl.Null".into(),
+        DataType::String => "pl.String".into(),
+        d => py_dtype(d).into(),
+    }
+}
+
+/// The same type as DuckDB `from_json`'s structure (JSON text).
+fn json_structure(dt: &DataType) -> String {
+    let text = |s: &str| {
+        let mut out = String::from("\"");
+        for c in s.chars() {
+            match c {
+                '"' | '\\' => out.extend(['\\', c]),
+                c if c.is_control() => out += &format!("\\u{:04x}", c as u32),
+                c => out.push(c),
+            }
+        }
+        out + "\""
+    };
+    match dt {
+        DataType::Struct(fs) => {
+            let fs: Vec<String> = fs
+                .iter()
+                .map(|f| format!("{}: {}", text(&f.name), json_structure(f.dtype())))
+                .collect();
+            format!("{{{}}}", fs.join(", "))
+        }
+        DataType::List(inner) => format!("[{}]", json_structure(inner)),
+        DataType::Null => text("VARCHAR"),
+        d => text(sql_dtype(d)),
+    }
+}
+
 fn py_str(s: &str) -> String {
     let mut out = String::from("\"");
     for c in s.chars() {

@@ -41,7 +41,7 @@ edit-joinregular-1	SKIP columns-selected
 edit-joinregular-2	SKIP columns-selected
 edit-type	FAIL line 6: want="Quantity\t0\t0\t10\t1\t144\t403.00\t2\t7.90\t21.57" got="Quantity\t0\t0\t10\t1\t144\t403.0\t2\t7.901960784313726\t21.57244066114058"
 empty-unfurl	UNTESTABLE addcol-expr
-empty-unfurl-2	UNTESTABLE addcol-expr
+empty-unfurl-2	SKIP runtime: option unfurl_empty
 error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP setcol-incr
@@ -135,7 +135,7 @@ join-merge	PASS
 join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
 jump-sheet	PASS
 known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
-listofdictobj	SKIP expand-col-depth
+listofdictobj	SKIP open-cell
 load-2d-matrix	SKIP runtime: open-file ../visidata/sample_data/arrays.npz: unknown format for ../visidata/sample_data/arrays.npz
 load-conllu	NO_GOLDEN golden is .jsonl
 load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expanded paths were empty (path expansion input: 'paths: [PlRefPath { inner: "../visidata/bin/*.
@@ -150,7 +150,7 @@ load-grep-standard	NO_GOLDEN golden is .grep
 load-h5	SKIP runtime: open-file ../visidata/sample_data/sensors.h5: unknown format for ../visidata/sample_data/sensors.h5
 load-html	SKIP runtime: open-file ../visidata/sample_data/sunshinelist.html: unknown format for ../visidata/sample_data/sunshinelist.html
 load-http-flaky	SKIP runtime: open-file ../visidata/https://raw.githubusercontent.com/saulpw/visidata/develop/sample_data/benchmark.csv: io: ../visidata/https://raw.githubuserc
-load-json	SKIP expand-cols-depth
+load-json	SKIP serialize: CSV format does not support nested data
 load-jsonla	SKIP runtime: open-file ../visidata/sample_data/officials.jsonla: unknown format for ../visidata/sample_data/officials.jsonla
 load-lsv	SKIP runtime: open-file ../visidata/sample_data/benchmark.lsv: unknown format for ../visidata/sample_data/benchmark.lsv
 load-msgpack	SKIP runtime: open-file ../visidata/sample_data/test.msgpack: unknown format for ../visidata/sample_data/test.msgpack
@@ -231,10 +231,10 @@ syspaste-crlf	NO_GOLDEN golden is .json
 test_quartiles	SKIP aggregate-col
 transform-cols	SKIP setcol-regex-subst-all
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
-unfurl-dict	SKIP unfurl-col
-unfurl-empty	SKIP unfurl-col
-unfurl-empty-false	SKIP unfurl-col
-unfurl-list	SKIP unfurl-col
+unfurl-dict	SKIP runtime: unfurl: struct fields of different nested types
+unfurl-empty	SKIP runtime: option unfurl_empty
+unfurl-empty-false	PASS
+unfurl-list	SKIP runtime: InternalError(TapeError) at character 0 ('#')
 xlsx-color-cells	FAIL line 1: want="A\tA_cellPyObj\tA_fontColor\tA_fillColor\tBC\tBC_cellPyObj\tBC_fontColor\tBC_fillColor\t\t_cellPyObj\t_fontColor\t_fillColor\tD\tD_cellPyObj\
 xlsx-empty-cell	PASS
 xlsx-header	SKIP rename-cols-row

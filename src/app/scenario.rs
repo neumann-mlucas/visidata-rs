@@ -2102,3 +2102,36 @@ async fn expand_and_contract_a_struct_column() {
     h.keys("g (").await;
     assert_eq!(status(&h), "expanded 0 struct columns");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unfurl_pushes_a_read_only_sheet_of_items() {
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".jsonl")
+        .tempfile()
+        .unwrap();
+    writeln!(tmp, r#"{{"id":1,"tags":["a","b"]}}"#).unwrap();
+    writeln!(tmp, r#"{{"id":2,"tags":["a"]}}"#).unwrap();
+    writeln!(tmp, r#"{{"id":3,"tags":[]}}"#).unwrap();
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tmp).await;
+    h.keys("l z M").await;
+    assert!(
+        title(&h).contains("unfurl(tags)") && title(&h).contains("row 1/3"),
+        "{}",
+        title(&h)
+    );
+    assert_eq!(h.current_column(), "tags_value");
+    h.keys("e").await;
+    assert!(status(&h).starts_with("read-only"), "{}", status(&h));
+    h.keys("<Esc> F").await; // counts per tag
+    assert_eq!(first_cell(&h), "a", "{}", h.screen());
+    assert!(h.screen().contains(" 2 "), "{}", h.screen());
+    h.keys("q q").await;
+    assert!(
+        title(&h).contains("row 1/3") && !title(&h).contains("unfurl"),
+        "{}",
+        title(&h)
+    );
+    assert_eq!(h.current_column(), "tags");
+}

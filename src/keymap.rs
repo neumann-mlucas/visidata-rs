@@ -385,18 +385,28 @@ impl Keymap {
             ),
             ch(
                 vec![k("z"), k("(")],
-                vec![StartExpandDepthInput],
+                vec![StartExpandDepthInput { all: false }],
                 "expand struct column N levels deep",
             ),
             ch(
                 vec![k("g"), k("(")],
-                vec![ExpandCols],
+                vec![ExpandCols { depth: 1 }],
                 "expand every visible struct column",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("(")],
+                vec![StartExpandDepthInput { all: true }],
+                "expand every visible struct column N levels deep",
             ),
             ch(
                 vec![k(")")],
                 vec![ContractCol],
                 "fold expanded columns back into their struct",
+            ),
+            ch(
+                vec![k("z"), k("M")],
+                vec![UnfurlCol],
+                "open a row per item of the current column's lists",
             ),
             // editing (S-18 C)
             ch(vec![k("e")], vec![StartEditInput], "edit current cell"),

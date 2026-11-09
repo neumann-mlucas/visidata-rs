@@ -1,6 +1,6 @@
 # S-22 — Nested data: expand structs, unfurl lists
 
-Status: **drafted 2026-11-08**, not started.
+Status: **drafted 2026-11-08**; **A/B/C shipped 2026-11-09** (§5).
 Depends on: S-03 (readers), S-15. Corrected S-15 §10 (it said "JSON records load with nested fields as JSON
 strings"; fixed 2026-11-08): verified 2026-11-08 that Polars' JSON/JSONL readers give native `struct[...]` and
 `list[...]` columns (`vdrs --headless` on nested JSONL), and Parquet/Arrow carry them as-is. So the
@@ -57,3 +57,24 @@ Rules:
 - Golden + export round trip: `expand-struct`, `unfurl-list` (DuckDB + Polars rebuild the same TSV).
 - Corpus: translate `expand-col*`, `unfurl-col`; record which files pass.
 - S-15: move nested data from §10.1 (planned) to §3 when phase A ships.
+
+## 5. As shipped (2026-11-09)
+- `PlanStep::Expand { column, fields, after }`: `fields` = (path into the struct, new name), `after` = the
+  columns that followed the struct, so Polars, Python and DuckDB put the new columns in the same place
+  (`select(all - after, fields…, after)` / `SELECT * EXCLUDE (after), struct_extract(…) AS …, after`).
+  Depth 0 = all the way (VisiData `z(` 0); `gz(` added (corpus `expand-cols-depth`). `(` on a struct
+  expanded before only shows its columns again (no `_2` copies).
+- `)` is view-only as designed; on a column that is itself an expanded struct shown again, it folds that
+  struct's parent first (a column made by an expansion folds into its struct).
+- Unfurl follows VisiData's source, not §2's rule: an **empty list drops its row** (`unfurl_empty`
+  False, the default); a null keeps one row, key 0. Scalars unfurl as one-item lists. Struct values
+  share one column: their type when the fields agree, else text; different nested field types are
+  refused (`unfurl-dict`, a `geolocation` of `{type: str, coordinates: list}`). Null struct: a row per
+  field with null values (VisiData: one row). Sheet named `unfurl(col): parent`, as other derived sheets.
+- `:type json` = `PlanStep::Json { column, dtype }`; `dtype` inferred from every value when typed, so
+  the export names it (Python `str.json_decode(dtype)`, DuckDB `from_json(c, structure)`).
+- Cells: `{name: ann, geo: {…}}`, `[a, b] (2)` (first 10 items); badge `struct`.
+- Corpus: `unfurl-empty-false` passes (PASS=47); `unfurl-list` needs lenient JSONL (`# comment` line,
+  S-25 P2 permanent); `unfurl-empty`, `empty-unfurl-2` need option `unfurl_empty`; `listofdictobj`
+  needs `open-cell`; `load-json` keeps list columns the TSV serializer can't write.
+- CSV/TSV `:save` of list/struct columns fails (Polars); guide Limitations says so.

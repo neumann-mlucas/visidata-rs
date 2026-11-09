@@ -16,6 +16,7 @@ mod tests;
 mod undo;
 
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
+pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use step::{ADDED_RID, POS, PlanStep};
 pub use undo::{Snapshot, UndoState, UndoTree};
 
@@ -116,6 +117,10 @@ pub enum Derivation {
         on: String,
     },
     Describe,
+    /// `zM`: a row per item of `column` (S-22).
+    Unfurl {
+        column: String,
+    },
     /// Row diff against `other` on `keys`.
     Diff {
         other: Box<Sheet>,
@@ -149,6 +154,10 @@ pub enum Origin {
         parent: SheetId,
     },
     Unpivot {
+        parent: SheetId,
+    },
+    /// `zM` (S-22): a row per item of `parent`'s list / struct column.
+    Unfurl {
         parent: SheetId,
     },
     SheetSwitcher,

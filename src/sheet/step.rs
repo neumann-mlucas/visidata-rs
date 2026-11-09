@@ -53,6 +53,12 @@ pub enum PlanStep {
     AddRows {
         rows: Arc<DataFrame>,
     },
+    /// `:type json` (S-22 C): JSON text in `column` decoded as `dtype`, the
+    /// type inferred from every value when typed.
+    Json {
+        column: String,
+        dtype: DataType,
+    },
     /// `(` (S-22): struct `column`'s fields as columns right after it.
     /// `fields`: (path into the struct, new column name); `after`: the
     /// columns that followed `column` when expanded.
@@ -142,6 +148,12 @@ impl PlanStep {
                 )
                 .drop(cols(["__vdrs_v", "__vdrs_hit"])),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => plan,
+            PlanStep::Json { column, dtype } => plan.with_column(
+                col(column.as_str())
+                    .str()
+                    .json_decode(dtype.clone())
+                    .alias(column.as_str()),
+            ),
             PlanStep::Expand {
                 column,
                 fields,
@@ -171,6 +183,7 @@ impl PlanStep {
         match self {
             PlanStep::Rename { new, .. } => Some(new),
             PlanStep::Currency { column }
+            | PlanStep::Json { column, .. }
             | PlanStep::SetCol { column, .. }
             | PlanStep::SetExpr { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
@@ -249,6 +262,7 @@ impl PlanStep {
         match self {
             PlanStep::Rename { old, new } => format!("rename {old} → {new}"),
             PlanStep::Currency { column } => format!("type {column} currency"),
+            PlanStep::Json { column, .. } => format!("type {column} json"),
             PlanStep::Derive { name, expr, .. } => format!("derive {name} = {expr}"),
             PlanStep::SetCol {
                 column,

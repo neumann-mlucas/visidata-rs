@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 46;
+const MIN_PASS: usize = 47;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -511,6 +511,40 @@ impl Replay {
             "sort-desc-add" => self.push_sort(&r.col, SortOrder::Desc, true),
             "sort-keys-asc" => self.sort_keys(SortOrder::Asc),
             "sort-keys-desc" => self.sort_keys(SortOrder::Desc),
+            // S-22 nested data
+            "unfurl-col" => {
+                let id = self.alloc();
+                let parent = self.current_slot()?;
+                let name = format!("{}_{}_unfurled", parent.name, r.col);
+                let u = Sheet::unfurl_from(&parent.sheet, id, &r.col).map_err(Runtime)?;
+                self.push_sheet(name, u);
+                Ok(())
+            }
+            "expand-col" | "expand-col-depth" => {
+                let depth = match r.longname.as_str() {
+                    "expand-col" => 1,
+                    _ => r
+                        .input
+                        .trim()
+                        .parse()
+                        .map_err(|_| Runtime("depth".into()))?,
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.expand(&r.col, depth).map_err(Runtime)
+            }
+            "expand-cols-depth" => {
+                let depth = r
+                    .input
+                    .trim()
+                    .parse()
+                    .map_err(|_| Runtime("depth".into()))?;
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.expand_all(depth).map(drop).map_err(Runtime)
+            }
+            "contract-col" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.contract(&r.col).map(drop).map_err(Runtime)
+            }
             "describe-sheet" => {
                 let id = self.alloc();
                 let parent = self.current_slot()?;
@@ -739,6 +773,9 @@ impl Replay {
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
+            "set-option" if r.row == "unfurl_empty" && r.input == "True" => {
+                Err(Runtime("option unfurl_empty".into()))
+            }
             "set-option" => Ok(()),
             "copy-row" | "copy-selected" => {
                 let s = &self.current_slot()?.sheet;

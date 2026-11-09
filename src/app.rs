@@ -243,8 +243,10 @@ enum Prompt {
     SetExpr,
     /// `ga`: how many rows.
     AddRows,
-    /// `z(`: how many levels.
-    ExpandDepth,
+    /// `z(` `gz(` (`all`): how many levels.
+    ExpandDepth {
+        all: bool,
+    },
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
@@ -280,7 +282,7 @@ impl Prompt {
             Prompt::SetCol => "set selected rows to: ",
             Prompt::SetExpr => "set selected rows to expr= ",
             Prompt::AddRows => "add rows: ",
-            Prompt::ExpandDepth => "expand depth: ",
+            Prompt::ExpandDepth { .. } => "expand depth (0 = all the way): ",
         }
     }
 }
@@ -1080,9 +1082,10 @@ impl App {
                 Ok(count) => self.dispatch_sequence(vec![Action::AddRows { count }]),
                 Err(_) => self.toast = Some(format!("add rows: {text:?} isn't a number")),
             },
-            Prompt::ExpandDepth => match text.trim().parse() {
-                Ok(depth) if depth > 0 => self.dispatch_sequence(vec![Action::ExpandCol { depth }]),
-                _ => self.toast = Some(format!("expand depth: {text:?} isn't a positive number")),
+            Prompt::ExpandDepth { all } => match text.trim().parse() {
+                Ok(depth) if all => self.dispatch_sequence(vec![Action::ExpandCols { depth }]),
+                Ok(depth) => self.dispatch_sequence(vec![Action::ExpandCol { depth }]),
+                Err(_) => self.toast = Some(format!("expand depth: {text:?} isn't a number")),
             },
         }
     }

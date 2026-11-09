@@ -68,7 +68,11 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
 | `StartRenameColInput` → `RenameCol { new_name }` | `^` | `:rename NEW` | plan.rename() + updates hidden/keys/casts/filter/sort refs; refuses an existing name |
-| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
+| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan
+| `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |
+| `ExpandCol { depth }` / `StartExpandDepthInput` / `ExpandCols { depth }` | `(` / `z(` `gz(` / `g(` | `:expand-col` … | `PlanStep::Expand`: struct fields as `col.field` columns right after the struct (depth 0 = all the way; taken names get `_2`), struct hidden; one undo step; `(` on an expanded struct only shows its columns again (S-22 A) |
+| `ContractCol` | `)` | `:contract-col` | view only: hide the struct's columns, show the struct, cursor onto it |
+| `UnfurlCol` | `zM` | `:unfurl-col` | derived sheet `unfurl(col): parent`, `Origin::Unfurl` / `Derivation::Unfurl`: `col_key` (position / field) + `col_value` in the column's place; empty list drops its row, null keeps it as item 0; struct values text when field types differ (S-22 B) | |
 
 ### 3.3 Sort / filter / search
 
@@ -341,7 +345,6 @@ Enumerated here so no one re-asks:
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Nested data** (`expand-col`, `unfurl-col`): JSON/JSONL/Parquet/Arrow already load nested fields as native `struct`/`list` columns; the expand/unfurl operations are missing. Plan: [`S-22-nested-data.md`](S-22-nested-data.md).
 - **Plots** (`plot-column`, histograms): plan [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) part C.
 - **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
 - **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
