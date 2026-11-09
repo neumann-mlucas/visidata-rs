@@ -184,6 +184,8 @@ struct Replay {
     tmp: tempfile::TempDir,
     /// The register's cells (`copy-cell(s)`), for `paste-cell` / `setcol-clipboard`.
     clip: Option<Column>,
+    /// The register's rows (`copy-row` / `copy-selected`), for `paste-*`.
+    clip_rows: Option<DataFrame>,
 }
 
 enum MetaMode {
@@ -244,6 +246,7 @@ impl Replay {
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
+            clip_rows: None,
         }
     }
 
@@ -678,8 +681,57 @@ impl Replay {
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" => Ok(()),
-            // Copying rows leaves the sheet unchanged; row paste is S-18 F.
-            "copy-row" | "copy-selected" => Ok(()),
+            "copy-row" | "copy-selected" => {
+                let s = &self.current_slot()?.sheet;
+                let rt = |e: PolarsError| StepErr::Runtime(e.to_string());
+                let pos = if r.longname == "copy-row" {
+                    let rid = view_rid(s, &r.row)?;
+                    let rids = s.view_rids().map_err(rt)?;
+                    Some(rids.iter().position(|&x| x == rid).unwrap_or_default() as u64)
+                } else {
+                    None
+                };
+                self.clip_rows = Some(s.copy_rows(pos).map_err(rt)?);
+                Ok(())
+            }
+            "add-row" | "add-rows" | "paste-after" | "paste-before" => {
+                let values = match r.longname.as_str() {
+                    "paste-after" | "paste-before" => match self.clip_rows.clone() {
+                        Some(v) => Some(v),
+                        None => return Ok(()),
+                    },
+                    _ => None,
+                };
+                let n = match r.longname.as_str() {
+                    "add-rows" => r
+                        .input
+                        .trim()
+                        .parse()
+                        .map_err(|_| StepErr::Runtime(format!("add-rows {:?}", r.input)))?,
+                    _ => 1,
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                let anchor = match s.view_rids() {
+                    Ok(rids) if !rids.is_empty() => Some(view_rid(s, &r.row)?),
+                    _ => None,
+                };
+                let after = r.longname != "paste-before";
+                s.add_rows(anchor, after, values.as_ref(), n)
+                    .map(drop)
+                    .map_err(StepErr::Runtime)
+            }
+            // `A`: VisiData's new sheet has one column, `A`.
+            "open-new" => {
+                let df = DataFrame::new_infer_height(vec![Column::new_empty(
+                    "A".into(),
+                    &DataType::String,
+                )])
+                .map_err(|e| StepErr::Runtime(e.to_string()))?;
+                let src = LoadedSource::from_df(SourceKind::Csv, "unnamed".into(), None, df);
+                let id = self.alloc();
+                self.push_sheet("unnamed".into(), Sheet::from_source(id, src));
+                Ok(())
+            }
             "copy-cell" => self.clip_copy(&r.col, Some(&r.row)),
             "copy-cells" => self.clip_copy(&r.col, None),
             "cut-cell" => {

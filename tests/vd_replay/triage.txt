@@ -25,8 +25,8 @@ describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-0
 describe-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP key-selected
-duckdb-commit-changes	SKIP add-row
-duckdb-commit-composite-pk	SKIP add-row
+duckdb-commit-changes	SKIP commit-sheet
+duckdb-commit-composite-pk	SKIP runtime: cannot locate row '2' (keys=[])
 duckdb-commit-no-pk	SKIP allow-error
 duckdb-exec-sql	PASS
 duckdb-index	PASS
@@ -44,7 +44,7 @@ empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
-exp-digits	SKIP open-new
+exp-digits	SKIP setcol-incr
 extend	SKIP sheets-all
 fill	NO_GOLDEN golden is .jsonl
 fill-nested	NO_GOLDEN golden is .jsonl
@@ -63,7 +63,7 @@ freqtbl-openrow	FAIL line 1: want="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cos
 frozen-attrs	SKIP aggregate-col
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr
-getitem	SKIP paste-after
+getitem	SKIP runtime: cannot locate row 'geolocation' (keys=[])
 graph-cursor-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graph-sincos-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graphpr-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -75,9 +75,9 @@ inner-join	PASS
 invalid_unicode_sqlite	PASS
 issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknown format for ../visidata/sample_data/issue1308.html
 issue1346	SKIP runtime: open-file ../visidata/tests/issue1346.html: unknown format for ../visidata/tests/issue1346.html
-issue1377	SKIP open-new
-issue1377b	SKIP open-new
-issue2015	SKIP open-new
+issue1377	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
+issue1377b	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
+issue2015	SKIP addcol-new
 issue2190	UNTESTABLE assert-expr
 issue2225-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue2227	SKIP runtime: open-file ../visidata/tests/issue2227.html: unknown format for ../visidata/tests/issue2227.html

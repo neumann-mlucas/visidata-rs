@@ -60,7 +60,9 @@ impl App {
         let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
         let s = self.sheets.active_mut();
         refresh_widths(s, render);
-        if let Some(df) = s.window().cloned() {
+        // A stale window may be shorter than the view being loaded (rows
+        // just added): clamping to it would lose the cursor.
+        if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
             clamp_view(&mut s.view, &df, sheet_area, &s.state.widths);
         }
 

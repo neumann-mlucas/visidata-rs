@@ -233,6 +233,8 @@ enum Prompt {
     SetCol,
     /// `g=`.
     SetExpr,
+    /// `ga`: how many rows.
+    AddRows,
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
@@ -267,6 +269,7 @@ impl Prompt {
             Prompt::Edit => "edit: ",
             Prompt::SetCol => "set selected rows to: ",
             Prompt::SetExpr => "set selected rows to expr= ",
+            Prompt::AddRows => "add rows: ",
         }
     }
 }
@@ -1046,6 +1049,10 @@ impl App {
             Prompt::Edit => self.dispatch_sequence(vec![Action::EditCell { value: text }]),
             Prompt::SetCol => self.dispatch_sequence(vec![Action::SetCol { value: text }]),
             Prompt::SetExpr => self.dispatch_sequence(vec![Action::SetExpr { expr: text }]),
+            Prompt::AddRows => match text.trim().parse() {
+                Ok(count) => self.dispatch_sequence(vec![Action::AddRows { count }]),
+                Err(_) => self.toast = Some(format!("add rows: {text:?} isn't a number")),
+            },
         }
     }
 

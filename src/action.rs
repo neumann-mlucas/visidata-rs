@@ -142,6 +142,17 @@ pub enum Action {
     DeleteSelected,
     CutRow,
     CutSelected,
+    /// `a` `ga` (S-18 F): blank rows after the cursor row; `ga` asks how many.
+    AddRow,
+    StartAddRowsInput,
+    AddRows {
+        count: usize,
+    },
+    /// `p` `P`: the copied rows (`y` `gy`) after / before the cursor row.
+    PasteAfter,
+    PasteBefore,
+    /// `A`: a new empty sheet with one column, `A`.
+    OpenNew,
 
     // ex-line
     StartExInput,
@@ -362,7 +373,8 @@ impl Action {
             | StartRenameColInput
             | StartEditInput
             | StartSetColInput
-            | StartSetExprInput => false,
+            | StartSetExprInput
+            | StartAddRowsInput => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -412,6 +424,7 @@ impl Action {
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
             PasteCell | PasteCells | CutCell | CutCells | DeleteCell | DeleteCells => true,
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
+            AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
         }
     }
 }
@@ -511,6 +524,11 @@ impl Action {
         ("delete_selected", DeleteSelected),
         ("cut_row", CutRow),
         ("cut_selected", CutSelected),
+        ("add_row", AddRow),
+        ("start_add_rows_input", StartAddRowsInput),
+        ("paste_after", PasteAfter),
+        ("paste_before", PasteBefore),
+        ("open_new", OpenNew),
         ("hide_uniform", HideUniform),
         ("describe", Describe),
         ("pivot_current", PivotCurrent),

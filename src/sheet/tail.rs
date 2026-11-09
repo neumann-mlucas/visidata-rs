@@ -116,6 +116,30 @@ impl Sheet {
     /// Plan = the base (tail rows, in-memory copy, or source) + this sheet's edits.
     pub(super) fn rebuild_plan(&mut self) -> PolarsResult<()> {
         let mut plan = with_rids(self.tail_base()?);
+        let added: Vec<LazyFrame> = self
+            .state
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                PlanStep::AddRows { rows } => Some((**rows).clone().lazy()),
+                _ => None,
+            })
+            .collect();
+        if !added.is_empty() {
+            // ponytail: a full sort on every rebuild of a sheet with added
+            // rows; fine in memory, slow on huge scans (§2.3: side table).
+            let base = plan.with_column(col(ROW_ID).cast(DataType::Float64).alias(POS));
+            let args = UnionArgs {
+                diagonal: true,
+                ..Default::default()
+            };
+            plan = concat(std::iter::once(base).chain(added).collect::<Vec<_>>(), args)?
+                .sort(
+                    [POS],
+                    SortMultipleOptions::default().with_maintain_order(true),
+                )
+                .drop(cols([POS]));
+        }
         for step in &self.state.steps {
             plan = step.apply(plan)?;
         }

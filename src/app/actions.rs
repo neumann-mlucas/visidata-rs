@@ -277,6 +277,45 @@ impl App {
                 self.clear_cells(action == Action::DeleteCells, false)
             }
             Action::DeleteRow | Action::CutRow => self.delete_rows(false, action == Action::CutRow),
+            Action::AddRow => self.add_rows(1, None, true),
+            Action::AddRows { count } => self.add_rows(count, None, true),
+            Action::StartAddRowsInput => match self.sheets.active().editable() {
+                Ok(()) => self.start_input(Prompt::AddRows),
+                Err(e) => self.toast = Some(e),
+            },
+            Action::PasteAfter | Action::PasteBefore => {
+                let rows = match &self.register {
+                    Some(Register {
+                        kind: RegisterKind::Rows,
+                        df,
+                    }) => df.clone(),
+                    Some(_) => {
+                        self.toast = Some("p pastes rows: copy with y or gy".into());
+                        return;
+                    }
+                    None => {
+                        self.toast = Some("nothing copied".into());
+                        return;
+                    }
+                };
+                self.add_rows(0, Some(rows), action == Action::PasteAfter);
+            }
+            Action::OpenNew => {
+                let id = self.sheets.alloc_id();
+                let df = DataFrame::new_infer_height(vec![Column::new_empty(
+                    "A".into(),
+                    &DataType::String,
+                )])
+                .expect("one empty column");
+                let src = crate::reader::LoadedSource::from_df(
+                    crate::reader::SourceKind::Csv,
+                    "unnamed".into(),
+                    None,
+                    df,
+                );
+                self.sheets.push(Sheet::from_source(id, src));
+                self.spawn_materialize();
+            }
             Action::DeleteSelected | Action::CutSelected => {
                 self.delete_rows(true, action == Action::CutSelected)
             }
@@ -1338,6 +1377,31 @@ impl App {
             }
             Err(e) => self.toast = Some(e),
         }
+    }
+
+    /// `a` `ga` `p` `P`: rows after (or before) the cursor row; the cursor
+    /// moves to the first new row.
+    fn add_rows(&mut self, n: usize, values: Option<DataFrame>, after: bool) {
+        let anchor = self.rid_at_cursor();
+        let s = self.sheets.active_mut();
+        let ids = match s.add_rows(anchor, after, values.as_ref(), n) {
+            Ok(ids) => ids,
+            Err(e) => {
+                self.toast = Some(e);
+                return;
+            }
+        };
+        let k = ids.len();
+        if values.is_some() {
+            let s = if k == 1 { "" } else { "s" };
+            self.toast = Some(format!("pasted {} row{s}", grouped(k as u64)));
+        }
+        if let Ok(Some(at)) = s.view_index_of(ids[0]) {
+            let half = s.view.window_rows as u64 / 2;
+            s.view.window_offset = at.saturating_sub(half);
+            s.view.row_cursor = (at - s.view.window_offset) as usize;
+        }
+        self.spawn_materialize();
     }
 
     fn open_dup_selected(&mut self) {

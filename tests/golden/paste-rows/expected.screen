@@ -1,0 +1,12 @@
+ tests/golden/paste-rows/input.csv  csv · sel 2                              qty 2/5  row 1/7 · 14%
+ id i  qty i ok bool  when date  note str
+    1     29 ✓        2024-01-01 a
+    2      3 ✗        2024-02-29 b
+    1      2 ✓        2024-01-01 a
+    2      3 ✗        2024-02-29 b
+    3      · ✓        ·          c
+    1      2 ✓        2024-01-01 a
+    2      3 ✗        2024-02-29 b
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

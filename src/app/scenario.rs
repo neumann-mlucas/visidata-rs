@@ -1636,6 +1636,64 @@ async fn sidebar_pages() {
     assert!(status(&h).contains("usage: sidebar"), "{}", status(&h));
 }
 
+/// S-18 F: `a` `ga` add blank rows after the cursor and move there; `p` `P`
+/// paste copied rows; inserted rows keep their place under a sort.
+#[tokio::test(flavor = "multi_thread")]
+async fn add_and_paste_rows() {
+    let mut h = csv(b"id,v\n1,a\n2,b\n3,c\n").await;
+    h.keys("a").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n,\n2,b\n3,c\n");
+    assert_eq!(h.app.sheets.active().view.row_cursor, 1);
+    h.keys("e").await;
+    h.type_("7").await;
+    h.keys("g a").await;
+    h.type_("2").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n7,\n,\n,\n2,b\n3,c\n");
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n7,\n2,b\n3,c\n");
+
+    // sort, then clear it: the added row is back where it was put
+    h.keys("]").await;
+    assert!(
+        view_csv(&h).starts_with("id,v\n7,\n3,c\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("z o").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n7,\n2,b\n3,c\n");
+
+    // p / P paste copied rows by column name
+    h.keys("g g y").await;
+    h.keys("G p").await;
+    assert_eq!(status(&h), "pasted 1 row");
+    assert_eq!(view_csv(&h), "id,v\n1,a\n7,\n2,b\n3,c\n1,a\n");
+    h.keys("g g P").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n1,a\n7,\n2,b\n3,c\n1,a\n");
+    h.keys("z y").await;
+    h.keys("p").await;
+    assert_eq!(status(&h), "p pastes rows: copy with y or gy");
+}
+
+/// `A`: a new empty sheet; add a row, type in it, save, reopen.
+#[tokio::test(flavor = "multi_thread")]
+async fn open_new_add_edit_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("x.csv");
+    let mut h = csv(b"id\n1\n").await;
+    h.keys("A").await;
+    h.keys("a").await;
+    h.keys("e").await;
+    h.type_("hello").await;
+    h.keys("a").await;
+    h.keys("e").await;
+    h.type_("world").await;
+    assert_eq!(view_csv(&h), "A\nhello\nworld\n");
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.display())).await;
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "A\nhello\nworld\n");
+}
+
 /// S-18 D: `zp` `gzp` paste copied cells, `zx` `gzx` cut them.
 #[tokio::test(flavor = "multi_thread")]
 async fn paste_and_cut_cells() {

@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes); phase E shipped 2026-11-08 (see the E notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes); phase E shipped 2026-11-08 (see the E notes); phase F shipped 2026-11-08 (see the F notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -187,6 +187,19 @@ before this phase: `:sidebar plan`, same plan → optimized → off cycle; `:tog
 position key of §2.3: `a` one blank row after the cursor, `ga` asks how many, `p`/`P` paste register
 rows after/before the cursor row, cursor moves to the first new row. `A` (open-new) = an empty
 in-memory sheet with one column `A`, editable; `:save` writes it.
+
+As shipped: `AddRows { rows }` steps stay at the front of the step list; `rebuild_plan` concatenates
+their rows (diagonal) onto the base with a position key (`__vdrs_pos`: a source row's id, added rows
+the midpoint between their neighbours in base order, so `:tail` rows still follow and nothing
+renumbers), sorts once, drops the key, then runs the other steps: derives cover new rows, edits find
+them by id, deletes mask them. Pasted rows: columns matched through the sheet's renames back to base
+names, strict cast to the base type (else refused), derived columns recomputed, columns the sheet
+lacks added (VisiData #1377; VisiData's own result there is positional, `issue1377` quarantined).
+`:export` replays it: `__rid` carried from the source whenever the sheet has edits, added rows as a
+literal frame / `VALUES` union sorted by position. A stale window no longer clamps the cursor (render
+clamps only a current window), so the cursor can land on a row the next window brings. Replay:
+`copy-row`/`copy-selected` fill a rows register; `add-row(s)`, `paste-after/before`, `open-new`
+translated (+0 PASS: the files they unblock stop at `commit-sheet`, `setcol-incr`, `addcol-new`).
 
 ### G — System paste in
 Enable bracketed paste. In the table, a paste event parses TSV (CSV if no tab) into the register

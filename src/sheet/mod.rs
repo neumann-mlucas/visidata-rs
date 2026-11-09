@@ -13,7 +13,7 @@ mod tail;
 #[cfg(test)]
 mod tests;
 
-pub use step::{PlanStep, Snapshot};
+pub use step::{ADDED_RID, POS, PlanStep, Snapshot};
 
 pub type SheetId = u32;
 
@@ -1027,6 +1027,147 @@ impl Sheet {
             lf = lf.filter(col(ROW_ID).is_in(ids, false).not());
         }
         lf.drop(cols([ROW_ID]))
+    }
+
+    /// Added rows' (id, position) pairs, from every `AddRows` step.
+    fn added_positions(&self) -> Vec<(u64, f64)> {
+        let mut out = Vec::new();
+        for s in &self.state.steps {
+            if let PlanStep::AddRows { rows } = s
+                && let (Ok(ids), Ok(pos)) = (rid_values(rows), rows.column(POS))
+                && let Ok(pos) = pos.f64()
+            {
+                out.extend(ids.into_iter().zip(pos.into_no_null_iter()));
+            }
+        }
+        out
+    }
+
+    /// `k` positions strictly between `anchor`'s row and the next one in base
+    /// order (`after`), or the previous one. No anchor: after the last added
+    /// row, or at the top of an empty sheet. Midpoints, so nothing renumbers;
+    /// a source row's position is its id, so `:tail` rows still follow.
+    fn insert_positions(&self, anchor: Option<u64>, after: bool, k: usize) -> Vec<f64> {
+        let added = self.added_positions();
+        let pos_of = |rid: u64| {
+            if rid < ADDED_RID {
+                rid as f64
+            } else {
+                added
+                    .iter()
+                    .find(|(r, _)| *r == rid)
+                    .map_or(0.0, |(_, p)| *p)
+            }
+        };
+        let (lo, hi) = match (anchor.map(pos_of), after) {
+            (Some(p), true) => {
+                let next = added.iter().map(|(_, q)| *q).filter(|q| *q > p);
+                (p, next.fold(p.floor() + 1.0, f64::min))
+            }
+            (Some(p), false) => {
+                let prev = added.iter().map(|(_, q)| *q).filter(|q| *q < p);
+                (prev.fold(p.ceil() - 1.0, f64::max), p)
+            }
+            (None, _) => {
+                let last = added.iter().map(|(_, q)| *q).fold(-1.0, f64::max);
+                (last, last.floor() + 1.0)
+            }
+        };
+        (1..=k)
+            .map(|i| lo + (hi - lo) * i as f64 / (k + 1) as f64)
+            .collect()
+    }
+
+    /// `a` `ga` `p` `P`: `n` blank rows, or `values` (copied rows, matched by
+    /// column name; missing columns stay null, a value that doesn't convert
+    /// refuses all; columns the sheet doesn't have are added, as VisiData
+    /// does, #1377), after or before `anchor` in base order. Returns the new
+    /// rows' ids.
+    pub fn add_rows(
+        &mut self,
+        anchor: Option<u64>,
+        after: bool,
+        values: Option<&DataFrame>,
+        n: usize,
+    ) -> Result<Vec<u64>, String> {
+        self.editable()?;
+        let n = values.map_or(n, DataFrame::height);
+        if n == 0 {
+            return Err("nothing to add".into());
+        }
+        let next = self
+            .added_positions()
+            .iter()
+            .map(|(r, _)| r + 1)
+            .max()
+            .unwrap_or(ADDED_RID);
+        let ids: Vec<u64> = (next..next + n as u64).collect();
+        let mut cols = vec![
+            Column::new(ROW_ID.into(), &ids),
+            Column::new(POS.into(), self.insert_positions(anchor, after, n)),
+        ];
+        if let Some(values) = values {
+            let shown = self
+                .plan
+                .clone()
+                .collect_schema()
+                .map_err(|e| e.to_string())?;
+            for c in values.columns() {
+                if !shown.contains(c.name()) && c.name() != ROW_ID {
+                    cols.push(c.clone()); // a new column
+                }
+            }
+            let base = self
+                .tail_base()
+                .and_then(|mut b| b.collect_schema())
+                .map_err(|e| e.to_string())?;
+            for (name, dtype) in base.iter() {
+                let mut now = name.to_string(); // its name after this sheet's renames
+                for s in &self.state.steps {
+                    if let PlanStep::Rename { old, new } = s
+                        && *old == now
+                    {
+                        now = new.clone();
+                    }
+                }
+                if let Ok(c) = values.column(&now) {
+                    let c = c
+                        .strict_cast(dtype)
+                        .map_err(|_| format!("{now}: {} values don't fit {dtype}", c.dtype()))?;
+                    cols.push(c.with_name(name.clone()));
+                }
+            }
+        }
+        let rows = DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?;
+        let at = self
+            .state
+            .steps
+            .iter()
+            .take_while(|s| matches!(s, PlanStep::AddRows { .. }))
+            .count();
+        let before = self.snapshot();
+        self.state.steps.insert(
+            at,
+            PlanStep::AddRows {
+                rows: Arc::new(rows),
+            },
+        );
+        if let Err(e) = self.rebuild_plan() {
+            self.state.steps.remove(at);
+            return Err(e.to_string());
+        }
+        self.push_undo(before);
+        self.invalidate(Reason::Rows);
+        Ok(ids)
+    }
+
+    /// Absolute view row of row `rid`, if the view shows it.
+    pub fn view_index_of(&self, rid: u64) -> PolarsResult<Option<u64>> {
+        let df = self.sorted_plan(true).select([col(ROW_ID)]).collect()?;
+        Ok(rid_values(&df)?
+            .iter()
+            .position(|r| *r == rid)
+            .map(|i| i as u64))
     }
 
     /// `JobDone::Loaded`: the source, read into memory, becomes the base.

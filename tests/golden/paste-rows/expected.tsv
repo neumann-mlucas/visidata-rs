@@ -1,0 +1,8 @@
+id	qty	ok	when	note
+1	29	true	2024-01-01	a
+2	3	false	2024-02-29	b
+1	2	true	2024-01-01	a
+2	3	false	2024-02-29	b
+3		true		c
+1	2	true	2024-01-01	a
+2	3	false	2024-02-29	b

@@ -292,6 +292,28 @@ impl Keymap {
                 vec![CopyCells],
                 "copy current column of selected rows",
             ),
+            // add / paste rows (S-18 F)
+            ch(
+                vec![k("a")],
+                vec![AddRow],
+                "add a blank row after current row",
+            ),
+            ch(
+                vec![k("g"), k("a")],
+                vec![StartAddRowsInput],
+                "add N blank rows after current row",
+            ),
+            ch(
+                vec![k("p")],
+                vec![PasteAfter],
+                "paste copied rows after current row",
+            ),
+            ch(
+                vec![k("P")],
+                vec![PasteBefore],
+                "paste copied rows before current row",
+            ),
+            ch(vec![k("A")], vec![OpenNew], "new empty sheet"),
             // delete / cut rows (S-18 E)
             ch(vec![k("d")], vec![DeleteRow], "delete current row"),
             ch(

@@ -133,6 +133,52 @@ impl Script {
         match self.lang {
             Lang::Py => {
                 let t = self.bind(src);
+                if carries_rid(s) {
+                    self.py(format!(
+                        "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.col(\"__rid\").cast(pl.UInt64))"
+                    ));
+                }
+                let added = added_rows(s);
+                if !added.is_empty() {
+                    let frames: Vec<String> = added
+                        .iter()
+                        .map(|(ids, pos, cols)| {
+                            let mut data = vec![
+                                format!("\"__rid\": pl.Series({ids:?}, dtype=pl.UInt64)"),
+                                format!("\"__pos\": pl.Series({pos:?}, dtype=pl.Float64)"),
+                            ];
+                            let mut conv = Vec::new();
+                            for (name, dtype, texts) in cols {
+                                let vals: Vec<String> = texts
+                                    .iter()
+                                    .map(|v| v.as_deref().map_or("None".into(), py_str))
+                                    .collect();
+                                data.push(format!(
+                                    "{}: pl.Series([{}], dtype=pl.Utf8)",
+                                    py_str(name),
+                                    vals.join(", ")
+                                ));
+                                let c = format!("pl.col({})", py_str(name));
+                                conv.push(format!(
+                                    "{}.alias({})",
+                                    py_from_text(&c, dtype),
+                                    py_str(name)
+                                ));
+                            }
+                            let conv = if conv.is_empty() {
+                                String::new()
+                            } else {
+                                format!(".with_columns({})", conv.join(", "))
+                            };
+                            format!("pl.DataFrame({{{}}}).lazy(){conv}", data.join(", "))
+                        })
+                        .collect();
+                    self.py(format!(
+                        "{t} = pl.concat([{t}.with_columns(pl.col(\"__rid\").cast(pl.Float64).alias(\"__pos\")), {}], how=\"diagonal_relaxed\")\
+                         .sort(\"__pos\", maintain_order=True).drop(\"__pos\")",
+                        frames.join(", ")
+                    ));
+                }
                 for step in steps(s) {
                     let line = py_step(&t, step);
                     self.py(line);
@@ -141,6 +187,44 @@ impl Script {
             }
             Lang::Sql => {
                 let mut q = src;
+                if carries_rid(s) {
+                    q = format!(
+                        "SELECT *, CAST(row_number() OVER () - 1 AS UBIGINT) AS __rid FROM ({q})"
+                    );
+                }
+                let mut unions = Vec::new();
+                for (ids, pos, cols) in added_rows(s) {
+                    let names: Vec<String> = ["__rid".to_string(), "__pos".into()]
+                        .into_iter()
+                        .chain(cols.iter().map(|(n, _, _)| q_ident(n)))
+                        .collect();
+                    let rows: Vec<String> = (0..ids.len())
+                        .map(|i| {
+                            let vals: Vec<String> = [
+                                format!("CAST({} AS UBIGINT)", ids[i]),
+                                format!("CAST({:?} AS DOUBLE)", pos[i]),
+                            ]
+                            .into_iter()
+                            .chain(cols.iter().map(|(_, dt, texts)| {
+                                let v = texts[i].as_deref().map_or("NULL".into(), q_str);
+                                format!("TRY_CAST({v} AS {})", sql_dtype(dt))
+                            }))
+                            .collect();
+                            format!("({})", vals.join(", "))
+                        })
+                        .collect();
+                    unions.push(format!(
+                        " UNION ALL BY NAME SELECT * FROM (VALUES {}) AS __a({})",
+                        rows.join(", "),
+                        names.join(", ")
+                    ));
+                }
+                if !unions.is_empty() {
+                    q = format!(
+                        "SELECT * EXCLUDE (__pos) FROM (SELECT *, CAST(__rid AS DOUBLE) AS __pos FROM ({q}){} ORDER BY __pos)",
+                        unions.concat()
+                    );
+                }
                 for step in steps(s) {
                     q = sql_step(q, step);
                 }
@@ -149,10 +233,47 @@ impl Script {
         }
     }
 
+    /// An empty source (`A`'s new sheet) with its columns.
+    fn empty_source(&mut self, s: &Sheet) -> Result<String, String> {
+        let schema = s
+            .source
+            .lazy
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?;
+        Ok(match self.lang {
+            Lang::Py => {
+                let cols: Vec<String> = schema
+                    .iter()
+                    .map(|(n, d)| format!("{}: {}", py_str(n), py_dtype(d)))
+                    .collect();
+                format!("pl.DataFrame(schema={{{}}}).lazy()", cols.join(", "))
+            }
+            Lang::Sql => {
+                let cols: Vec<String> = schema
+                    .iter()
+                    .map(|(n, d)| format!("CAST(NULL AS {}) AS {}", sql_dtype(d), q_ident(n)))
+                    .collect();
+                format!("SELECT {} WHERE false", cols.join(", "))
+            }
+        })
+    }
+
     /// File sheets: the read expression / query.
     fn source(&mut self, s: &Sheet) -> Result<String, String> {
         if !matches!(s.origin, Origin::File | Origin::Tail { .. }) {
             return Err(format!("export: can't rebuild {:?}", s.name));
+        }
+        let empty = || {
+            s.source
+                .lazy
+                .clone()
+                .limit(1)
+                .collect()
+                .is_ok_and(|d| d.height() == 0)
+        };
+        if s.source.path.is_none() && empty() {
+            return self.empty_source(s); // `A`: rows come from its steps
         }
         let path = s
             .source
@@ -532,14 +653,15 @@ impl Script {
         let v = &s.view;
         let mut ops = Vec::new();
         let deleted = s.deleted_rids();
-        if rid || !deleted.is_empty() {
+        let carried = carries_rid(s);
+        if rid && !carried {
             ops.push(".with_row_index(\"__rid\")".to_string());
         }
         if !deleted.is_empty() {
             ops.push(format!(".filter(~pl.col(\"__rid\").is_in({deleted:?}))"));
-            if !rid {
-                ops.push(".drop(\"__rid\")".into());
-            }
+        }
+        if carried && !rid {
+            ops.push(".drop(\"__rid\")".into());
         }
         for (c, dt) in &v.type_casts {
             let e = py_str(&err_col(c));
@@ -619,18 +741,25 @@ impl Script {
         let base = self.base(s)?;
         let v = &s.view;
         let deleted = s.deleted_rids();
-        let mut q = if rid || !deleted.is_empty() {
+        let carried = carries_rid(s);
+        let mut q = if rid && !carried {
             format!("SELECT *, row_number() OVER () - 1 AS __rid FROM {base}")
         } else {
             format!("SELECT * FROM {base}")
         };
+        let keep = if carried && !rid {
+            " EXCLUDE (__rid)"
+        } else {
+            ""
+        };
         if !deleted.is_empty() {
             let ids: Vec<String> = deleted.iter().map(u64::to_string).collect();
-            let keep = if rid { "" } else { " EXCLUDE (__rid)" };
             q = format!(
                 "SELECT *{keep} FROM ({q}) WHERE __rid NOT IN ({})",
                 ids.join(", ")
             );
+        } else if !keep.is_empty() {
+            q = format!("SELECT *{keep} FROM ({q})");
         }
         if !v.type_casts.is_empty() {
             let mut flags = String::new();
@@ -1030,18 +1159,77 @@ fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String, String> {
     })
 }
 
-/// The steps that rebuild the base; deleted rows are masked by the view
-/// (`py_view` / `view_query`), as in `Sheet::filtered_plan`.
+/// The steps that rebuild the base; added rows join the source first (as in
+/// `Sheet::rebuild_plan`), deleted rows are masked by the view (`py_view` /
+/// `view_query`, as in `Sheet::filtered_plan`).
 fn steps(s: &Sheet) -> impl Iterator<Item = &PlanStep> {
     s.state
         .steps
         .iter()
-        .filter(|s| !matches!(s, PlanStep::DeleteRows { .. }))
+        .filter(|s| !matches!(s, PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. }))
+}
+
+/// Edits address rows by id, so their scripts carry `__rid` from the source
+/// on (`Sheet` row ids: source positions, then added rows').
+fn carries_rid(s: &Sheet) -> bool {
+    s.state.steps.iter().any(PlanStep::is_edit)
+}
+
+/// One `AddRows` step: ids, positions, (base column, type, value texts).
+type Added = (
+    Vec<u64>,
+    Vec<f64>,
+    Vec<(String, DataType, Vec<Option<String>>)>,
+);
+
+/// `AddRows` rows: (id, position, column → value texts), base column names.
+fn added_rows(s: &Sheet) -> Vec<Added> {
+    let mut out = Vec::new();
+    for step in &s.state.steps {
+        let PlanStep::AddRows { rows } = step else {
+            continue;
+        };
+        let ids = crate::sheet::rid_values(rows).unwrap_or_default();
+        let pos: Vec<f64> = rows
+            .column(crate::sheet::POS)
+            .ok()
+            .and_then(|c| c.f64().ok().map(|a| a.into_no_null_iter().collect()))
+            .unwrap_or_default();
+        let cols = rows
+            .columns()
+            .iter()
+            .filter(|c| c.name() != crate::sheet::ROW_ID && c.name() != crate::sheet::POS)
+            .map(|c| {
+                let texts = c
+                    .cast(&DataType::String)
+                    .ok()
+                    .and_then(|c| {
+                        c.str()
+                            .ok()
+                            .map(|a| a.iter().map(|v| v.map(String::from)).collect())
+                    })
+                    .unwrap_or_default();
+                (c.name().to_string(), c.dtype().clone(), texts)
+            })
+            .collect();
+        out.push((ids, pos, cols));
+    }
+    out
+}
+
+/// Polars 2 casts no text to bool/date/datetime: parse those.
+fn py_from_text(e: &str, dtype: &DataType) -> String {
+    match dtype {
+        DataType::Boolean => format!("({e} == \"true\")"),
+        DataType::Date => format!("{e}.str.to_date()"),
+        DataType::Datetime(..) => format!("{e}.str.to_datetime().cast({})", py_dtype(dtype)),
+        _ => format!("{e}.cast({})", py_dtype(dtype)),
+    }
 }
 
 fn py_step(t: &str, step: &PlanStep) -> String {
     match step {
-        PlanStep::DeleteRows { .. } => String::new(), // see `steps`
+        PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
         PlanStep::Rename { old, new } => {
             format!("{t} = {t}.rename({{{}: {}}})", py_str(old), py_str(new))
         }
@@ -1060,8 +1248,8 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             rids,
             dtype,
         } => format!(
-            "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
-             .then({v}).otherwise(pl.col({c})).alias({c})).drop(\"__rid\")",
+            "{t} = {t}.with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
+             .then({v}).otherwise(pl.col({c})).alias({c}))",
             // Polars 2 casts no text to bool/date/datetime: parse those.
             v = match (value.as_deref(), dtype) {
                 (Some("true"), DataType::Boolean) => "pl.lit(True)".into(),
@@ -1083,8 +1271,8 @@ fn py_step(t: &str, step: &PlanStep) -> String {
         PlanStep::SetExpr {
             column, expr, rids, ..
         } => format!(
-            "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
-             .then(pl.sql_expr({}).cast({t}.collect_schema()[{c}], strict=False)).otherwise(pl.col({c})).alias({c})).drop(\"__rid\")",
+            "{t} = {t}.with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
+             .then(pl.sql_expr({}).cast({t}.collect_schema()[{c}], strict=False)).otherwise(pl.col({c})).alias({c}))",
             py_str(expr),
             c = py_str(column)
         ),
@@ -1105,11 +1293,10 @@ fn py_step(t: &str, step: &PlanStep) -> String {
                 _ => format!("pl.col(\"__v\").cast({t}.collect_schema()[{c}])"),
             };
             format!(
-                "{t} = {t}.with_row_index(\"__rid\").with_columns(pl.col(\"__rid\").cast(pl.UInt64))\
-                 .join(pl.DataFrame({{\"__rid\": {rids:?}, \"__v\": [{}]}}, schema={{\"__rid\": pl.UInt64, \"__v\": pl.Utf8}})\
+                "{t} = {t}.join(pl.DataFrame({{\"__rid\": {rids:?}, \"__v\": [{}]}}, schema={{\"__rid\": pl.UInt64, \"__v\": pl.Utf8}})\
                  .lazy().with_columns(pl.lit(True).alias(\"__hit\")), on=\"__rid\", how=\"left\", maintain_order=\"left\")\
                  .with_columns(pl.when(pl.col(\"__hit\").is_not_null()).then({v}).otherwise(pl.col({c})).alias({c}))\
-                 .drop(\"__rid\", \"__v\", \"__hit\")",
+                 .drop(\"__v\", \"__hit\")",
                 vals.join(", ")
             )
         }
@@ -1142,7 +1329,7 @@ fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
 /// Each plan step wraps the query so far (DuckDB `* RENAME` / `* REPLACE`).
 fn sql_step(q: String, step: &PlanStep) -> String {
     match step {
-        PlanStep::DeleteRows { .. } => q, // see `steps`
+        PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
         PlanStep::Rename { old, new } => format!(
             "SELECT * RENAME ({} AS {}) FROM ({q})",
             q_ident(old),
@@ -1171,8 +1358,7 @@ fn sql_step(q: String, step: &PlanStep) -> String {
         } => {
             let ids: Vec<String> = rids.iter().map(u64::to_string).collect();
             format!(
-                "SELECT * EXCLUDE (__rid) REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST({} AS {}) ELSE {c} END AS {c}) \
-                 FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
+                "SELECT * REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST({} AS {}) ELSE {c} END AS {c}) FROM ({q})",
                 ids.join(", "),
                 value.as_deref().map_or("NULL".into(), q_str),
                 sql_dtype(dtype),
@@ -1187,8 +1373,7 @@ fn sql_step(q: String, step: &PlanStep) -> String {
         } => {
             let ids: Vec<String> = rids.iter().map(u64::to_string).collect();
             format!(
-                "SELECT * EXCLUDE (__rid) REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST(({expr}) AS {}) ELSE {c} END AS {c}) \
-                 FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q}))",
+                "SELECT * REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST(({expr}) AS {}) ELSE {c} END AS {c}) FROM ({q})",
                 ids.join(", "),
                 sql_dtype(dtype),
                 c = q_ident(column)
@@ -1206,9 +1391,8 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                 .map(|c| c.dtype().clone())
                 .unwrap_or(DataType::String);
             format!(
-                "SELECT * EXCLUDE (__rid) FROM (SELECT * EXCLUDE (__v, __hit) REPLACE (CASE WHEN __hit THEN TRY_CAST(__v AS {}) ELSE {c} END AS {c}) \
-                 FROM (SELECT *, row_number() OVER () - 1 AS __rid FROM ({q})) \
-                 LEFT JOIN (VALUES {}) AS __p(__rid, __v, __hit) USING (__rid) ORDER BY __rid)",
+                "SELECT * EXCLUDE (__v, __hit) REPLACE (CASE WHEN __hit THEN TRY_CAST(__v AS {}) ELSE {c} END AS {c}) \
+                 FROM ({q}) LEFT JOIN (VALUES {}) AS __p(__rid, __v, __hit) USING (__rid)",
                 sql_dtype(&dtype),
                 rows.join(", "),
                 c = q_ident(column)

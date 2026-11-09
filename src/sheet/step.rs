@@ -45,7 +45,20 @@ pub enum PlanStep {
     DeleteRows {
         rids: Arc<[u64]>,
     },
+    /// `a`, `ga`, `p`, `P`: new rows. `rows` holds [`ROW_ID`] (ids from
+    /// [`ADDED_RID`]), [`POS`] (where they go in base order, §2.3) and the
+    /// pasted values under the base's column names and types. Kept at the
+    /// front of the steps: `rebuild_plan` adds them to the base, so every
+    /// later step (derives, edits by id) sees them.
+    AddRows {
+        rows: Arc<DataFrame>,
+    },
 }
+
+/// First id of an added row; source rows' ids are positions, far below.
+pub const ADDED_RID: u64 = 1 << 62;
+/// Position key column of added rows (source rows: their id).
+pub const POS: &str = "__vdrs_pos";
 
 /// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask,
 /// on the [`ROW_ID`] column source sheets carry.
@@ -120,7 +133,7 @@ impl PlanStep {
                         .alias(column.as_str()),
                 )
                 .drop(cols(["__vdrs_v", "__vdrs_hit"])),
-            PlanStep::DeleteRows { .. } => plan,
+            PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => plan,
         })
     }
 }
@@ -135,7 +148,7 @@ impl PlanStep {
             | PlanStep::SetExpr { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
-            PlanStep::DeleteRows { .. } => None,
+            PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => None,
         }
     }
 
@@ -146,6 +159,7 @@ impl PlanStep {
                 | PlanStep::SetExpr { .. }
                 | PlanStep::SetCells { .. }
                 | PlanStep::DeleteRows { .. }
+                | PlanStep::AddRows { .. }
         )
     }
 

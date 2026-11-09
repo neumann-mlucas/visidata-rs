@@ -1,0 +1,12 @@
+ tests/golden/add-row/input.csv  csv                                       when 4/6  row 5/5 · 100%
+ id i  qty i ok bool  when date  note str   twice i
+    1      2 ✓        2024-01-01 a                4
+   10      7 ·        ·          ·               14
+    ·      · ·        ·          ·                ·
+    ·      · ·        2025-05-05 ·                ·
+    2      3 ✗        2024-02-29 b                6
+
+
+
+
+deleted 1 row

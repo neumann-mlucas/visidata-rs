@@ -841,3 +841,55 @@ fn source_rows_carry_their_ids_out_of_sight() {
     assert!(s.derive(ROW_ID, "1").unwrap_err().contains("reserved"));
     assert!(s.rename_col("w", ROW_ID).unwrap_err().contains("reserved"));
 }
+
+fn view_ids(s: &Sheet) -> Vec<i64> {
+    ints(s, "id").into_iter().map(|v| v.unwrap_or(-1)).collect()
+}
+
+/// S-18 F: added rows go between their neighbours in base order, at any
+/// depth, without renumbering; ids never meet source ids.
+#[test]
+fn added_rows_land_between_neighbours() {
+    let (mut s, _t) = sheet_of("id\n1\n2\n3\n");
+    let a = s.add_rows(Some(0), true, None, 1).unwrap(); // after row 1
+    assert!(a[0] >= ADDED_RID);
+    s.set_col("id", "9").unwrap_err(); // nothing selected
+    s.edit_cell("id", a[0], "10").unwrap();
+    let b = s.add_rows(Some(0), true, None, 1).unwrap(); // between 1 and 10
+    s.edit_cell("id", b[0], "11").unwrap();
+    let c = s.add_rows(Some(b[0]), false, None, 2).unwrap(); // before 11
+    s.edit_cell("id", c[0], "12").unwrap();
+    s.edit_cell("id", c[1], "13").unwrap();
+    s.add_rows(Some(0), false, None, 1).unwrap(); // at the top
+    let d = s.add_rows(Some(2), true, None, 1).unwrap(); // after the last
+    s.edit_cell("id", d[0], "14").unwrap();
+    assert_eq!(view_ids(&s), [-1, 1, 12, 13, 11, 10, 2, 3, 14]);
+    // undo takes the last add away, the rest stay put
+    assert!(s.time_travel(true) && s.time_travel(true));
+    assert_eq!(view_ids(&s), [-1, 1, 12, 13, 11, 10, 2, 3]);
+}
+
+#[test]
+fn pasted_rows_match_columns_by_name_and_type() {
+    let (mut s, _t) = sheet_of("id,v,note\n1,10,a\n2,20,b\n");
+    s.rename_col("note", "memo").unwrap();
+    s.derive("w", "v * 2").unwrap();
+    let rows = df!("memo" => ["x"], "v" => [5i64], "w" => [0i64], "other" => [1i64]).unwrap();
+    s.add_rows(Some(1), true, Some(&rows), 0).unwrap();
+    let out = s.view_plan().collect().unwrap();
+    assert_eq!(out.height(), 3);
+    let last = out.slice(2, 1);
+    assert_eq!(last.column("id").unwrap().get(0).unwrap(), AnyValue::Null);
+    assert_eq!(
+        last.column("memo").unwrap().get(0).unwrap(),
+        AnyValue::String("x")
+    );
+    assert_eq!(
+        last.column("w").unwrap().get(0).unwrap(),
+        AnyValue::Int64(10)
+    ); // recomputed
+    let bad = df!("v" => ["nope"]).unwrap();
+    let e = s.add_rows(None, true, Some(&bad), 0).unwrap_err();
+    assert!(e.contains("don't fit"), "{e}");
+    assert_eq!(s.view_plan().collect().unwrap().height(), 3);
+}
