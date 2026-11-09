@@ -1306,6 +1306,100 @@ impl Sheet {
         Ok(n)
     }
 
+    /// `zP` `gzP` (VisiData `pasteFromClipboard`): line `i` of `lines` into
+    /// row `rids[i]`, its fields into `cols` left to right; a short line
+    /// leaves the cells past it alone, extra fields are dropped. Lines past
+    /// the last row go into new rows after the view's last row. An empty
+    /// field is null, except in text columns. All of it fits, or nothing
+    /// changes; one `U` takes it back. Returns cells written.
+    pub fn paste_region(
+        &mut self,
+        cols: &[String],
+        mut rids: Vec<u64>,
+        lines: &[Vec<String>],
+    ) -> Result<usize, String> {
+        self.editable()?;
+        if lines.is_empty() || cols.is_empty() {
+            return Err("nothing to paste".into());
+        }
+        rids.truncate(lines.len());
+        let before = self.snapshot();
+        let undo_len = self.state.undo.len();
+        let done = self.paste_region_steps(cols, &mut rids, lines);
+        self.state.undo.truncate(undo_len);
+        match done {
+            Ok(n) => {
+                self.push_undo(before);
+                Ok(n)
+            }
+            Err(e) => {
+                self.plan = before.plan;
+                self.view = before.view;
+                self.state.steps = before.steps;
+                self.invalidate(Reason::Rows);
+                Err(e)
+            }
+        }
+    }
+
+    fn paste_region_steps(
+        &mut self,
+        cols: &[String],
+        rids: &mut Vec<u64>,
+        lines: &[Vec<String>],
+    ) -> Result<usize, String> {
+        if lines.len() > rids.len() {
+            let last = self
+                .sorted_plan(true)
+                .select([col(ROW_ID)])
+                .tail(1)
+                .collect();
+            let last = rid_values(&last.map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+                .first()
+                .copied();
+            rids.extend(self.add_rows(last, true, None, lines.len() - rids.len())?);
+        }
+        let mut n = 0;
+        for (i, column) in cols.iter().enumerate() {
+            let text = self.base_type(column)? == DataType::String;
+            let (ids, texts): (Vec<u64>, Vec<Option<String>>) = rids
+                .iter()
+                .zip(lines)
+                .filter_map(|(r, l)| {
+                    let v = l.get(i)?;
+                    Some((*r, (text || !v.is_empty()).then(|| v.clone())))
+                })
+                .unzip();
+            if ids.is_empty() {
+                continue;
+            }
+            let vals = self.edit_values(column, &texts)?;
+            n += ids.len();
+            let patch = DataFrame::new_infer_height(vec![
+                Column::new(ROW_ID.into(), ids),
+                vals.with_name("__vdrs_v".into()).into_column(),
+            ])
+            .map_err(|e| e.to_string())?;
+            let step = PlanStep::SetCells {
+                column: column.clone(),
+                patch: Arc::new(patch),
+            };
+            self.insert_edit(column, step).map_err(|e| e.to_string())?;
+        }
+        Ok(n)
+    }
+
+    /// Row ids of view rows `from..from + n` (fewer at the end).
+    pub fn view_rids_at(&self, from: u64, n: usize) -> PolarsResult<Vec<u64>> {
+        let df = self
+            .sorted_plan(true)
+            .select([col(ROW_ID)])
+            .slice(from as i64, n as IdxSize)
+            .collect()?;
+        rid_values(&df)
+    }
+
     /// `e` / `:edit`: set one cell (row id `rid`) of `column`.
     pub fn edit_cell(&mut self, column: &str, rid: u64, text: &str) -> Result<(), String> {
         self.set_rows(column, Arc::from([rid]), text)

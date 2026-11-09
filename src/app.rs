@@ -5,7 +5,10 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{Event as CtEvent, EventStream, KeyCode, KeyEventKind};
+use crossterm::event::{
+    DisableBracketedPaste, EnableBracketedPaste, Event as CtEvent, EventStream, KeyCode,
+    KeyEventKind,
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -52,7 +55,7 @@ pub async fn run(
 
     enable_raw_mode().context("no usable terminal (try --headless)")?;
     let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
+    crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -61,7 +64,7 @@ pub async fn run(
         .await;
 
     disable_raw_mode().ok();
-    crossterm::execute!(io::stdout(), LeaveAlternateScreen).ok();
+    crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen).ok();
     terminal.show_cursor().ok();
     result
 }
@@ -70,7 +73,7 @@ fn install_panic_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
-        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+        let _ = crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen);
         default(info);
     }));
 }
@@ -166,6 +169,11 @@ enum JobDone {
     },
     /// Fill the register (`y` …).
     Copy(Box<Register>),
+    /// `zP` `gzP`: the clipboard's text, read by the paste command.
+    SysPaste {
+        text: String,
+        selected: bool,
+    },
     /// Text sent to the system clipboard (`Y` …); OSC 52 bytes still to write.
     SysCopy {
         note: String,
@@ -302,6 +310,10 @@ pub struct App {
     confirm: Option<(Confirm, String)>,
     /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
     clipboard: crate::clipboard::Clipboard,
+    /// What `zP` `gzP` run to read the clipboard; `None`: use `pasted`.
+    paste_cmd: Option<Vec<String>>,
+    /// The terminal's last paste (bracketed paste) into the table.
+    pasted: Option<String>,
     /// Background jobs in flight; labels shown in the status bar, `<C-c>` aborts.
     busy: Vec<Job>,
     /// Id of the last spawned job.
@@ -326,6 +338,7 @@ impl App {
         let (tx, rx) = mpsc::channel(8);
         let (keymap, theme) = keymap_and_theme(plugins.as_ref());
         let clipboard = clipboard_for(plugins.as_ref());
+        let paste_cmd = paste_cmd_for(plugins.as_ref());
         Self {
             plugins,
             sheets: Sheets::new(sheet),
@@ -346,6 +359,8 @@ impl App {
             register: None,
             confirm: None,
             clipboard,
+            paste_cmd,
+            pasted: None,
             busy: Vec::new(),
             next_job: 0,
             working_since: None,
@@ -384,6 +399,10 @@ impl App {
                         dirty = true;
                     }
                     Some(Ok(CtEvent::Resize(_, _))) => dirty = true,
+                    Some(Ok(CtEvent::Paste(text))) => {
+                        self.on_paste(text);
+                        dirty = true;
+                    }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => return Err(e).context("event stream"),
                     None => break,
@@ -568,6 +587,11 @@ impl App {
                 });
                 if n > 0 {
                     self.register = Some(*r);
+                }
+            }
+            Ok(JobDone::SysPaste { text, selected }) => {
+                if sheet_id == self.sheets.active().id {
+                    self.paste_text(&text, selected);
                 }
             }
             Ok(JobDone::SysCopy { note, osc52 }) => {
@@ -1278,6 +1302,15 @@ fn clipboard_for(plugins: Option<&crate::plugins::Plugins>) -> crate::clipboard:
     }
     let option = plugins.and_then(|p| p.clipboard_copy_cmd());
     crate::clipboard::Clipboard::pick(option.as_deref(), |k| std::env::var(k).ok())
+}
+
+/// Unit tests never read the real clipboard: they paste with the terminal.
+fn paste_cmd_for(plugins: Option<&crate::plugins::Plugins>) -> Option<Vec<String>> {
+    if cfg!(test) {
+        return None;
+    }
+    let option = plugins.and_then(|p| p.clipboard_paste_cmd());
+    crate::clipboard::paste_cmd(option.as_deref(), |k| std::env::var(k).ok())
 }
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

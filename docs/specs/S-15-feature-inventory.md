@@ -106,6 +106,8 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `DupSelected` | `"` | new sheet filtered to selected rows via `Sheet::dup_selected_from` |
 | `CopyRow` / `CopySelected` / `CopyCell` / `CopyCells` | `y` / `gy` / `zy` / `gzy` | register (`App.register`, one per app): cursor row / selected rows in view order (every column, hidden too, typed) / cursor cell / current column of selected rows; background job; over 10M cells refused (S-18 A) |
 | `SysCopyRow` / `SysCopySelected` / `SysCopyCell` / `SysCopyCells` | `Y` / `gY` / `zY` / `gzY` | same rows as text to the system clipboard: visible columns as TSV with header / raw cell / one value per line; `clipboard_copy_cmd` or OSC 52 (S-18 B) |
+| `SysPasteCells` / `SysPasteCellsSelected` | `zP` / `gzP` | system clipboard (`clipboard_paste_cmd`, else the last terminal paste) as TSV lines into cells from the cursor / into selected rows, cursor column rightwards; extra lines add rows; all fit or refused; one undo (S-18 G) |
+| terminal paste (bracketed) | — | table: TSV/CSV → register (header line = column names, else by position; 1 column = cells); prompt: types the first line (S-18 G) |
 | `PasteCell` / `PasteCells` / `CutCell` / `CutCells` | `zp` / `gzp` / `zx` / `gzx` | copied cells → cursor cell (first value) / current column of selected rows in view order, cycled (one `SetCells` step; all must fit, else refused whole); cut = copy, then null (S-18 D) |
 | `DeleteCell` / `DeleteCells` | `zd` / `gzd` | null the cursor cell / current column of selected rows, register untouched (VisiData `delete-cell(s)`) |
 | `AddRow` / `StartAddRowsInput` / `PasteAfter` / `PasteBefore` / `OpenNew` | `a` / `ga` / `p` / `P` / `A` | an `AddRows` step (front of the steps; rows concatenated onto the base by `rebuild_plan`, ids from `1<<62`, f64 position key = midpoint between neighbours in base order, a source row's key is its id); cursor to the first new row; paste matches columns by name (missing → null, extra → new columns, strict type cast or refused); `A` = empty in-memory sheet with column `A` (S-18 F) |
@@ -184,7 +186,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | `:N` | go to row N |
 | `<Tab>` in `:` | completes the command word (built-ins, actions, `vd.command`s) |
 | `vd.command(name, fn)` | Lua ex command; `fn(args)`; api_version 4 |
-| `vd.option(name, value)` | set an option: `clipboard_copy_cmd`, `duckdb_cmd`; unknown name = error; api_version 6 |
+| `vd.option(name, value)` | set an option: `clipboard_copy_cmd`, `clipboard_paste_cmd`, `duckdb_cmd`; unknown name = error; api_version 7 |
 | first-run `init.lua` | written at TUI start when missing: every default commented out (`plugins::default_init_lua`) |
 
 ## 4. Keymap
@@ -294,7 +296,7 @@ vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
 vd.set_theme("dark" | "light")
-vd.api_version                                  -- 6 (vd.option duckdb_cmd)
+vd.api_version                                  -- 7 (vd.option clipboard_paste_cmd)
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function

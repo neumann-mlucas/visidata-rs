@@ -212,3 +212,25 @@ fn q_quits_and_restores_the_terminal() {
         "left the alternate screen on"
     );
 }
+
+/// S-18 G: the terminal's paste (bracketed) reaches the register, not the
+/// keymap; quitting turns bracketed paste off again.
+#[test]
+fn bracketed_paste_fills_the_register() {
+    let mut vd = Vdrs::open("sales.csv");
+    assert!(vd.screen.lock().unwrap().screen().bracketed_paste());
+    vd.send(b"\x1b[200~1\tq\n2\tr\n\x1b[201~");
+    let start = Instant::now();
+    while !vd.text().contains("clipboard: 2 rows × 2 cols") {
+        assert!(start.elapsed() < Duration::from_secs(20), "{}", vd.text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    vd.send(b"q");
+    let start = Instant::now();
+    while vd.child.try_wait().unwrap().is_none() {
+        assert!(start.elapsed() < Duration::from_secs(10), "q didn't quit");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!vd.screen.lock().unwrap().screen().bracketed_paste());
+}

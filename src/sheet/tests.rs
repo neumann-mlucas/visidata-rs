@@ -916,3 +916,21 @@ fn many_edits_stay_collectable() {
     assert_eq!(view_ids(&s), [199, 1]);
     assert_eq!(s.edits().len(), 1, "one join, not 200");
 }
+
+/// S-18 G: a refused paste leaves no added rows and no undo step behind.
+#[test]
+fn a_refused_region_paste_changes_nothing() {
+    let (mut s, _t) = sheet_of("id,v\n1,a\n2,b\n");
+    let lines = |t: &str| crate::clipboard::fields(t);
+    let cols = ["id".to_string(), "v".into()];
+    let e = s
+        .paste_region(&cols, vec![1], &lines("5\tx\nbad\ty\n"))
+        .unwrap_err();
+    assert!(e.contains("bad"), "{e}");
+    assert_eq!(view_ids(&s), [1, 2]);
+    assert!(!s.time_travel(true), "no undo step");
+    assert_eq!(s.paste_region(&cols, vec![1], &lines("5\tx\n6\n")), Ok(3));
+    assert_eq!(view_ids(&s), [1, 5, 6]);
+    assert!(s.time_travel(true));
+    assert_eq!(view_ids(&s), [1, 2]);
+}

@@ -1,6 +1,8 @@
-//! System clipboard out (S-18 B), as VisiData's `clipboard.py`: pipe text to
+//! System clipboard (S-18 B, G), as VisiData's `clipboard.py`: pipe text to
 //! a copy command, picked from the platform unless `init.lua` sets
-//! `vd.option("clipboard_copy_cmd", …)`. Over SSH the default is OSC 52.
+//! `vd.option("clipboard_copy_cmd", …)`; over SSH the default is OSC 52.
+//! Text comes back from a paste command (`clipboard_paste_cmd`) or the
+//! terminal's own paste.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -78,6 +80,98 @@ impl Clipboard {
             }
         }
     }
+}
+
+/// argv of the command `zP` `gzP` read the clipboard from: `option`
+/// (`clipboard_paste_cmd`), else the platform's. `None` over SSH: the remote
+/// clipboard is out of reach, only the terminal's paste gets text in.
+pub fn paste_cmd(
+    option: Option<&str>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<Vec<String>> {
+    let argv = |s: &str| Some(s.split_whitespace().map(String::from).collect());
+    if let Some(s) = option {
+        return argv(s);
+    }
+    if env("SSH_TTY").is_some() {
+        None
+    } else if cfg!(windows) || env("WSL_DISTRO_NAME").is_some() {
+        argv("powershell.exe -noprofile -command Get-Clipboard")
+    } else if cfg!(target_os = "macos") {
+        argv("pbpaste")
+    } else if env("WAYLAND_DISPLAY").is_some() {
+        argv("wl-paste")
+    } else {
+        argv("xclip -selection clipboard -o")
+    }
+}
+
+/// Run the paste command; its stdout.
+pub fn read(argv: &[String]) -> Result<String, String> {
+    let Some((prog, args)) = argv.split_first() else {
+        return Err("clipboard_paste_cmd is empty".into());
+    };
+    let hint = "set vd.option(\"clipboard_paste_cmd\", …) in init.lua, or paste with the terminal";
+    let out = Command::new(prog)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => format!("{prog} not found; {hint}"),
+            _ => format!("{prog}: {e}"),
+        })?;
+    if !out.status.success() {
+        return Err(format!("{prog} failed ({}); {hint}", out.status));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Pasted text as lines of tab-separated fields, as VisiData's
+/// `pasteFromClipboard`: `\r\n` endings and the final newline don't count.
+pub fn fields(text: &str) -> Vec<Vec<String>> {
+    let text = text.trim_end_matches(['\n', '\r']);
+    if text.is_empty() {
+        return Vec::new();
+    }
+    text.split('\n')
+        .map(|l| {
+            l.strip_suffix('\r')
+                .unwrap_or(l)
+                .split('\t')
+                .map(String::from)
+                .collect()
+        })
+        .collect()
+}
+
+/// A terminal paste: TSV, or CSV (quotes honoured) when no line has a tab.
+pub fn table(text: &str) -> Vec<Vec<String>> {
+    if text.contains('\t') || !text.contains(',') {
+        return fields(text);
+    }
+    let mut out = Vec::new();
+    let mut rdr = text.trim_end_matches(['\n', '\r']).chars().peekable();
+    let (mut row, mut cell, mut quoted) = (Vec::new(), String::new(), false);
+    while let Some(c) = rdr.next() {
+        match (c, quoted) {
+            ('"', true) if rdr.peek() == Some(&'"') => {
+                rdr.next();
+                cell.push('"');
+            }
+            ('"', _) => quoted = !quoted,
+            (',', false) => row.push(std::mem::take(&mut cell)),
+            ('\r', false) if rdr.peek() == Some(&'\n') => {}
+            ('\n', false) => {
+                row.push(std::mem::take(&mut cell));
+                out.push(std::mem::take(&mut row));
+            }
+            _ => cell.push(c),
+        }
+    }
+    row.push(cell);
+    out.push(row);
+    out
 }
 
 /// A cell as VisiData's TSV saver writes it: tab → U+001F, newline → U+001E, null empty.
@@ -190,6 +284,40 @@ mod tests {
                 "xclip -selection clipboard -filter"
             );
         }
+    }
+
+    #[test]
+    fn pasted_text_splits_into_fields() {
+        assert_eq!(fields(""), Vec::<Vec<String>>::new());
+        assert_eq!(fields("one"), [["one"]]);
+        assert_eq!(fields("a\tb\r\n\tc\n\n"), [vec!["a", "b"], vec!["", "c"]]);
+        assert_eq!(fields("a\tb\nc"), [vec!["a", "b"], vec!["c"]]); // ragged
+        // CSV only without tabs; quotes keep commas and newlines
+        assert_eq!(
+            table("x,\"a, \"\"b\"\"\"\r\n\"l1\nl2\",\n"),
+            [vec!["x", "a, \"b\""], vec!["l1\nl2", ""]]
+        );
+        assert_eq!(table("a,b\tc"), [vec!["a,b", "c"]]);
+        assert_eq!(table("Smith"), [["Smith"]]);
+    }
+
+    #[test]
+    fn paste_command_choice() {
+        let env =
+            |vars: &'static [&'static str]| move |k: &str| vars.contains(&k).then(String::new);
+        assert_eq!(paste_cmd(None, env(&["SSH_TTY"])), None);
+        assert_eq!(
+            paste_cmd(Some("my-paste  -o"), env(&["SSH_TTY"])),
+            Some(vec!["my-paste".to_string(), "-o".into()])
+        );
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                paste_cmd(None, env(&["WAYLAND_DISPLAY"])),
+                Some(vec!["wl-paste".to_string()])
+            );
+        }
+        let e = read(&["vdrs-no-such-paste".into()]).unwrap_err();
+        assert!(e.starts_with("vdrs-no-such-paste not found"), "{e}");
     }
 
     #[test]

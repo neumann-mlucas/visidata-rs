@@ -126,6 +126,11 @@ pub enum Action {
     SysCopySelected,
     SysCopyCell,
     SysCopyCells,
+    /// `zP` `gzP` (S-18 G): the system clipboard's text (or the last
+    /// terminal paste) into cells from the cursor / into selected rows,
+    /// columns from the cursor rightwards.
+    SysPasteCells,
+    SysPasteCellsSelected,
     /// `zp` `gzp` (S-18 D): the copied cell into the cursor cell / the copied
     /// cells into the current column of selected rows (repeated to fill).
     PasteCell,
@@ -422,6 +427,7 @@ impl Action {
             HideUniform | DupSheet | Describe | PivotCurrent | DedupeRows => true,
             CopyRow | CopySelected | CopyCell | CopyCells => true,
             SysCopyRow | SysCopySelected | SysCopyCell | SysCopyCells => true,
+            SysPasteCells | SysPasteCellsSelected => true,
             PasteCell | PasteCells | CutCell | CutCells | DeleteCell | DeleteCells => true,
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
             AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
@@ -514,6 +520,8 @@ impl Action {
         ("syscopy_selected", SysCopySelected),
         ("syscopy_cell", SysCopyCell),
         ("syscopy_cells", SysCopyCells),
+        ("syspaste_cells", SysPasteCells),
+        ("syspaste_cells_selected", SysPasteCellsSelected),
         ("paste_cell", PasteCell),
         ("paste_cells", PasteCells),
         ("cut_cell", CutCell),

@@ -1,6 +1,6 @@
 # S-18 — Cell/row editing + clipboard
 
-Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes); phase E shipped 2026-11-08 (see the E notes); phase F shipped 2026-11-08 (see the F notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
+Status: **drafted 2026-11-08**; phase A shipped 2026-11-08 (`App.register`: `Register { kind, df }`; the replay treats `copy-*` as no-ops, which moved 4 files' first blocker to paste/open-new); phase B shipped 2026-11-08 (`src/clipboard.rs`, `vd.option`, Lua API 5); phase C shipped 2026-11-08 (see the C notes in §3); phase D shipped 2026-11-08 (see the D notes); phase E shipped 2026-11-08 (see the E notes); phase F shipped 2026-11-08 (see the F notes); phase G shipped 2026-11-09 (see the G notes). Decision 2026-11-07: a Day-1 must-have, deferred until now.
 Depends on: S-01 (sheet/plan model), S-04 (keymap), S-15 (inventory: update on each phase).
 Supersedes: the S-18 sketch in `README.md` ("overlay applied as the last plan step"). That sketch
 was wrong about placement (see §2.2), and an overlay isn't needed: `PlanStep` already is one.
@@ -111,7 +111,7 @@ and S-15 + the user guide updated.
 | D | Paste into cells | `zp` paste-cell, `gzp` setcol-clipboard, `zx` cut-cell | 1–2 d |
 | E | Stable rids + delete rows | `d` delete-row, `gd` delete-selected, `x` cut-row, `gx` cut-selected | 2–3 d |
 | F | Add/paste rows; plan panel → `:plan` | `a` add-row, `ga` add-rows, `p` paste-after, `P` paste-before, `A` open-new | 3–5 d |
-| G | System paste in | terminal paste → register; `gzP` syspaste-cells-selected | 1 d |
+| G | System paste in | terminal paste → register; `zP` syspaste-cells, `gzP` syspaste-cells-selected | 1 d |
 
 Total ≈ 12–18 days.
 
@@ -206,6 +206,21 @@ Enable bracketed paste. In the table, a paste event parses TSV (CSV if no tab) i
 (`clipboard: 3 rows × 2 cols`); then `p`/`zp`/`gzP` apply it. In a prompt, a paste inserts the text
 (first line only for single-line prompts). Reading the clipboard directly (OSC 52 query) is not
 used: terminals block it.
+
+As shipped (2026-11-09; decision: VisiData + terminal paste): `zP` / `gzP` are VisiData's
+`syspaste-cells` / `syspaste-cells-selected`: they run `vd.option("clipboard_paste_cmd")` (VisiData's
+platform defaults; none over SSH, where the last terminal paste is used) in a job, split the text
+into tab-separated lines (VisiData's `pasteFromClipboard`: no CSV, a short line leaves cells alone,
+extra fields dropped) and write them from the cursor cell down / into the selected rows in view
+order, cursor column rightwards. Lines past the last row add rows after the view's last row. One
+`SetCells` per column, all or nothing, one undo step (`Sheet::paste_region`). An empty field is
+null except in text columns (VisiData writes `""`). A terminal paste in the table becomes the
+register: TSV, or CSV when no line has a tab; a first line made of column names is a header (so
+`Y` → paste → `p` round-trips by name), else fields map to the visible columns by position; one
+column = a cells register (`zp`), more = rows (`p`). Lua API 7. Review fixes in the same pass:
+consecutive literal edits of one column merge into one `SetCells` (200 edits overflowed the stack:
+one join per edit), added-row positions respace when a gap runs out of f64 room, and the DuckDB
+export of a cell patch keeps row order. Not done: VisiData's `gP` open-syspaste.
 
 ## 4. Test plan
 

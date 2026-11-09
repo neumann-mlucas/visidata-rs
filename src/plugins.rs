@@ -29,6 +29,8 @@ struct Registry {
     theme: Option<String>,
     /// `vd.option("clipboard_copy_cmd", …)`.
     clipboard_copy_cmd: Option<String>,
+    /// `vd.option("clipboard_paste_cmd", …)`.
+    clipboard_paste_cmd: Option<String>,
     /// `vd.option("duckdb_cmd", …)`.
     duckdb_cmd: Option<String>,
     aggregators: Vec<(String, LuaFunction)>,
@@ -102,7 +104,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 6; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd
+pub const API_VERSION: i64 = 7; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -327,6 +329,12 @@ impl Plugins {
         reg.borrow().clipboard_copy_cmd.clone()
     }
 
+    /// `vd.option("clipboard_paste_cmd", …)`, if set.
+    pub fn clipboard_paste_cmd(&self) -> Option<String> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        reg.borrow().clipboard_paste_cmd.clone()
+    }
+
     /// `vd.option("duckdb_cmd", …)`, if set.
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
@@ -469,7 +477,9 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
         "option",
         lua.create_function(|lua, (name, value): (String, String)| {
             match name.as_str() {
-                "clipboard_copy_cmd" | "duckdb_cmd" if value.trim().is_empty() => {
+                "clipboard_copy_cmd" | "clipboard_paste_cmd" | "duckdb_cmd"
+                    if value.trim().is_empty() =>
+                {
                     return Err(mlua::Error::RuntimeError(format!(
                         "vd.option: {name} is empty"
                     )));
@@ -477,10 +487,13 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 "clipboard_copy_cmd" => {
                     registry(lua)?.borrow_mut().clipboard_copy_cmd = Some(value)
                 }
+                "clipboard_paste_cmd" => {
+                    registry(lua)?.borrow_mut().clipboard_paste_cmd = Some(value)
+                }
                 "duckdb_cmd" => registry(lua)?.borrow_mut().duckdb_cmd = Some(value),
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, duckdb_cmd)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd)"
                     )));
                 }
             }
@@ -901,6 +914,9 @@ pub fn default_init_lua() -> String {
          -- System clipboard (Y, gY, zY, gzY): a command that reads stdin, or \"osc52\".\n\
          -- Default: osc52 over SSH, else wl-copy / xclip / pbcopy / clip.exe.\n\
          -- vd.option(\"clipboard_copy_cmd\", \"xclip -selection clipboard -filter\")\n\
+         -- zP, gzP read it back with a command that prints it. Default: none over SSH\n\
+         -- (paste with the terminal), else wl-paste / xclip -o / pbpaste / powershell.\n\
+         -- vd.option(\"clipboard_paste_cmd\", \"xclip -selection clipboard -o\")\n\
          \n\
          -- .duckdb files: the DuckDB program vdrs runs. Default: duckdb on PATH.\n\
          -- vd.option(\"duckdb_cmd\", \"/usr/local/bin/duckdb\")\n\
@@ -1134,6 +1150,9 @@ mod tests {
         let p =
             Plugins::load_from_source(r#"vd.option("clipboard_copy_cmd", "wl-copy -n")"#).unwrap();
         assert_eq!(p.clipboard_copy_cmd().as_deref(), Some("wl-copy -n"));
+        let p =
+            Plugins::load_from_source(r#"vd.option("clipboard_paste_cmd", "wl-paste")"#).unwrap();
+        assert_eq!(p.clipboard_paste_cmd().as_deref(), Some("wl-paste"));
         let p = Plugins::load_from_source(r#"vd.option("duckdb_cmd", "/opt/duckdb")"#).unwrap();
         assert_eq!(p.duckdb_cmd().as_deref(), Some("/opt/duckdb"));
         for bad in [

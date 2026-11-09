@@ -61,6 +61,12 @@ impl Harness {
         self.app.draw(&mut self.term).unwrap();
     }
 
+    /// The terminal pastes `text` (bracketed paste).
+    pub async fn paste(&mut self, text: &str) {
+        self.app.on_paste(text.into());
+        self.pump().await;
+    }
+
     /// Space-separated key tokens, e.g. "g g", "<C-d>", or literal text via `type_`.
     pub async fn keys(&mut self, ks: &str) {
         for k in ks.split(' ').filter(|k| !k.is_empty()) {
@@ -1938,4 +1944,54 @@ async fn filter_expr_shows_in_the_title_undoes_and_unfilters() {
     h.keys(":").await;
     h.type_("unfilter").await;
     assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+}
+
+/// S-18 G: a terminal paste fills the register (header or not, TSV or CSV)
+/// and types into prompts; `zP` `gzP` write the pasted lines into cells,
+/// adding rows past the end; one `U` undoes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_paste_and_syspaste_cells() {
+    let mut h = csv(b"id,v,w\n1,a,x\n2,b,y\n3,c,z\n").await;
+    h.paste("v\tid\nq\t9\n").await;
+    assert_eq!(status(&h), "clipboard: 1 row × 2 cols");
+    h.keys("p").await;
+    assert_eq!(view_csv(&h), "id,v,w\n1,a,x\n9,q,\n2,b,y\n3,c,z\n");
+    h.keys("U").await;
+    h.paste("\"5\",\"r, s\"\r\n").await; // CSV, no header: by position
+    h.keys("G p").await;
+    assert_eq!(view_csv(&h), "id,v,w\n1,a,x\n2,b,y\n3,c,z\n5,\"r, s\",\n");
+    h.keys("U").await;
+    h.paste("7\n8\n").await; // one column: cells for zp/gzp
+    h.keys("g g z p").await;
+    assert_eq!(view_csv(&h), "id,v,w\n7,a,x\n2,b,y\n3,c,z\n");
+    h.keys("U").await;
+
+    // zP: from the cursor cell, rightwards and down; past the end adds rows
+    h.paste("m\tn\textra\no\n\tp\n").await;
+    h.keys("j l z P").await;
+    assert_eq!(status(&h), "pasted 5 cells");
+    assert_eq!(view_csv(&h), "id,v,w\n1,a,x\n2,m,n\n3,o,z\n,\"\",p\n");
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,v,w\n1,a,x\n2,b,y\n3,c,z\n");
+
+    // gzP: into the selected rows, in view order; a bad value refuses all
+    h.paste("40\n10\n").await;
+    h.keys("g g s j j s h h g z P").await;
+    assert_eq!(view_csv(&h), "id,v,w\n40,a,x\n2,b,y\n10,c,z\n");
+    h.paste("11\nnope\n").await;
+    h.keys("g z P").await;
+    assert_eq!(status(&h), "paste: \"nope\" doesn't fit id (i64)");
+    assert_eq!(view_csv(&h), "id,v,w\n40,a,x\n2,b,y\n10,c,z\n");
+
+    // in a prompt: the first line is typed in
+    h.keys("g g l /").await;
+    h.paste("c\nignored").await;
+    h.keys("<CR>").await;
+    assert_eq!(h.app.sheets.active().view.row_cursor, 2);
+
+    // with a paste command, zP reads its output in the background
+    h.app.paste_cmd = Some(vec!["printf".into(), "z1\\tz2\\n".into()]);
+    h.keys("z P").await;
+    h.pump().await;
+    assert_eq!(view_csv(&h), "id,v,w\n40,a,x\n2,b,y\n10,z1,z2\n");
 }

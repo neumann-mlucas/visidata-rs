@@ -367,6 +367,16 @@ impl Keymap {
                 vec![SysCopyCells],
                 "copy current column of selected rows to clipboard",
             ),
+            ch(
+                vec![k("z"), k("P")],
+                vec![SysPasteCells],
+                "paste clipboard into cells from the cursor",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("P")],
+                vec![SysPasteCellsSelected],
+                "paste clipboard into selected rows from the cursor column",
+            ),
             // editing (S-18 C)
             ch(vec![k("e")], vec![StartEditInput], "edit current cell"),
             ch(

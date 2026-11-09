@@ -267,6 +267,8 @@ impl App {
             Action::SysCopySelected => self.syscopy(true, false),
             Action::SysCopyCell => self.syscopy(false, true),
             Action::SysCopyCells => self.syscopy(true, true),
+            Action::SysPasteCells => self.syspaste(false),
+            Action::SysPasteCellsSelected => self.syspaste(true),
             Action::PasteCell | Action::PasteCells => {
                 self.paste_cells(action == Action::PasteCells)
             }
@@ -751,6 +753,7 @@ impl App {
         self.plugins = Some(fresh);
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
         self.clipboard = super::clipboard_for(self.plugins.as_ref());
+        self.paste_cmd = super::paste_cmd_for(self.plugins.as_ref());
         crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.duckdb_cmd()));
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
@@ -1256,6 +1259,129 @@ impl App {
     }
 
     /// `zp` / `gzp`: the copied cells (`zy` `gzy`) into the current column.
+    /// `zP` `gzP`: read the clipboard in the background, or take the last
+    /// terminal paste when there's no paste command (SSH).
+    fn syspaste(&mut self, selected: bool) {
+        if let Some(argv) = self.paste_cmd.clone() {
+            self.spawn_job("paste", move || {
+                let text = crate::clipboard::read(&argv)?;
+                Ok(JobDone::SysPaste { text, selected })
+            });
+        } else if let Some(text) = self.pasted.clone() {
+            self.paste_text(&text, selected);
+        } else {
+            self.toast = Some("nothing pasted: paste with the terminal first".into());
+        }
+    }
+
+    /// Lines of `text` into the active sheet: from the cursor row down, or
+    /// into the selected rows; fields from the cursor column rightwards.
+    pub(super) fn paste_text(&mut self, text: &str, selected: bool) {
+        let lines = crate::clipboard::fields(text);
+        if lines.is_empty() {
+            self.toast = Some("nothing to paste from the clipboard".into());
+            return;
+        }
+        let s = self.sheets.active();
+        let cols: Vec<String> = self
+            .visible_cols()
+            .into_iter()
+            .skip(s.view.col_cursor)
+            .collect();
+        let rids = if selected {
+            match s.selected_in_view_order() {
+                Ok(r) if r.is_empty() => {
+                    self.toast = Some("no rows selected".into());
+                    return;
+                }
+                Ok(r) => r,
+                Err(e) => {
+                    self.toast = Some(format!("paste: {e}"));
+                    return;
+                }
+            }
+        } else {
+            let at = s.view.window_offset + s.view.row_cursor as u64;
+            s.view_rids_at(at, lines.len()).unwrap_or_default()
+        };
+        match self.sheets.active_mut().paste_region(&cols, rids, &lines) {
+            Ok(n) => {
+                let s = if n == 1 { "" } else { "s" };
+                self.toast = Some(format!("pasted {} cell{s}", grouped(n as u64)));
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("paste: {e}")),
+        }
+    }
+
+    /// The active sheet's visible columns, in screen order.
+    fn visible_cols(&self) -> Vec<String> {
+        let s = self.sheets.active();
+        s.view_plan()
+            .collect_schema()
+            .map(|sc| sc.iter_names().map(|n| n.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    /// The terminal pasted `text` (bracketed paste). In a prompt it's typed
+    /// in (first line); in the table it fills the register, as TSV or CSV,
+    /// for `p` `zp` `gzp`, and is what `zP` `gzP` paste without a command.
+    pub(super) fn on_paste(&mut self, text: String) {
+        self.toast = None;
+        if let Some((_, line)) = self.input.as_mut() {
+            for c in text.lines().next().unwrap_or_default().chars() {
+                line.insert(c);
+            }
+            self.refresh_pivot_preview();
+            return;
+        }
+        let table = crate::clipboard::table(&text);
+        let Some(width) = table.iter().map(Vec::len).max() else {
+            return;
+        };
+        self.pasted = Some(text);
+        let all = self.visible_cols();
+        // A first line naming the sheet's columns is a header (`Y` copies one).
+        let header = table.len() > 1 && table[0].iter().all(|f| all.contains(f));
+        let (names, rows) = if header {
+            (table[0].clone(), &table[1..])
+        } else {
+            let mut names = all;
+            names.truncate(width);
+            (names, &table[..])
+        };
+        let cols: Vec<Column> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let vals: Vec<Option<&str>> = rows
+                    .iter()
+                    .map(|r| r.get(i).map(String::as_str).filter(|v| !v.is_empty()))
+                    .collect();
+                Column::new(n.as_str().into(), vals)
+            })
+            .collect();
+        let kind = if cols.len() == 1 {
+            RegisterKind::Cells
+        } else {
+            RegisterKind::Rows
+        };
+        let (h, w) = (rows.len(), cols.len());
+        match DataFrame::new_infer_height(cols) {
+            Ok(df) if w > 0 => {
+                self.register = Some(Register { kind, df });
+                self.toast = Some(format!(
+                    "clipboard: {} row{} × {w} col{}",
+                    grouped(h as u64),
+                    if h == 1 { "" } else { "s" },
+                    if w == 1 { "" } else { "s" }
+                ));
+            }
+            Ok(_) => self.toast = Some("pasted: the sheet has no columns".into()),
+            Err(e) => self.toast = Some(format!("paste: {e}")),
+        }
+    }
+
     fn paste_cells(&mut self, selected: bool) {
         let Some(column) = self.current_column_name() else {
             return;
