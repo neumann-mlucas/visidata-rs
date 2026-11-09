@@ -251,10 +251,18 @@ impl App {
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
             Action::SelectExpr { expr, unselect } => self.select_by_expr(expr, unselect),
             Action::DupSelected => self.open_dup_selected(),
-            Action::CopyRow => self.copy(false, false),
-            Action::CopySelected => self.copy(true, false),
-            Action::CopyCell => self.copy(false, true),
-            Action::CopyCells => self.copy(true, true),
+            Action::CopyRow => {
+                self.copy(false, false);
+            }
+            Action::CopySelected => {
+                self.copy(true, false);
+            }
+            Action::CopyCell => {
+                self.copy(false, true);
+            }
+            Action::CopyCells => {
+                self.copy(true, true);
+            }
             Action::SysCopyRow => self.syscopy(false, false),
             Action::SysCopySelected => self.syscopy(true, false),
             Action::SysCopyCell => self.syscopy(false, true),
@@ -1116,8 +1124,8 @@ impl App {
 
     /// `y` `gy` `zy` `gzy`: the cursor row or the selected rows, every column
     /// or (`cells`) only the cursor column, into the register.
-    fn copy(&mut self, selected: bool, cells: bool) {
-        self.spawn_copy(selected, cells, None);
+    fn copy(&mut self, selected: bool, cells: bool) -> bool {
+        self.spawn_copy(selected, cells, None)
     }
 
     /// `Y` …: visible columns as TSV (rows) or one value per line (cells).
@@ -1131,17 +1139,17 @@ impl App {
         selected: bool,
         cells: bool,
         clip: Option<crate::clipboard::Clipboard>,
-    ) {
+    ) -> bool {
         // ponytail: the register holds the copy in memory; refuse past 10M cells, raise on demand.
         const MAX_CELLS: usize = 10_000_000;
         let s = self.sheets.active();
         let Ok(schema) = s.view_plan().collect_schema() else {
-            return;
+            return false;
         };
         let rows = if selected { s.view.selected.len() } else { 1 };
         if rows == 0 {
             self.toast = Some("no rows selected".into());
-            return;
+            return false;
         }
         let width = if cells { 1 } else { schema.len() };
         if rows * width > MAX_CELLS {
@@ -1150,11 +1158,11 @@ impl App {
                 grouped((rows * width) as u64),
                 grouped(MAX_CELLS as u64)
             ));
-            return;
+            return false;
         }
         let column = match self.current_column_name() {
             Some(c) => c,
-            None if cells => return,
+            None if cells => return false,
             None => String::new(),
         };
         let pos = (!selected).then(|| s.view.window_offset + s.view.row_cursor as u64);
@@ -1186,6 +1194,7 @@ impl App {
             };
             Ok(JobDone::Copy(Box::new(Register { kind, df })))
         });
+        true
     }
 
     /// `zp` / `gzp`: the copied cells (`zy` `gzy`) into the current column.
@@ -1197,12 +1206,15 @@ impl App {
             Some(Register {
                 kind: RegisterKind::Cells,
                 df,
-            }) => df.columns()[0].clone(),
-            Some(_) => {
+            }) if df.height() > 0 => df.columns()[0].clone(),
+            Some(Register {
+                kind: RegisterKind::Rows,
+                ..
+            }) => {
                 self.toast = Some("zp pastes cells: copy with zy or gzy".into());
                 return;
             }
-            None => {
+            _ => {
                 self.toast = Some("nothing copied".into());
                 return;
             }
@@ -1250,8 +1262,11 @@ impl App {
             return;
         }
         let rid = self.rid_at_cursor();
-        // The copy job clones the sheet now, before the edit below.
-        self.copy(selected, true);
+        // The copy job clones the sheet now, before the edit below; a refused
+        // copy (toast says why) cuts nothing.
+        if !self.copy(selected, true) {
+            return;
+        }
         let s = self.sheets.active_mut();
         let done = if selected {
             s.set_col(&column, "").map(drop)
