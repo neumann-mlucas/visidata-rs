@@ -816,3 +816,28 @@ fn deleted_rows_are_masked_and_ids_stay() {
     assert_eq!(ints(&s, "v"), [Some(10), Some(20), Some(30), Some(40)]);
     assert_eq!(s.view.selected.len(), 2, "undo brings the selection back");
 }
+
+/// The rid column (S-18 §2.3): source ids are positions, carried through
+/// steps, never shown or saved.
+#[test]
+fn source_rows_carry_their_ids_out_of_sight() {
+    let (mut s, _t) = sheet_of("id,v\n1,10\n2,20\n3,30\n");
+    s.view.sort = vec![SortKey {
+        column: "v".into(),
+        order: SortOrder::Desc,
+    }];
+    assert_eq!(
+        rid_values(&s.sorted_plan(true).collect().unwrap()).unwrap(),
+        [2, 1, 0]
+    );
+    s.derive("w", "v + 1").unwrap();
+    assert_eq!(
+        rid_values(&s.sorted_plan(true).collect().unwrap()).unwrap(),
+        [2, 1, 0]
+    );
+    let names = s.view_plan().collect_schema().unwrap();
+    assert!(!names.contains(ROW_ID), "{names:?}");
+    assert!(!s.data_plan().collect_schema().unwrap().contains(ROW_ID));
+    assert!(s.derive(ROW_ID, "1").unwrap_err().contains("reserved"));
+    assert!(s.rename_col("w", ROW_ID).unwrap_err().contains("reserved"));
+}

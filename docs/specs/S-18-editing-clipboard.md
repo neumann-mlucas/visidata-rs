@@ -172,7 +172,11 @@ delete keep their rows and nothing renumbers. `:export` does the same (the mask 
 casts; Python `with_row_index` + `is_in`, SQL `row_number()` + `NOT IN`). This skips the plan column's
 cost: `__vdrs_rid` would reach every schema reader (`:sql`, freq, describe, Lua, export). F (added
 rows) is the first step that breaks "steps keep rows"; it brings the real column or the side table
-§2.3 already names. Replay: `delete-row`, `delete-selected`, `cut-row`, `cut-selected`, and
+§2.3 already names. F's first step, 2026-11-08: the real column. Source sheets' plans carry
+`__vdrs_rid` (u64, the source position, so no id changed: same suite, same replay counts);
+`SetCol`/`SetExpr`/`SetCells` match on it; `filtered_plan` drops it unless asked; derived sheets still
+number their rows. `Sheet::data_plan()` is the plan as the user has it (no rid, deletes out) for code
+outside `sheet` (the replay driver); `:derive`/rename refuse the name. Replay: `delete-row`, `delete-selected`, `cut-row`, `cut-selected`, and
 `delete-cell(s)` (VisiData `zd`/`gzd`, nulls; keys added 2026-11-08) translated: PASS 41 → 42
 (`1410a`).
 

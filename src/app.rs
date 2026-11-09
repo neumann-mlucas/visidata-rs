@@ -497,10 +497,7 @@ impl App {
             }
             Ok(JobDone::Loaded(df)) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
-                    s.state.memory_base = Some(df.clone().lazy());
-                    if s.state.steps.is_empty() {
-                        s.plan = df.lazy();
-                    }
+                    s.set_memory_base(df);
                 }
             }
             Ok(JobDone::Saved { note, edits }) => {
@@ -958,6 +955,7 @@ impl App {
                 let agg = args.get(3).cloned().unwrap_or_else(|| "sum".into());
                 let mut sample = s.clone();
                 sample.plan = s.view_plan().slice(0, PIVOT_PREVIEW_ROWS);
+                sample.state.steps.clear(); // baked into the view, deletes too
                 sample.view = Default::default();
                 let lua = self.plugins.as_ref().and_then(|p| p.aggregator(&agg));
                 let previous = self.pivot_preview.take().map(|p| p.body);

@@ -13,7 +13,7 @@ impl Sheet {
             });
         };
         let kind = loaded.kind;
-        let plan = loaded.lazy.clone();
+        let plan = with_rids(loaded.lazy.clone());
         let display = loaded.display_name.clone();
         let mut sheet = Sheet {
             id,
@@ -115,7 +115,7 @@ impl Sheet {
 
     /// Plan = the base (tail rows, in-memory copy, or source) + this sheet's edits.
     pub(super) fn rebuild_plan(&mut self) -> PolarsResult<()> {
-        let mut plan = self.tail_base()?;
+        let mut plan = with_rids(self.tail_base()?);
         for step in &self.state.steps {
             plan = step.apply(plan)?;
         }

@@ -492,8 +492,7 @@ impl Replay {
                     // non-key cols = all cols minus keys
                     let schema = parent_slot
                         .sheet
-                        .plan
-                        .clone()
+                        .data_plan()
                         .collect_schema()
                         .map_err(|e| Runtime(e.to_string()))?;
                     let on: Vec<String> = schema
@@ -515,7 +514,7 @@ impl Replay {
                 let (name, new_sheet) = {
                     let parent_slot = self.current_slot()?;
                     let name = format!("{}_copy", parent_slot.name);
-                    let plan = parent_slot.sheet.plan.clone();
+                    let plan = parent_slot.sheet.data_plan();
                     let origin = Origin::Copy {
                         parent: parent_slot.sheet.id,
                     };
@@ -826,8 +825,7 @@ impl Replay {
         }
         let s = &mut self.current_slot_mut()?.sheet;
         let n = s
-            .plan
-            .clone()
+            .data_plan()
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?
             .height();
@@ -851,8 +849,7 @@ impl Replay {
         let s = &mut self.current_slot_mut()?.sheet;
         let re = regex::Regex::new(pattern).map_err(|e| StepErr::Runtime(e.to_string()))?;
         let df = s
-            .plan
-            .clone()
+            .data_plan()
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?;
         let col = df
@@ -881,8 +878,7 @@ impl Replay {
         let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
-            .plan
-            .clone()
+            .data_plan()
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?;
         let col = df
@@ -955,8 +951,7 @@ impl Replay {
         let keys = self.current_slot()?.sheet.view.keys.clone();
         let s = &mut self.current_slot_mut()?.sheet;
         let df = s
-            .plan
-            .clone()
+            .data_plan()
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?;
         let idx = resolve_row(&df, &keys, row_key)?;
@@ -1014,8 +1009,7 @@ impl Replay {
         let slot = self.current_slot_mut()?;
         let df = slot
             .sheet
-            .plan
-            .clone()
+            .data_plan()
             .collect()
             .map_err(|e| StepErr::Runtime(e.to_string()))?;
         if df.height() <= 1 {
@@ -1049,8 +1043,7 @@ impl Replay {
             let parent_slot = self.current_slot()?;
             let df = parent_slot
                 .sheet
-                .plan
-                .clone()
+                .data_plan()
                 .collect()
                 .map_err(|e| StepErr::Runtime(e.to_string()))?;
             let col = df
@@ -1169,8 +1162,7 @@ impl Replay {
                         let name = self.loaded[i].name.clone();
                         self.loaded[i]
                             .sheet
-                            .plan
-                            .clone()
+                            .data_plan()
                             .with_column(lit(name).alias("origin_sheet"))
                     })
                     .collect();
@@ -1195,8 +1187,7 @@ impl Replay {
                 let names = |i: usize| -> Result<Vec<String>, StepErr> {
                     let schema = self.loaded[i]
                         .sheet
-                        .plan
-                        .clone()
+                        .data_plan()
                         .collect_schema()
                         .map_err(|e| StepErr::Runtime(e.to_string()))?;
                     Ok(schema.iter_names().map(|n| n.to_string()).collect())
@@ -1217,8 +1208,7 @@ impl Replay {
                     plans.push(
                         self.loaded[i]
                             .sheet
-                            .plan
-                            .clone()
+                            .data_plan()
                             .select(renamed)
                             .with_column(origin),
                     );
@@ -1251,7 +1241,7 @@ impl Replay {
                     }
                 };
                 let left_exprs: Vec<_> = left_keys.iter().map(|k| col(k.as_str())).collect();
-                let mut acc = first.sheet.plan.clone();
+                let mut acc = first.sheet.data_plan();
                 for &i in slot_idxs.iter().skip(1) {
                     let right_keys = &self.loaded[i].sheet.view.keys;
                     if right_keys.len() < left_keys.len() {
@@ -1268,7 +1258,7 @@ impl Replay {
                         .map(|k| col(k.as_str()))
                         .collect();
                     acc = acc.join(
-                        self.loaded[i].sheet.plan.clone(),
+                        self.loaded[i].sheet.data_plan(),
                         left_exprs.clone(),
                         right_exprs,
                         // left rows in order, then right-only ones: as `Sheet::join_from`
@@ -1355,7 +1345,7 @@ impl Replay {
                 slot_idxs.clone()
             };
             for &i in &order {
-                let schema = match self.loaded[i].sheet.plan.clone().collect_schema() {
+                let schema = match self.loaded[i].sheet.data_plan().collect_schema() {
                     Ok(s) => s,
                     Err(_) => continue,
                 };

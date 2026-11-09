@@ -47,20 +47,15 @@ pub enum PlanStep {
     },
 }
 
-/// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask.
+/// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask,
+/// on the [`ROW_ID`] column source sheets carry.
 fn on_rows(plan: LazyFrame, column: &str, rids: &[u64], v: Expr) -> LazyFrame {
-    plan.with_row_index("__vdrs_set", None)
-        .with_column(
-            when(
-                col("__vdrs_set")
-                    .cast(DataType::UInt64)
-                    .is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
-            )
+    plan.with_column(
+        when(col(ROW_ID).is_in(lit(Series::new("ids".into(), rids)).implode(false), false))
             .then(v)
             .otherwise(col(column))
             .alias(column),
-        )
-        .drop(cols(["__vdrs_set"]))
+    )
 }
 
 impl PlanStep {
@@ -105,15 +100,14 @@ impl PlanStep {
                 polars::sql::sql_expr(expr)?.cast(dtype.clone()),
             ),
             PlanStep::SetCells { column, patch } => plan
-                .with_row_index("__vdrs_set", None)
-                .with_column(col("__vdrs_set").cast(DataType::UInt64))
                 .join(
                     (**patch)
                         .clone()
                         .lazy()
+                        .rename([ROW_ID], ["__vdrs_set"], true)
                         .with_column(lit(true).alias("__vdrs_hit")),
+                    [col(ROW_ID)],
                     [col("__vdrs_set")],
-                    [col("__vdrs_rid")],
                     JoinArgs {
                         maintain_order: MaintainOrderJoin::Left,
                         ..JoinArgs::new(JoinType::Left)
@@ -125,7 +119,7 @@ impl PlanStep {
                         .otherwise(col(column.as_str()))
                         .alias(column.as_str()),
                 )
-                .drop(cols(["__vdrs_set", "__vdrs_v", "__vdrs_hit"])),
+                .drop(cols(["__vdrs_v", "__vdrs_hit"])),
             PlanStep::DeleteRows { .. } => plan,
         })
     }

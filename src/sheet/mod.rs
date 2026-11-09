@@ -376,7 +376,7 @@ impl Sheet {
     pub fn from_source(id: SheetId, loaded: LoadedSource) -> Self {
         let name = loaded.display_name.clone();
         let kind = loaded.kind;
-        let plan = loaded.lazy.clone();
+        let plan = with_rids(loaded.lazy.clone());
         Self {
             id,
             name,
@@ -719,15 +719,18 @@ impl Sheet {
     fn filtered_plan_with(&self, with_rid: bool, errs: bool) -> LazyFrame {
         let mut lf = self.plan.clone();
         let deleted = self.deleted_rids();
-        if with_rid || !deleted.is_empty() {
+        let any_deleted = !deleted.is_empty();
+        // Source sheets carry their ids; derived ones number their rows here.
+        let carried = self.has_rids();
+        if !carried && (with_rid || any_deleted) {
             lf = lf.with_row_index(ROW_ID, None);
         }
-        if !deleted.is_empty() {
+        if any_deleted {
             let ids = lit(Series::new("ids".into(), deleted)).implode(false);
             lf = lf.filter(col(ROW_ID).cast(DataType::UInt64).is_in(ids, false).not());
-            if !with_rid {
-                lf = lf.drop(cols([ROW_ID]));
-            }
+        }
+        if !with_rid && (carried || any_deleted) {
+            lf = lf.drop(cols([ROW_ID]));
         }
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
@@ -809,6 +812,9 @@ impl Sheet {
 
     /// `:derive name = <sql expr>` on the base plan. Validated against the schema.
     pub fn derive(&mut self, name: &str, expr: &str) -> Result<(), String> {
+        if name == ROW_ID {
+            return Err(format!("{ROW_ID} is reserved"));
+        }
         let step = PlanStep::Derive {
             name: name.to_string(),
             expr: expr.to_string(),
@@ -826,6 +832,9 @@ impl Sheet {
     /// `^` / `:rename`: a `Rename` step, and the view follows the column
     /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
+        if new == ROW_ID {
+            return Err(format!("{ROW_ID} is reserved"));
+        }
         if new != old && self.has_column(new) {
             return Err(format!("column already exists: {new}"));
         }
@@ -993,6 +1002,39 @@ impl Sheet {
         let shown: std::collections::HashSet<u64> = out.iter().copied().collect();
         out.extend(sel.into_iter().filter(|r| !shown.contains(r)));
         Ok(out)
+    }
+
+    /// The plan carries [`ROW_ID`] (source sheets, see [`with_rids`]).
+    // ponytail: a schema lookup per view plan; Polars caches it, a flag would
+    // go stale whenever a caller swaps `plan`.
+    fn has_rids(&self) -> bool {
+        self.plan
+            .clone()
+            .collect_schema()
+            .is_ok_and(|s| s.contains(ROW_ID))
+    }
+
+    /// The plan's rows and columns as the user has them (hidden ones too, no
+    /// view casts/filter/sort): deleted rows out, no [`ROW_ID`].
+    pub fn data_plan(&self) -> LazyFrame {
+        if !self.has_rids() {
+            return self.plan.clone(); // derived sheets take no deletes
+        }
+        let deleted = self.deleted_rids();
+        let mut lf = self.plan.clone();
+        if !deleted.is_empty() {
+            let ids = lit(Series::new("ids".into(), deleted)).implode(false);
+            lf = lf.filter(col(ROW_ID).is_in(ids, false).not());
+        }
+        lf.drop(cols([ROW_ID]))
+    }
+
+    /// `JobDone::Loaded`: the source, read into memory, becomes the base.
+    pub fn set_memory_base(&mut self, df: DataFrame) {
+        self.state.memory_base = Some(df.lazy());
+        if self.state.steps.is_empty() {
+            self.plan = with_rids(self.state.memory_base.clone().expect("just set"));
+        }
     }
 
     /// Row ids of deleted rows (`DeleteRows` steps), ascending.
@@ -1494,6 +1536,14 @@ pub fn any_text(v: &AnyValue) -> String {
         .ok()
         .and_then(|s| s.str().ok()?.get(0).map(String::from));
     text.unwrap_or_else(|| v.to_string())
+}
+
+/// A source sheet's base with its row ids: a source row's id is its
+/// position in the source (S-18 §2.3). Every step carries the column; the
+/// view drops it.
+pub(super) fn with_rids(lf: LazyFrame) -> LazyFrame {
+    lf.with_row_index(ROW_ID, None)
+        .with_column(col(ROW_ID).cast(DataType::UInt64))
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.
