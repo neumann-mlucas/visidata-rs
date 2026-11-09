@@ -44,11 +44,11 @@ fn sqlite_conn(path: &Path) -> Result<rusqlite::Connection, OpenError> {
         .map_err(|e| OpenError::Sqlite(e.to_string()))
 }
 
-/// User tables in sqlite's own creation order.
+/// User tables and views in sqlite's own creation order, as VisiData lists them.
 pub(crate) fn sqlite_tables(path: &Path) -> Result<Vec<String>, OpenError> {
     let conn = sqlite_conn(path)?;
     let mut stmt = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY rowid")
+        .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY rowid")
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
     let names = stmt
         .query_map([], |r| r.get(0))
@@ -959,10 +959,15 @@ mod tests {
         // sqlite with two tables → listed, each openable
         let db = dir.path().join("two.db");
         let c = rusqlite::Connection::open(&db).unwrap();
-        c.execute_batch("create table a(x); insert into a values (1),(2); create table b(y); insert into b values (9);")
+        c.execute_batch("create table a(x); insert into a values (1),(2); create table b(y); insert into b values (9); create view v as select x from a where x > 1;")
             .unwrap();
         drop(c);
-        assert_eq!(list_parts(&db, SourceKind::Sqlite).unwrap(), ["a", "b"]);
+        assert_eq!(
+            list_parts(&db, SourceKind::Sqlite).unwrap(),
+            ["a", "b", "v"]
+        );
+        let v = open_part(&db, SourceKind::Sqlite, "v").unwrap();
+        assert_eq!(v.lazy.collect().unwrap().shape(), (1, 1));
         let b = open_part(&db, SourceKind::Sqlite, "b").unwrap();
         assert_eq!(b.lazy.collect().unwrap().shape(), (1, 1));
         let by_name = open(format!("{}:b", db.display()).as_ref(), None).unwrap();

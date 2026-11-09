@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 43;
+const MIN_PASS: usize = 44;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -275,7 +275,18 @@ impl Replay {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
         let Origin::Parts { path, kind } = s.origin.clone() else {
-            return Ok(()); // xlsx/sqlite open their first part directly: nothing to enter
+            // xlsx/sqlite open their first part directly; `キname` names another
+            let (Some(name), Some(path)) = (row.strip_prefix('キ'), s.source.path.clone()) else {
+                return Ok(());
+            };
+            if !matches!(s.kind, SourceKind::Sqlite | SourceKind::Xlsx) {
+                return Ok(());
+            }
+            let loaded =
+                reader::open_part(&path, s.kind, name).map_err(|e| Runtime(e.to_string()))?;
+            let sheet = Sheet::from_source(self.alloc(), loaded);
+            self.push_sheet(name.to_string(), sheet);
+            return Ok(());
         };
         let df = s
             .view_plan()

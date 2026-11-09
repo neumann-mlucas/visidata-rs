@@ -103,7 +103,7 @@ issue3174-deepcopy-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3175-vds-concat	SKIP runtime: save: unknown extension '.vds'
 issue3175-vds-full	SKIP runtime: save: unknown extension '.vds'
 issue3178	SKIP runtime: column already exists: B
-issue3187	SKIP runtime: not found: "name" not found
+issue3187	SKIP runtime: cannot locate row '': no key columns set
 issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
 issue3190-unhide	PASS
 issue3195	SKIP set-envvar
@@ -164,7 +164,7 @@ load-parquet	PASS
 load-parquet-geo	SKIP serialize: datatype ext[geoarrow.wkb] cannot be written to CSV
 load-png	SKIP runtime: open-file ../visidata/sample_data/vdlogo-160x24.png: unknown format for ../visidata/sample_data/vdlogo-160x24.png
 load-sqlite	PASS
-load-sqlite-view	FAIL line 1: want="empno\tename\tjob\tmgr\thiredate\tsal\tcomm\tdeptno" got="deptno\tdname\tloc"
+load-sqlite-view	PASS
 load-stata	SKIP runtime: open-file ../visidata/sample_data/co3.dta: unknown format for ../visidata/sample_data/co3.dta
 load-toml	SKIP runtime: open-file ../visidata/sample_data/freshwater-mammals.toml: unknown format for ../visidata/sample_data/freshwater-mammals.toml
 load-usv	SKIP runtime: open-file ../visidata/sample_data/test.usv: unknown format for ../visidata/sample_data/test.usv
