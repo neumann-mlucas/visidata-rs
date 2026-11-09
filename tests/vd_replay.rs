@@ -173,6 +173,8 @@ struct Replay {
     /// VisiData's sheet stack (most recent last; `vd.sheets[:2]` = the last
     /// two): using a sheet moves it on top, `quit-sheet` takes it off.
     stack: Vec<usize>,
+    /// Rows selected on the sheets stack: one sheet in VisiData, so they stay.
+    stack_selected: Vec<String>,
     meta_mode: Option<MetaMode>,
     /// Resolution root for `open-file` paths. VisiData runs tests from the repo
     /// root, so inputs like `tests/sort-levels.tsv` resolve relative to there.
@@ -241,6 +243,7 @@ impl Replay {
             loaded: Vec::new(),
             current: None,
             stack: Vec::new(),
+            stack_selected: Vec::new(),
             meta_mode: None,
             root,
             next_id: 0,
@@ -322,7 +325,8 @@ impl Replay {
             let loaded =
                 reader::open_part(&path, s.kind, name).map_err(|e| Runtime(e.to_string()))?;
             let sheet = Sheet::from_source(self.alloc(), loaded);
-            self.push_sheet(name.to_string(), sheet);
+            let name = format!("{}_{name}", self.current_slot()?.name); // VisiData's name
+            self.push_sheet(name, sheet);
             return Ok(());
         };
         let df = s
@@ -670,7 +674,7 @@ impl Replay {
             // names (not data rows) and `join-sheets` consumes the selection.
             "sheets-stack" => {
                 self.meta_mode = Some(MetaMode::SheetsStack {
-                    selected: Vec::new(),
+                    selected: std::mem::take(&mut self.stack_selected),
                 });
                 Ok(())
             }
@@ -852,7 +856,17 @@ impl Replay {
             // For VisiData's columns-sheet / other meta-sheet workflows, this
             // is wrong but we skip those tests elsewhere.
             "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
-            "dive-row" | "open-row" => Ok(()),
+            // on the sheets stack: go to that sheet
+            "dive-row" | "open-row" => {
+                let name = r.row.strip_prefix('キ').unwrap_or(&r.row);
+                if let Some(i) = self.find_sheet_by_name(name) {
+                    if let Some(MetaMode::SheetsStack { selected }) = self.meta_mode.take() {
+                        self.stack_selected = selected;
+                    }
+                    self.set_current(i);
+                }
+                Ok(())
+            }
             // Slide operations are column/row reorder cosmetic to the data model;
             // our serializer uses key-col ordering + schema order, not slide pos.
             "slide-left" | "slide-right" | "slide-up" | "slide-down" => Ok(()),
