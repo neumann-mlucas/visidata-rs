@@ -7,8 +7,10 @@
 //! - `expected.screen`: the final screen.
 //! - `no-export` (optional): why `:export` can't reproduce this case.
 //! - `ordered` (optional): the exports must keep the view's row order too.
+//! - `no-sql` (optional): why the DuckDB script can't run here (an extension
+//!   tests mustn't download).
 //!
-//! The sheet opens `input.csv`/`input.jsonl`. `UPDATE_GOLDEN=1` rewrites the
+//! The sheet opens `input.csv`/`input.jsonl`/`input.sqlite`. `UPDATE_GOLDEN=1` rewrites the
 //! expected files; read the diff before committing it.
 //!
 //! `docs-*` cases open a file from `docs/fixtures` (named in `open`, default
@@ -62,7 +64,7 @@ async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
         let name = std::fs::read_to_string(dir.join("open")).unwrap_or("sales.csv".into());
         PathBuf::from(FIXTURES).join(name.trim())
     } else {
-        ["input.csv", "input.jsonl"]
+        ["input.csv", "input.jsonl", "input.sqlite"]
             .iter()
             .map(|f| dir.join(f))
             .find(|p| p.exists())
@@ -404,7 +406,7 @@ fn roundtrip(h: &Harness, dir: &Path, want: &str, fails: &mut Vec<String>) {
         )),
         Err(e) => fails.push(format!("{} {lang}: {e}", dir.display())),
     };
-    if tool_ok("duckdb", "--version") {
+    if tool_ok("duckdb", "--version") && !dir.join("no-sql").exists() {
         let sql = crate::export::to_sql(sheet);
         compare("sql", sql.and_then(|q| duckdb_csv(&q, scratch.path())));
     }

@@ -57,9 +57,12 @@ pub(crate) fn sqlite_tables(path: &Path) -> Result<Vec<String>, OpenError> {
     Ok(names)
 }
 
-/// Load one sqlite table (default: the first) as a DataFrame of all-String
-/// columns. Several tables → the app shows a table list first (`list_parts`).
+/// Load one sqlite table (default: the first). A column whose values are all
+/// stored as integers is i64, as integers or reals f64; anything else (text,
+/// blobs, a mix) stays text, so a dynamically typed table loses nothing
+/// (S-24 R3). Several tables → the app shows a table list first (`list_parts`).
 fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, OpenError> {
+    use rusqlite::types::Value;
     let conn = sqlite_conn(path)?;
     let table = match table {
         Some(t) => t.to_string(),
@@ -73,31 +76,67 @@ fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, Open
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
     let headers: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let width = headers.len();
-    let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::new()).collect();
+    let mut cols: Vec<Vec<Value>> = (0..width).map(|_| Vec::new()).collect();
     let mut rows = stmt
         .query([])
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
     while let Some(row) = rows.next().map_err(|e| OpenError::Sqlite(e.to_string()))? {
         for (i, c) in cols.iter_mut().enumerate().take(width) {
-            // Use ValueRef to tolerate non-UTF8 TEXT (lossy convert) instead of
-            // the Value path's hard UTF-8 panic.
-            let s = match row.get_ref(i) {
-                Ok(rusqlite::types::ValueRef::Null) => String::new(),
-                Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
-                Ok(rusqlite::types::ValueRef::Real(f)) => float_cell_string(f),
-                Ok(rusqlite::types::ValueRef::Text(b)) => String::from_utf8_lossy(b).into_owned(),
-                Ok(rusqlite::types::ValueRef::Blob(b)) => format!("<blob:{} bytes>", b.len()),
-                Err(_) => String::new(),
-            };
-            c.push(s);
+            // ValueRef tolerates non-UTF8 TEXT (lossy) where Value would fail.
+            use rusqlite::types::ValueRef as R;
+            c.push(match row.get_ref(i) {
+                Ok(R::Text(b)) => Value::Text(String::from_utf8_lossy(b).into_owned()),
+                Ok(R::Integer(n)) => Value::Integer(n),
+                Ok(R::Real(f)) => Value::Real(f),
+                Ok(R::Blob(b)) => Value::Text(format!("<blob:{} bytes>", b.len())),
+                Ok(R::Null) | Err(_) => Value::Null,
+            });
         }
     }
     let series: Vec<Column> = headers
         .into_iter()
         .zip(cols)
-        .map(|(name, data)| Column::new(name.into(), data))
+        .map(|(name, data)| sqlite_column(name.into(), &data))
         .collect();
     DataFrame::new_infer_height(series).map_err(OpenError::from)
+}
+
+fn sqlite_column(name: PlSmallStr, values: &[rusqlite::types::Value]) -> Column {
+    use rusqlite::types::Value;
+    let filled = || values.iter().filter(|v| !matches!(v, Value::Null));
+    let any = filled().next().is_some();
+    if any && filled().all(|v| matches!(v, Value::Integer(_))) {
+        let v: Vec<Option<i64>> = values
+            .iter()
+            .map(|v| match v {
+                Value::Integer(n) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        return Column::new(name, v);
+    }
+    if any && filled().all(|v| matches!(v, Value::Integer(_) | Value::Real(_))) {
+        let v: Vec<Option<f64>> = values
+            .iter()
+            .map(|v| match v {
+                Value::Integer(n) => Some(*n as f64),
+                Value::Real(f) => Some(*f),
+                _ => None,
+            })
+            .collect();
+        return Column::new(name, v);
+    }
+    let text: Vec<String> = values
+        .iter()
+        .map(|v| match v {
+            Value::Null => String::new(),
+            Value::Integer(n) => n.to_string(),
+            Value::Real(f) => float_cell_string(*f),
+            Value::Text(t) => t.clone(),
+            Value::Blob(_) => unreachable!("read as text"),
+        })
+        .collect();
+    Column::new(name, text)
 }
 
 /// Int-valued floats as "N", not "N.0" — matches VisiData's xlsx/sqlite read.
@@ -109,8 +148,9 @@ fn float_cell_string(f: f64) -> String {
     }
 }
 
-/// Read a worksheet (default: the first) into an eager DataFrame of all-String
-/// columns, so downstream `type-*` operations do the casting (as VisiData does).
+/// Read a worksheet (default: the first) into an eager DataFrame. A column
+/// whose cells are all whole numbers is i64, all numbers f64, all booleans
+/// bool, all dates datetime; anything mixed stays text (S-24 R3).
 fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
     use calamine::{Data, Reader, open_workbook_auto};
     let mut wb = open_workbook_auto(path).map_err(|e| OpenError::Xlsx(e.to_string()))?;
@@ -125,36 +165,108 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
     let range = wb
         .worksheet_range(&name)
         .map_err(|e| OpenError::Xlsx(e.to_string()))?;
-    let height = range.height();
     let width = range.width();
-    if height == 0 || width == 0 {
+    if range.height() == 0 || width == 0 {
         return Ok(DataFrame::default());
     }
-    // Row 0 = headers, rest = data.
-    let rows: Vec<Vec<Data>> = range.rows().map(|r| r.to_vec()).collect();
+    let mut rows = range.rows();
     // Preserve empty header names as empty strings (matches VisiData); don't
     // auto-generate col{i} — that pollutes diffs against xlsx goldens where
     // merged cells legitimately produce blank headers.
-    let headers = unique_headers(rows[0].iter().map(cell_string));
-    // Column-major fill, all String.
-    let mut cols: Vec<Vec<String>> = (0..width).map(|_| Vec::with_capacity(height - 1)).collect();
-    for row in rows.iter().skip(1) {
-        for (ci, cell) in row.iter().enumerate() {
-            if ci < width {
-                cols[ci].push(cell_string(cell));
-            }
-        }
-        // short rows → pad with empties
-        for col in cols.iter_mut().take(width).skip(row.len()) {
-            col.push(String::new());
+    let headers = unique_headers(rows.next().expect("height > 0").iter().map(cell_string));
+    let mut cols: Vec<Vec<&Data>> = vec![Vec::new(); width];
+    for row in rows {
+        for (ci, col) in cols.iter_mut().enumerate() {
+            col.push(row.get(ci).unwrap_or(&Data::Empty)); // short rows: empty
         }
     }
     let series: Vec<Column> = headers
         .into_iter()
         .zip(cols)
-        .map(|(name, data)| Column::new(name.into(), data))
+        .map(|(name, cells)| xlsx_column(name.into(), &cells))
         .collect();
     DataFrame::new_infer_height(series).map_err(OpenError::from)
+}
+
+/// One worksheet column, typed when every non-empty cell agrees.
+fn xlsx_column(name: PlSmallStr, cells: &[&calamine::Data]) -> Column {
+    use calamine::Data;
+    let filled = || cells.iter().filter(|c| !matches!(c, Data::Empty));
+    let whole = |f: f64| f.fract() == 0.0 && f.abs() < 1e15;
+    let any = filled().next().is_some();
+    if any
+        && filled().all(|c| matches!(c, Data::Int(_)) || matches!(c, Data::Float(f) if whole(*f)))
+    {
+        let v: Vec<Option<i64>> = cells
+            .iter()
+            .map(|c| match c {
+                Data::Int(i) => Some(*i),
+                Data::Float(f) => Some(*f as i64),
+                _ => None,
+            })
+            .collect();
+        return Column::new(name, v);
+    }
+    if any && filled().all(|c| matches!(c, Data::Int(_) | Data::Float(_))) {
+        let v: Vec<Option<f64>> = cells
+            .iter()
+            .map(|c| match c {
+                Data::Int(i) => Some(*i as f64),
+                Data::Float(f) => Some(*f),
+                _ => None,
+            })
+            .collect();
+        return Column::new(name, v);
+    }
+    if any && filled().all(|c| matches!(c, Data::Bool(_))) {
+        let v: Vec<Option<bool>> = cells
+            .iter()
+            .map(|c| match c {
+                Data::Bool(b) => Some(*b),
+                _ => None,
+            })
+            .collect();
+        return Column::new(name, v);
+    }
+    if any && filled().all(|c| matches!(c, Data::DateTime(d) if d.is_datetime())) {
+        let v: Vec<Option<i64>> = cells
+            .iter()
+            .map(|c| match c {
+                Data::DateTime(d) => Some(excel_ms(d)),
+                _ => None,
+            })
+            .collect();
+        let ms = Column::new(name, v);
+        return ms
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            .unwrap_or(ms);
+    }
+    Column::new(
+        name,
+        cells.iter().map(|c| cell_string(c)).collect::<Vec<_>>(),
+    )
+}
+
+/// Milliseconds since 1970 of an Excel date.
+fn excel_ms(d: &calamine::ExcelDateTime) -> i64 {
+    let (y, mo, da, h, mi, s, ms) = d.to_ymd_hms_milli();
+    // days from the civil date (H. Hinnant's algorithm)
+    let (y, mo) = (y as i64 - i64::from(mo <= 2), mo as i64);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + da as i64 - 1;
+    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
+    ((days * 24 + h as i64) * 60 + mi as i64) * 60_000 + s as i64 * 1000 + ms as i64
+}
+
+/// An Excel date as text, as VisiData shows a datetime.
+fn excel_text(d: &calamine::ExcelDateTime) -> String {
+    let (y, mo, da, h, mi, s, ms) = d.to_ymd_hms_milli();
+    let mut t = format!("{y:04}-{mo:02}-{da:02} {h:02}:{mi:02}:{s:02}");
+    if ms > 0 {
+        t += &format!(".{ms:03}");
+    }
+    t
 }
 
 /// Repeats (blank cells above all) get `_duplicated_<i>`, as Polars names CSV
@@ -181,6 +293,7 @@ fn cell_string(c: &calamine::Data) -> String {
         Data::Float(f) => float_cell_string(*f),
         Data::Int(i) => i.to_string(),
         Data::Bool(b) => b.to_string(),
+        Data::DateTime(dt) if dt.is_datetime() => excel_text(dt),
         Data::DateTime(dt) => dt.to_string(),
         Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
         Data::Error(e) => format!("#ERR {e:?}"),
@@ -712,6 +825,74 @@ mod tests {
             detect(Path::new("x.wat")),
             Err(OpenError::UnknownFormat { .. })
         ));
+    }
+
+    #[test]
+    fn xlsx_columns_take_the_type_their_cells_agree_on() {
+        use calamine::{Data, ExcelDateTime, ExcelDateTimeType};
+        let dt = Data::DateTime(ExcelDateTime::new(
+            45943.5,
+            ExcelDateTimeType::DateTime,
+            false,
+        ));
+        let types = |cells: &[Data]| {
+            let refs: Vec<&Data> = cells.iter().collect();
+            let c = xlsx_column("c".into(), &refs);
+            (c.dtype().to_string(), c.get(0).unwrap().to_string())
+        };
+        let s = |t: &str| Data::String(t.into());
+        assert_eq!(
+            types(&[Data::Int(1), Data::Float(2.0), Data::Empty]),
+            ("i64".into(), "1".into())
+        );
+        assert_eq!(
+            types(&[Data::Float(1.5), Data::Int(2)]),
+            ("f64".into(), "1.5".into())
+        );
+        assert_eq!(
+            types(&[Data::Bool(true), Data::Empty]),
+            ("bool".into(), "true".into())
+        );
+        assert_eq!(types(std::slice::from_ref(&dt)).0, "datetime[ms]");
+        assert_eq!(
+            types(&[dt, s("x")]),
+            ("str".into(), "\"2025-10-13 12:00:00\"".into())
+        );
+        assert_eq!(types(&[Data::Int(1), s("x")]).0, "str");
+        assert_eq!(types(&[Data::Empty]).0, "str");
+        let c = xlsx_column(
+            "c".into(),
+            &[&Data::DateTime(ExcelDateTime::new(
+                45943.5,
+                ExcelDateTimeType::DateTime,
+                false,
+            ))],
+        );
+        assert_eq!(c.get(0).unwrap().to_string(), "2025-10-13 12:00:00");
+    }
+
+    #[test]
+    fn sqlite_columns_typed_only_when_every_value_agrees() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("t.sqlite");
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(
+            "CREATE TABLE t (i INTEGER, r REAL, n NUMERIC, mixed, z TEXT, b BLOB);
+             INSERT INTO t VALUES (1, 1.5, 2, 1, '082053', x'00ff');
+             INSERT INTO t VALUES (NULL, 2, 2.5, 'two', '7', NULL);",
+        )
+        .unwrap();
+        let df = open_sqlite_table(&db, None).unwrap();
+        let types: Vec<String> = df.dtypes().iter().map(|d| d.to_string()).collect();
+        assert_eq!(types, ["i64", "f64", "f64", "str", "str", "str"]);
+        assert_eq!(
+            df.column("z").unwrap().get(0).unwrap(),
+            AnyValue::String("082053")
+        );
+        assert_eq!(
+            df.column("b").unwrap().get(0).unwrap(),
+            AnyValue::String("<blob:2 bytes>")
+        );
     }
 
     #[test]

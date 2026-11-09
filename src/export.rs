@@ -309,17 +309,19 @@ impl Script {
                     (SourceKind::Arrow, _) => format!("pl.scan_ipc({p})"),
                     (SourceKind::Jsonl, _) => format!("pl.scan_ndjson({p})"),
                     (SourceKind::Json, _) => format!("pl.read_json({p}).lazy()"),
-                    (SourceKind::Xlsx, _) => match part {
-                        Some(sh) => format!("pl.read_excel({p}, sheet_name={}).lazy()", py_str(sh)),
-                        None => format!("pl.read_excel({p}).lazy()"),
-                    },
+                    (SourceKind::Xlsx, _) => {
+                        let read = match part {
+                            Some(sh) => format!("pl.read_excel({p}, sheet_name={})", py_str(sh)),
+                            None => format!("pl.read_excel({p})"),
+                        };
+                        format!("{read}.lazy().select([{}])", source_casts(s, true)?)
+                    }
                     (SourceKind::Sqlite, _) => {
-                        // vdrs reads sqlite as text, null as ""
                         self.need("import sqlite3");
                         format!(
-                            "pl.read_database({}, sqlite3.connect({p})).lazy()\
-                             .select(pl.all().cast(pl.Utf8).fill_null(\"\"))",
-                            py_str(&format!("SELECT * FROM {}", q_ident(&table)))
+                            "pl.read_database({}, sqlite3.connect({p})).lazy().select([{}])",
+                            py_str(&format!("SELECT * FROM {}", q_ident(&table))),
+                            source_casts(s, true)?
                         )
                     }
                     (SourceKind::Duckdb, _) => {
@@ -372,17 +374,18 @@ impl Script {
                     SourceKind::Jsonl | SourceKind::Json => {
                         format!("SELECT * FROM read_json_auto({p}{})", sql_json_args(s)?)
                     }
-                    SourceKind::Sqlite => {
-                        format!("SELECT * FROM sqlite_scan({p}, {})", q_str(&table))
-                    }
+                    SourceKind::Sqlite => format!(
+                        "SELECT {} FROM sqlite_scan({p}, {})",
+                        source_casts(s, false)?,
+                        q_str(&table)
+                    ),
                     SourceKind::Xlsx => {
                         self.need("INSTALL excel;\nLOAD excel;");
-                        match part {
-                            Some(sh) => {
-                                format!("SELECT * FROM read_xlsx({p}, sheet = {})", q_str(sh))
-                            }
-                            None => format!("SELECT * FROM read_xlsx({p})"),
-                        }
+                        let from = match part {
+                            Some(sh) => format!("read_xlsx({p}, sheet = {})", q_str(sh)),
+                            None => format!("read_xlsx({p})"),
+                        };
+                        format!("SELECT {} FROM {from}", source_casts(s, false)?)
                     }
                     SourceKind::Arrow => {
                         self.need("INSTALL nanoarrow FROM community;\nLOAD nanoarrow;");
@@ -1484,6 +1487,38 @@ fn csv_columns(s: &Sheet) -> Result<std::sync::Arc<polars::prelude::Schema>, Str
     }
 }
 
+/// xlsx / sqlite columns as vdrs typed them (S-24 R3): numbers, booleans and
+/// dates when every cell agreed, else text with empty for null.
+fn source_casts(s: &Sheet, py: bool) -> Result<String, String> {
+    let schema = s
+        .source
+        .lazy
+        .clone()
+        .collect_schema()
+        .map_err(|e| e.to_string())?;
+    let casts: Vec<String> = schema
+        .iter()
+        .map(|(n, d)| match (py, d) {
+            (true, DataType::String) => {
+                format!(
+                    "pl.col({c}).cast(pl.Utf8).fill_null(\"\").alias({c})",
+                    c = py_str(n)
+                )
+            }
+            (true, d) => format!(
+                "pl.col({c}).cast({}).alias({c})",
+                py_dtype(d),
+                c = py_str(n)
+            ),
+            (false, DataType::String) => {
+                format!("coalesce(CAST({c} AS VARCHAR), '') AS {c}", c = q_ident(n))
+            }
+            (false, d) => format!("CAST({c} AS {}) AS {c}", sql_dtype(d), c = q_ident(n)),
+        })
+        .collect();
+    Ok(casts.join(", "))
+}
+
 /// CSV columns whose type a script must name: dates (only ISO loads as one)
 /// and text (`082053` stays text; `reader::csv_schema`).
 fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
@@ -1636,6 +1671,10 @@ fn py_dtype(dt: &DataType) -> &'static str {
         DataType::Int64 => "pl.Int64",
         DataType::Float64 => "pl.Float64",
         DataType::Date => "pl.Date",
+        DataType::Boolean => "pl.Boolean",
+        DataType::Datetime(polars::prelude::TimeUnit::Milliseconds, _) => "pl.Datetime(\"ms\")",
+        DataType::Datetime(polars::prelude::TimeUnit::Microseconds, _) => "pl.Datetime(\"us\")",
+        DataType::Datetime(polars::prelude::TimeUnit::Nanoseconds, _) => "pl.Datetime(\"ns\")",
         _ => "pl.Utf8",
     }
 }

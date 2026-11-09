@@ -171,7 +171,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Export | `:export x.py\|x.sql` | Polars script / DuckDB SQL replaying plan steps, casts, filter, sort, projection; derived sheets (freq, copy, selected, freq dive, join, sql, pivot, `W`, unpivot, describe, row diff) replay from a parent snapshot (`SheetState.lineage`), one variable/CTE per sheet. Not: schema diff, Lua-agg pivots, stdin |
 | Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
 | Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform`, `z\|`, `z/` | run on the blocking pool; status line shows `working: …`; `<C-c>` drops them |
-| Readers | — | ISO-only CSV/TSV date inference (others stay text); integer columns with a leading-zero value (`082053`) stay text (S-24 R4); lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
+| Readers | — | ISO-only CSV/TSV date inference (others stay text); integer columns with a leading-zero value (`082053`) stay text (S-24 R4); xlsx / sqlite columns typed when every value agrees (numbers, booleans, xlsx dates), else text (S-24 R3); lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
 | Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized |
 
 ### 3.11 Added 2026-11-07

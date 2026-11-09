@@ -179,8 +179,8 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td>Arrow IPC</td><td><code>.arrow</code>, <code>.ipc</code>, <code>.feather</code></td><td></td></tr>
 <tr><td>JSON Lines</td><td><code>.jsonl</code>, <code>.ndjson</code></td><td>One record per line.</td></tr>
 <tr><td>JSON</td><td><code>.json</code></td><td>An array of records. A <code>.json</code> file that is really JSON Lines is detected.</td></tr>
-<tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>Cells load as text; use the type keys to convert. Several worksheets → a list to pick from; <code>book.xlsx:Sheet2</code> opens one directly (also in <code>:join</code>/<code>:diff</code>).</td></tr>
-<tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>Columns load as text. Several tables → a list to pick from; <code>app.db:users</code> opens one directly.</td></tr>
+<tr><td>Excel / ODS</td><td><code>.xlsx</code>, <code>.xls</code>, <code>.xlsm</code>, <code>.xlsb</code>, <code>.ods</code></td><td>A column whose cells are all numbers, all true/false or all dates loads with that type; a mixed column loads as text (the type keys convert it). Several worksheets → a list to pick from; <code>book.xlsx:Sheet2</code> opens one directly (also in <code>:join</code>/<code>:diff</code>).</td></tr>
+<tr><td>SQLite</td><td><code>.sqlite</code>, <code>.sqlite3</code>, <code>.db</code></td><td>A column holding only integers loads as integers, only numbers as floats; anything else as text, nothing lost. Several tables → a list to pick from; <code>app.db:users</code> opens one directly.</td></tr>
 <tr><td>DuckDB</td><td><code>.duckdb</code>, <code>.ddb</code></td><td>Needs the <code>duckdb</code> program on <code>PATH</code> (or <code>vd.option("duckdb_cmd", …)</code>). Opens a list of tables and views with their schema, row and column counts, as VisiData; <kbd>Enter</kbd> opens one, typed. <code>app.duckdb:main.users</code> opens one directly. <code>:exec-sql</code> runs SQL in the file; <code>:save x.duckdb</code> writes a table.</td></tr>
 <tr><td>gzip</td><td>any of the above + <code>.gz</code></td><td>The inner extension (or <code>--format</code>) decides the format.</td></tr>
 </table></div>
@@ -702,7 +702,7 @@ end, "list columns")</code></pre>
 <ul>
 <li><strong><code>cargo install</code> fails compiling a dependency</strong> (for example <code>calamine</code> or <code>zip</code>): add <code>--locked</code>.</li>
 <li><strong>"no usable terminal (try --headless)"</strong>: vdrs needs a terminal for the TUI. In scripts or pipes use <code>vdrs --headless file</code>.</li>
-<li><strong>A column of numbers sorts like text</strong>: it was read as text (Excel, SQLite, mixed CSV columns). Press <kbd>#</kbd> or <kbd>%</kbd>.</li>
+<li><strong>A column of numbers sorts like text</strong>: it was read as text (a mixed Excel or SQLite column, a mixed CSV column, or whole numbers with a leading zero). Press <kbd>#</kbd> or <kbd>%</kbd>.</li>
 <li><strong>"no binding: x"</strong>: that key does nothing in this mode. Press the first key of a chord (<kbd>g</kbd>, <kbd>z</kbd>) to see what follows.</li>
 <li><strong>A command prints "working: …" for a while</strong>: it is reading the whole file; keep working, the result appears when done.</li>
 </ul>
@@ -712,7 +712,7 @@ end, "list columns")</code></pre>
 <li>Search, select-all and <kbd>|</kbd> scan the full data each time; on very large files they take a moment (they run in the background).</li>
 <li><code>:join</code> and <code>:sql</code> results are computed once and held in memory, so their row order (and your selections) stay fixed. A join lists rows as VisiData does: keys in the order first seen (this sheet, then keys only the other has), each key's rows together.</li>
 <li>A CSV column of whole numbers stays text when a value starts with a zero (<code>082053</code>, zip codes, ids), so no digit is lost; <kbd>#</kbd> makes it a number.</li>
-<li><code>:export</code> can't rebuild a schema diff (<kbd>D</kbd> with no key columns), pivots with a Lua aggregator, or stdin. SQL scripts load DuckDB's <code>excel</code> / <code>nanoarrow</code> extensions for Excel / Arrow files; nanoarrow can't read Arrow files with string-view columns (as Polars writes them). Joins and diffs may come out in a different row order, DuckDB pivots show 0 where vdrs shows empty, and <code>:sql</code> queries run as written by the other engine.</li>
+<li><code>:export</code> can't rebuild a schema diff (<kbd>D</kbd> with no key columns), pivots with a Lua aggregator, or stdin. SQL scripts load DuckDB's <code>excel</code> / <code>nanoarrow</code> extensions for Excel / Arrow files; nanoarrow can't read Arrow files with string-view columns (as Polars writes them). Diffs may come out in a different row order, DuckDB pivots show 0 where vdrs shows empty, and <code>:sql</code> queries run as written by the other engine.</li>
 <li>Deliberately left out: Python expressions, VisiData's options system, clipboard, macros and interactive cell editing (see <code>docs/direction.md</code> in the repository).</li>
 </ul>
 
