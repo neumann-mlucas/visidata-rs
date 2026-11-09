@@ -775,6 +775,9 @@ impl Script {
                     let cast = if *dt == DataType::Date && is_text(s, c) {
                         self.need(&sql_lenient_date());
                         format!("lenient_date({i})")
+                    } else if dt.is_integer() && is_float(s, c) {
+                        // Polars truncates a float to an int; DuckDB would round
+                        format!("TRY_CAST(trunc({i}) AS {})", sql_dtype(dt))
                     } else {
                         format!("TRY_CAST({i} AS {})", sql_dtype(dt))
                     };
@@ -1636,6 +1639,11 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
 }
 
 /// Base column `c` holds text, so `@` parses it leniently (see `Sheet::view_plan`).
+fn is_float(s: &Sheet, c: &str) -> bool {
+    let schema = s.plan.clone().collect_schema();
+    schema.is_ok_and(|sc| sc.get(c).is_some_and(DataType::is_float))
+}
+
 fn is_text(s: &Sheet, c: &str) -> bool {
     let schema = s.plan.clone().collect_schema();
     schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::String))
