@@ -663,6 +663,12 @@ fn set_expr_writes_selected_rows_only_and_checks_types() {
             .starts_with("expr:")
     );
     assert_eq!(s.edits().len(), 1, "a refused expression adds no step");
+    // Datetime of another unit (and Date ↔ Datetime) fits; text into a date doesn't.
+    let (mut d, _td) = sheet_of("t\n2024-01-02T03:04:05\n");
+    Arc::make_mut(&mut d.view.selected).insert(0);
+    d.set_expr("t", "t + INTERVAL '1 day'").unwrap();
+    d.set_expr("t", "CAST(t AS DATE)").unwrap();
+    assert!(d.set_expr("t", "'x'").unwrap_err().contains("doesn't fit"));
     assert!(s.time_travel(true));
     assert_eq!(ints(&s, "v"), [Some(10), None, Some(30)]);
 }

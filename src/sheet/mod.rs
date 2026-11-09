@@ -854,6 +854,10 @@ impl Sheet {
         let fits = got == want
             || got == &DataType::Null
             || (want.is_numeric() && got.is_numeric())
+            || (want.is_temporal()
+                && got.is_temporal()
+                && !matches!(want, DataType::Duration(_))
+                && !matches!(got, DataType::Duration(_)))
             || (want == &DataType::String && !got.is_nested());
         if !fits {
             return Err(format!("expr: {got} doesn't fit {column} ({want})"));
