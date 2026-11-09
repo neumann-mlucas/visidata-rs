@@ -893,3 +893,26 @@ fn pasted_rows_match_columns_by_name_and_type() {
     assert!(e.contains("don't fit"), "{e}");
     assert_eq!(s.view_plan().collect().unwrap().height(), 3);
 }
+
+#[test]
+fn rows_added_one_after_another_keep_their_order() {
+    // Each `a` lands after the row it made: the gap halves every time.
+    let (mut s, _t) = sheet_of("id\n0\n1\n");
+    let mut at = 0;
+    for i in 2..120 {
+        at = s.add_rows(Some(at), true, None, 1).unwrap()[0];
+        s.edit_cell("id", at, &i.to_string()).unwrap();
+    }
+    let want: Vec<i64> = std::iter::once(0).chain(2..120).chain([1]).collect();
+    assert_eq!(view_ids(&s), want);
+}
+
+#[test]
+fn many_edits_stay_collectable() {
+    let (mut s, _t) = sheet_of("id\n0\n1\n");
+    for i in 0..200 {
+        s.edit_cell("id", 0, &i.to_string()).unwrap();
+    }
+    assert_eq!(view_ids(&s), [199, 1]);
+    assert_eq!(s.edits().len(), 1, "one join, not 200");
+}

@@ -1047,7 +1047,8 @@ impl Sheet {
     /// order (`after`), or the previous one. No anchor: after the last added
     /// row, or at the top of an empty sheet. Midpoints, so nothing renumbers;
     /// a source row's position is its id, so `:tail` rows still follow.
-    fn insert_positions(&self, anchor: Option<u64>, after: bool, k: usize) -> Vec<f64> {
+    /// `None`: the gap is too narrow for `k` distinct positions.
+    fn insert_positions(&self, anchor: Option<u64>, after: bool, k: usize) -> Option<Vec<f64>> {
         let added = self.added_positions();
         let pos_of = |rid: u64| {
             if rid < ADDED_RID {
@@ -1073,9 +1074,47 @@ impl Sheet {
                 (last, last.floor() + 1.0)
             }
         };
-        (1..=k)
+        let out: Vec<f64> = (1..=k)
             .map(|i| lo + (hi - lo) * i as f64 / (k + 1) as f64)
-            .collect()
+            .collect();
+        let fits = std::iter::once(lo)
+            .chain(out.iter().copied())
+            .chain([hi])
+            .collect::<Vec<_>>()
+            .windows(2)
+            .all(|w| w[0] < w[1]);
+        fits.then_some(out)
+    }
+
+    /// Spread the added rows evenly over each gap between source rows,
+    /// keeping their order, so midpoints have room again (inserting after
+    /// the row just added halves the gap every time).
+    fn respace_added(&mut self) -> PolarsResult<()> {
+        let mut all: Vec<(f64, usize, usize)> = Vec::new(); // (pos, step, row)
+        for (i, s) in self.state.steps.iter().enumerate() {
+            if let PlanStep::AddRows { rows } = s {
+                let pos = rows.column(POS)?.f64()?;
+                all.extend(pos.into_no_null_iter().enumerate().map(|(j, p)| (p, i, j)));
+            }
+        }
+        // view order: position, then step and row order (stable sort)
+        all.sort_by(|a, b| a.partial_cmp(b).expect("positions are finite"));
+        let mut new = std::collections::HashMap::new();
+        for gap in all.chunk_by(|a, b| a.0.floor() == b.0.floor()) {
+            let g = gap[0].0.floor();
+            for (r, &(_, i, j)) in gap.iter().enumerate() {
+                new.insert((i, j), g + (r + 1) as f64 / (gap.len() + 1) as f64);
+            }
+        }
+        for (i, s) in self.state.steps.iter_mut().enumerate() {
+            if let PlanStep::AddRows { rows } = s {
+                let pos: Vec<f64> = (0..rows.height()).map(|j| new[&(i, j)]).collect();
+                let mut df = (**rows).clone();
+                df.with_column(Column::new(POS.into(), pos))?;
+                *rows = Arc::new(df);
+            }
+        }
+        Ok(())
     }
 
     /// `a` `ga` `p` `P`: `n` blank rows, or `values` (copied rows, matched by
@@ -1102,9 +1141,17 @@ impl Sheet {
             .max()
             .unwrap_or(ADDED_RID);
         let ids: Vec<u64> = (next..next + n as u64).collect();
+        let pos = match self.insert_positions(anchor, after, n) {
+            Some(p) => p,
+            None => {
+                self.respace_added().map_err(|e| e.to_string())?;
+                self.insert_positions(anchor, after, n)
+                    .ok_or("too many rows to add here")?
+            }
+        };
         let mut cols = vec![
             Column::new(ROW_ID.into(), &ids),
-            Column::new(POS.into(), self.insert_positions(anchor, after, n)),
+            Column::new(POS.into(), pos),
         ];
         if let Some(values) = values {
             let shown = self

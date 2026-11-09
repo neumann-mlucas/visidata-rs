@@ -163,6 +163,57 @@ impl PlanStep {
         )
     }
 
+    /// A literal edit (`SetCol`, `SetCells`) as its `__vdrs_rid`/`__vdrs_v` patch.
+    fn patch(&self) -> Option<PolarsResult<DataFrame>> {
+        Some(match self {
+            PlanStep::SetCells { patch, .. } => Ok((**patch).clone()),
+            PlanStep::SetCol {
+                value, dtype, rids, ..
+            } => {
+                let n = rids.len();
+                let v = match value {
+                    Some(v) if *dtype == DataType::Boolean => {
+                        Ok(Series::new("__vdrs_v".into(), vec![v == "true"; n]))
+                    }
+                    Some(v) => {
+                        Series::new("__vdrs_v".into(), vec![v.as_str(); n]).strict_cast(dtype)
+                    }
+                    None => Ok(Series::full_null("__vdrs_v".into(), n, dtype)),
+                };
+                v.and_then(|v| {
+                    DataFrame::new_infer_height(vec![
+                        Column::new(ROW_ID.into(), &rids[..]),
+                        v.into_column(),
+                    ])
+                })
+            }
+            _ => return None,
+        })
+    }
+
+    /// `self` then `next`, both literal edits of one column, as one
+    /// `SetCells`: `next`'s rows win. Keeps the plan one join deep however
+    /// many cells are typed in.
+    fn merged(&self, next: &PlanStep) -> Option<PolarsResult<PlanStep>> {
+        let column = self.writes()?;
+        if next.writes() != Some(column) {
+            return None;
+        }
+        let (old, new) = (self.patch()?, next.patch()?);
+        Some((|| {
+            let (old, new) = (old?, new?);
+            let ids = lit(new.column(ROW_ID)?.as_materialized_series().clone()).implode(false);
+            let kept = old
+                .lazy()
+                .filter(col(ROW_ID).is_in(ids, false).not())
+                .collect()?;
+            Ok(PlanStep::SetCells {
+                column: column.to_string(),
+                patch: Arc::new(kept.vstack(&new)?),
+            })
+        })())
+    }
+
     /// Columns this step reads besides the one it writes.
     fn reads(&self) -> Vec<String> {
         match self {
@@ -258,9 +309,23 @@ impl Sheet {
             .map(|c| insert_point(&self.state.steps, &c))
             .max()
             .unwrap_or(0);
-        self.state.steps.insert(at, step);
+        let saved = |s: &PlanStep| self.state.saved_edits.contains(s);
+        let merge = match at.checked_sub(1).map(|i| &self.state.steps[i]) {
+            Some(prev) if !saved(prev) => prev.merged(&step).transpose()?,
+            _ => None,
+        };
+        let undo = match merge {
+            Some(m) => Some(std::mem::replace(&mut self.state.steps[at - 1], m)),
+            None => {
+                self.state.steps.insert(at, step);
+                None
+            }
+        };
         if let Err(e) = self.rebuild_plan() {
-            self.state.steps.remove(at);
+            match undo {
+                Some(prev) => self.state.steps[at - 1] = prev,
+                None => drop(self.state.steps.remove(at)),
+            }
             return Err(e);
         }
         self.invalidate(Reason::Rows);
