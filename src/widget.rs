@@ -477,7 +477,7 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
         return;
     }
     let mut widths = SheetWidget::col_widths(df, render);
-    let view = format!("{}|{:?}", s.count_key(), df.get_column_names());
+    let view = format!("{}|{:?}", s.view_key(), df.get_column_names());
     if view == s.state.widths_view {
         for (w, old) in widths.iter_mut().zip(&s.state.widths) {
             *w = (*w).max(*old);
