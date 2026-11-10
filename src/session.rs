@@ -39,18 +39,23 @@ fn abs(p: &Path) -> String {
         .to_string()
 }
 
-/// The file an `open` line opens.
-pub fn root(line: &str) -> Option<String> {
+/// A line that starts a sheet: its file, and whether it's a `tail`.
+pub fn root(line: &str) -> Option<(String, bool)> {
     let line = line.trim().trim_start_matches(':');
     match crate::exline::parse(line).ok()?.as_slice() {
-        [Action::Open { path }] => Some(path.clone()),
+        [Action::Open { path }] => Some((path.clone(), false)),
+        [Action::Tail { path, .. }] => Some((path.clone(), true)),
         _ => None,
     }
 }
 
-/// The first file a session opens (what `vdrs -S` starts on).
-pub fn first_root(text: &str) -> Option<String> {
-    text.lines().find_map(root)
+/// The file `vdrs -S` starts on: the first sheet's, when it's an `open`.
+pub fn first_root(text: &str) -> Result<String, &'static str> {
+    match text.lines().find_map(root) {
+        Some((path, false)) => Ok(path),
+        Some((_, true)) => Err("the first sheet is a tail: :source the session instead"),
+        None => Err("no :open line, nothing to restore"),
+    }
 }
 
 /// Write the session for `sheets` (bottom first) to `path`; pasted cells and
@@ -451,5 +456,19 @@ impl Block {
             row: v.window_offset + v.row_cursor as u64 + 1,
             column: visible.get(v.col_cursor).cloned(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn first_root_is_the_first_sheet_line() {
+        use super::first_root;
+        assert_eq!(
+            first_root("# s\n:open /a.csv\n:tail /b.log\n"),
+            Ok("/a.csv".into())
+        );
+        assert!(first_root(":tail /b.log\n:open /a.csv\n").is_err());
+        assert!(first_root(":sort -x\n").is_err());
     }
 }

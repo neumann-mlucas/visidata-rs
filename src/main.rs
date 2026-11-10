@@ -88,9 +88,9 @@ fn main() -> ExitCode {
                 }
             };
             match visidata_rs::session::first_root(&text) {
-                Some(p) => OsString::from(p),
-                None => {
-                    eprintln!("vdrs: {s}: no :open line, nothing to restore");
+                Ok(p) => OsString::from(p),
+                Err(e) => {
+                    eprintln!("vdrs: {s}: {e}");
                     return ExitCode::from(1);
                 }
             }

@@ -1544,6 +1544,10 @@ impl App {
             && let Some(i) = steps.iter().position(
                 |a| matches!(a, Action::ExCommand(c) if crate::session::root(c).is_some()),
             )
+            // `-S` opened the first sheet's file: only an `open` (first_root)
+            && matches!(&steps[i], Action::ExCommand(c)
+                if crate::session::root(c).is_some_and(|(_, tail)| !tail)
+            )
         {
             steps.remove(i);
         }
