@@ -284,6 +284,26 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             Ok(vec![Action::TimeWalk { n }])
         }
         "undotree" | "undo-tree" => Ok(vec![Action::OpenUndoTree]),
+        "open" | "o" => match split_args(rest, ":open <path>")?.as_slice() {
+            [p] if p != "-" => Ok(vec![Action::Open { path: p.clone() }]),
+            _ => Err(ExError::Usage(":open <path> (a file; not stdin)")),
+        },
+        "source" | "so" => match split_args(rest, ":source <path>")?.as_slice() {
+            [p] => Ok(vec![Action::Source { path: p.clone() }]),
+            _ => Err(ExError::Usage(":source <path>")),
+        },
+        "cursor" => {
+            const USAGE: &str = ":cursor <row> [column]";
+            let a = split_args(rest, USAGE)?;
+            let row = a.first().and_then(|r| r.parse().ok()).filter(|r| *r > 0);
+            match (row, a.get(1), a.len()) {
+                (Some(row), column, 1 | 2) => Ok(vec![Action::SetCursor {
+                    row,
+                    column: column.cloned(),
+                }]),
+                _ => Err(ExError::Usage(USAGE)),
+            }
+        }
         // `:42` → row 42, as in vim.
         n if n.bytes().all(|b| b.is_ascii_digit()) && rest.is_empty() => {
             let row: usize = n.parse().map_err(|_| ExError::Unknown(n.to_string()))?;
@@ -317,6 +337,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
 pub const COMMANDS: &[&str] = &[
     "clear-filter",
     "clear-sort",
+    "cursor",
+    "open",
+    "source",
     "derive",
     "describe",
     "diff",

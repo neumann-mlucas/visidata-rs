@@ -501,6 +501,9 @@ print(t3.collect())</code></pre>
 <tr data-ex="undo"><td><code>:undo</code>, <code>:redo</code></td><td>Undo, redo.</td></tr>
 <tr data-ex="earlier"><td><code>:earlier [n]</code>, <code>:later [n]</code></td><td>Go <var>n</var> states (default 1) back or on in the order they were made, across branches, as vim's <code>:earlier</code>. Bind them with <code>vd.bind</code>; they have no keys.</td></tr>
 <tr data-ex="undotree"><td><code>:undotree</code></td><td>A sheet of the current sheet's states: id, parent, how long ago, the change (indented by depth, so branches show), <code>*</code> on the current one. <kbd>Enter</kbd> goes back to the state under the cursor.</td></tr>
+<tr data-ex="open"><td><code>:open path</code>, <code>:o</code></td><td>Open a file as a new sheet, as on the command line.</td></tr>
+<tr data-ex="cursor"><td><code>:cursor row [column]</code></td><td>Move to row <var>row</var> (from 1) and the named column.</td></tr>
+<tr data-ex="source"><td><code>:source path</code>, <code>:so</code></td><td>Run an ex script: one command per line (the <code>:</code> optional), each after the previous one's background work; blank lines and <code>#</code> comments skipped. From an <code>:open</code> of a missing file to the next <code>:open</code>, lines are skipped.</td></tr>
 <tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
 <tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view.</td></tr>
 <tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>

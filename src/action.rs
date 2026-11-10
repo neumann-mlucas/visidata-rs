@@ -311,6 +311,19 @@ pub enum Action {
     CancelAllJobs,
     RepeatLast,
     Redraw,
+    /// `:open <path>` (S-29): a file as a new sheet, as on the command line.
+    Open {
+        path: String,
+    },
+    /// `:cursor <row> [column]`: row counts from 1 in the view.
+    SetCursor {
+        row: u64,
+        column: Option<String>,
+    },
+    /// `:source <path>`: run an ex script (a session), a line per step.
+    Source {
+        path: String,
+    },
     /// `m` (S-19): start recording a macro; again: stop and ask for its key.
     ToggleMacroRecord,
     /// A macro's steps, played one at a time once background jobs finish.
@@ -439,6 +452,7 @@ impl Action {
             | OpenUndoTree
             | ToggleMacroRecord => false,
             Macro(_) => true,
+            Open { .. } | SetCursor { .. } | Source { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -728,6 +742,13 @@ impl Action {
             SetCol { value } => format!("setcol {}", q(value)),
             EditCell { value } => format!("edit {}", q(value)),
             ExCommand(s) => s.clone(),
+            Open { path } => format!("open {}", q(path)),
+            SetCursor { row, column: None } => format!("cursor {row}"),
+            SetCursor {
+                row,
+                column: Some(c),
+            } => format!("cursor {row} {}", q(c)),
+            Source { path } => format!("source {}", q(path)),
             _ => return None,
         })
     }
@@ -888,6 +909,18 @@ mod tests {
             EditCell { value: s("x\\y") },
             ExpandCol { depth: 1 },
             KeySelected { on: false },
+            Open {
+                path: s("data/a b.csv"),
+            },
+            SetCursor {
+                row: 12,
+                column: Some(s("amount")),
+            },
+            SetCursor {
+                row: 1,
+                column: None,
+            },
+            Source { path: s("s.vdrs") },
         ];
         for a in cases {
             let ex = a.to_ex().unwrap_or_else(|| panic!("no ex form: {a:?}"));

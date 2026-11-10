@@ -268,6 +268,18 @@ impl App {
             Action::Unpivot { on, index } => self.open_unpivot(&on, &index),
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
+            Action::Open { path } => self.open_file(&path),
+            Action::Source { path } => self.source(&path),
+            Action::SetCursor { row, column } => {
+                self.goto_row(row - 1);
+                if let Some(c) = column {
+                    if self.sheets.active().has_column(&c) {
+                        self.goto_column(&c);
+                    } else {
+                        self.toast = Some(format!("no column: {c}"));
+                    }
+                }
+            }
             Action::Save { path } => self.save_active(&path),
             Action::SubmitRow => self.submit_row(),
             Action::ToggleSelectRow => self.toggle_select_current(),
@@ -831,6 +843,52 @@ impl App {
                 rows,
             })
         });
+    }
+
+    /// `:open`: like the command line, a multi-part file opens on its list.
+    fn open_file(&mut self, path: &str) {
+        let Ok(opened) = self.open_with_loader("open", path) else {
+            return;
+        };
+        let id = self.sheets.alloc_id();
+        let path = path.to_string();
+        self.spawn_job("open", move || {
+            let loaded = match opened {
+                Some(l) => l,
+                None => crate::reader::open(path.as_ref(), None).map_err(|e| e.to_string())?,
+            };
+            let parts = match &loaded.path {
+                Some(p) => crate::reader::list_parts(p, loaded.kind).unwrap_or_default(),
+                None => Vec::new(),
+            };
+            let s = if parts.is_empty() && loaded.kind != crate::reader::SourceKind::Duckdb {
+                Sheet::from_source(id, loaded)
+            } else {
+                Sheet::parts_list(id, loaded, parts)
+            };
+            Ok(JobDone::PushSheet(Box::new(s)))
+        });
+    }
+
+    /// `:source`: each line of an ex script becomes a macro step (blank lines
+    /// and `#` comments skipped). A block from `:open`/`:tail` of a missing
+    /// file to the next one is skipped whole: its steps were for that file.
+    fn source(&mut self, path: &str) {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                self.toast = Some(format!("source {path}: {e}"));
+                return;
+            }
+        };
+        let (steps, missing) = source_steps(&text, |p| std::path::Path::new(p).exists());
+        for a in steps.into_iter().rev() {
+            self.macro_queue.push_front((a, false));
+        }
+        if !missing.is_empty() {
+            self.toast = Some(format!("source: skipped (missing): {}", missing.join(", ")));
+        }
+        self.pump_macro();
     }
 
     fn open_tail(&mut self, path: &str, follow: bool) {
@@ -1746,5 +1804,49 @@ fn edits(n: usize) -> String {
         "1 edit".into()
     } else {
         format!("{n} edits")
+    }
+}
+
+/// An ex script's steps, and the missing files whose blocks were skipped.
+fn source_steps(text: &str, exists: impl Fn(&str) -> bool) -> (Vec<Action>, Vec<String>) {
+    let (mut steps, mut missing, mut skipping) = (Vec::new(), Vec::new(), false);
+    for line in text.lines() {
+        let line = line.trim();
+        let cmd = line.strip_prefix(':').unwrap_or(line).trim();
+        if cmd.is_empty() || cmd.starts_with('#') {
+            continue;
+        }
+        if let Ok([Action::Open { path } | Action::Tail { path, .. }]) =
+            crate::exline::parse(cmd).as_deref()
+        {
+            skipping = !exists(path);
+            if skipping {
+                missing.push(path.clone());
+            }
+        }
+        if !skipping {
+            steps.push(Action::ExCommand(cmd.to_string()));
+        }
+    }
+    (steps, missing)
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn missing_file_skips_only_its_block() {
+        let text = "# session\n:open a.csv\n:sort -x\n\n:open gone.csv\n:sort -y\nopen_freq_table\n:tail b.csv\n:cursor 2 x\n";
+        let (steps, missing) = source_steps(text, |p| p != "gone.csv");
+        let cmds: Vec<String> = steps
+            .into_iter()
+            .map(|a| match a {
+                Action::ExCommand(c) => c,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(cmds, ["open a.csv", "sort -x", "tail b.csv", "cursor 2 x"]);
+        assert_eq!(missing, ["gone.csv"]);
     }
 }

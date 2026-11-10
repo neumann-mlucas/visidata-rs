@@ -2403,3 +2403,48 @@ async fn save_hook_gets_path_and_rows_and_bind_functions_exec() {
     assert_eq!(first_cell(&h), "5");
     assert!(title(&h).contains("row 5/5"), "{}", title(&h));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn source_runs_an_ex_script_step_by_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("other file.csv");
+    std::fs::write(&other, "id,name\n1,a\n2,b\n3,b\n").unwrap();
+    let script = dir.path().join("s.vdrs");
+    std::fs::write(
+        &script,
+        format!(
+            "# a session\n:open \"{}\"\n:sort -id\n:cursor 2 name\nopen_freq_table\n:open {}/gone.csv\n:sort -x\n",
+            other.display(),
+            dir.path().display()
+        ),
+    )
+    .unwrap();
+    let mut h = Harness::new(3).await;
+    h.keys(":").await;
+    h.type_(&format!("source {}", script.display())).await;
+    assert!(
+        title(&h).contains("freq(name): ") && title(&h).contains("other file.csv"),
+        "{}",
+        h.screen()
+    );
+    assert!(title(&h).contains("sheets 3"), "{}", title(&h));
+    assert!(status(&h).contains("skipped (missing)") && status(&h).contains("gone.csv"));
+    h.keys("q").await;
+    assert_eq!(first_cell(&h), "3");
+    assert_eq!(h.current_column(), "name");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_hook_cannot_open_again() {
+    let h = with_lua(
+        3,
+        r#"vd.on("open", function(s) vd.exec(":open " .. s.path) end)"#,
+    )
+    .await;
+    assert_eq!(h.app.sheets.len(), 1);
+    assert!(
+        status(&h).contains(":open would open again"),
+        "{}",
+        status(&h)
+    );
+}
