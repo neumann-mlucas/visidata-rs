@@ -359,6 +359,11 @@ mod tests {
             names(&s),
             ["id", "user.name_2", "user.geo", "user.name", "n"]
         );
+        // an expanded column takes edits (they go after the expansion)
+        s.edit_cell("user.name_2", 0, "zed").unwrap();
+        let df = s.view_plan().collect().unwrap();
+        let name = df.column("user.name_2").unwrap().get(0).unwrap();
+        assert_eq!(name, AnyValue::String("zed"));
         assert!(s.contract("n").is_err());
         assert!(s.expand("n", 1).unwrap_err().contains("not a struct"));
     }
