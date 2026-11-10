@@ -104,6 +104,9 @@ impl App {
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
         }
+        if action.is_jump() {
+            self.record_jump();
+        }
         match action {
             Action::Quit => {
                 let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum();
@@ -410,11 +413,55 @@ impl App {
                     .map(|c| {
                         let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
                         let run: Vec<String> = c.run.iter().filter_map(Action::to_ex).collect();
-                        (keys.join(" "), run.join(" ; "), c.desc.to_string())
+                        vec![keys.join(" "), run.join(" ; "), c.desc.to_string()]
                     })
                     .collect();
                 let id = self.sheets.alloc_id();
-                self.sheets.push(Sheet::help_from(id, &rows));
+                let names = ["key", "action", "description"];
+                self.sheets.push(Sheet::listing(id, "help", &names, &rows));
+                self.spawn_materialize();
+            }
+            Action::JumpBack => {
+                let cur = match self.jump_at {
+                    Some(i) => i,
+                    None => {
+                        self.jumps.push(self.here());
+                        self.jumps.len() - 1
+                    }
+                };
+                self.jump_at = Some(cur);
+                match cur.checked_sub(1) {
+                    Some(to) => self.go_jump(to),
+                    None => self.toast = Some("at the oldest jump".into()),
+                }
+            }
+            Action::JumpForward => match self.jump_at {
+                Some(i) if i + 1 < self.jumps.len() => self.go_jump(i + 1),
+                _ => self.toast = Some("at the newest jump".into()),
+            },
+            Action::Jumps => {
+                let name = |id| {
+                    self.sheets
+                        .iter()
+                        .find(|s| s.id == id)
+                        .map(|s| s.name.clone())
+                };
+                let rows: Vec<Vec<String>> = self
+                    .jumps
+                    .iter()
+                    .enumerate()
+                    .map(|(i, j)| {
+                        vec![
+                            if self.jump_at == Some(i) { ">" } else { "" }.into(),
+                            name(j.sheet).unwrap_or_else(|| "(closed)".into()),
+                            (j.row + 1).to_string(),
+                            j.column.clone().unwrap_or_default(),
+                        ]
+                    })
+                    .collect();
+                let id = self.sheets.alloc_id();
+                let names = ["at", "sheet", "row", "column"];
+                self.sheets.push(Sheet::listing(id, "jumps", &names, &rows));
                 self.spawn_materialize();
             }
             Action::JumpPrev => match self.sheets.len() {
@@ -1721,6 +1768,47 @@ impl App {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 
+    /// Where the cursor is, as a jumplist entry.
+    fn here(&self) -> Jump {
+        let s = self.sheets.active();
+        Jump {
+            sheet: s.id,
+            row: s.view.window_offset + s.view.row_cursor as u64,
+            column: self.current_column_name(),
+        }
+    }
+
+    /// Before a big jump (S-26 A7): the position joins the jumplist, and
+    /// what was ahead of a `jump_back` is dropped (vim).
+    fn record_jump(&mut self) {
+        if let Some(i) = self.jump_at.take() {
+            self.jumps.truncate(i);
+        }
+        let here = self.here();
+        if self.jumps.last() != Some(&here) {
+            self.jumps.push(here);
+        }
+        if self.jumps.len() > 100 {
+            self.jumps.remove(0);
+        }
+    }
+
+    fn go_jump(&mut self, to: usize) {
+        self.jump_at = Some(to);
+        let j = self.jumps[to].clone();
+        if self.sheets.active().id != j.sheet {
+            if !self.sheets.switch_to(j.sheet) {
+                self.toast = Some("that sheet is closed".into());
+                return;
+            }
+            self.spawn_materialize();
+        }
+        self.goto_row(j.row);
+        if let Some(c) = j.column.filter(|c| self.sheets.active().has_column(c)) {
+            self.goto_column(&c);
+        }
+    }
+
     /// Row id under the cursor; None on an empty view.
     pub(super) fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
@@ -1982,6 +2070,34 @@ impl App {
     /// The terminal pasted `text` (bracketed paste). In a prompt it's typed
     /// in (first line); in the table it fills the register, as TSV or CSV,
     /// for `p` `zp` `gzp`, and is what `zP` `gzP` paste without a command.
+    /// `vd.option("mouse", "true")` (S-26 A9): the wheel moves the cursor 3
+    /// rows, a click puts it on a cell, a click on the header on a column.
+    pub(super) fn on_mouse(&mut self, m: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let area = self.sheet_area;
+        let inside = m.column >= area.x
+            && m.column < area.x + area.width
+            && m.row >= area.y
+            && m.row < area.y + area.height;
+        match m.kind {
+            MouseEventKind::ScrollDown => self.dispatch(Action::CursorDown { count: Some(3) }),
+            MouseEventKind::ScrollUp => self.dispatch(Action::CursorUp { count: Some(3) }),
+            MouseEventKind::Down(MouseButton::Left) if inside && self.input.is_none() => {
+                let s = self.sheets.active_mut();
+                let col = crate::widget::column_at(&s.view, &s.state.widths, m.column - area.x);
+                if let Some(c) = col {
+                    s.view.col_cursor = c;
+                }
+                let rows = s.window().map_or(0, |df| df.height());
+                let row = s.view.row_offset + (m.row - area.y) as usize;
+                if m.row > area.y && row <= rows {
+                    s.view.row_cursor = row - 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn on_paste(&mut self, text: String) {
         self.toast = None;
         if let Some((_, line)) = self.input.as_mut() {

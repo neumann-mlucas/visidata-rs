@@ -59,31 +59,61 @@ pub async fn run(
     enable_raw_mode().context("no usable terminal (try --headless)")?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
+    push_key_flags();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(initial, plugins, plugin_warning);
+    if app.plugins.as_ref().is_some_and(|p| p.mouse()) {
+        crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
+    }
     app.color = crate::theme::ColorDepth::from_env(|k| std::env::var(k).ok());
     if let Some(s) = session {
         app.source(&s, true);
     }
     let result = app.run(&mut terminal).await;
 
+    pop_key_flags();
     disable_raw_mode().ok();
-    crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen).ok();
+    crossterm::execute!(
+        io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    )
+    .ok();
     terminal.show_cursor().ok();
     result
 }
 
+/// Kitty keyboard protocol, disambiguate only (S-26 A6): `Esc` comes at once,
+/// `<C-i>` ≠ `<Tab>`, `<C-h>` ≠ `<BS>`. Terminals without it ignore the
+/// sequence (no support query: it would stall on terminals that never answer).
+fn push_key_flags() {
+    use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+    let flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES;
+    crossterm::execute!(io::stdout(), PushKeyboardEnhancementFlags(flags)).ok();
+}
+
+fn pop_key_flags() {
+    crossterm::execute!(io::stdout(), crossterm::event::PopKeyboardEnhancementFlags).ok();
+}
+
 /// `<C-z>`: restore the terminal, stop until `fg` (SIGCONT), take it back.
-fn suspend<B: ratatui::backend::Backend>(term: &mut Terminal<B>) -> Result<()>
+fn suspend<B: ratatui::backend::Backend>(term: &mut Terminal<B>, mouse: bool) -> Result<()>
 where
     B::Error: Send + Sync + 'static,
 {
     #[cfg(unix)]
     {
+        pop_key_flags();
         disable_raw_mode()?;
-        crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen)?;
+        crossterm::execute!(
+            io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
         // the stop lands before `kill` is reaped; `fg` continues from here
         let stopped = std::process::Command::new("kill")
             .args(["-TSTP", &std::process::id().to_string()])
@@ -95,6 +125,10 @@ where
             EnableBracketedPaste,
             crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
         )?;
+        push_key_flags();
+        if mouse {
+            crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
+        }
         // `term.clear()` would ask the terminal for the cursor, and the
         // event stream eats the reply: reset both buffers for a full redraw
         term.swap_buffers();
@@ -102,15 +136,21 @@ where
         stopped.context("kill -TSTP")?;
     }
     #[cfg(not(unix))]
-    let _ = term;
+    let _ = (term, mouse);
     Ok(())
 }
 
 fn install_panic_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        pop_key_flags();
         let _ = disable_raw_mode();
-        let _ = crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen);
+        let _ = crossterm::execute!(
+            io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        );
         default(info);
     }));
 }
@@ -321,6 +361,14 @@ enum Prompt {
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
+/// A jumplist place: sheet, view row (from 0), column.
+#[derive(Debug, Clone, PartialEq)]
+struct Jump {
+    sheet: SheetId,
+    row: u64,
+    column: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Confirm {
     Pop,
@@ -441,6 +489,11 @@ pub struct App {
     viewport_rows: usize,
     /// Columns of the table area: a plot bins x to twice this (braille).
     viewport_cols: u16,
+    /// Places before big jumps (S-26 A7); `jump_at`: where `jump_back` is.
+    jumps: Vec<Jump>,
+    jump_at: Option<usize>,
+    /// Where the active sheet was last drawn (mouse clicks).
+    sheet_area: ratatui::layout::Rect,
     register: Option<Register>,
     /// Asked in the status line: unsaved edits would be lost (S-26 A1).
     confirm: Option<(Confirm, String)>,
@@ -505,6 +558,9 @@ impl App {
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
             viewport_cols: 100,
+            sheet_area: ratatui::layout::Rect::default(),
+            jumps: Vec::new(),
+            jump_at: None,
             register: None,
             confirm: None,
             clipboard,
@@ -550,6 +606,10 @@ impl App {
                         dirty = true;
                     }
                     Some(Ok(CtEvent::Resize(_, _))) => dirty = true,
+                    Some(Ok(CtEvent::Mouse(m))) => {
+                        self.on_mouse(m);
+                        dirty = true;
+                    }
                     Some(Ok(CtEvent::Paste(text))) => {
                         self.on_paste(text);
                         dirty = true;
@@ -582,7 +642,8 @@ impl App {
                 dirty = true;
             }
             if std::mem::take(&mut self.suspend) {
-                if let Err(e) = suspend(term) {
+                let mouse = self.plugins.as_ref().is_some_and(|p| p.mouse());
+                if let Err(e) = suspend(term, mouse) {
                     self.toast = Some(format!("suspend: {e}"));
                 }
                 dirty = true;
@@ -1594,7 +1655,18 @@ impl App {
         self.toast = None;
         if *prompt == Prompt::Ex && key.code == KeyCode::Tab {
             let lua = self.plugins.as_ref().map(|p| p.command_names());
-            self.toast = complete_command(line, lua.unwrap_or_default());
+            let chords = self.keymap.chords(Layer::Sheet);
+            let key_of = |name: &str| {
+                let a = Action::from_name(name)?;
+                let c = chords.iter().find(|c| c.run == [a.clone()])?;
+                Some(
+                    c.on.iter()
+                        .map(|k| k.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+            };
+            self.toast = complete_command(line, lua.unwrap_or_default(), key_of);
             return;
         }
         if line.edit(key) {
@@ -2014,24 +2086,45 @@ fn lua_pivot(
 
 /// Tab in the `:` prompt: complete the command name under the cursor, vim
 /// style. One match → the name and a space; several → their common prefix,
-/// with the candidates as the returned toast. Arguments aren't completed.
-fn complete_command(line: &mut LineEdit, lua: Vec<String>) -> Option<String> {
+/// with the candidates (and their keys) as the returned toast. No name starts
+/// with the text → names holding its letters in order (`srtd` → `sort-desc`).
+/// Arguments aren't completed.
+fn complete_command(
+    line: &mut LineEdit,
+    lua: Vec<String>,
+    key_of: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
     let (before, after) = line.split();
     if !after.is_empty() || before.contains(char::is_whitespace) {
         return None;
     }
-    let mut names: Vec<String> = crate::exline::command_names()
+    let mut all: Vec<String> = crate::exline::command_names()
         .into_iter()
         .chain(lua)
-        .filter(|n| n.starts_with(before))
         .collect();
-    names.sort();
-    names.dedup();
+    all.sort();
+    all.dedup();
+    let prefixed: Vec<&String> = all.iter().filter(|n| n.starts_with(before)).collect();
+    let fuzzy = prefixed.is_empty();
+    let names: Vec<&String> = match fuzzy {
+        false => prefixed,
+        true => all.iter().filter(|n| subsequence(before, n)).collect(),
+    };
+    let shown = |n: &&String| match key_of(n) {
+        Some(k) => format!("{n} ({k})"),
+        None => n.to_string(),
+    };
     match names.as_slice() {
-        [] => Some(format!("no command starts with {before:?}")),
+        [] => Some(format!("no command matches {before:?}")),
         [one] => {
             line.set(&format!("{one} "));
             None
+        }
+        many if fuzzy => {
+            const SHOWN: usize = 12;
+            let more = if many.len() > SHOWN { " …" } else { "" };
+            let list: Vec<String> = many.iter().take(SHOWN).map(shown).collect();
+            Some(list.join(" ") + more)
         }
         many => {
             let first = &many[0];
@@ -2046,9 +2139,16 @@ fn complete_command(line: &mut LineEdit, lua: Vec<String>) -> Option<String> {
             line.set(&first[..common]);
             const SHOWN: usize = 12;
             let more = if many.len() > SHOWN { " …" } else { "" };
-            Some(many[..many.len().min(SHOWN)].join(" ") + more)
+            let list: Vec<String> = many.iter().take(SHOWN).map(shown).collect();
+            Some(list.join(" ") + more)
         }
     }
+}
+
+/// `needle`'s chars appear in `hay` in order.
+fn subsequence(needle: &str, hay: &str) -> bool {
+    let mut it = hay.chars();
+    needle.chars().all(|c| it.any(|h| h == c))
 }
 
 /// `=` input: `name = expr` names the column when `name` is a new column;

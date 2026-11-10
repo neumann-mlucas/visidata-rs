@@ -434,6 +434,11 @@ pub enum Action {
     JumpPrev,
     /// `<C-z>`: suspend to the shell (unix).
     Suspend,
+    /// Back / forward in the jumplist (S-26 A7; vim profile `<C-o>` / `<C-i>`).
+    JumpBack,
+    JumpForward,
+    /// `:jumps`: the jumplist as a sheet.
+    Jumps,
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
     Link {
         on: bool,
@@ -567,6 +572,23 @@ impl Action {
         )
     }
 
+    /// A big move the jumplist remembers the place before (S-26 A7).
+    pub fn is_jump(&self) -> bool {
+        use Action::*;
+        matches!(
+            self,
+            GotoTop
+                | GotoBottom
+                | SetCursor { .. }
+                | SearchNext
+                | SearchPrev
+                | JumpPrev
+                | SubmitRow
+                | OpenFreqTable
+                | OpenSheetSwitcher
+        )
+    }
+
     /// Whether `.` should repeat this action. No wildcard: a new action must
     /// say. Prompts stay out: what `.` repeats is the submitted result.
     pub fn repeatable(&self) -> bool {
@@ -592,6 +614,7 @@ impl Action {
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HelpCommands | JumpPrev | Suspend => false,
+            JumpBack | JumpForward | Jumps => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -808,6 +831,9 @@ impl Action {
         ("help_commands", HelpCommands),
         ("jump_prev", JumpPrev),
         ("suspend", Suspend),
+        ("jump_back", JumpBack),
+        ("jump_forward", JumpForward),
+        ("jumps", Jumps),
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),

@@ -228,8 +228,8 @@ pub enum Origin {
     Lua {
         parent: SheetId,
     },
-    /// `z<C-h>`: the key bindings.
-    Help,
+    /// A text listing vdrs made: `z<C-h>` bindings, `:jumps`.
+    Listing,
     /// `g"` / `:dup`: copy of `parent`'s view.
     Copy {
         parent: SheetId,
@@ -267,7 +267,7 @@ impl Origin {
             Origin::Sql { .. } => "sql",
             Origin::Describe { .. } => "describe",
             Origin::Lua { .. } => "lua",
-            Origin::Help => "help",
+            Origin::Listing => "list",
             Origin::Copy { .. } => "copy",
             Origin::Parts { .. } => "parts",
             Origin::Join { .. } => "join",
@@ -610,21 +610,17 @@ impl Sheet {
     /// `cap`. Also whether the cap cut it short.
     /// `:notes` (S-30 B): a sheet of the notes on `parent`'s cells, `row` = its
     /// view position now (empty: filtered out or gone); `Enter` jumps, as `:hits`.
-    /// The help sheet: one row per binding, `(keys, action, description)`.
-    pub fn help_from(id: SheetId, rows: &[(String, String, String)]) -> Self {
-        let col = |n: &str, f: fn(&(String, String, String)) -> &String| {
-            Column::new(
-                n.into(),
-                rows.iter().map(|r| f(r).clone()).collect::<Vec<_>>(),
-            )
-        };
-        let df = DataFrame::new_infer_height(vec![
-            col("key", |r| &r.0),
-            col("action", |r| &r.1),
-            col("description", |r| &r.2),
-        ])
-        .unwrap_or_default();
-        Self::meta(id, "help".into(), df, Origin::Help)
+    /// A sheet of text columns `names`, one `rows` entry per row.
+    pub fn listing(id: SheetId, name: &str, names: &[&str], rows: &[Vec<String>]) -> Self {
+        let cols = names.iter().enumerate().map(|(i, n)| {
+            let v: Vec<String> = rows
+                .iter()
+                .map(|r| r.get(i).cloned().unwrap_or_default())
+                .collect();
+            Column::new((*n).into(), v)
+        });
+        let df = DataFrame::new_infer_height(cols.collect()).unwrap_or_default();
+        Self::meta(id, name.into(), df, Origin::Listing)
     }
 
     pub fn notes_from(

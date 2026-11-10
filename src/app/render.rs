@@ -99,6 +99,7 @@ impl App {
         };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
         self.viewport_cols = sheet_area.width;
+        self.sheet_area = sheet_area;
         // ponytail: the notes file is read here on first sight, on the UI
         // thread; it's small. Move to a job if notes files grow.
         let _ = self.notes_mut();

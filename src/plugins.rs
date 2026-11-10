@@ -37,6 +37,8 @@ struct Registry {
     duckdb_cmd: Option<String>,
     /// `vd.option("session_autosave", "false")` turns it off.
     no_autosave: bool,
+    /// `vd.option("mouse", "true")` (S-26 A9).
+    mouse: bool,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -456,6 +458,13 @@ impl Plugins {
             .is_none_or(|r| !r.borrow().no_autosave)
     }
 
+    /// `vd.option("mouse", "true")`: wheel and clicks move the cursor.
+    pub fn mouse(&self) -> bool {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .is_some_and(|r| r.borrow().mouse)
+    }
+
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         reg.borrow().duckdb_cmd.clone()
@@ -649,9 +658,20 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                         }
                     }
                 }
+                "mouse" => {
+                    registry(lua)?.borrow_mut().mouse = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => {
+                            return Err(mlua::Error::RuntimeError(
+                                "vd.option: mouse is \"true\" or \"false\"".into(),
+                            ));
+                        }
+                    }
+                }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, session_autosave)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, mouse, session_autosave)"
                     )));
                 }
             }

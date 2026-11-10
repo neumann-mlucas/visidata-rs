@@ -21,6 +21,8 @@ struct Vdrs {
     child: Box<dyn portable_pty::Child + Send + Sync>,
     input: Box<dyn Write + Send>,
     screen: Arc<Mutex<vt100::Parser>>,
+    /// Every byte the child wrote.
+    raw: Arc<Mutex<Vec<u8>>>,
     _home: Option<tempfile::TempDir>,
 }
 
@@ -65,10 +67,13 @@ impl Vdrs {
             0,
         )));
         let sink = Arc::clone(&screen);
+        let raw = Arc::new(Mutex::new(Vec::new()));
+        let raw_sink = Arc::clone(&raw);
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             while let Ok(n @ 1..) = reader.read(&mut buf) {
                 sink.lock().unwrap().process(&buf[..n]);
+                raw_sink.lock().unwrap().extend_from_slice(&buf[..n]);
             }
         });
         let input = pty.master.take_writer().unwrap();
@@ -77,6 +82,7 @@ impl Vdrs {
             child,
             input,
             screen,
+            raw,
             _home: None,
         };
         // Keys before the columns are known have nothing to move over.
@@ -230,6 +236,10 @@ fn q_quits_and_restores_the_terminal() {
         !p.screen().alternate_screen(),
         "left the alternate screen on"
     );
+    // S-26 A6: the kitty keyboard flags go on at start and off at exit
+    let raw = String::from_utf8_lossy(&vd.raw.lock().unwrap()).to_string();
+    let (push, pop) = (raw.find("\x1b[>1u"), raw.rfind("\x1b[<1u"));
+    assert!(push.is_some() && pop > push, "push {push:?} pop {pop:?}");
 }
 
 /// S-26 A3: `<C-z>` stops the process with the terminal handed back; after

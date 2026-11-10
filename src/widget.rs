@@ -626,6 +626,18 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
     s.state.widths_view = view;
 }
 
+/// The column drawn at `x` (from the sheet area's left edge), as `draw` lays
+/// them out: frozen ones, then from `col_offset` on (mouse clicks, S-26 A9).
+pub fn column_at(view: &View, widths: &[u16], x: u16) -> Option<usize> {
+    let frozen = view.frozen_left.min(widths.len());
+    let scrolled = (frozen + view.col_offset).min(widths.len())..widths.len();
+    let mut end = 0u16;
+    (0..frozen).chain(scrolled).find(|&i| {
+        end = end.saturating_add(widths[i] + SheetWidget::CELL_PAD);
+        x < end
+    })
+}
+
 pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
     let (rows, cols) = (df.height(), df.width());
     let data_rows = (area.height as usize).saturating_sub(1).max(1); // minus header

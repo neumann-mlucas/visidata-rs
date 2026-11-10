@@ -953,7 +953,20 @@ async fn tab_completes_ex_command_names() {
     h.keys("<Tab>").await; // unselect-all, unselect-row → common prefix
     assert_eq!(h.app.input.as_ref().unwrap().1.text(), "unselect-");
     assert!(
-        h.screen().contains("unselect-all unselect-row"),
+        h.screen().contains("unselect-all (g u) unselect-row (u)"),
+        "{}",
+        h.screen()
+    );
+    // S-26 A8: no prefix match → letters in order
+    h.keys("<C-u>").await;
+    h.type_no_enter("dedrw").await;
+    h.keys("<Tab>").await;
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "dedupe-rows ");
+    h.keys("<C-u>").await;
+    h.type_no_enter("qzx").await;
+    h.keys("<Tab>").await;
+    assert!(
+        h.screen().contains("no command matches \"qzx\""),
         "{}",
         h.screen()
     );
@@ -3100,4 +3113,89 @@ async fn no_color_and_256_color_frames() {
         ruled.modifier.contains(Modifier::REVERSED),
         ":color as reverse"
     );
+}
+
+/// S-26 A9: a click puts the cursor on the cell under it (the header: just
+/// the column); the wheel moves it 3 rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn mouse_clicks_and_wheel_move_the_cursor() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let mut h = Harness::new(30).await;
+    let at = |kind, column, row| MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let screen = h.screen();
+    let header = screen.lines().nth(1).unwrap();
+    let x = header.find("grp").unwrap() as u16;
+    let y = screen.lines().position(|l| l.contains("name_3")).unwrap() as u16;
+    h.app
+        .on_mouse(at(MouseEventKind::Down(MouseButton::Left), x, y));
+    h.pump().await;
+    assert_eq!(h.current_column(), "grp");
+    assert!(title(&h).contains("row 3/30"), "{}", title(&h));
+    h.app
+        .on_mouse(at(MouseEventKind::Down(MouseButton::Left), 1, 1));
+    h.pump().await;
+    assert_eq!(h.current_column(), "id");
+    assert!(title(&h).contains("row 3/30"), "header click keeps the row");
+    h.app.on_mouse(at(MouseEventKind::ScrollDown, 1, 5));
+    h.pump().await;
+    assert!(title(&h).contains("row 6/30"), "{}", title(&h));
+    let p = crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "true")"#).unwrap();
+    assert!(p.mouse());
+    assert!(crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "yes")"#).is_err());
+}
+
+/// S-26 A7: big jumps record where they left; `jump-back` / `jump-forward`
+/// walk the list (vim's `<C-o>` / `<C-i>`), `:jumps` shows it.
+#[tokio::test(flavor = "multi_thread")]
+async fn jumplist_walks_back_and_forward() {
+    let mut h = Harness::new(30).await;
+    let row = |h: &Harness| {
+        let t = title(h);
+        t.split("row ")
+            .nth(1)
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    h.keys("G").await;
+    h.keys(":").await;
+    h.type_("cursor 10").await;
+    assert_eq!(row(&h), "10");
+    for (cmd, want) in [("jump-back", "30"), ("jump-back", "1")] {
+        h.keys(":").await;
+        h.type_(cmd).await;
+        assert_eq!(row(&h), want, "{cmd}");
+    }
+    h.keys(":").await;
+    h.type_("jump-back").await;
+    assert_eq!(status(&h), "at the oldest jump");
+    for (cmd, want) in [("jump-forward", "30"), ("jump-forward", "10")] {
+        h.keys(":").await;
+        h.type_(cmd).await;
+        assert_eq!(row(&h), want, "{cmd}");
+    }
+    h.keys(":").await;
+    h.type_("jump-forward").await;
+    assert_eq!(status(&h), "at the newest jump");
+    h.keys(":").await;
+    h.type_("jumps").await;
+    let t = csv_text(h.app.sheets.active(), b'|');
+    let rows: Vec<(bool, &str)> = t
+        .lines()
+        .skip(1)
+        .map(|l| (l.starts_with('>'), l.rsplit('|').nth(1).unwrap()))
+        .collect();
+    assert_eq!(rows, [(false, "1"), (false, "30"), (true, "10")], "{t}");
+    // a new jump after going back drops what was ahead
+    h.keys("q :").await;
+    h.type_("jump-back").await;
+    h.keys("g g").await;
+    assert_eq!(h.app.jumps.len(), 2, "{:?}", h.app.jumps);
 }

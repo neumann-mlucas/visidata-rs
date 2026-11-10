@@ -131,6 +131,9 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
 | `JumpPrev` | `<C-^>` / `<C-6>` | the sheet under the active one comes to the top (VisiData `jump-prev`); twice = back (S-26 A7) |
 | `HelpCommands` | `z<C-h>` / `z<F1>` / `z<BS>`, `:help` | push a `help` sheet: key, action (`to_ex`), description per sheet-layer chord (S-26 A5) |
+| `JumpBack` / `JumpForward` / `Jumps` | `:jump-back` `:jump-forward` `:jumps` (vim profile `<C-o>` `<C-i>`) | jumplist of (sheet, view row, column) recorded before `gg G :cursor n N <C-^> Enter F S`; back from the newest first adds the current place; a new jump drops what was ahead; 100 kept (S-26 A7) |
+| mouse | `vd.option("mouse", "true")` | `EnableMouseCapture`; wheel = 3 rows; click = cell, header click = column (`widget::column_at`) (S-26 A9) |
+| keyboard protocol | — | kitty `DISAMBIGUATE_ESCAPE_CODES` pushed at start / after `<C-z>`, popped on exit, suspend, panic (S-26 A6) |
 | `Suspend` | `<C-z>` | leave raw mode + alt screen, `kill -TSTP` self, take the terminal back on `SIGCONT` (unix; full redraw without a cursor query) (S-26 A3) |
 
 ### 3.7 Plan panel
