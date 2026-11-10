@@ -48,6 +48,7 @@ impl Harness {
     pub async fn pump(&mut self) {
         // Generous timeout: parallel tests share CPUs; settled() ends it early.
         loop {
+            self.app.fire_push_hooks();
             self.app.pump_macro();
             if self.app.settled() {
                 break;
@@ -2330,4 +2331,75 @@ async fn macro_refuses_steps_without_ex_form_and_discards_on_empty_key() {
     h.type_("").await;
     assert_eq!(status(&h), "macro discarded");
     assert!(h.app.recording.is_none());
+}
+
+/// Harness with `lua` loaded before the first sheet's `open` event.
+async fn with_lua(rows: usize, lua: &str) -> Harness {
+    let mut h = Harness::new(rows).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.app.keymap = keymap_and_theme(h.app.plugins.as_ref()).0;
+    h.app.hooked = None;
+    h.pump().await;
+    h
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_hook_runs_ex_commands_on_the_new_sheet() {
+    let h = with_lua(
+        30,
+        r#"vd.on("open", function(s)
+            if s.path:match("%.csv$") and s.format == "csv" then vd.exec(":sort -id") end
+        end)"#,
+    )
+    .await;
+    assert_eq!(first_cell(&h), "30", "{}", h.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failing_hook_toasts_and_the_rest_still_run() {
+    let h = with_lua(
+        5,
+        r#"vd.on("open", function(s) error("boom") end)
+           vd.on("open", function(s) vd.toast("cols " .. #s.column_names) end)"#,
+    )
+    .await;
+    let st = status(&h);
+    assert!(st.contains("vd.on open") && st.contains("boom"), "{st}");
+    assert!(st.ends_with("cols 4"), "{st}");
+    assert_eq!(first_cell(&h), "1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn push_hook_sees_the_origin_and_cannot_loop() {
+    let mut h = with_lua(
+        30,
+        r#"vd.on("push", function(s)
+            vd.toast(s.origin)
+            if s.origin == "freq" then vd.exec("open_freq_table") end
+        end)"#,
+    )
+    .await;
+    assert_eq!(status(&h), "file");
+    h.keys("l l F").await;
+    // the hook's own freq sheet fires nothing: two freq sheets, then quiet
+    assert_eq!(h.app.sheets.len(), 3, "{}", h.screen());
+    assert!(title(&h).contains("freq(grp): freq(grp)"), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn save_hook_gets_path_and_rows_and_bind_functions_exec() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.csv");
+    let mut h = with_lua(
+        5,
+        r#"vd.on("save", function(s) vd.toast(s.rows .. " " .. s.path) end)
+           vd.bind("sheet", "<F9>", function() vd.exec(":sort -id"); vd.exec("goto_bottom") end)"#,
+    )
+    .await;
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.display())).await;
+    assert_eq!(status(&h), format!("5 {}", out.display()));
+    h.keys("<F9>").await;
+    assert_eq!(first_cell(&h), "5");
+    assert!(title(&h).contains("row 5/5"), "{}", title(&h));
 }

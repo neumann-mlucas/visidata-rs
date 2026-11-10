@@ -90,7 +90,7 @@ impl App {
             },
             Action::Macro(steps) => {
                 for a in steps.into_iter().rev() {
-                    self.macro_queue.push_front(a);
+                    self.macro_queue.push_front((a, false));
                 }
                 self.pump_macro();
             }
@@ -823,7 +823,13 @@ impl App {
                 crate::sheet::write_df_by_extension(&mut df, p).map_err(|e| e.to_string())?;
             }
             let note = format!("saved {} rows → {path}", df.height());
-            Ok(JobDone::Saved { note, edits })
+            let rows = df.height();
+            Ok(JobDone::Saved {
+                note,
+                edits,
+                path,
+                rows,
+            })
         });
     }
 

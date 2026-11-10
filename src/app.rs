@@ -196,6 +196,8 @@ enum JobDone {
     Saved {
         note: String,
         edits: Vec<crate::sheet::PlanStep>,
+        path: String,
+        rows: usize,
     },
     /// The job's source, read into memory.
     Loaded(DataFrame),
@@ -318,7 +320,12 @@ pub struct App {
     /// what couldn't be recorded.
     recording: Option<Recording>,
     /// Macro steps still to play; each waits for the previous one's jobs.
-    macro_queue: std::collections::VecDeque<Action>,
+    /// `true`: a `vd.on` handler's `vd.exec`, whose new sheets fire no events.
+    macro_queue: std::collections::VecDeque<(Action, bool)>,
+    /// `vd.on` (S-29): the newest sheet `open` / `push` fired for, and the
+    /// ids of sheets hook commands made (they fire nothing: no loops).
+    hooked: Option<SheetId>,
+    hook_born: Vec<std::ops::Range<SheetId>>,
     /// A macro step is dispatching: its actions are neither recorded nor `.`.
     replaying: bool,
     toast: Option<String>,
@@ -378,6 +385,8 @@ impl App {
             last_action: None,
             recording: None,
             macro_queue: Default::default(),
+            hooked: None,
+            hook_born: Vec::new(),
             replaying: false,
             toast: plugin_warning,
             input: None,
@@ -454,6 +463,7 @@ impl App {
                 }
                 _ = tick.tick() => dirty = self.spin() != self.drawn_spin,
             }
+            dirty |= self.fire_push_hooks();
             if !self.macro_queue.is_empty() && self.idle() {
                 self.pump_macro();
                 dirty = true;
@@ -462,6 +472,7 @@ impl App {
                 break;
             }
         }
+        self.fire_event("quit", &[]);
         Ok(())
     }
 
@@ -485,13 +496,109 @@ impl App {
     /// a prompt or a question pauses playback until it's answered.
     fn pump_macro(&mut self) {
         while self.idle() && self.input.is_none() && self.confirm.is_none() {
-            let Some(a) = self.macro_queue.pop_front() else {
+            let Some((a, hook)) = self.macro_queue.pop_front() else {
                 return;
             };
+            let lo = self.sheets.next_id();
             self.replaying = true;
             self.dispatch(a);
             self.replaying = false;
+            if hook && self.sheets.next_id() > lo {
+                self.hook_born.push(lo..self.sheets.next_id());
+            }
         }
+    }
+
+    /// `vd.sheet()` of the active sheet, for a Lua callback.
+    fn with_ctx<R>(
+        &self,
+        f: impl FnOnce(&crate::plugins::Plugins, &crate::plugins::SheetCtx) -> R,
+    ) -> Option<R> {
+        let p = self.plugins.as_ref()?;
+        let s = self.sheets.active();
+        let v = &s.view;
+        let df = s.window();
+        let ctx = crate::plugins::SheetCtx {
+            name: &s.name,
+            row: v.window_offset + v.row_cursor as u64 + 1,
+            col: v.col_cursor + 1,
+            column_names: df.map_or_else(Vec::new, |df| {
+                df.get_column_names()
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect()
+            }),
+            value: df
+                .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
+                .unwrap_or(AnyValue::Null),
+        };
+        Some(f(p, &ctx))
+    }
+
+    /// Run `event`'s `vd.on` handlers on the active sheet; their `vd.exec`
+    /// commands queue as macro steps, their messages go to the status line.
+    fn fire_event(&mut self, event: &str, extra: &[(&str, String)]) {
+        if !self.plugins.as_ref().is_some_and(|p| p.handles(event)) {
+            return;
+        }
+        let Some((out, errors)) = self.with_ctx(|p, ctx| p.fire(event, ctx, extra)) else {
+            return;
+        };
+        let mut msgs = errors;
+        for cmd in out.execs {
+            let name = cmd.split_whitespace().next().unwrap_or_default();
+            if event == "open" && matches!(name, "open" | "o" | "tail" | "source") {
+                msgs.push(format!("vd.on open: :{name} would open again; skipped"));
+                continue;
+            }
+            self.macro_queue.push_back((Action::ExCommand(cmd), true));
+        }
+        msgs.extend(out.toasts);
+        if !out.sheets.is_empty() {
+            msgs.push("vd.push_sheet works in vd.bind / vd.command functions".into());
+        }
+        if !msgs.is_empty() {
+            self.toast = Some(msgs.join(" · "));
+        }
+    }
+
+    /// `open` / `push` for a new sheet on top, once its first window is in
+    /// (so `vd.sheet()` has columns). Sheets hook commands made fire nothing.
+    fn fire_push_hooks(&mut self) -> bool {
+        let s = self.sheets.active();
+        if self.hooked.is_some_and(|h| s.id <= h) || !s.is_loaded() {
+            return false;
+        }
+        self.hooked = Some(s.id);
+        if self.hook_born.iter().any(|r| r.contains(&s.id)) {
+            return false;
+        }
+        let origin = s.origin.name();
+        let path = s
+            .source
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let format = format!("{:?}", s.kind).to_lowercase();
+        if matches!(
+            s.origin,
+            Origin::File | Origin::Tail { .. } | Origin::Parts { .. }
+        ) {
+            self.fire_event(
+                "open",
+                &[("path", path.clone()), ("format", format.clone())],
+            );
+        }
+        self.fire_event(
+            "push",
+            &[
+                ("path", path),
+                ("format", format),
+                ("origin", origin.into()),
+            ],
+        );
+        true
     }
 
     /// Record what a key or prompt resolved to (S-19); `None` = recorded,
@@ -656,11 +763,17 @@ impl App {
                     s.set_memory_base(df);
                 }
             }
-            Ok(JobDone::Saved { note, edits }) => {
+            Ok(JobDone::Saved {
+                note,
+                edits,
+                path,
+                rows,
+            }) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
                     s.state.saved_edits = edits;
                 }
                 self.toast = Some(note);
+                self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
             }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
             Ok(JobDone::ExecSql { db, index, rows }) => {
@@ -1274,40 +1387,24 @@ impl App {
     /// A Lua callback (`vd.bind`, or `vd.command` with `args`): `vd.sheet()`
     /// describes the active sheet's cursor.
     fn run_lua(&mut self, id: usize, args: Option<&str>) {
-        let Some(p) = self.plugins.as_ref() else {
-            return;
-        };
-        let s = self.sheets.active();
-        let v = &s.view;
-        let df = s.window();
-        let ctx = crate::plugins::SheetCtx {
-            name: &s.name,
-            row: v.window_offset + v.row_cursor as u64 + 1,
-            col: v.col_cursor + 1,
-            column_names: df.map_or_else(Vec::new, |df| {
-                df.get_column_names()
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect()
-            }),
-            value: df
-                .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
-                .unwrap_or(AnyValue::Null),
-        };
-        let out = match p.call(id, &ctx, args) {
-            Ok(out) => out,
-            Err(e) => {
+        let out = match self.with_ctx(|p, ctx| p.call(id, ctx, args)) {
+            None => return,
+            Some(Ok(out)) => out,
+            Some(Err(e)) => {
                 self.toast = Some(format!("{e}"));
                 return;
             }
         };
-        let parent = s.id;
+        let parent = self.sheets.active().id;
         for (name, df) in out.sheets {
             let id = self.sheets.alloc_id();
             let origin = Origin::Lua { parent };
             let child = Sheet::child(self.sheets.active(), id, name, df.lazy(), origin);
             self.sheets.push(child);
             self.spawn_materialize();
+        }
+        for cmd in out.execs {
+            self.macro_queue.push_back((Action::ExCommand(cmd), false));
         }
         if !out.toasts.is_empty() {
             self.toast = Some(out.toasts.join(" · "));

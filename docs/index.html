@@ -707,6 +707,23 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 <h3>vd.sheet(), vd.toast(message)</h3>
 <p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
 
+<h3>vd.exec(command)</h3>
+<p>Inside a <code>vd.bind</code>, <code>vd.command</code> or <code>vd.on</code> function: run an ex command (<code>":sort -date"</code>, or an action name) once the function returns. Several run in order, each after the previous one's background work, like a macro.</p>
+
+<h3>vd.on(event, fn)</h3>
+<p>Run <code>fn(sheet)</code> on an event; several handlers per event run in the order registered, and an error in one is shown in the status line without stopping the others. <code>sheet</code> is what <code>vd.sheet()</code> returns, plus fields per event:</p>
+<div class="table-wrap"><table>
+<tr><th>Event</th><th>Fires</th><th>Extra fields</th></tr>
+<tr><td><code>"open"</code></td><td>A sheet read from a file is on top, its first rows loaded.</td><td><code>path</code>, <code>format</code></td></tr>
+<tr><td><code>"push"</code></td><td>Any new sheet is on top (files and derived sheets).</td><td><code>path</code>, <code>format</code>, <code>origin</code> (<code>"file"</code>, <code>"freq"</code>, <code>"join"</code>, …)</td></tr>
+<tr><td><code>"save"</code></td><td><code>:save</code> wrote the file.</td><td><code>path</code>, <code>rows</code></td></tr>
+<tr><td><code>"quit"</code></td><td>vdrs is about to exit.</td><td>—</td></tr>
+</table></div>
+<p>Sheets that a handler's <code>vd.exec</code> opens fire no events, and an <code>"open"</code> handler can't <code>:open</code> another file, so handlers can't loop.</p>
+<pre><code>vd.on("open", function(s)
+  if s.path:match("%.log%.csv$") then vd.exec(":sort -ts") end
+end)</code></pre>
+
 <h3>vd.push_sheet { name, columns, rows }</h3>
 <p>Only inside a function bound with <code>vd.bind</code>. Opens a new sheet from Lua data once the function returns; <kbd>q</kbd> closes it like any other. <code>columns</code> lists the column names in order; <code>rows</code> is an array of rows, each an array of values in that order (<code>nil</code> is an empty cell). <code>name</code> is optional. Each column's type follows its values: all integers → integer, any other number → float, all booleans → boolean, anything else → text.</p>
 <pre><code>vd.bind("sheet", "&lt;F3&gt;", function()        -- a sheet listing the columns
@@ -722,7 +739,7 @@ end, "list columns")</code></pre>
 <p>Sets an option; an unknown name is an error. <code>clipboard_copy_cmd</code>: the command <kbd>Y</kbd> and friends pipe text to, split on spaces, or <code>"osc52"</code> to send it through the terminal (works over SSH and in tmux with <code>set-clipboard on</code>). Default, as VisiData: <code>osc52</code> when <code>$SSH_TTY</code> is set, else <code>clip.exe</code> on Windows/WSL, <code>pbcopy</code> on macOS, <code>wl-copy</code> under Wayland, <code>xclip -selection clipboard -filter</code> otherwise. Tabs and newlines inside values are copied as U+001F and U+001E, as VisiData does. <code>clipboard_paste_cmd</code>: the command <kbd>z</kbd><kbd>P</kbd> and <kbd>g</kbd><kbd>z</kbd><kbd>P</kbd> read the clipboard from (its output). Default, as VisiData: <code>powershell.exe -noprofile -command Get-Clipboard</code> on Windows/WSL, <code>pbpaste</code> on macOS, <code>wl-paste</code> under Wayland, <code>xclip -selection clipboard -o</code> otherwise; none over SSH, where they paste your last terminal paste. <code>duckdb_cmd</code>: the DuckDB program <code>.duckdb</code> files, <code>:exec-sql</code> and <code>:save x.duckdb</code> run (default <code>duckdb</code> on <code>PATH</code>); vdrs links no DuckDB library.</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
-<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>, 4 adds <code>vd.command</code>, 5 adds <code>vd.option</code>, 6 its <code>duckdb_cmd</code>, 7 its <code>clipboard_paste_cmd</code>, 8 lists of steps in <code>vd.bind</code>.</p>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>, 4 adds <code>vd.command</code>, 5 adds <code>vd.option</code>, 6 its <code>duckdb_cmd</code>, 7 its <code>clipboard_paste_cmd</code>, 8 lists of steps in <code>vd.bind</code>, 9 <code>vd.on</code> and <code>vd.exec</code>.</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>

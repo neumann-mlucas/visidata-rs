@@ -43,13 +43,22 @@ struct Registry {
     current: Option<LuaTable>,
     toasts: Vec<String>,
     pushed: Vec<(String, DataFrame)>,
+    /// `vd.exec` commands, run once the callback returns.
+    execs: Vec<String>,
+    /// `vd.on` handlers (S-29), in registration order.
+    handlers: Vec<(String, LuaFunction)>,
 }
+
+/// Events `vd.on` takes.
+pub const EVENTS: &[&str] = &["open", "push", "save", "quit"];
 
 /// What a `vd.bind` function asked for: status messages and new sheets.
 #[derive(Default)]
 pub struct LuaOutput {
     pub toasts: Vec<String>,
     pub sheets: Vec<(String, DataFrame)>,
+    /// `vd.exec` ex commands (without the `:`), in call order.
+    pub execs: Vec<String>,
 }
 
 /// What a `vd.bind` function sees through `vd.sheet()`.
@@ -104,7 +113,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 8; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros)
+pub const API_VERSION: i64 = 9; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -293,6 +302,94 @@ impl Plugins {
         args: Option<&str>,
     ) -> Result<LuaOutput, PluginError> {
         let lua = &self.lua;
+        let t = self.ctx_table(ctx)?;
+        let f = {
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            reg.current = Some(t);
+            reg.callbacks.get(id).cloned()
+        };
+        let result = match f {
+            Some(f) => f.call::<()>(args),
+            None => Err(mlua::Error::RuntimeError(format!("no lua binding #{id}"))),
+        };
+        let out = self.take_output()?;
+        result?;
+        Ok(out)
+    }
+
+    /// Some `vd.on(event, …)` handler is registered.
+    pub fn handles(&self, event: &str) -> bool {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .is_some_and(|r| r.borrow().handlers.iter().any(|(e, _)| e == event))
+    }
+
+    /// Run `event`'s handlers in registration order. Each gets the
+    /// `vd.sheet()` table of `ctx` plus `extra` fields (also what `vd.sheet()`
+    /// returns inside). A failing handler doesn't stop the rest: its error
+    /// comes back in the list, and what the others asked for in the output.
+    pub fn fire(
+        &self,
+        event: &str,
+        ctx: &SheetCtx,
+        extra: &[(&str, String)],
+    ) -> (LuaOutput, Vec<String>) {
+        let mut errors = Vec::new();
+        let mut out = LuaOutput::default();
+        let handlers: Vec<LuaFunction> = match registry(&self.lua) {
+            Ok(r) => r
+                .borrow()
+                .handlers
+                .iter()
+                .filter(|(e, _)| e == event)
+                .map(|(_, f)| f.clone())
+                .collect(),
+            Err(e) => return (out, vec![e.to_string()]),
+        };
+        for f in handlers {
+            let run = || -> Result<LuaOutput, PluginError> {
+                let t = self.ctx_table(ctx)?;
+                for (k, v) in extra {
+                    t.set(*k, v.as_str())?;
+                }
+                registry(&self.lua)?.borrow_mut().current = Some(t.clone());
+                let result = f.call::<()>(t);
+                let got = self.take_output()?;
+                result?;
+                Ok(got)
+            };
+            match run() {
+                Ok(o) => {
+                    out.toasts.extend(o.toasts);
+                    out.sheets.extend(o.sheets);
+                    out.execs.extend(o.execs);
+                }
+                // the message, not the traceback
+                Err(e) => errors.push(format!(
+                    "vd.on {event}: {}",
+                    e.to_string().lines().next().unwrap_or_default()
+                )),
+            }
+        }
+        (out, errors)
+    }
+
+    /// End of a callback: what it asked for, and `vd.sheet()` unset.
+    fn take_output(&self) -> Result<LuaOutput, PluginError> {
+        let r = registry(&self.lua)?;
+        let mut reg = r.borrow_mut();
+        reg.current = None;
+        Ok(LuaOutput {
+            toasts: std::mem::take(&mut reg.toasts),
+            sheets: std::mem::take(&mut reg.pushed),
+            execs: std::mem::take(&mut reg.execs),
+        })
+    }
+
+    /// What `vd.sheet()` returns for `ctx`.
+    fn ctx_table(&self, ctx: &SheetCtx) -> Result<LuaTable, PluginError> {
+        let lua = &self.lua;
         let t = lua.create_table()?;
         t.set("name", ctx.name)?;
         let cursor = lua.create_table()?;
@@ -305,25 +402,7 @@ impl Plugins {
         )?;
         t.set("column_names", ctx.column_names.clone())?;
         t.set("value", to_lua(lua, &ctx.value)?)?;
-        let f = {
-            let r = registry(lua)?;
-            let mut reg = r.borrow_mut();
-            reg.current = Some(t);
-            reg.callbacks.get(id).cloned()
-        };
-        let result = match f {
-            Some(f) => f.call::<()>(args),
-            None => Err(mlua::Error::RuntimeError(format!("no lua binding #{id}"))),
-        };
-        let r = registry(lua)?;
-        let mut reg = r.borrow_mut();
-        reg.current = None;
-        let out = LuaOutput {
-            toasts: std::mem::take(&mut reg.toasts),
-            sheets: std::mem::take(&mut reg.pushed),
-        };
-        result?;
-        Ok(out)
+        Ok(t)
     }
 
     /// Theme picked by `vd.set_theme`, if any.
@@ -434,6 +513,33 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set(
         "sheet",
         lua.create_function(|lua, ()| Ok(registry(lua)?.borrow().current.clone()))?,
+    )?;
+    vd.set(
+        "on",
+        lua.create_function(|lua, (event, f): (String, LuaFunction)| {
+            if !EVENTS.contains(&event.as_str()) {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "vd.on: unknown event {event} ({})",
+                    EVENTS.join(", ")
+                )));
+            }
+            registry(lua)?.borrow_mut().handlers.push((event, f));
+            Ok(())
+        })?,
+    )?;
+    vd.set(
+        "exec",
+        lua.create_function(|lua, cmd: String| {
+            let r = registry(lua)?;
+            if r.borrow().current.is_none() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.exec works inside a vd.bind, vd.command or vd.on function".into(),
+                ));
+            }
+            let cmd = cmd.trim().trim_start_matches(':').trim().to_string();
+            r.borrow_mut().execs.push(cmd);
+            Ok(())
+        })?,
     )?;
     vd.set(
         "push_sheet",

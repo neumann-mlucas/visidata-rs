@@ -217,6 +217,31 @@ pub enum Origin {
     },
 }
 
+impl Origin {
+    /// Lowercase kind, as `vd.on("push")` handlers see it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Origin::File => "file",
+            Origin::Freq { .. } => "freq",
+            Origin::Pivot { .. } => "pivot",
+            Origin::Unpivot { .. } => "unpivot",
+            Origin::Unfurl { .. } => "unfurl",
+            Origin::SheetSwitcher => "sheets",
+            Origin::UndoTree { .. } => "undotree",
+            Origin::Columns { .. } => "columns",
+            Origin::Diff { .. } => "diff",
+            Origin::Tail { .. } => "tail",
+            Origin::Selected { .. } => "selected",
+            Origin::Sql { .. } => "sql",
+            Origin::Describe { .. } => "describe",
+            Origin::Lua { .. } => "lua",
+            Origin::Copy { .. } => "copy",
+            Origin::Parts { .. } => "parts",
+            Origin::Join { .. } => "join",
+        }
+    }
+}
+
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.
 pub struct Sheets {
     stack: Vec<Sheet>,
@@ -250,6 +275,10 @@ impl Sheets {
     #[allow(clippy::missing_const_for_fn)]
     pub fn is_empty(&self) -> bool {
         self.stack.is_empty()
+    }
+    /// The id `alloc_id` hands out next.
+    pub fn next_id(&self) -> SheetId {
+        self.next_id
     }
     pub fn alloc_id(&mut self) -> SheetId {
         let id = self.next_id;
