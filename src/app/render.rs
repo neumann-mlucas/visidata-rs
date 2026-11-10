@@ -142,13 +142,17 @@ impl App {
             .notes_path()
             .and_then(|p| self.notes.get(&p))
             .filter(|n| !n.notes.is_empty());
+        // a row's key text once per frame, not once per cell
+        let keys_of = std::cell::RefCell::new(std::collections::HashMap::new());
         let noted = |ri: usize, column: &str| {
             notes.is_some_and(|n| {
                 let rid = s.window_rids().get(ri).copied();
-                let keys = s
-                    .window()
-                    .filter(|_| !s.view.keys.is_empty())
-                    .map(|df| crate::sheet::key_text(df, &s.view.keys, ri));
+                let mut cache = keys_of.borrow_mut();
+                let keys = cache.entry(ri).or_insert_with(|| {
+                    s.window()
+                        .filter(|_| !s.view.keys.is_empty())
+                        .map(|df| crate::sheet::key_text(df, &s.view.keys, ri))
+                });
                 n.get(rid, keys.as_deref(), column).is_some()
             })
         };
