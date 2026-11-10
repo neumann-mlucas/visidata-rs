@@ -2167,7 +2167,12 @@ async fn columns_sheet_writes_back_to_its_sheet() {
     );
     h.keys("<CR>").await; // freq of grp
     assert!(title(&h).contains("freq(grp)"), "{}", title(&h));
-    h.keys("q q g #").await;
+    h.keys("q g g s j s l g e").await; // back on C: ge on `width` of grp, id hides both
+    h.type_("0").await;
+    h.keys("q").await;
+    let hd = header(&h);
+    assert!(!hd.contains("id") && !hd.contains("grp"), "{hd}");
+    h.keys("g #").await;
     assert_eq!(status(&h), "only on the columns sheet (C)");
 }
 

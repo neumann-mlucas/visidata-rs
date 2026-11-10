@@ -49,7 +49,18 @@ impl App {
             }
             Action::EditCell { value } => {
                 let value = value.clone();
-                self.columns_edit(&value);
+                self.columns_edit(&value, false);
+                return true;
+            }
+            Action::StartSetColInput => {
+                if self.columns_editable_field().is_some() {
+                    self.start_input(Prompt::SetCol);
+                }
+                return true;
+            }
+            Action::SetCol { value } => {
+                let value = value.clone();
+                self.columns_edit(&value, true);
                 return true;
             }
             Action::SubmitRow => {
@@ -212,16 +223,9 @@ impl App {
 
     /// `e` on a columns sheet: the cell, for `name width type value aggregators`.
     fn columns_start_edit(&mut self) {
-        let Some(field) = self.current_column_name() else {
+        let Some(field) = self.columns_editable_field() else {
             return;
         };
-        if !matches!(
-            field.as_str(),
-            "name" | "width" | "type" | "value" | "aggregators"
-        ) {
-            self.toast = Some(format!("{field}: not editable here"));
-            return;
-        }
         let s = self.sheets.active();
         let text = s
             .window()
@@ -241,13 +245,28 @@ impl App {
     }
 
     /// The typed `text` for the cursor row's `field`, written to its sheet.
-    fn columns_edit(&mut self, text: &str) {
-        let Some(field) = self.current_column_name() else {
+    /// The current column, when `e` / `ge` may write it: toasts otherwise.
+    fn columns_editable_field(&mut self) -> Option<String> {
+        let field = self.current_column_name()?;
+        if !matches!(
+            field.as_str(),
+            "name" | "width" | "type" | "value" | "aggregators"
+        ) {
+            self.toast = Some(format!("{field}: not editable here"));
+            return None;
+        }
+        Some(field)
+    }
+
+    /// `e` (the cursor row) / `ge` (`selected` rows): the typed `text` for
+    /// the current field, written to each row's sheet.
+    fn columns_edit(&mut self, text: &str, selected: bool) {
+        let Some(field) = self.columns_editable_field() else {
             return;
         };
         let text = text.trim().to_string();
-        let renamed = (field == "name").then_some(text.as_str());
-        let targets = self.columns_targets(false);
+        let renamed = (field == "name" && !selected).then_some(text.as_str());
+        let targets = self.columns_targets(selected);
         self.columns_write(targets, renamed, |s, c| match field.as_str() {
             "name" => s.rename_col(c, &text),
             "width" => match text.parse::<u32>() {
