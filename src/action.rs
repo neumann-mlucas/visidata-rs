@@ -266,6 +266,17 @@ pub enum Action {
         pred: String,
         style: String,
     },
+    /// `:scale <col> [low high]` (S-27 B): cell background from `low` (the
+    /// column's min) to `high` (its max).
+    Scale {
+        column: String,
+        colors: Option<(String, String)>,
+    },
+    /// `:databar <col>`: a bar under each cell, its length the value's share
+    /// of the column's range.
+    DataBar {
+        column: String,
+    },
     /// `:nocolor [col|*]`: drop the rules on a column (`*`: row rules); none: all.
     NoColor {
         column: Option<String>,
@@ -581,6 +592,7 @@ impl Action {
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
             SetNote { .. } | Color { .. } | NoColor { .. } => true,
+            Scale { .. } | DataBar { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -897,6 +909,15 @@ impl Action {
                 "color {} {pred} {style}",
                 column.as_deref().map_or("*".into(), q)
             ),
+            Scale {
+                column,
+                colors: None,
+            } => format!("scale {}", q(column)),
+            Scale {
+                column,
+                colors: Some((lo, hi)),
+            } => format!("scale {} {lo} {hi}", q(column)),
+            DataBar { column } => format!("databar {}", q(column)),
             NoColor { column: None } => "nocolor".into(),
             NoColor { column: Some(c) } => format!("nocolor {}", q(c)),
             SetCol { value } => format!("setcol {}", q(value)),
@@ -1105,6 +1126,15 @@ mod tests {
                 pred: s("x = 'a b'"),
                 style: s("red"),
             },
+            Scale {
+                column: s("a b"),
+                colors: None,
+            },
+            Scale {
+                column: s("amt"),
+                colors: Some((s("white"), s("#ff0000"))),
+            },
+            DataBar { column: s("amt") },
             NoColor { column: None },
             NoColor {
                 column: Some(s("*")),

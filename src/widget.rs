@@ -220,6 +220,20 @@ impl SheetWidget<'_> {
                 Some((i, r.column.as_deref(), st))
             })
             .collect();
+        let scales: Vec<_> = view
+            .scales
+            .iter()
+            .filter_map(|r| {
+                let colors = match &r.colors {
+                    Some((lo, hi)) => Some((
+                        crate::theme::parse_color(lo).ok()?,
+                        crate::theme::parse_color(hi).ok()?,
+                    )),
+                    None => None,
+                };
+                Some((r.column.as_str(), colors, r.range))
+            })
+            .collect();
         let painted = |ri: usize, column: Option<&str>, base: Style| {
             rules
                 .iter()
@@ -241,7 +255,7 @@ impl SheetWidget<'_> {
                 .is_some_and(|rid| view.selected.contains(rid));
             let stripe = ri % 2 == 1;
             // Precedence: cursor > selection > rules (last wins) > theme.
-            let ruled = !row_hi && !selected && !rules.is_empty();
+            let ruled = !row_hi && !selected && !(rules.is_empty() && scales.is_empty());
             let mut line = row_style(th, row_hi, selected, stripe);
             if ruled {
                 line = painted(ri, None, line);
@@ -272,6 +286,58 @@ impl SheetWidget<'_> {
                     style = painted(ri, Some(cols[ci].name()), painted(ri, None, style));
                 }
                 paint_cell(buf, x, y, w, &text, style, cols[ci].dtype().is_numeric());
+                let v = av.extract::<f64>().filter(|_| ruled);
+                for (_, colors, [lo, hi]) in
+                    scales.iter().filter(|s| s.0 == cols[ci].name().as_str())
+                {
+                    let Some(v) = v else { break };
+                    let t = if hi > lo {
+                        ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
+                    } else {
+                        1.0
+                    };
+                    match colors {
+                        Some(_) if no_color => {}
+                        Some((a, b)) => {
+                            let bg = lerp(*a, *b, t);
+                            let (r, g, bl) = crate::theme::rgb(bg);
+                            // dark text on a light background
+                            let lum = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * bl as f64;
+                            let fg = if lum > 140.0 {
+                                Color::Black
+                            } else {
+                                Color::White
+                            };
+                            for cx in x..x + w {
+                                if let Some(c) = buf.cell_mut((cx, y)) {
+                                    c.set_bg(bg).set_fg(fg);
+                                }
+                            }
+                        }
+                        None => {
+                            let (full, part) = bar_cells(t, w);
+                            for k in 0..w {
+                                let Some(c) = buf.cell_mut((x + k, y)) else {
+                                    continue;
+                                };
+                                match k < full {
+                                    true if no_color => {
+                                        c.modifier.insert(Modifier::REVERSED);
+                                    }
+                                    true => {
+                                        c.set_bg(th.num_fg).set_fg(th.header_bg);
+                                    }
+                                    false if k == full && c.symbol() == " " => {
+                                        if let Some(p) = part {
+                                            c.set_char(p).set_fg(th.num_fg);
+                                        }
+                                    }
+                                    false => {}
+                                }
+                            }
+                        }
+                    }
+                }
                 if w > 0
                     && self.noted.is_some_and(|n| n(ri, cols[ci].name()))
                     && let Some(cell) = buf.cell_mut((x + w - 1, y))
@@ -291,6 +357,22 @@ impl SheetWidget<'_> {
             }
         }
     }
+}
+
+/// The color `t` (0..=1) of the way from `a` to `b`.
+fn lerp(a: Color, b: Color, t: f64) -> Color {
+    let ((r0, g0, b0), (r1, g1, b1)) = (crate::theme::rgb(a), crate::theme::rgb(b));
+    let mix = |x: u8, y: u8| (x as f64 + (y as f64 - x as f64) * t).round() as u8;
+    Color::Rgb(mix(r0, r1), mix(g0, g1), mix(b0, b1))
+}
+
+/// A data bar `t` (0..=1) of `w` cells: whole cells, then the eighth-block
+/// glyph of the cell after them (none when the bar ends on a cell edge).
+fn bar_cells(t: f64, w: u16) -> (u16, Option<char>) {
+    let eighths = (t.clamp(0.0, 1.0) * w as f64 * 8.0).round() as u16;
+    let part = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+    let rest = (eighths % 8) as usize;
+    (eighths / 8, rest.checked_sub(1).map(|i| part[i]))
 }
 
 /// Background a data row has before its cells paint over it.
@@ -749,6 +831,20 @@ mod tests {
         assert_eq!(float_text(123456789.125), "123456789.125");
         assert_eq!(float_text(1e300), "1e300");
         assert_eq!(float_text(f64::NAN), "NaN");
+    }
+
+    #[test]
+    fn data_bar_eighths_and_scale_endpoints() {
+        assert_eq!(bar_cells(0.0, 4), (0, None));
+        assert_eq!(bar_cells(0.5, 4), (2, None));
+        assert_eq!(bar_cells(1.0, 4), (4, None));
+        assert_eq!(bar_cells(0.5, 3), (1, Some('▌')));
+        assert_eq!(bar_cells(1.0 / 24.0, 3), (0, Some('▏')));
+        let (a, b) = (Color::Rgb(0, 0, 0), Color::Rgb(200, 100, 50));
+        assert_eq!(lerp(a, b, 0.0), a);
+        assert_eq!(lerp(a, b, 1.0), b);
+        assert_eq!(lerp(a, b, 0.5), Color::Rgb(100, 50, 25));
+        assert_eq!(lerp(Color::Red, b, 0.0), Color::Rgb(205, 0, 0));
     }
 
     #[test]

@@ -160,26 +160,7 @@ impl Default for Theme {
 /// `bold`, `italic`, `underline`, `reverse`; a bare color is the foreground.
 /// `no_color` (`NO_COLOR` set): colors become reverse video.
 pub fn parse_style(s: &str, no_color: bool) -> Result<Style, String> {
-    let color = |c: &str| -> Result<Color, String> {
-        if let Some(hex) = c.strip_prefix('#')
-            && hex.len() == 6
-            && let Ok(v) = u32::from_str_radix(hex, 16)
-        {
-            return Ok(Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
-        }
-        Ok(match c {
-            "black" => Color::Black,
-            "red" => Color::Red,
-            "green" => Color::Green,
-            "yellow" => Color::Yellow,
-            "blue" => Color::Blue,
-            "magenta" => Color::Magenta,
-            "cyan" => Color::Cyan,
-            "gray" | "grey" => Color::Gray,
-            "white" => Color::White,
-            _ => return Err(format!("unknown color: {c} (red, green, … or #rrggbb)")),
-        })
-    };
+    let color = parse_color;
     let mut st = Style::default();
     let mut colored = false;
     for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
@@ -205,6 +186,44 @@ pub fn parse_style(s: &str, no_color: bool) -> Result<Style, String> {
         true => Style::default().add_modifier(st.add_modifier),
         false => st,
     })
+}
+
+/// `red`, `grey`, … or `#rrggbb`.
+pub fn parse_color(c: &str) -> Result<Color, String> {
+    if let Some(hex) = c.strip_prefix('#')
+        && hex.len() == 6
+        && let Ok(v) = u32::from_str_radix(hex, 16)
+    {
+        return Ok(Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
+    }
+    Ok(match c {
+        "black" => Color::Black,
+        "red" => Color::Red,
+        "green" => Color::Green,
+        "yellow" => Color::Yellow,
+        "blue" => Color::Blue,
+        "magenta" => Color::Magenta,
+        "cyan" => Color::Cyan,
+        "gray" | "grey" => Color::Gray,
+        "white" => Color::White,
+        _ => return Err(format!("unknown color: {c} (red, green, … or #rrggbb)")),
+    })
+}
+
+/// RGB of a color `parse_color` makes (named ones: the xterm defaults).
+pub fn rgb(c: Color) -> (u8, u8, u8) {
+    match c {
+        Color::Rgb(r, g, b) => (r, g, b),
+        Color::Black => (0, 0, 0),
+        Color::Red => (205, 0, 0),
+        Color::Green => (0, 205, 0),
+        Color::Yellow => (205, 205, 0),
+        Color::Blue => (0, 0, 238),
+        Color::Magenta => (205, 0, 205),
+        Color::Cyan => (0, 205, 205),
+        Color::Gray => (229, 229, 229),
+        _ => (255, 255, 255),
+    }
 }
 
 #[cfg(test)]

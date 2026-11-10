@@ -2,7 +2,31 @@
 
 use super::*;
 
+/// `:scale`'s colors when none are given.
+const SCALE_LOW: &str = "#2c7bb6";
+const SCALE_HIGH: &str = "#d7191c";
+
 impl App {
+    /// `:scale` (`colors`) / `:databar` (`None`): the column's range comes
+    /// from a job; the rule lands with it (S-27 B).
+    fn scale(&mut self, column: String, colors: Option<(String, String)>) {
+        if let Some((lo, hi)) = &colors
+            && let Err(e) = crate::theme::parse_color(lo).and(crate::theme::parse_color(hi))
+        {
+            self.toast = Some(format!("scale: {e}"));
+            return;
+        }
+        let sheet = self.sheets.active().clone();
+        self.spawn_job("scale", move || {
+            let range = sheet.column_range(&column)?;
+            Ok(JobDone::Scale(crate::sheet::ScaleRule {
+                column,
+                colors,
+                range,
+            }))
+        });
+    }
+
     pub(super) fn dispatch_sequence(&mut self, actions: Vec<Action>) {
         if self.replaying {
             for a in actions {
@@ -662,15 +686,23 @@ impl App {
                     pred,
                     style,
                 }),
+            Action::Scale { column, colors } => {
+                let colors = colors.unwrap_or_else(|| (SCALE_LOW.into(), SCALE_HIGH.into()));
+                self.scale(column, Some(colors))
+            }
+            Action::DataBar { column } => self.scale(column, None),
             Action::NoColor { column } => {
                 let s = self.sheets.active_mut();
-                let before = s.view.formats.len();
-                s.view.formats.retain(|r| match column.as_deref() {
+                let v = &mut s.view;
+                let before = v.formats.len() + v.scales.len();
+                v.formats.retain(|r| match column.as_deref() {
                     None => false,
                     Some("*") => r.column.is_some(),
                     Some(c) => r.column.as_deref() != Some(c),
                 });
-                let n = before - s.view.formats.len();
+                v.scales
+                    .retain(|r| column.as_deref().is_some_and(|c| r.column != c));
+                let n = before - v.formats.len() - v.scales.len();
                 self.toast = Some(format!(
                     "{n} color rule{} cleared",
                     if n == 1 { "" } else { "s" }

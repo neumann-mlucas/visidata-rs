@@ -2870,6 +2870,11 @@ async fn plot_zoom_bins_the_view_and_box_selects_parent_rows() {
 
 /// Foreground of the first screen cell of `text` on the line that holds it.
 fn fg_of(h: &Harness, text: &str) -> ratatui::style::Color {
+    cell_at(h, text).fg
+}
+
+/// The first screen cell of word `text`, on the first data line that holds it.
+fn cell_at(h: &Harness, text: &str) -> ratatui::buffer::Cell {
     let screen = h.screen();
     let (y, line) = screen
         .lines()
@@ -2888,7 +2893,7 @@ fn fg_of(h: &Harness, text: &str) -> ratatui::style::Color {
                     .is_none_or(|c| c == ' ')
         })
         .unwrap_or_default();
-    h.term.backend().buffer()[(x as u16, y as u16)].fg
+    h.term.backend().buffer()[(x as u16, y as u16)].clone()
 }
 
 /// S-27 A: `:color` paints cells where the predicate holds; the colors
@@ -2965,4 +2970,43 @@ async fn color_row_rules_bad_input_and_nocolor() {
     assert_eq!(status(&h), "1 color rule cleared");
     h.keys("U").await; // the refused ones left no undo step: the rule is back
     assert_eq!(h.app.sheets.active().view.formats.len(), 1);
+}
+
+/// S-27 B: `:scale` runs low→high color over the column's range, `:databar`
+/// fills a cell's width by its share; a text column is refused; `U` and
+/// `:nocolor` remove them.
+#[tokio::test(flavor = "multi_thread")]
+async fn scale_and_databar_paint_by_the_columns_range() {
+    use ratatui::style::Color;
+    let mut h = csv(b"name,amount\na,10\nb,20\nc,30\nd,15\n").await;
+    h.keys(":").await;
+    h.type_("scale amount white #ff0000").await;
+    assert_eq!(h.app.sheets.active().view.scales[0].range, [10.0, 30.0]);
+    assert_eq!(
+        cell_at(&h, "30").bg,
+        Color::Rgb(255, 0, 0),
+        "{}",
+        h.screen()
+    );
+    assert_eq!(cell_at(&h, "20").bg, Color::Rgb(255, 128, 128));
+    assert_eq!(
+        cell_at(&h, "b").bg,
+        cell_at(&h, "d").bg,
+        "only the amount cells"
+    );
+    h.keys("U").await;
+    assert!(h.app.sheets.active().view.scales.is_empty());
+    assert_ne!(cell_at(&h, "30").bg, Color::Rgb(255, 0, 0));
+    h.keys(":").await;
+    h.type_("databar amount").await;
+    let bar = h.app.theme.num_fg;
+    assert_eq!(cell_at(&h, "30").bg, bar, "the max fills the cell");
+    assert_ne!(cell_at(&h, "10").bg, bar, "the min has no bar");
+    h.keys(":").await;
+    h.type_("scale name").await;
+    assert_eq!(status(&h), "scale: name is not numeric (str)");
+    h.keys(":").await;
+    h.type_("nocolor amount").await;
+    assert_eq!(status(&h), "1 color rule cleared");
+    assert_ne!(cell_at(&h, "30").bg, bar);
 }

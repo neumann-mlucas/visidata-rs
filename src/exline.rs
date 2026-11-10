@@ -268,6 +268,23 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 style: style.to_string(),
             }])
         }
+        "scale" => {
+            const USAGE: &str = ":scale <column> [low-color high-color]";
+            match split_args(rest, USAGE)?.as_slice() {
+                [c] => Ok(vec![Action::Scale {
+                    column: c.clone(),
+                    colors: None,
+                }]),
+                [c, lo, hi] => Ok(vec![Action::Scale {
+                    column: c.clone(),
+                    colors: Some((lo.clone(), hi.clone())),
+                }]),
+                _ => Err(ExError::Usage(USAGE)),
+            }
+        }
+        "databar" => Ok(vec![Action::DataBar {
+            column: one_arg(rest, ":databar <column>")?,
+        }]),
         "nocolor" => Ok(vec![Action::NoColor {
             column: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -511,6 +528,8 @@ pub const COMMANDS: &[&str] = &[
     "filter",
     "color",
     "nocolor",
+    "scale",
+    "databar",
     "hide",
     "hide-uniform",
     "join",

@@ -391,6 +391,18 @@ pub struct View {
     pub jump_bottom: bool,
     /// `:color` rules (S-27), applied in order (the last one wins).
     pub formats: Vec<FormatRule>,
+    /// `:scale` / `:databar` rules (S-27 B), painted over the `:color` ones.
+    pub scales: Vec<ScaleRule>,
+}
+
+/// `:scale` / `:databar` on `column`; `range` is its min/max when the rule
+/// was made (values outside it clamp).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScaleRule {
+    pub column: String,
+    /// `Some((low, high))`: a color scale; `None`: a data bar.
+    pub colors: Option<(String, String)>,
+    pub range: [f64; 2],
 }
 
 /// `:color <col|*> <pred> <style>` (S-27 A): paint the cell of `column`
@@ -429,6 +441,7 @@ impl Default for View {
             count_key: None,
             jump_bottom: false,
             formats: Vec::new(),
+            scales: Vec::new(),
         }
     }
 }
@@ -966,6 +979,31 @@ impl Sheet {
             .slice(self.view.window_offset as i64, self.view.window_rows)
     }
 
+    /// Min and max of numeric `column` over the whole view (`:scale`).
+    pub fn column_range(&self, column: &str) -> Result<[f64; 2], String> {
+        let lf = self.view_plan();
+        let dtype = lf
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("no column: {column}"))?;
+        if !dtype.is_primitive_numeric() {
+            return Err(format!("{column} is not numeric ({dtype})"));
+        }
+        let c = || col(column).cast(DataType::Float64);
+        let df = lf
+            .select([c().min().alias("lo"), c().max().alias("hi")])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let get = |n: &str| df.column(n).ok()?.f64().ok()?.get(0);
+        match (get("lo"), get("hi")) {
+            (Some(lo), Some(hi)) => Ok([lo, hi]),
+            _ => Err(format!("{column} has no numbers")),
+        }
+    }
+
     /// Whether `:color` rule `i` holds on window row `r`.
     pub fn format_holds(&self, i: usize, r: usize) -> bool {
         self.state
@@ -1222,7 +1260,8 @@ impl Sheet {
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
             .chain(v.sort.iter_mut().map(|k| &mut k.column))
-            .chain(v.formats.iter_mut().filter_map(|f| f.column.as_mut()));
+            .chain(v.formats.iter_mut().filter_map(|f| f.column.as_mut()))
+            .chain(v.scales.iter_mut().map(|f| &mut f.column));
         for c in names.filter(|c| *c == old) {
             *c = new.to_string();
         }

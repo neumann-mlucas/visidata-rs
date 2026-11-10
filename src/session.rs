@@ -406,6 +406,17 @@ impl Block {
                 style: f.style.clone(),
             });
         }
+        // the range is computed again when the session loads
+        for r in &v.scales {
+            let column = r.column.clone();
+            self.ex(match &r.colors {
+                Some(c) => Action::Scale {
+                    column,
+                    colors: Some(c.clone()),
+                },
+                None => Action::DataBar { column },
+            });
+        }
         for k in &v.sort {
             self.ex(Action::SetSort {
                 column: k.column.clone(),

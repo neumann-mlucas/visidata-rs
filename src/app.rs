@@ -218,6 +218,8 @@ enum JobDone {
         select: bool,
         rids: Vec<u64>,
     },
+    /// `:scale` / `:databar` with its column's range (S-27 B).
+    Scale(crate::sheet::ScaleRule),
     /// `:refresh`: sheets to replace by id (S-30 A).
     Refreshed(crate::sheet::Refreshed),
     /// The job's source, read into memory.
@@ -1185,6 +1187,12 @@ impl App {
                 if self.sheets.active().id == sheet_id {
                     self.goto_row(row);
                     self.sheets.active_mut().view.col_cursor = col;
+                }
+            }
+            Ok(JobDone::Scale(rule)) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    s.checkpoint();
+                    s.view.scales.push(rule);
                 }
             }
             Ok(JobDone::Hide(cols)) => {
