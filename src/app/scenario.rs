@@ -3010,3 +3010,37 @@ async fn scale_and_databar_paint_by_the_columns_range() {
     assert_eq!(status(&h), "1 color rule cleared");
     assert_ne!(cell_at(&h, "30").bg, bar);
 }
+
+/// S-27 C: a renderer's table gives text and style; the style shows under
+/// a `:color` rule and never over the cursor row.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_renderer_styles_cells_under_color_rules() {
+    use ratatui::style::{Color, Modifier};
+    let mut h = csv(b"id,amount\n1,-5\n2,7\n3,-2\n").await;
+    h.app.plugins = Some(
+        crate::plugins::Plugins::load_from_source(
+            r#"vd.register_renderer { column = "amount", render = function(v)
+                 if v < 0 then return { text = "(" .. -v .. ")", fg = "red", bold = true } end
+               end }"#,
+        )
+        .unwrap(),
+    );
+    h.pump().await;
+    let neg = cell_at(&h, "(2)");
+    assert_eq!(neg.fg, Color::Red, "{}", h.screen());
+    assert!(neg.modifier.contains(Modifier::BOLD));
+    assert_ne!(cell_at(&h, "7").fg, Color::Red);
+    assert_ne!(
+        cell_at(&h, "(5)").fg,
+        Color::Red,
+        "the cursor row keeps its colors"
+    );
+    h.keys(":").await;
+    h.type_("color amount id = 3 blue").await;
+    let ruled = cell_at(&h, "(2)");
+    assert_eq!(ruled.fg, Color::Blue, ":color wins");
+    assert!(
+        ruled.modifier.contains(Modifier::BOLD),
+        "the renderer's bold stays"
+    );
+}

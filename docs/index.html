@@ -758,6 +758,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 
 <h3>vd.register_renderer { column | dtype, render }</h3>
 <p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument. Empty cells arrive as <code>nil</code>; if <code>render</code> raises an error, the cell is shown normally.</p>
+<p>From <code>vd.api_version</code> 10, <code>render</code> can return a table instead, to style the cell: <code>{ text = "(5)", fg = "red", bg = "#202020", bold = true }</code>. Every field is optional: no <code>text</code> keeps the normal text. Colors are those of <code>:color</code>; a color it doesn't know is left out. Styles also support <code>italic</code>, <code>underline</code> and <code>reverse</code>. The cursor row and selected rows keep their own colors, and <code>:color</code> rules paint over the renderer's style.</p>
 
 <h3>vd.sheet(), vd.toast(message)</h3>
 <p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
@@ -795,7 +796,7 @@ end, "list columns")</code></pre>
 <p><code>session_autosave</code>: <code>"false"</code> stops saving the session on quit (default <code>"true"</code>).</p>
 
 <h3>vd.set_theme(name), vd.api_version</h3>
-<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>, 4 adds <code>vd.command</code>, 5 adds <code>vd.option</code>, 6 its <code>duckdb_cmd</code>, 7 its <code>clipboard_paste_cmd</code>, 8 lists of steps in <code>vd.bind</code>, 9 <code>vd.on</code> and <code>vd.exec</code>.</p>
+<p><code>"dark"</code> or <code>"light"</code>. <code>vd.api_version</code> is a number that grows when the Lua API gains features: 1 is the registration functions above, 2 adds functions in <code>vd.bind</code>, <code>vd.sheet</code> and <code>vd.toast</code>, 3 adds <code>vd.push_sheet</code>, 4 adds <code>vd.command</code>, 5 adds <code>vd.option</code>, 6 its <code>duckdb_cmd</code>, 7 its <code>clipboard_paste_cmd</code>, 8 lists of steps in <code>vd.bind</code>, 9 <code>vd.on</code> and <code>vd.exec</code>, 10 tables from <code>render</code> (styles).</p>
 
 <h2 id="trouble">Troubleshooting</h2>
 <ul>

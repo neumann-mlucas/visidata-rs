@@ -12,7 +12,9 @@ use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Keymap, Layer};
 use crate::reader::{LoadedSource, OpenError, SourceKind};
+use crate::widget::Rendered;
 use polars::prelude::{AnyValue, Column, DataFrame, DataType, NamedFrom, Series};
+use ratatui::style::Style;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PluginError {
@@ -115,7 +117,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 9; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec
+pub const API_VERSION: i64 = 10; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -148,7 +150,7 @@ pub struct Plugins {
     config: Option<(PathBuf, Option<std::time::SystemTime>)>,
     /// Renderer results by (column, dtype, value): renderers run on the UI
     /// thread, so each distinct cell is rendered once, not every frame.
-    rendered: RefCell<HashMap<(String, String, String), Option<String>>>,
+    rendered: RefCell<HashMap<(String, String, String), Option<Rendered>>>,
 }
 
 impl Plugins {
@@ -246,7 +248,7 @@ impl Plugins {
     /// dtype (`i64`, `f64`, `str`, `date`, … as shown in headers). Lua errors
     /// fall back to the default display.
     /// Renderers are assumed pure: results are memoized per distinct value.
-    pub fn render(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<String> {
+    pub fn render(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<Rendered> {
         let dt = crate::widget::dtype_badge(dtype);
         // `Debug`, not `Display`: Display rounds floats, merging distinct cells.
         let key = (column.to_string(), dt.clone(), format!("{value:?}"));
@@ -262,7 +264,7 @@ impl Plugins {
         out
     }
 
-    fn render_uncached(&self, column: &str, dt: &str, value: &AnyValue) -> Option<String> {
+    fn render_uncached(&self, column: &str, dt: &str, value: &AnyValue) -> Option<Rendered> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         let f = {
             let reg = reg.borrow();
@@ -273,7 +275,25 @@ impl Plugins {
             rule.render.clone()
         };
         let v = to_lua(&self.lua, value).ok()?;
-        f.call::<Option<String>>(v).ok().flatten()
+        match f.call::<LuaValue>(v).ok()? {
+            LuaValue::Table(t) => Some(styled(&t)),
+            other => Some(Rendered {
+                text: Some(
+                    self.lua
+                        .coerce_string(other)
+                        .ok()??
+                        .to_str()
+                        .ok()?
+                        .to_string(),
+                ),
+                style: Style::default(),
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    fn render_text(&self, column: &str, dtype: &DataType, value: &AnyValue) -> Option<String> {
+        self.render(column, dtype, value)?.text
     }
 
     /// Callback index of the `vd.command` named `name`.
@@ -1211,6 +1231,37 @@ fn default_config_path() -> Option<PathBuf> {
     Some(base.join("vdrs").join("init.lua"))
 }
 
+/// A renderer's table: `{ text = …, fg = …, bg = …, bold = true, … }`; a bad
+/// color is left out (renderers run every frame, an error there can't stop).
+fn styled(t: &LuaTable) -> Rendered {
+    use ratatui::style::Modifier;
+    let color = |k: &str| {
+        t.get::<Option<String>>(k)
+            .ok()
+            .flatten()
+            .and_then(|c| crate::theme::parse_color(&c).ok())
+    };
+    let mut style = Style {
+        fg: color("fg"),
+        bg: color("bg"),
+        ..Style::default()
+    };
+    for (k, m) in [
+        ("bold", Modifier::BOLD),
+        ("italic", Modifier::ITALIC),
+        ("underline", Modifier::UNDERLINED),
+        ("reverse", Modifier::REVERSED),
+    ] {
+        if t.get::<Option<bool>>(k).ok().flatten() == Some(true) {
+            style = style.add_modifier(m);
+        }
+    }
+    Rendered {
+        text: t.get::<Option<String>>("text").ok().flatten(),
+        style,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1346,15 +1397,15 @@ mod tests {
         let on_job = std::thread::spawn(move || span.call(&vals).unwrap());
         assert_eq!(on_job.join().unwrap(), AggValue::Num(6.0));
         assert_eq!(
-            p.render("price", &DataType::Float64, &AnyValue::Float64(2.5)),
+            p.render_text("price", &DataType::Float64, &AnyValue::Float64(2.5)),
             Some("$2.5".into())
         );
         assert_eq!(
-            p.render("ok", &DataType::Boolean, &AnyValue::Boolean(false)),
+            p.render_text("ok", &DataType::Boolean, &AnyValue::Boolean(false)),
             Some("no".into())
         );
         assert_eq!(
-            p.render("other", &DataType::Int64, &AnyValue::Int64(1)),
+            p.render_text("other", &DataType::Int64, &AnyValue::Int64(1)),
             None
         );
         assert!(Plugins::load_from_source("vd.register_renderer { render = print }").is_err());
@@ -1573,7 +1624,7 @@ mod tests {
         assert_eq!(range.call(&vals).unwrap(), AggValue::Num(6.0));
         let empty = Series::new("v".into(), [None::<f64>]);
         assert_eq!(range.call(&empty).unwrap(), AggValue::Null);
-        let price = |v| p.render("price", &DataType::Float64, &v);
+        let price = |v| p.render_text("price", &DataType::Float64, &v);
         assert_eq!(price(AnyValue::Float64(2.5)), Some("$2.50".into()));
         assert_eq!(price(AnyValue::Null), None);
     }
@@ -1621,12 +1672,45 @@ mod tests {
     }
 
     #[test]
+    fn renderer_tables_carry_style_and_bad_colors_are_dropped() {
+        use ratatui::style::{Color, Modifier};
+        let p = Plugins::load_from_source(
+            r##"vd.register_renderer{column="x",render=function(v)
+                 if v == 1 then return { fg = "red", bg = "#000010", underline = true } end
+                 if v == 2 then return { text = "two", fg = "rouge" } end
+                 return v * 10 end}"##,
+        )
+        .unwrap();
+        let r = |n| {
+            p.render("x", &DataType::Int64, &AnyValue::Int64(n))
+                .unwrap()
+        };
+        let one = r(1);
+        assert_eq!(one.text, None, "no text: the default display");
+        assert_eq!(
+            one.style,
+            Style::default()
+                .fg(Color::Red)
+                .bg(Color::Rgb(0, 0, 16))
+                .add_modifier(Modifier::UNDERLINED)
+        );
+        assert_eq!(
+            r(2),
+            Rendered {
+                text: Some("two".into()),
+                style: Style::default()
+            }
+        );
+        assert_eq!(r(3).text.as_deref(), Some("30"));
+    }
+
+    #[test]
     fn renderer_memo_keeps_close_floats_apart() {
         let p = Plugins::load_from_source(
             r#"vd.register_renderer{column="x",render=function(v) return string.format("%.8f",v) end}"#,
         )
         .unwrap();
-        let r = |f| p.render("x", &DataType::Float64, &AnyValue::Float64(f));
+        let r = |f| p.render_text("x", &DataType::Float64, &AnyValue::Float64(f));
         assert_eq!(r(1.00000001).as_deref(), Some("1.00000001"));
         assert_eq!(r(1.00000002).as_deref(), Some("1.00000002"));
     }

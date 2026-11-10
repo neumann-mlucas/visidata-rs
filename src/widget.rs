@@ -14,8 +14,16 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::sheet::{Sheet, SortOrder, View};
 use crate::theme::Theme;
 
-/// Custom cell text (Lua renderers): `(column, dtype, value) -> text`.
-pub type CellRenderer<'a> = &'a dyn Fn(&str, &DataType, &AnyValue) -> Option<String>;
+/// Custom cell text and style (Lua renderers): `(column, dtype, value)`.
+pub type CellRenderer<'a> = &'a dyn Fn(&str, &DataType, &AnyValue) -> Option<Rendered>;
+
+/// A renderer's cell: its text (`None`: the default) and a style patched over
+/// the theme's, below `:color` rules, cursor and selection (S-27 C).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Rendered {
+    pub text: Option<String>,
+    pub style: Style,
+}
 
 /// Has the cell (window row, column name) a note?
 pub type Noted<'a> = &'a dyn Fn(usize, &str) -> bool;
@@ -48,7 +56,7 @@ impl<'a> SheetWidget<'a> {
                     .filter(|i| *i < s.len())
                     .filter_map(|i| {
                         let av = s.get(i).ok()?;
-                        let custom = render.and_then(|r| r(s.name(), s.dtype(), &av));
+                        let custom = render.and_then(|r| r(s.name(), s.dtype(), &av)?.text);
                         Some(
                             custom
                                 .map_or_else(|| display_av(&av), |t| printable(&t))
@@ -274,14 +282,22 @@ impl SheetWidget<'_> {
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
                 let (mut text, dtype_hint) = display_av_with_hint(&av);
-                if let Some(custom) = self
+                let custom = self
                     .render
                     .and_then(|r| r(cols[ci].name(), cols[ci].dtype(), &av))
-                {
-                    text = printable(&custom);
+                    .unwrap_or_default();
+                if let Some(t) = &custom.text {
+                    text = printable(t);
                 }
                 let col_hi = ci == view.col_cursor;
                 let mut style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
+                if !row_hi && !selected {
+                    let mut st = custom.style;
+                    if no_color {
+                        (st.fg, st.bg) = (None, None);
+                    }
+                    style = style.patch(st);
+                }
                 if ruled {
                     style = painted(ri, Some(cols[ci].name()), painted(ri, None, style));
                 }

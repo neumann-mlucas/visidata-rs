@@ -60,7 +60,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 19. - [x] S-29 A–D — `vd.on` + `vd.exec`; `:source`; `:mksession`; autosave + `vdrs -S` (4–5 d) — done 2026-11-10
 20. - [x] S-28 A/B — `:s`, `*` / `g*`, `PlanStep::Replace`; `:hits` sheet (2.5–3 d) — done 2026-11-10; replay PASS=51
 21. - [x] S-30 C, A, B — selection stats; `:refresh` (`<C-r>`) + `:link`; cell notes `zn` (5–6 d)
-22. - [ ] S-27 ~~A~~/~~B~~/C — ~~`:color` / `:nocolor`~~; ~~`:scale`, `:databar`~~; Lua renderer styles (3–4 d)
+22. - [x] S-27 ~~A~~/~~B~~/~~C~~ — ~~`:color` / `:nocolor`~~; ~~`:scale`, `:databar`~~; ~~Lua renderer styles~~ (3–4 d)
 23. - [x] S-23 B — split panes `Z` / `gZ` / `Tab` (2–3 d); ~~C1~~, ~~C2~~, ~~C3~~, ~~C4~~ — `:plot` (`.` / `g.`, repeat → vim profile), `:hist`, `:bar`, pan/zoom, region select (8–11 d)
 24. - [ ] S-26 A (rest), B, C, D, E — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
 

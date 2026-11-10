@@ -1,6 +1,6 @@
 # S-27 — Conditional formatting
 
-Status: **A, B shipped 2026-11-10**; C open.
+Status: **shipped 2026-11-10** (A, B, C).
 Depends on: S-15 §7.3 (renderers), S-21 (SQL predicates), theme (`src/theme.rs`), S-26 A4 (color
 depth). Excel-gap item: VisiData colors rows only by state (cursor, selected, error).
 
