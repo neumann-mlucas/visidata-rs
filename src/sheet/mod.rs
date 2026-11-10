@@ -50,6 +50,9 @@ pub struct SheetState {
     loaded_rev: u64,
     /// A row count for the current `count_key` is in flight.
     counting: bool,
+    /// Bumped by every [`Sheet::invalidate`]: part of the count key, so a
+    /// count started before an edit (`d`, `a`, `U` …) can't land after it.
+    count_gen: u64,
     /// [`ROW_ID`] of each row of `window`, split off when the window lands.
     window_rids: Vec<u64>,
     /// Edits baked into `plan`, in order — replayed by `:export`.
@@ -586,6 +589,7 @@ impl Sheet {
     /// view, so the window goes too and in-flight results are dropped.
     pub fn invalidate(&mut self, why: Reason) {
         self.view.count_key = None;
+        self.state.count_gen += 1;
         if why == Reason::Plan {
             self.window = None;
             self.begin_window();
@@ -840,6 +844,12 @@ impl Sheet {
     /// Identifies the row count `count_plan` yields; when it changes, recount.
     /// Plan replacements (tail refresh, currency cast) reset `view.count_key` instead.
     pub fn count_key(&self) -> String {
+        format!("{}|{}", self.state.count_gen, self.view_key())
+    }
+
+    /// What the view filters and casts by: the same rows and columns while
+    /// it holds, edits or not (column widths only widen).
+    pub fn view_key(&self) -> String {
         format!(
             "{:?}|{:?}|{:?}",
             self.view.filter, self.view.filter_expr, self.view.type_casts

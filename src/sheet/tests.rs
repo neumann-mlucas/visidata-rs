@@ -1179,3 +1179,17 @@ fn pasted_text_rows_go_in_as_edits_take_text() {
     assert!(s.add_rows(None, true, Some(&bad), 0).is_err());
     assert_eq!(rows(&s).height(), 1);
 }
+
+#[test]
+fn a_count_started_before_an_edit_does_not_land() {
+    let (mut s, _t) = sheet_of("id\n0\n1\n2\n");
+    let old = s.start_count().unwrap();
+    s.delete_rows(vec![0]).unwrap();
+    let new = s.start_count().unwrap();
+    assert!(
+        !s.land_count(&old, Some(3)),
+        "the pre-delete count is stale"
+    );
+    assert!(s.land_count(&new, Some(2)));
+    assert_eq!(s.row_count(), Some(2));
+}
