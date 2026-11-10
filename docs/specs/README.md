@@ -20,16 +20,16 @@ File naming: `S-NN-slug.md`.
 | S-11 | Streaming source abstraction | 4 | not-started as a trait; `:tail` reads CSV/JSONL incrementally and watches Parquet dirs |
 | S-12 | Frame diff | 5 | **shipped** — `:diff` and `D` (prompt; key columns as keys) |
 | S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | **closed** (iter 14 — honest classification replaced the "~160 PASS" target) → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
-| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (PASS=42, ceiling 182; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
+| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (PASS=50 as of S-25 P4, ceiling 182; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
 | S-15 | **Feature inventory** — what the binary actually ships, plus what it doesn't (§10 cut, §10.1 not yet) | cross-cutting | **re-verified 2026-11-05** → [`S-15-feature-inventory.md`](S-15-feature-inventory.md) |
 | S-18 | Cell/row editing + clipboard (Day-1 must-have) | — | **drafted 2026-11-08**, A (register copy), B (system clipboard), C (cell editing) shipped — 7 phases A–G, copy first, paste after editing → [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) |
 | S-19 | Macros | — | **drafted 2026-11-08**, after S-18 C → [`S-19-macros.md`](S-19-macros.md) |
 | S-20 | Undo tree | — | **drafted 2026-11-08**, deferred until after S-18 G (2026-11-08) → [`S-20-undo-tree.md`](S-20-undo-tree.md) |
 | S-21 | Expression columns + selection (`=`, `g=`, `z/`, `:select`), Python subset gated | — | **drafted 2026-11-08** → [`S-21-expressions.md`](S-21-expressions.md) |
-| S-22 | Nested data: expand structs `(`, unfurl lists `zM` | — | **drafted 2026-11-08** → [`S-22-nested-data.md`](S-22-nested-data.md) |
+| S-22 | Nested data: expand structs `(`, unfurl lists `zM` | — | **shipped 2026-11-09** (A/B/C: expand/contract, unfurl sheet, `:type json`) → [`S-22-nested-data.md`](S-22-nested-data.md) |
 | S-23 | Layout: sidebar, split panes, plots | — | **drafted 2026-11-08** → [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) |
 | S-24 | Hardening: module layout, window invariants, typed readers, release binaries | — | **drafted 2026-11-08** → [`S-24-hardening-refactor.md`](S-24-hardening-refactor.md) |
-| S-25 | Corpus coverage plan (29 → ~90 PASS), columns sheet, column aggregators | 1.5 | **drafted 2026-11-08** → [`S-25-corpus-coverage.md`](S-25-corpus-coverage.md) |
+| S-25 | Corpus coverage plan (29 → ~90 PASS), columns sheet, column aggregators | 1.5 | **P0–P4 done 2026-11-09** (replay PASS=50; P5 rides other specs, P6/P7 evidence-gated) → [`S-25-corpus-coverage.md`](S-25-corpus-coverage.md) |
 | S-26 | Vim grammar (ranges, visual, opt-in vim profile) + TUI conventions | — | **drafted 2026-11-08** → [`S-26-vim-grammar-tui-conventions.md`](S-26-vim-grammar-tui-conventions.md) |
 | S-27 | Conditional formatting (`:color`, `:scale`, data bars, Lua styles) | — | **drafted 2026-11-08** → [`S-27-conditional-formatting.md`](S-27-conditional-formatting.md) |
 | S-28 | `:s` substitute on a column, search-hit sheet | — | **drafted 2026-11-08** → [`S-28-substitute-search-hits.md`](S-28-substitute-search-hits.md) |

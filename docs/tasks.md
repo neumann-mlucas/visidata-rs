@@ -22,6 +22,13 @@ Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same
 
 Done in the same pass (2026-11-05): live `:pivot` preview; Lua function bindings, `vd.toast`, `vd.sheet()` (api 2); `vd.push_sheet` (api 3); renderer memo + widths; Lua aggregators off the UI thread; deterministic join / `:sql` order; `:export` for derived sheets, describe, row diff, `W`, Arrow/Excel/SQLite sources; `path:part` targets. Later: `vd.command` (api 4, 2026-11-07).
 
+Found 2026-11-09 (S-25 P3/P4), open:
+
+- [ ] Freq count ties: VisiData keeps first-seen order, vdrs breaks ties by value (blocks `petsdiet`; changing it moves other freq goldens)
+- [ ] Export date→float cast: app gives epoch days, DuckDB `TRY_CAST` gives null
+- [ ] Derived sheets start with a fresh view: no inherited types/aggregators (`dup-rows-attrs`, `freeze-sheet-attrs`)
+- [ ] `[` on a columns sheet sorts only it; VisiData reorders the source's columns (`aggregators-set`)
+
 ## Roadmap (ordered, 2026-11-08)
 
 One list, worked top to bottom. Each item ships alone with its spec's test plan and updates S-15 + the guide. Keymap rule for all of them: [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md) — the default keymap matches VisiData; new or more standard meanings live in the opt-in vim profile. After each item that ships a VisiData command: translate its longnames in `tests/vd_replay.rs`, re-check the quarantine, raise `MIN_PASS`.
@@ -173,7 +180,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - **Multi-sheet replay is a new blocker**: `append.vd` and friends load two files, use `sheets-stack` + `select-row` on `キ<sheet-name>` to pick which sheets to join, then run `join-sheets`. Our single-sheet `Replay::sheet: Option<Sheet>` can't model this. 8 tests gated on this.
 - Clippy drift: xlsx impl introduced one `needless_range_loop` warning (`for ci in row.len()..width`); fixed to `cols.iter_mut().take(width).skip(row.len())`.
 
-**Phase 1.5 CLOSED** (2026-10-16). Its follow-up list (plugin shapes, describe, lenient dates, visual pass) shipped; the Python subset and format plugins moved to S-21 C and S-25 P7. Still out of scope: `.vdj` runtime, `set-option` precedence tests, loaders not in core except the cheap ones S-25 P7 weighs (Lua / `vdrs-ext-*` territory per S-09). Plots, macros and `unfurl-col` are planned (S-23, S-19, S-22).
+**Phase 1.5 CLOSED** (2026-10-16). Its follow-up list (plugin shapes, describe, lenient dates, visual pass) shipped; the Python subset and format plugins moved to S-21 C and S-25 P7. Still out of scope: `.vdj` runtime, `set-option` precedence tests, loaders not in core except the cheap ones S-25 P7 weighs (Lua / `vdrs-ext-*` territory per S-09). Plots and macros are planned (S-23, S-19); `unfurl-col` shipped (S-22).
 
 ## Phase 2 — pivot + plan panel (the differentiating release)
 - [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.

@@ -69,7 +69,7 @@ pivots run in the background.
 Basics (VisiData's keys): `hjkl` move, `gg`/`G` top/bottom, `/` search the column (`g/` all), `[`/`]` sort, `gz|` filter,
 `F` frequency table (`Enter` opens a value's rows), `I` describe, `W` pivot,
 `s`/`gs`/`|`/`,` select (`z|` by SQL condition), `=` new column, `"` sheet of selected rows, `-` hide, `!` key column,
-`#%~@` type casts, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `(`/`zM` expand structs / unfurl lists, `b` sidebar, `S` sheet list, `:` ex
+`#%~@` type casts, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `(`/`zM` expand structs / unfurl lists, `C` columns sheet (edits write back), `+` aggregators (`F` adds `Units_sum` …; `z+` in the status line), `b` sidebar, `S` sheet list, `:` ex
 commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
 `:tail -f`, …), `q` back, `gq` quit, `Ctrl-c` cancels background work. `:pivot` previews its result while you type;
 `:export` writes a Polars or DuckDB script that rebuilds the view, including
