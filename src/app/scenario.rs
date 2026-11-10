@@ -2448,3 +2448,29 @@ async fn open_hook_cannot_open_again() {
         status(&h)
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn substitute_on_selection_new_column_and_read_only() {
+    let mut h = csv(b"id,name\n1,a  \n2,b \n3,c\n").await;
+    h.keys("l s j").await; // rows 1 selected, cursor on row 2
+    h.keys(":").await;
+    h.type_("s/ +$//").await;
+    assert_eq!(status(&h), "replaced / +$/ in name on 1 selected rows");
+    assert_eq!(view_csv(&h), "id,name\n1,a\n2,b \n3,c\n");
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,name\n1,a  \n2,b \n3,c\n");
+    h.keys("g u :").await;
+    h.type_("s/ //g").await; // nothing selected: every row
+    assert_eq!(view_csv(&h), "id,name\n1,a\n2,b\n3,c\n");
+    h.keys("*").await;
+    h.type_("(.)/<\\1>").await;
+    assert_eq!(status(&h), "added name_re");
+    assert_eq!(view_csv(&h), "id,name,name_re\n1,a,<a>\n2,b,<b>\n3,c,<c>\n");
+    h.keys("U").await; // one undo step for derive + replace
+    assert_eq!(view_csv(&h), "id,name\n1,a\n2,b\n3,c\n");
+    h.keys("s g *").await;
+    h.type_("b/B").await;
+    assert_eq!(view_csv(&h), "id,name\n1,a\n2,B\n3,c\n");
+    h.keys("F *").await;
+    assert!(status(&h).starts_with("read-only"), "{}", status(&h));
+}

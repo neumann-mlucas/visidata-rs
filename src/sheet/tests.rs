@@ -1193,3 +1193,42 @@ fn a_count_started_before_an_edit_does_not_land() {
     assert!(s.land_count(&new, Some(2)));
     assert_eq!(s.row_count(), Some(2));
 }
+
+#[test]
+fn replace_edits_only_its_rows_and_keeps_nulls() {
+    let mut tmp = tempfile::NamedTempFile::new().unwrap();
+    writeln!(tmp, "name,n\naa a,1\n,2\nbaa,3").unwrap();
+    tmp.flush().unwrap();
+    let loaded = reader::open(tmp.path().as_os_str(), Some(SourceKind::Csv)).unwrap();
+    let mut s = Sheet::from_source(0, loaded);
+    let names = |s: &Sheet| -> Vec<Option<String>> {
+        let df = s.view_plan().collect().unwrap();
+        df.column("name")
+            .unwrap()
+            .str()
+            .unwrap()
+            .iter()
+            .map(|v| v.map(String::from))
+            .collect()
+    };
+    s.replace("name", "a", "x", false, Some(Arc::from([0u64, 1])), true)
+        .unwrap();
+    assert_eq!(names(&s), [Some("xa a".into()), None, Some("baa".into())]);
+    s.replace("name", "(a+)", "<$1>", true, None, true).unwrap();
+    assert_eq!(
+        names(&s),
+        [Some("x<a> <a>".into()), None, Some("b<aa>".into())]
+    );
+    assert!(
+        s.replace("n", "1", "2", true, None, true)
+            .unwrap_err()
+            .contains("text")
+    );
+    assert!(
+        s.replace("name", "(", "", true, None, true)
+            .unwrap_err()
+            .contains("bad regex")
+    );
+    assert!(s.time_travel(true));
+    assert_eq!(names(&s), [Some("xa a".into()), None, Some("baa".into())]);
+}

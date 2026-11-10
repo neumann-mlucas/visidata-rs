@@ -27,6 +27,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
     if input.is_empty() {
         return Err(ExError::Empty);
     }
+    if let Some(a) = substitute(input) {
+        return a.map(|a| vec![a]);
+    }
     let (cmd, rest) = match input.split_once(char::is_whitespace) {
         Some((c, r)) => (c, r.trim()),
         None => (input, ""),
@@ -370,6 +373,75 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
     }
 }
 
+/// `s/pattern/replacement/flags` with any punctuation delimiter (S-28).
+/// `\<delim>` is the delimiter itself; `\1` in the replacement is `${1}`.
+fn substitute(input: &str) -> Option<Result<Action, ExError>> {
+    const USAGE: &str = ":s/pattern/replacement/[g][i]";
+    let rest = input.strip_prefix('s')?;
+    let d = rest
+        .chars()
+        .next()
+        .filter(|c| c.is_ascii_punctuation() && !"-_\\\"'".contains(*c))?;
+    let mut parts = vec![String::new()];
+    let mut chars = rest[d.len_utf8()..].chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == d && parts.len() < 3 {
+            parts.push(String::new());
+            continue;
+        }
+        let cur = parts.last_mut()?;
+        match c {
+            '\\' if chars.peek() == Some(&d) => {
+                cur.push(d);
+                chars.next();
+            }
+            '\\' => {
+                cur.push(c);
+                cur.extend(chars.next());
+            }
+            c => cur.push(c),
+        }
+    }
+    let (pattern, replacement, flags) = match parts.as_slice() {
+        [p] => (p.clone(), String::new(), String::new()),
+        [p, r] => (p.clone(), r.clone(), String::new()),
+        [p, r, f] => (p.clone(), r.clone(), f.clone()),
+        _ => return Some(Err(ExError::Usage(USAGE))),
+    };
+    if pattern.is_empty() || !flags.chars().all(|f| matches!(f, 'g' | 'i')) {
+        return Some(Err(ExError::Usage(USAGE)));
+    }
+    let pattern = match flags.contains('i') {
+        true => format!("(?i){pattern}"),
+        false => pattern,
+    };
+    Some(Ok(Action::Substitute {
+        pattern,
+        replacement: vim_backrefs(&replacement),
+        all: flags.contains('g'),
+    }))
+}
+
+/// `\1` → `${1}`, `\\` → `\` (vim / VisiData replacements); the rest as is.
+pub fn vim_backrefs(r: &str) -> String {
+    let mut out = String::new();
+    let mut chars = r.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, chars.peek()) {
+            ('\\', Some(n)) if n.is_ascii_digit() => {
+                out.push_str(&format!("${{{n}}}"));
+                chars.next();
+            }
+            ('\\', Some('\\')) => {
+                out.push('\\');
+                chars.next();
+            }
+            (c, _) => out.push(c),
+        }
+    }
+    out
+}
+
 /// Built-in ex command names (aliases included), for completion.
 pub const COMMANDS: &[&str] = &[
     "clear-filter",
@@ -614,6 +686,41 @@ fn history_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn substitute_parses_delimiters_flags_and_backrefs() {
+        let sub = |p: &str, r: &str, all: bool| {
+            vec![Action::Substitute {
+                pattern: p.into(),
+                replacement: r.into(),
+                all,
+            }]
+        };
+        assert_eq!(parse(":s/ +$//").unwrap(), sub(" +$", "", false));
+        assert_eq!(parse("s/ +$/").unwrap(), sub(" +$", "", false));
+        assert_eq!(parse("s#a/b#c#gi").unwrap(), sub("(?i)a/b", "c", true));
+        assert_eq!(
+            parse(r"s/(\w)x/\1y\\/g").unwrap(),
+            sub(r"(\w)x", r"${1}y\", true)
+        );
+        assert_eq!(parse(r"s/\/x/y/").unwrap(), sub("/x", "y", false));
+        assert_eq!(parse("s/a b/c d/").unwrap(), sub("a b", "c d", false));
+        for bad in ["s//x/", "s/a/b/q"] {
+            assert!(matches!(parse(bad), Err(ExError::Usage(_))), "{bad}");
+        }
+        // other commands starting with s still parse as themselves
+        assert_eq!(
+            parse("sort -x").unwrap()[0],
+            Action::SetSort {
+                column: "x".into(),
+                descending: true
+            }
+        );
+        assert!(matches!(
+            parse("select-ids 1").unwrap()[0],
+            Action::SelectIds { .. }
+        ));
+    }
 
     /// `COMMANDS` (what Tab completes) names only commands `parse` knows.
     #[test]

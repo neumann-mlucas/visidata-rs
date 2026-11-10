@@ -338,6 +338,23 @@ pub enum Action {
         column: Option<String>,
         path: String,
     },
+    /// `:s/pattern/replacement/[g][i]` (S-28): the current column of the
+    /// selected rows (none: of the view), Rust regex replacement (`$1`).
+    Substitute {
+        pattern: String,
+        replacement: String,
+        all: bool,
+    },
+    /// `*` `g*` `gz*`: prompt for `search/replace`.
+    StartSubstInput {
+        mode: SubstMode,
+    },
+    /// What the `*` prompt answers: replace every match, VisiData style.
+    SubstPrompted {
+        pattern: String,
+        replacement: String,
+        mode: SubstMode,
+    },
     /// `:mksession [path]`: write the sheet stack as an ex script.
     MkSession {
         path: Option<String>,
@@ -346,6 +363,18 @@ pub enum Action {
     ToggleMacroRecord,
     /// A macro's steps, played one at a time once background jobs finish.
     Macro(Vec<Action>),
+}
+
+/// Where `*` / `g*` / `gz*` replace (VisiData `addcol-regex-subst`,
+/// `setcol-regex-subst`, `setcol-regex-subst-all`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubstMode {
+    /// A new column `<col>_re`.
+    NewColumn,
+    /// The current column of the selected rows.
+    Selected,
+    /// Every visible text column of the selected rows.
+    SelectedAll,
 }
 
 /// What the sidebar shows (S-23 A).
@@ -476,6 +505,8 @@ impl Action {
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } => false,
             HideNamed { .. } | Patch { .. } => true,
+            Substitute { .. } | SubstPrompted { .. } => true,
+            StartSubstInput { .. } => false,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -680,6 +711,9 @@ impl Action {
         ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
+        ("start_subst_input", StartSubstInput { mode: SubstMode::NewColumn }),
+        ("start_subst_selected_input", StartSubstInput { mode: SubstMode::Selected }),
+        ("start_subst_all_input", StartSubstInput { mode: SubstMode::SelectedAll }),
         ]
     };
 
@@ -786,6 +820,18 @@ impl Action {
                 path,
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
+            Substitute {
+                pattern,
+                replacement,
+                all,
+            } => {
+                let d = ['/', '|', '#', ',', ';', '!', '@', '%', '~']
+                    .into_iter()
+                    .find(|d| !pattern.contains(*d) && !replacement.contains(*d))?;
+                // `\` in the replacement is literal: doubled, as vim spells it
+                let r = replacement.replace('\\', "\\\\");
+                format!("s{d}{pattern}{d}{r}{d}{}", if *all { "g" } else { "" })
+            }
             _ => return None,
         })
     }
@@ -976,6 +1022,21 @@ mod tests {
                 path: s("p.parquet"),
             },
             ExpandCol { depth: 3 },
+            Substitute {
+                pattern: s("a/b +$"),
+                replacement: s("${1}x"),
+                all: true,
+            },
+            Substitute {
+                pattern: s("x"),
+                replacement: s(""),
+                all: false,
+            },
+            Substitute {
+                pattern: s(r"\d"),
+                replacement: s(r"a\1"),
+                all: false,
+            },
         ];
         for a in cases {
             let ex = a.to_ex().unwrap_or_else(|| panic!("no ex form: {a:?}"));

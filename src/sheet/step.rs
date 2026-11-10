@@ -53,6 +53,16 @@ pub enum PlanStep {
     AddRows {
         rows: Arc<DataFrame>,
     },
+    /// `:s`, `*`, `g*` (S-28): regex `pattern` → `replacement` (Rust regex
+    /// syntax, `$1`) in text `column`; `all`: every match, else the first.
+    /// `rids` `None`: every row.
+    Replace {
+        column: String,
+        pattern: String,
+        replacement: String,
+        all: bool,
+        rids: Option<Arc<[u64]>>,
+    },
     /// `:type json` (S-22 C): JSON text in `column` decoded as `dtype`, the
     /// type inferred from every value when typed.
     Json {
@@ -147,6 +157,24 @@ impl PlanStep {
                         .alias(column.as_str()),
                 )
                 .drop(cols(["__vdrs_v", "__vdrs_hit"])),
+            PlanStep::Replace {
+                column,
+                pattern,
+                replacement,
+                all,
+                rids,
+            } => {
+                let s = col(column.as_str()).str();
+                let (p, r) = (lit(pattern.as_str()), lit(replacement.as_str()));
+                let v = match all {
+                    true => s.replace_all(p, r, false),
+                    false => s.replace(p, r, false),
+                };
+                match rids {
+                    Some(rids) => on_rows(plan, column, rids, v),
+                    None => plan.with_column(v.alias(column.as_str())),
+                }
+            }
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => plan,
             PlanStep::Json { column, dtype } => plan.with_column(
                 col(column.as_str())
@@ -186,6 +214,7 @@ impl PlanStep {
             | PlanStep::Json { column, .. }
             | PlanStep::SetCol { column, .. }
             | PlanStep::SetExpr { column, .. }
+            | PlanStep::Replace { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. } => Some(name),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } | PlanStep::Expand { .. } => {
@@ -199,6 +228,7 @@ impl PlanStep {
             self,
             PlanStep::SetCol { .. }
                 | PlanStep::SetExpr { .. }
+                | PlanStep::Replace { .. }
                 | PlanStep::SetCells { .. }
                 | PlanStep::DeleteRows { .. }
                 | PlanStep::AddRows { .. }
@@ -282,6 +312,19 @@ impl PlanStep {
             PlanStep::SetCells { column, patch } => {
                 format!("paste into {column} on {}", rows(patch.height()))
             }
+            PlanStep::Replace {
+                column,
+                pattern,
+                replacement,
+                rids,
+                ..
+            } => match rids {
+                Some(r) => format!(
+                    "s/{pattern}/{replacement}/ in {column} on {}",
+                    rows(r.len())
+                ),
+                None => format!("s/{pattern}/{replacement}/ in {column}"),
+            },
             PlanStep::DeleteRows { rids } => format!("delete {}", rows(rids.len())),
             PlanStep::AddRows { rows: r } => format!("add {}", rows(r.height())),
             PlanStep::Expand { column, .. } => format!("expand {column}"),

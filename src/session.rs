@@ -329,6 +329,21 @@ impl Block {
                     self.col(column);
                     self.ex(Action::SetExpr { expr: expr.clone() });
                 }
+                PlanStep::Replace {
+                    column,
+                    pattern,
+                    replacement,
+                    all,
+                    rids,
+                } => {
+                    self.select(rids.iter().flat_map(|r| r.iter().copied()));
+                    self.col(column);
+                    self.ex(Action::Substitute {
+                        pattern: pattern.clone(),
+                        replacement: replacement.clone(),
+                        all: *all,
+                    });
+                }
                 PlanStep::DeleteRows { rids } => {
                     self.select(rids.iter().copied());
                     self.ex(Action::DeleteSelected);

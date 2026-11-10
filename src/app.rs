@@ -252,6 +252,10 @@ enum Prompt {
     AddRows,
     /// `m` again (S-19): which key the recorded macro goes on.
     MacroKey,
+    /// `*` `g*` `gz*` (S-28): `search/replace`.
+    Subst {
+        mode: crate::action::SubstMode,
+    },
     /// `z(` `gz(` (`all`): how many levels.
     ExpandDepth {
         all: bool,
@@ -299,6 +303,7 @@ impl Prompt {
             Prompt::ExpandDepth { .. } => "expand depth (0 = all the way): ",
             Prompt::Aggregate { .. } => "choose aggregators: ",
             Prompt::MacroKey => "macro key (e.g. <F5> or g x; empty discards): ",
+            Prompt::Subst { .. } => "search/replace: ",
         }
     }
 }
@@ -1332,6 +1337,31 @@ impl App {
                 self.run_ex(&text);
             }
             Prompt::MacroKey => self.finish_macro(&text),
+            Prompt::Subst { mode } => {
+                // the first `/` not escaped splits, as VisiData's one-liner
+                let mut split = None;
+                let mut esc = false;
+                for (i, c) in text.char_indices() {
+                    match c {
+                        '\\' if !esc => esc = true,
+                        '/' if !esc => {
+                            split = Some(i);
+                            break;
+                        }
+                        _ => esc = false,
+                    }
+                }
+                let (pattern, replacement) = match split {
+                    Some(i) => (&text[..i], &text[i + 1..]),
+                    None => (text.as_str(), ""),
+                };
+                // VisiData's `regex_flags` default `I`: case-insensitive
+                self.dispatch_sequence(vec![Action::SubstPrompted {
+                    pattern: format!("(?i){}", pattern.replace("\\/", "/")),
+                    replacement: crate::exline::vim_backrefs(replacement),
+                    mode,
+                }]);
+            }
             Prompt::Select => self.dispatch_sequence(vec![Action::SelectByRegex { regex: text }]),
             Prompt::Rename => self.dispatch_sequence(vec![Action::RenameCol { new_name: text }]),
             Prompt::Diff => {

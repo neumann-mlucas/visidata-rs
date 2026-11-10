@@ -1391,8 +1391,65 @@ fn py_from_text(e: &str, dtype: &DataType) -> String {
     }
 }
 
+/// A Rust-regex replacement (`$1`, `${1}`, `$$`) in RE2 syntax (`\\1`).
+fn re2_replacement(r: &str) -> String {
+    let mut out = String::new();
+    let mut it = r.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '$' if it.peek() == Some(&'$') => {
+                it.next();
+                out.push('$');
+            }
+            '$' => {
+                let braced = it.peek() == Some(&'{');
+                if braced {
+                    it.next();
+                }
+                let mut n = String::new();
+                while let Some(d) = it.peek().filter(|d| d.is_ascii_digit()) {
+                    n.push(*d);
+                    it.next();
+                }
+                if braced && it.peek() == Some(&'}') {
+                    it.next();
+                }
+                out.push('\\');
+                out.push_str(&n);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn py_step(t: &str, step: &PlanStep) -> String {
     match step {
+        PlanStep::Replace {
+            column,
+            pattern,
+            replacement,
+            all,
+            rids,
+        } => {
+            let f = if *all { "replace_all" } else { "replace" };
+            let v = format!(
+                "pl.col({c}).str.{f}({}, {})",
+                py_str(pattern),
+                py_str(replacement),
+                c = py_str(column)
+            );
+            let v = match rids {
+                Some(r) => format!(
+                    "pl.when(pl.col(\"__rid\").is_in({:?})).then({v}).otherwise(pl.col({c}))",
+                    &r[..],
+                    c = py_str(column)
+                ),
+                None => v,
+            };
+            format!("{t} = {t}.with_columns({v}.alias({}))", py_str(column))
+        }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
         PlanStep::Json { column, dtype } => format!(
             "{t} = {t}.with_columns(pl.col({c}).str.json_decode({}))",
@@ -1505,6 +1562,32 @@ fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
 /// Each plan step wraps the query so far (DuckDB `* RENAME` / `* REPLACE`).
 fn sql_step(q: String, step: &PlanStep) -> String {
     match step {
+        PlanStep::Replace {
+            column,
+            pattern,
+            replacement,
+            all,
+            rids,
+        } => {
+            let c = q_ident(column);
+            let v = format!(
+                "regexp_replace({c}, {}, {}{})",
+                q_str(pattern),
+                q_str(&re2_replacement(replacement)),
+                if *all { ", 'g'" } else { "" }
+            );
+            let v = match rids {
+                Some(r) => {
+                    let ids: Vec<String> = r.iter().map(u64::to_string).collect();
+                    format!(
+                        "CASE WHEN __rid IN ({}) THEN {v} ELSE {c} END",
+                        ids.join(", ")
+                    )
+                }
+                None => v,
+            };
+            format!("SELECT * REPLACE ({v} AS {c}) FROM ({q})")
+        }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
         PlanStep::Json { column, dtype } => format!(
             "SELECT * REPLACE (from_json({c}, {}) AS {c}) FROM ({q})",

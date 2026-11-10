@@ -520,6 +520,27 @@ impl Keymap {
             // repeat / sheet stack / quit
             ch(vec![k(".")], vec![RepeatLast], "repeat last action"),
             ch(vec![k("m")], vec![ToggleMacroRecord], "record macro / stop"),
+            ch(
+                vec![k("*")],
+                vec![StartSubstInput {
+                    mode: crate::action::SubstMode::NewColumn,
+                }],
+                "new column: regex replace of this one",
+            ),
+            ch(
+                vec![k("g"), k("*")],
+                vec![StartSubstInput {
+                    mode: crate::action::SubstMode::Selected,
+                }],
+                "regex replace in selected rows",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("*")],
+                vec![StartSubstInput {
+                    mode: crate::action::SubstMode::SelectedAll,
+                }],
+                "regex replace in selected rows, all columns",
+            ),
             ch(vec![k("q")], vec![PopSheet], "pop sheet / quit if last"),
             ch(vec![k("g"), k("q")], vec![Quit], "quit all sheets"),
             ch(vec![k("<C-q>")], vec![Quit], "quit"),

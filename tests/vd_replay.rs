@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 50;
+const MIN_PASS: usize = 51;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -871,6 +871,10 @@ impl Replay {
             // Walk every column of the current sheet; hide any whose non-null
             // values are all identical (and there's >1 row). VisiData's `hide-uniform-cols`.
             "hide-uniform-cols" => self.hide_uniform_cols(),
+            // `*` `g*` `gz*` (S-28): input {"before": regex, "after": replacement}
+            "addcol-regex-subst" | "setcol-regex-subst" | "setcol-regex-subst-all" => {
+                self.regex_subst(&r.longname, &r.col, &r.input)
+            }
             // sheets-stack: enter meta mode. `select-row` henceforth picks sheet
             // names (not data rows) and `join-sheets` consumes the selection.
             "sheets-stack" => {
@@ -1328,6 +1332,50 @@ impl Replay {
         s.set_col(col_name, value)
             .map(|_| ())
             .map_err(StepErr::Runtime)
+    }
+
+    fn regex_subst(&mut self, ln: &str, col_name: &str, input: &str) -> Result<(), StepErr> {
+        let rt = |e: String| StepErr::Runtime(e);
+        let v: serde_json::Value = serde_json::from_str(input).map_err(|e| rt(e.to_string()))?;
+        let get = |k: &str| {
+            v.get(k)
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        // VisiData's default `regex_flags` is `I`
+        let before = format!("(?i){}", get("before"));
+        let after = visidata_rs::exline::vim_backrefs(&get("after"));
+        let s = &mut self.current_slot_mut()?.sheet;
+        let selected: std::sync::Arc<[u64]> = s.view.selected.iter().copied().collect();
+        match ln {
+            "addcol-regex-subst" => {
+                let name = format!("{col_name}_re");
+                s.derive(&name, &format!("CAST(\"{col_name}\" AS VARCHAR)"))
+                    .and_then(|()| s.replace(&name, &before, &after, true, None, true))
+                    .map_err(rt)
+            }
+            _ if selected.is_empty() => Ok(()),
+            "setcol-regex-subst" => s
+                .replace(col_name, &before, &after, true, Some(selected), true)
+                .map_err(rt),
+            _ => {
+                let schema = s
+                    .view_plan()
+                    .collect_schema()
+                    .map_err(|e| rt(e.to_string()))?;
+                let text: Vec<String> = schema
+                    .iter()
+                    .filter(|(_, t)| **t == polars::prelude::DataType::String)
+                    .map(|(n, _)| n.to_string())
+                    .collect();
+                for c in text {
+                    s.replace(&c, &before, &after, true, Some(selected.clone()), true)
+                        .map_err(rt)?;
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Hide every column whose non-null values are all identical, provided

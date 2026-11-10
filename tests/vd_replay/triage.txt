@@ -229,7 +229,7 @@ sqlite_withoutrowid	PASS
 sum-freq-table	PASS
 syspaste-crlf	NO_GOLDEN golden is .json
 test_quartiles	SKIP runtime: no aggregator "q3": count distinct sum mean avg median mode min max stdev
-transform-cols	SKIP setcol-regex-subst-all
+transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
 unfurl-dict	SKIP runtime: unfurl: struct fields of different nested types
 unfurl-empty	SKIP runtime: option unfurl_empty

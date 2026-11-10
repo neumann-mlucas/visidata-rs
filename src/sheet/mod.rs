@@ -1571,6 +1571,47 @@ impl Sheet {
         Ok(n)
     }
 
+    /// `:s` / `g*` (S-28): replace `pattern` in text `column` on `rids` (`None`:
+    /// every row). `undo`: push an undo step (`*` made its own with the derive).
+    pub fn replace(
+        &mut self,
+        column: &str,
+        pattern: &str,
+        replacement: &str,
+        all: bool,
+        rids: Option<Arc<[u64]>>,
+        undo: bool,
+    ) -> Result<(), String> {
+        self.editable()?;
+        regex::Regex::new(pattern).map_err(|e| format!("bad regex: {e}"))?;
+        let dtype = self
+            .plan
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("no column: {column}"))?;
+        if dtype != DataType::String {
+            return Err(format!(
+                "{column} is {dtype}: replace works on text (:type string)"
+            ));
+        }
+        let step = PlanStep::Replace {
+            column: column.to_string(),
+            pattern: pattern.to_string(),
+            replacement: replacement.to_string(),
+            all,
+            rids,
+        };
+        let before = self.snapshot();
+        self.insert_edit(column, step).map_err(|e| e.to_string())?;
+        if undo {
+            self.push_undo(before);
+        }
+        Ok(())
+    }
+
     fn set_rows(&mut self, column: &str, rids: Arc<[u64]>, text: &str) -> Result<(), String> {
         self.editable()?;
         let (value, dtype) = self.edit_value(column, text)?;

@@ -294,6 +294,20 @@ impl App {
                     Err(e) => self.toast = Some(format!("patch {path}: {e}")),
                 }
             }
+            Action::StartSubstInput { mode } => match self.sheets.active().editable() {
+                Ok(()) => self.start_input(Prompt::Subst { mode }),
+                Err(e) => self.toast = Some(e),
+            },
+            Action::Substitute {
+                pattern,
+                replacement,
+                all,
+            } => self.substitute(&pattern, &replacement, all),
+            Action::SubstPrompted {
+                pattern,
+                replacement,
+                mode,
+            } => self.subst_prompted(&pattern, &replacement, mode),
             Action::SelectIds { ids } => {
                 let s = self.sheets.active_mut();
                 let mut sel = (*s.view.selected).clone();
@@ -880,6 +894,113 @@ impl App {
                 rows,
             })
         });
+    }
+
+    /// `:s`: the current column of the selected rows; none selected: of the
+    /// view's rows (every row when nothing filters it).
+    fn substitute(&mut self, pattern: &str, replacement: &str, all: bool) {
+        let Some(c) = self.current_column_name() else {
+            return;
+        };
+        let s = self.sheets.active();
+        let (rids, rows) = if !s.view.selected.is_empty() {
+            let r: std::sync::Arc<[u64]> = s.view.selected.iter().copied().collect();
+            let n = format!("{} selected rows", r.len());
+            (Some(r), n)
+        } else if s.view.filter.is_some() || s.view.filter_expr.is_some() {
+            // ponytail: a full scan on the UI thread (S-24 R6), like `gs`
+            match s.view_rids() {
+                Ok(r) => {
+                    let n = format!("{} rows in view", r.len());
+                    (Some(r.into()), n)
+                }
+                Err(e) => {
+                    self.toast = Some(format!("s: {e}"));
+                    return;
+                }
+            }
+        } else {
+            (None, "every row".into())
+        };
+        let s = self.sheets.active_mut();
+        match s.replace(&c, pattern, replacement, all, rids, true) {
+            Ok(()) => {
+                self.toast = Some(format!("replaced /{pattern}/ in {c} on {rows}"));
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("s: {e}")),
+        }
+    }
+
+    /// `*`: a new `<col>_re` column, replaced; `g*` / `gz*`: in place on the
+    /// selected rows, of the current / every visible text column. One undo step.
+    fn subst_prompted(&mut self, pattern: &str, replacement: &str, mode: crate::action::SubstMode) {
+        use crate::action::SubstMode;
+        if let Err(e) = regex::Regex::new(pattern) {
+            self.toast = Some(format!("bad regex: {e}"));
+            return;
+        }
+        let Some(c) = self.current_column_name() else {
+            return;
+        };
+        let s = self.sheets.active_mut();
+        let selected: std::sync::Arc<[u64]> = s.view.selected.iter().copied().collect();
+        let done = match mode {
+            SubstMode::NewColumn => {
+                let name = format!("{c}_re");
+                let q = format!("\"{}\"", c.replace('"', "\"\""));
+                s.derive(&name, &format!("CAST({q} AS VARCHAR)"))
+                    .and_then(|()| s.replace(&name, pattern, replacement, true, None, false))
+                    .map(|()| format!("added {name}"))
+            }
+            _ if selected.is_empty() => Err("no rows selected".into()),
+            SubstMode::Selected => s
+                .replace(&c, pattern, replacement, true, Some(selected.clone()), true)
+                .map(|()| format!("replaced in {c} on {} rows", selected.len())),
+            SubstMode::SelectedAll => {
+                let text: Vec<String> = s
+                    .view_plan()
+                    .collect_schema()
+                    .map(|sc| {
+                        sc.iter()
+                            .filter(|(_, t)| **t == DataType::String)
+                            .map(|(n, _)| n.to_string())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let before = s.snapshot();
+                let mut r = Ok(());
+                for col in &text {
+                    r = r.and_then(|()| {
+                        s.replace(
+                            col,
+                            pattern,
+                            replacement,
+                            true,
+                            Some(selected.clone()),
+                            false,
+                        )
+                    });
+                }
+                if r.is_ok() {
+                    s.push_undo(before);
+                }
+                r.map(|()| {
+                    format!(
+                        "replaced in {} columns on {} rows",
+                        text.len(),
+                        selected.len()
+                    )
+                })
+            }
+        };
+        match done {
+            Ok(msg) => {
+                self.toast = Some(msg);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("subst: {e}")),
+        }
     }
 
     /// `:open`: like the command line, a multi-part file opens on its list.
