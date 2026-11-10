@@ -19,7 +19,7 @@ mod undo;
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use step::{ADDED_RID, POS, PlanStep};
-pub use undo::{Snapshot, UndoState, UndoTree};
+pub use undo::{Snapshot, UndoTree};
 
 pub type SheetId = u32;
 
@@ -436,18 +436,22 @@ impl Sheet {
             Column::new("kind".into(), kinds),
         ])
         .expect("sheet-switcher dataframe");
-        let plan = df.clone().lazy();
+        Self::meta(id, "<sheets>".into(), df, Origin::SheetSwitcher)
+    }
+
+    /// An in-memory meta-sheet (sheet list, columns, undo tree) showing `df`.
+    fn meta(id: SheetId, name: String, df: DataFrame, origin: Origin) -> Self {
         Sheet {
             id,
-            name: "<sheets>".into(),
+            name,
             kind: SourceKind::Csv, // placeholder; this is a meta-sheet
             source: Arc::new(LoadedSource::empty()),
-            plan,
+            plan: df.clone().lazy(),
             view: View::default(),
             window: Some(df),
             revision: 0,
             state: Default::default(),
-            origin: Origin::SheetSwitcher,
+            origin,
         }
     }
 
@@ -759,8 +763,7 @@ impl Sheet {
             lf = lf.with_row_index(ROW_ID, None);
         }
         if any_deleted {
-            let ids = lit(Series::new("ids".into(), deleted)).implode(false);
-            lf = lf.filter(col(ROW_ID).cast(DataType::UInt64).is_in(ids, false).not());
+            lf = lf.filter(rid_in(&deleted).not());
         }
         if !with_rid && (carried || any_deleted) {
             lf = lf.drop(cols([ROW_ID]));
@@ -1026,10 +1029,7 @@ impl Sheet {
         let sel: Vec<u64> = self.view.selected.iter().copied().collect();
         let df = self
             .sorted_plan(true)
-            .filter(col(ROW_ID).is_in(
-                lit(Series::new("ids".into(), &sel[..])).implode(false),
-                false,
-            ))
+            .filter(rid_in(&sel))
             .select([col(ROW_ID)])
             .collect()?;
         let mut out = rid_values(&df)?;
@@ -1057,8 +1057,7 @@ impl Sheet {
         let deleted = self.deleted_rids();
         let mut lf = self.plan.clone();
         if !deleted.is_empty() {
-            let ids = lit(Series::new("ids".into(), deleted)).implode(false);
-            lf = lf.filter(col(ROW_ID).is_in(ids, false).not());
+            lf = lf.filter(rid_in(&deleted).not());
         }
         lf.drop(cols([ROW_ID]))
     }
@@ -1319,14 +1318,7 @@ impl Sheet {
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
-        let texts: Vec<Option<String>> = values
-            .cast(&DataType::String)
-            .map_err(|e| e.to_string())?
-            .str()
-            .map_err(|e| e.to_string())?
-            .iter()
-            .map(|v| v.map(String::from))
-            .collect();
+        let texts = column_texts(values).map_err(|e| e.to_string())?;
         let typed = self.edit_values(column, &texts)?;
         if let [one] = &texts[..] {
             return self.set_col(column, one.as_deref().unwrap_or_default());
@@ -1376,10 +1368,7 @@ impl Sheet {
                 Ok(n)
             }
             Err(e) => {
-                self.plan = before.plan;
-                self.view = before.view;
-                self.state.steps = before.steps;
-                self.invalidate(Reason::Rows);
+                self.restore(before);
                 Err(e)
             }
         }
@@ -1660,9 +1649,7 @@ impl Sheet {
             Some(p) => lf.slice(p as i64, 1),
             None => {
                 let rids: Vec<u64> = self.view.selected.iter().copied().collect();
-                lf.filter(
-                    col(ROW_ID).is_in(lit(Series::new("ids".into(), rids)).implode(false), false),
-                )
+                lf.filter(rid_in(&rids))
             }
         };
         lf.collect()?.drop(ROW_ID)
@@ -1869,6 +1856,18 @@ pub fn any_text(v: &AnyValue) -> String {
 pub(super) fn with_rids(lf: LazyFrame) -> LazyFrame {
     lf.with_row_index(ROW_ID, None)
         .with_column(col(ROW_ID).cast(DataType::UInt64))
+}
+
+/// `c`'s values as text, null as `None`.
+pub(crate) fn column_texts(c: &Column) -> PolarsResult<Vec<Option<String>>> {
+    let c = c.cast(&DataType::String)?;
+    Ok(c.str()?.iter().map(|v| v.map(String::from)).collect())
+}
+
+/// The row's [`ROW_ID`] is one of `rids`.
+pub(crate) fn rid_in(rids: &[u64]) -> Expr {
+    let ids = lit(Series::new("ids".into(), rids)).implode(false);
+    col(ROW_ID).cast(DataType::UInt64).is_in(ids, false)
 }
 
 /// The [`ROW_ID`] column of `df` as u64s.

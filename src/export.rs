@@ -1372,15 +1372,7 @@ fn added_rows(s: &Sheet) -> Vec<Added> {
             .iter()
             .filter(|c| c.name() != crate::sheet::ROW_ID && c.name() != crate::sheet::POS)
             .map(|c| {
-                let texts = c
-                    .cast(&DataType::String)
-                    .ok()
-                    .and_then(|c| {
-                        c.str()
-                            .ok()
-                            .map(|a| a.iter().map(|v| v.map(String::from)).collect())
-                    })
-                    .unwrap_or_default();
+                let texts = crate::sheet::column_texts(c).unwrap_or_default();
                 (c.name().to_string(), c.dtype().clone(), texts)
             })
             .collect();
@@ -1502,23 +1494,10 @@ fn py_step(t: &str, step: &PlanStep) -> String {
 
 /// A `SetCells` patch as row ids and value texts (null = None).
 fn patch_lists(patch: &DataFrame) -> (Vec<u64>, Vec<Option<String>>) {
-    let rids = patch
-        .column("__vdrs_rid")
-        .and_then(|c| c.cast(&DataType::UInt64))
-        .map(|c| {
-            c.u64()
-                .map(|a| a.into_no_null_iter().collect())
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
-    let vals = patch
-        .column("__vdrs_v")
-        .and_then(|c| c.cast(&DataType::String))
-        .map(|c| {
-            c.str()
-                .map(|a| a.iter().map(|v| v.map(String::from)).collect())
-                .unwrap_or_default()
-        })
+    let rids = crate::sheet::rid_values(patch).unwrap_or_default();
+    let vals = patch.column("__vdrs_v");
+    let vals = vals
+        .and_then(crate::sheet::column_texts)
         .unwrap_or_default();
     (rids, vals)
 }

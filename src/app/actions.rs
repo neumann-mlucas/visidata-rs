@@ -258,17 +258,12 @@ impl App {
             Action::SelectByRegex { regex } => self.select_by_regex(&regex),
             Action::SelectExpr { expr, unselect } => self.select_by_expr(expr, unselect),
             Action::DupSelected => self.open_dup_selected(),
-            Action::CopyRow => {
-                self.copy(false, false);
-            }
-            Action::CopySelected => {
-                self.copy(true, false);
-            }
-            Action::CopyCell => {
-                self.copy(false, true);
-            }
-            Action::CopyCells => {
-                self.copy(true, true);
+            Action::CopyRow | Action::CopySelected | Action::CopyCell | Action::CopyCells => {
+                let selected = matches!(action, Action::CopySelected | Action::CopyCells);
+                self.copy(
+                    selected,
+                    matches!(action, Action::CopyCell | Action::CopyCells),
+                );
             }
             Action::SysCopyRow => self.syscopy(false, false),
             Action::SysCopySelected => self.syscopy(true, false),
@@ -1417,7 +1412,6 @@ impl App {
         }
     }
 
-    /// The active sheet's visible columns, in screen order.
     /// Cursor onto visible column `name`, if it is one.
     fn goto_column(&mut self, name: &str) {
         let s = self.sheets.active_mut();
@@ -1452,6 +1446,7 @@ impl App {
         }
     }
 
+    /// The active sheet's visible columns, in screen order.
     fn visible_cols(&self) -> Vec<String> {
         let s = self.sheets.active();
         s.view_plan()

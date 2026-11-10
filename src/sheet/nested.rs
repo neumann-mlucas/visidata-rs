@@ -152,14 +152,6 @@ impl Sheet {
             _ => None,
         })
     }
-
-    /// Back to `snap` (taken just before), with no undo step.
-    pub(crate) fn restore(&mut self, snap: Snapshot) {
-        self.plan = snap.plan;
-        self.view = snap.view;
-        self.state.steps = snap.steps;
-        self.invalidate(Reason::Rows);
-    }
 }
 
 /// `name`'s columns: one per field, structs `depth` levels down; a name

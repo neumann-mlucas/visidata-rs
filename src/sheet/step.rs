@@ -78,7 +78,7 @@ pub const POS: &str = "__vdrs_pos";
 /// on the [`ROW_ID`] column source sheets carry.
 fn on_rows(plan: LazyFrame, column: &str, rids: &[u64], v: Expr) -> LazyFrame {
     plan.with_column(
-        when(col(ROW_ID).is_in(lit(Series::new("ids".into(), rids)).implode(false), false))
+        when(rid_in(rids))
             .then(v)
             .otherwise(col(column))
             .alias(column),
