@@ -1121,3 +1121,27 @@ fn freq_adds_aggregator_columns_in_view_order() {
     s.rename_col("a", "z").unwrap(); // aggregators follow the rename
     assert!(s.view.aggregators.iter().all(|(c, _)| c != "a"));
 }
+
+#[test]
+fn copied_rows_keep_base_values_under_a_view_cast() {
+    let (mut s, _t) = sheet_of("name,price\na,2.75\nb,1.5\n");
+    s.set_type_cast("price".into(), DataType::Int64);
+    s.view.sort.push(SortKey {
+        column: "price".into(),
+        order: SortOrder::Asc,
+    });
+    let row = s.copy_rows(Some(0), true).unwrap(); // sorted: b first
+    let get = |df: &DataFrame, c: &str| df.column(c).unwrap().get(0).unwrap().into_static();
+    assert_eq!(get(&row, "name"), AnyValue::String("b").into_static());
+    assert_eq!(get(&row, "price"), AnyValue::Float64(1.5));
+    let shown = s.copy_rows(Some(0), false).unwrap();
+    assert_eq!(get(&shown, "price"), AnyValue::Int64(1));
+    let names: Vec<&str> = row.get_column_names().iter().map(|n| n.as_str()).collect();
+    assert_eq!(names, ["name", "price"]);
+    // derived sheets number their rows the same way
+    let mut d = Sheet::child(&s, 1, "d".into(), s.data_plan(), Origin::Copy { parent: 0 });
+    d.set_type_cast("price".into(), DataType::Int64);
+    d.view.selected = Arc::new([0u64].into());
+    let row = d.copy_rows(None, true).unwrap();
+    assert_eq!(get(&row, "price"), AnyValue::Float64(2.75));
+}

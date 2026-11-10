@@ -957,7 +957,7 @@ impl Replay {
                 } else {
                     None
                 };
-                self.clip_rows = Some(s.copy_rows(pos).map_err(rt)?);
+                self.clip_rows = Some(s.copy_rows(pos, true).map_err(rt)?);
                 Ok(())
             }
             "add-row" | "add-rows" | "paste-after" | "paste-before" => {
@@ -1309,7 +1309,7 @@ impl Replay {
             }
             None => None,
         };
-        let df = s.copy_rows(pos).map_err(rt)?;
+        let df = s.copy_rows(pos, true).map_err(rt)?;
         self.clip = Some(df.column(col).map_err(rt)?.clone());
         Ok(())
     }
