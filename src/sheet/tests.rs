@@ -890,7 +890,7 @@ fn pasted_rows_match_columns_by_name_and_type() {
     ); // recomputed
     let bad = df!("v" => ["nope"]).unwrap();
     let e = s.add_rows(None, true, Some(&bad), 0).unwrap_err();
-    assert!(e.contains("don't fit"), "{e}");
+    assert!(e.contains("doesn't fit v"), "{e}"); // as `e` refuses it
     assert_eq!(s.view_plan().collect().unwrap().height(), 3);
 }
 
@@ -1144,4 +1144,38 @@ fn copied_rows_keep_base_values_under_a_view_cast() {
     d.view.selected = Arc::new([0u64].into());
     let row = d.copy_rows(None, true).unwrap();
     assert_eq!(get(&row, "price"), AnyValue::Float64(2.75));
+}
+
+#[test]
+fn pasted_text_rows_go_in_as_edits_take_text() {
+    let text = |cols: &[(&str, &str)]| {
+        let cols: Vec<Column> = cols
+            .iter()
+            .map(|(n, v)| Column::new((*n).into(), [*v]))
+            .collect();
+        DataFrame::new_infer_height(cols).unwrap()
+    };
+    let rows = |s: &Sheet| s.view_plan().collect().unwrap();
+    // a bool column takes the words `e` takes
+    let (mut s, _t) = sheet_of("flag,n\ntrue,1\n");
+    s.add_rows(None, true, Some(&text(&[("flag", "FALSE"), ("n", "2")])), 0)
+        .unwrap();
+    let df = rows(&s);
+    assert_eq!(
+        df.column("flag").unwrap().get(0).unwrap(),
+        AnyValue::Boolean(false)
+    );
+    // a column an earlier paste added takes values on the next paste
+    s.add_rows(None, true, Some(&text(&[("n", "3"), ("extra", "x")])), 0)
+        .unwrap();
+    s.add_rows(None, true, Some(&text(&[("n", "4"), ("extra", "y")])), 0)
+        .unwrap();
+    let extra = column_texts(rows(&s).column("extra").unwrap()).unwrap();
+    assert_eq!(extra, [None, Some("x".into()), Some("y".into()), None]); // no anchor: top
+    // a `:type json` column refuses text that isn't its JSON, and still shows
+    let (mut s, _t) = sheet_of("id,payload\n1,\"{\"\"a\"\":1}\"\n");
+    s.json_decode("payload").unwrap();
+    let bad = text(&[("id", "2"), ("payload", "n/a")]);
+    assert!(s.add_rows(None, true, Some(&bad), 0).is_err());
+    assert_eq!(rows(&s).height(), 1);
 }

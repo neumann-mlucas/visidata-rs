@@ -1211,10 +1211,21 @@ impl Sheet {
                     cols.push(c.clone()); // a new column
                 }
             }
-            let base = self
+            let mut base = (*self
                 .tail_base()
                 .and_then(|mut b| b.collect_schema())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?)
+            .clone();
+            // columns an earlier paste added are base columns too
+            for s in &self.state.steps {
+                if let PlanStep::AddRows { rows } = s {
+                    for (n, d) in rows.schema().iter() {
+                        if n != ROW_ID && n != POS && !base.contains(n) {
+                            base.insert(n.clone(), d.clone());
+                        }
+                    }
+                }
+            }
             for (name, dtype) in base.iter() {
                 let mut now = name.to_string(); // its name after this sheet's renames
                 for s in &self.state.steps {
@@ -1225,9 +1236,28 @@ impl Sheet {
                     }
                 }
                 if let Ok(c) = values.column(&now) {
-                    let c = c
-                        .strict_cast(dtype)
-                        .map_err(|_| format!("{now}: {} values don't fit {dtype}", c.dtype()))?;
+                    let refuse = |_| format!("{now}: {} values don't fit {dtype}", c.dtype());
+                    let json = self.state.steps.iter().find_map(|s| match s {
+                        PlanStep::Json { column, dtype } if *column == now => Some(dtype),
+                        _ => None,
+                    });
+                    if let (Some(dt), Ok(text)) = (json, c.str()) {
+                        // `:type json` decodes every row: refuse what it can't
+                        let _decoded = text
+                            .json_decode(Some(dt.clone()), None)
+                            .map_err(|e| format!("{now}: {e}"))?;
+                    }
+                    let c = if c.dtype() == &DataType::String {
+                        // text goes in as `e` takes it: bool words, the shown type
+                        let texts = column_texts(c).map_err(|e| e.to_string())?;
+                        let typed = self.edit_values(&now, &texts)?;
+                        match typed.dtype() == dtype {
+                            true => typed.into_column(),
+                            false => c.strict_cast(dtype).map_err(refuse)?,
+                        }
+                    } else {
+                        c.strict_cast(dtype).map_err(refuse)?
+                    };
                     cols.push(c.with_name(name.clone()));
                 }
             }
