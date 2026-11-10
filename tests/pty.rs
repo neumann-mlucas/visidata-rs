@@ -273,9 +273,17 @@ fn sessions_survive_a_restart() {
     vd.send(b"gq");
     let _ = vd.child.wait();
     let saved = home.path().join("state/vdrs/session.vdrs");
+    // the title names the file by its absolute path now: compare the rest
+    let body = |t: &str| t.lines().skip(1).collect::<Vec<_>>().join("\n");
     let again = Vdrs::spawn(&["-S", saved.to_str().unwrap()], home.path());
-    if let Err(got) = again.wait_for(&freq) {
-        panic!("--- want\n{freq}\n--- got\n{got}");
+    let end = Instant::now() + Duration::from_secs(20);
+    while body(&again.text()) != body(&freq) {
+        assert!(
+            Instant::now() < end,
+            "--- want\n{freq}\n--- got\n{}",
+            again.text()
+        );
+        std::thread::sleep(Duration::from_millis(50));
     }
     drop(again);
     let named = Vdrs::spawn(&["-S", named.to_str().unwrap()], home.path());

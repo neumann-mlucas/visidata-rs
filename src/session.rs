@@ -31,6 +31,14 @@ pub fn default_path() -> PathBuf {
     base.join("vdrs").join("session.vdrs")
 }
 
+/// `p` absolute, so a session replays from any directory.
+fn abs(p: &Path) -> String {
+    std::fs::canonicalize(p)
+        .unwrap_or_else(|_| p.to_path_buf())
+        .display()
+        .to_string()
+}
+
 /// The file an `open` line opens.
 pub fn root(line: &str) -> Option<String> {
     let line = line.trim().trim_start_matches(':');
@@ -189,7 +197,7 @@ impl Block {
 
     /// A sheet read from a file; false: it can't be reopened.
     fn root(&mut self, s: &Sheet) -> bool {
-        let path = s.source.path.as_ref().map(|p| p.display().to_string());
+        let path = s.source.path.as_deref().map(abs);
         match (&s.origin, path) {
             (Origin::File | Origin::Parts { .. }, Some(path)) => {
                 self.ex(Action::Open { path });
@@ -197,7 +205,7 @@ impl Block {
             }
             (Origin::Tail { path, follow }, _) => {
                 self.ex(Action::Tail {
-                    path: path.display().to_string(),
+                    path: abs(path),
                     follow: *follow,
                 });
                 true
@@ -216,7 +224,7 @@ impl Block {
     /// The command that made a sheet from the one above; false: none.
     fn derivation(&mut self, how: &Derivation) -> bool {
         let file = |s: &Sheet| match (&s.origin, &s.source.path) {
-            (Origin::File, Some(p)) if s.state.steps.is_empty() => Some(p.display().to_string()),
+            (Origin::File, Some(p)) if s.state.steps.is_empty() => Some(abs(p)),
             _ => None,
         };
         match how {
