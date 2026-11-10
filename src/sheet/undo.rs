@@ -147,6 +147,14 @@ impl Sheet {
         }
     }
 
+    /// Back to `snap`, with no undo step; the rows may differ, so recount.
+    pub(crate) fn restore(&mut self, snap: Snapshot) {
+        self.plan = snap.plan;
+        self.view = snap.view;
+        self.state.steps = snap.steps;
+        self.invalidate(Reason::Rows);
+    }
+
     /// `U` (`undo = true`): the parent state; `R`: the child last made or
     /// come back from. False when there is none.
     pub fn time_travel(&mut self, undo: bool) -> bool {
@@ -199,10 +207,7 @@ impl Sheet {
             child = p;
         }
         t.current = id;
-        self.plan = snap.plan;
-        self.view = snap.view;
-        self.state.steps = snap.steps;
-        self.invalidate(Reason::Rows); // plan may differ: recount
+        self.restore(snap);
         if matches!(self.origin, Origin::Tail { .. }) {
             // Snapshots predate rows that arrived since; keep the rows, undo the edit.
             if let Err(e) = self.rebuild_plan() {
@@ -277,22 +282,10 @@ impl Sheet {
             ),
         ])
         .expect("undo-tree dataframe");
-        let view = View {
-            row_cursor: states.iter().position(|s| s.current).unwrap_or(0),
-            ..Default::default()
-        };
-        Sheet {
-            id,
-            name: format!("{}_undo", of.name),
-            kind: SourceKind::Csv, // placeholder; this is a meta-sheet
-            source: Arc::new(LoadedSource::empty()),
-            plan: df.clone().lazy(),
-            view,
-            window: Some(df),
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::UndoTree { parent: of.id },
-        }
+        let origin = Origin::UndoTree { parent: of.id };
+        let mut sheet = Sheet::meta(id, format!("{}_undo", of.name), df, origin);
+        sheet.view.row_cursor = states.iter().position(|s| s.current).unwrap_or(0);
+        sheet
     }
 }
 

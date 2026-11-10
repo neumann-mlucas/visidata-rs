@@ -202,12 +202,11 @@ impl App {
         let s = self.sheets.active();
         let (id, mut view, all) = (s.id, s.view.clone(), s.name == "all_columns");
         let data: Vec<&Sheet> = self.sheets.iter().filter(|s| ids.contains(&s.id)).collect();
-        let new = match (all, data.first()) {
+        let mut new = match (all, data.first()) {
             (true, _) => Sheet::columns_all(&data, id),
             (false, Some(one)) => Sheet::columns_of(one, id),
             (false, None) => return,
         };
-        let mut new = new;
         if let Origin::Columns { cols } = &new.origin {
             let at = |t: &(SheetId, String)| cols.iter().position(|c| c == t);
             if let Some(i) = cur.first().and_then(at) {
@@ -244,7 +243,6 @@ impl App {
         }
     }
 
-    /// The typed `text` for the cursor row's `field`, written to its sheet.
     /// The current column, when `e` / `ge` may write it: toasts otherwise.
     fn columns_editable_field(&mut self) -> Option<String> {
         let field = self.current_column_name()?;

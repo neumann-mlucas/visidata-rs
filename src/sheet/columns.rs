@@ -122,8 +122,7 @@ impl Sheet {
         let mut lf = self.view_plan_rid(true);
         if !self.view.selected.is_empty() {
             let sel: Vec<u64> = self.view.selected.iter().copied().collect();
-            let ids = lit(Series::new("ids".into(), sel)).implode(false);
-            lf = lf.filter(col(ROW_ID).cast(DataType::UInt64).is_in(ids, false));
+            lf = lf.filter(rid_in(&sel));
         }
         let exprs: Vec<Expr> = names.iter().map(|n| agg_expr(column, n)).collect();
         let df = lf.select(exprs).collect().map_err(|e| e.to_string())?;
@@ -236,14 +235,16 @@ impl Sheet {
                     .map(|(_, a)| a.as_str())
                     .collect();
                 aggs.push(a.join(" "));
-                order.push(v.sort.iter().position(|k| k.column == n).map(|i| {
-                    let i = i as i64 + 1;
-                    if v.sort[i as usize - 1].order == SortOrder::Desc {
-                        -i
-                    } else {
-                        i
-                    }
-                }));
+                order.push(
+                    v.sort
+                        .iter()
+                        .zip(1i64..)
+                        .find(|(k, _)| k.column == n)
+                        .map(|(k, i)| match k.order {
+                            SortOrder::Desc => -i,
+                            _ => i,
+                        }),
+                );
                 keys.push(v.keys.contains(&n));
                 names.push(n.clone());
                 cols.push((s.id, n));
@@ -275,20 +276,8 @@ impl Sheet {
                 .unwrap_or(0),
             _ => 0,
         };
-        Sheet {
-            id,
-            name,
-            kind: SourceKind::Csv, // placeholder; this is a meta-sheet
-            source: Arc::new(LoadedSource::empty()),
-            plan: df.clone().lazy(),
-            view: View {
-                row_cursor,
-                ..Default::default()
-            },
-            window: Some(df),
-            revision: 0,
-            state: Default::default(),
-            origin: Origin::Columns { cols: cols.into() },
-        }
+        let mut sheet = Sheet::meta(id, name, df, Origin::Columns { cols: cols.into() });
+        sheet.view.row_cursor = row_cursor;
+        sheet
     }
 }
