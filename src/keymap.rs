@@ -545,6 +545,11 @@ impl Keymap {
             ch(vec![k("g"), k("q")], vec![Quit], "quit all sheets"),
             ch(vec![k("<C-q>")], vec![Quit], "quit"),
             ch(
+                vec![k("z"), k("n")],
+                vec![StartNoteInput],
+                "note on this cell",
+            ),
+            ch(
                 vec![k("<C-r>")],
                 vec![Refresh],
                 "refresh a derived sheet from its parent",

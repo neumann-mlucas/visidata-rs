@@ -261,6 +261,8 @@ enum Prompt {
     AddRows,
     /// `m` again (S-19): which key the recorded macro goes on.
     MacroKey,
+    /// `zn` (S-30 B): the cursor cell's note.
+    Note,
     /// `*` `g*` `gz*` (S-28): `search/replace`.
     Subst {
         mode: crate::action::SubstMode,
@@ -313,6 +315,7 @@ impl Prompt {
             Prompt::Aggregate { .. } => "choose aggregators: ",
             Prompt::MacroKey => "macro key (e.g. <F5> or g x; empty discards): ",
             Prompt::Subst { .. } => "search/replace: ",
+            Prompt::Note => "note (empty deletes): ",
         }
     }
 }
@@ -361,6 +364,8 @@ pub struct App {
     /// Status-line stats of the selection (S-30 C), and what was last asked.
     sel_stats: Option<(StatsKey, Vec<(&'static str, String)>)>,
     sel_stats_asked: Option<StatsKey>,
+    /// Cell notes by source file, read when first shown (S-30 B).
+    notes: std::collections::HashMap<std::path::PathBuf, crate::notes::Notes>,
     /// The active sheet `follow_link` last looked at (S-30 A).
     link_seen: Option<SheetId>,
     /// A macro step is dispatching: its actions are neither recorded nor `.`.
@@ -427,6 +432,7 @@ impl App {
             sel_stats: None,
             sel_stats_asked: None,
             link_seen: None,
+            notes: Default::default(),
             replaying: false,
             toast: plugin_warning,
             input: None,
@@ -587,6 +593,54 @@ impl App {
             let stats = sheet.selection_stats(&key.2).map_err(|e| e.to_string())?;
             Ok(JobDone::SelStats { key, stats })
         });
+    }
+
+    /// The file a note on the active sheet goes to: sheets read from a file only.
+    fn notes_path(&self) -> Option<std::path::PathBuf> {
+        let s = self.sheets.active();
+        s.source
+            .path
+            .clone()
+            .filter(|_| matches!(s.origin, Origin::File))
+    }
+
+    /// The active sheet's notes, read on first use.
+    fn notes_mut(&mut self) -> Option<(std::path::PathBuf, &mut crate::notes::Notes)> {
+        let path = self.notes_path()?;
+        let n = self
+            .notes
+            .entry(path.clone())
+            .or_insert_with(|| crate::notes::Notes::load(&path));
+        Some((path, n))
+    }
+
+    /// The cursor cell's row (by keys when there are key columns) and column.
+    fn note_cell(&self) -> Option<(crate::notes::Row, String)> {
+        let s = self.sheets.active();
+        let column = self.current_column_name()?;
+        let r = s.view.row_cursor;
+        let row = match s.view.keys.is_empty() {
+            true => crate::notes::Row::Id(*s.window_rids().get(r)?),
+            false => crate::notes::Row::Keys(crate::sheet::key_text(s.window()?, &s.view.keys, r)),
+        };
+        Some((row, column))
+    }
+
+    /// The note on the cursor cell.
+    fn cursor_note(&self) -> Option<&crate::notes::Note> {
+        let notes = self.notes.get(&self.notes_path()?)?;
+        let s = self.sheets.active();
+        let rid = s.window_rids().get(s.view.row_cursor).copied();
+        let keys = (!s.view.keys.is_empty())
+            .then(|| {
+                Some(crate::sheet::key_text(
+                    s.window()?,
+                    &s.view.keys,
+                    s.view.row_cursor,
+                ))
+            })
+            .flatten();
+        notes.get(rid, keys.as_deref(), &self.current_column_name()?)
     }
 
     /// `:refresh` the active sheet (and its changed ancestors) in the background.
@@ -1412,7 +1466,7 @@ impl App {
         if text.is_empty()
             && !matches!(
                 prompt,
-                Prompt::Ex | Prompt::Edit | Prompt::SetCol | Prompt::MacroKey
+                Prompt::Ex | Prompt::Edit | Prompt::SetCol | Prompt::MacroKey | Prompt::Note
             )
         {
             return;
@@ -1467,6 +1521,7 @@ impl App {
                 self.run_ex(&text);
             }
             Prompt::MacroKey => self.finish_macro(&text),
+            Prompt::Note => self.dispatch_sequence(vec![Action::SetNote { text }]),
             Prompt::Subst { mode } => {
                 // the first `/` not escaped splits, as VisiData's one-liner
                 let mut split = None;

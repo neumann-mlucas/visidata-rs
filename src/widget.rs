@@ -17,10 +17,15 @@ use crate::theme::Theme;
 /// Custom cell text (Lua renderers): `(column, dtype, value) -> text`.
 pub type CellRenderer<'a> = &'a dyn Fn(&str, &DataType, &AnyValue) -> Option<String>;
 
+/// Has the cell (window row, column name) a note?
+pub type Noted<'a> = &'a dyn Fn(usize, &str) -> bool;
+
 pub struct SheetWidget<'a> {
     pub sheet: &'a Sheet,
     pub theme: &'a Theme,
     pub render: Option<CellRenderer<'a>>,
+    /// Cells with a note (window row, column name) get a marker (S-30 B).
+    pub noted: Option<Noted<'a>>,
 }
 
 impl<'a> SheetWidget<'a> {
@@ -240,6 +245,12 @@ impl SheetWidget<'_> {
                 let col_hi = ci == view.col_cursor;
                 let style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
                 paint_cell(buf, x, y, w, &text, style, cols[ci].dtype().is_numeric());
+                if w > 0
+                    && self.noted.is_some_and(|n| n(ri, cols[ci].name()))
+                    && let Some(cell) = buf.cell_mut((x + w - 1, y))
+                {
+                    cell.set_symbol("•").set_fg(th.toast_fg);
+                }
             }
         }
 
@@ -566,6 +577,7 @@ mod tests {
                     sheet: &sheet,
                     theme: &theme,
                     render: None,
+                    noted: None,
                 },
                 f.area(),
             )

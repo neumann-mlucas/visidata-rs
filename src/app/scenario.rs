@@ -2623,3 +2623,54 @@ async fn raise(h: &mut Harness, name: &str) {
     h.keys(&format!("{}<CR>", "j ".repeat(row))).await;
     assert!(title(h).contains(name), "{}", title(h));
 }
+
+/// S-30 B: `zn` notes a cell (marker, sidebar), survives a restart, `zn`
+/// again edits it, `:notes` lists them and `Enter` jumps; empty deletes.
+#[tokio::test(flavor = "multi_thread")]
+async fn cell_notes_mark_cells_persist_and_jump() {
+    let mut h = csv(b"id,name\n1,alpha\n2,beta\n3,gamma\n").await;
+    let path = h.app.sheets.active().source.path.clone().unwrap();
+    let marked = |h: &Harness, row: usize| h.screen().lines().nth(row).unwrap().contains('•');
+    h.keys("l j z n").await;
+    h.type_("check me").await;
+    assert_eq!(status(&h), "note saved");
+    assert!(marked(&h, 3) && !marked(&h, 2), "{}", h.screen());
+    h.keys(":").await;
+    h.type_("sidebar cell").await;
+    assert!(h.screen().contains("note: check me"), "{}", h.screen());
+
+    // a new vdrs on the same file sees it
+    let loaded = crate::reader::open(path.as_os_str(), None).unwrap();
+    let mut again = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
+    assert!(marked(&again, 3), "{}", again.screen());
+    again.keys("l j z n").await;
+    assert!(status(&again).ends_with("check me"), "{}", status(&again));
+    again.keys("<Esc> g g :").await;
+    again.type_("notes").await;
+    assert!(title(&again).starts_with(" notes: "), "{}", title(&again));
+    let t = csv_text(again.app.sheets.active(), b'|');
+    assert!(t.contains("2|id 1|name|check me|false|"), "{t}");
+    again.keys("<CR>").await;
+    assert!(
+        title(&again).contains("name 2/2") && title(&again).contains("row 2/3"),
+        "{}",
+        title(&again)
+    );
+    again.keys(":").await;
+    again.type_("note").await;
+    assert_eq!(status(&again), "note deleted");
+    assert!(!marked(&again, 3), "{}", again.screen());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notes_on_key_columns_and_refused_on_derived_sheets() {
+    let mut h = csv(b"id,name\n1,alpha\n2,beta\n").await;
+    h.keys("! l j :").await; // key `id`
+    h.type_("note by key").await;
+    h.keys(":").await;
+    h.type_("notes").await;
+    let t = csv_text(h.app.sheets.active(), b'|');
+    assert!(t.contains("2|2|name|by key|false|"), "{t}");
+    h.keys("q F z n").await;
+    assert_eq!(status(&h), "notes: only on sheets read from a file");
+}

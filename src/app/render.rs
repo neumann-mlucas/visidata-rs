@@ -54,6 +54,9 @@ impl App {
             (halves[0], Some(halves[1]))
         };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
+        // ponytail: the notes file is read here on first sight, on the UI
+        // thread; it's small. Move to a job if notes files grow.
+        let _ = self.notes_mut();
         let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
         let render_cell =
             |c: &str, d: &DataType, v: &AnyValue| lua_render.and_then(|p| p.render(c, d, v));
@@ -67,11 +70,27 @@ impl App {
         }
 
         self.render_titlebar(f, chunks[0]);
+        let s = self.sheets.active();
+        let notes = self
+            .notes_path()
+            .and_then(|p| self.notes.get(&p))
+            .filter(|n| !n.notes.is_empty());
+        let noted = |ri: usize, column: &str| {
+            notes.is_some_and(|n| {
+                let rid = s.window_rids().get(ri).copied();
+                let keys = s
+                    .window()
+                    .filter(|_| !s.view.keys.is_empty())
+                    .map(|df| crate::sheet::key_text(df, &s.view.keys, ri));
+                n.get(rid, keys.as_deref(), column).is_some()
+            })
+        };
         f.render_widget(
             SheetWidget {
-                sheet: self.sheets.active(),
+                sheet: s,
                 theme: &self.theme,
                 render,
+                noted: notes.map(|_| &noted as crate::widget::Noted),
             },
             sheet_area,
         );
@@ -116,6 +135,7 @@ impl App {
                     sheet,
                     theme: &self.theme,
                     render: None,
+                    noted: None,
                 },
                 inner,
             ),
@@ -151,6 +171,10 @@ impl App {
                     Some(v) if !v.is_null() => crate::sheet::any_text(&v),
                     Some(_) => "null".into(),
                     None => String::new(),
+                };
+                let text = match self.cursor_note() {
+                    Some(n) => format!("{text}\n\nnote: {}", n.text),
+                    None => text,
                 };
                 (format!("cell: {column}"), text)
             }

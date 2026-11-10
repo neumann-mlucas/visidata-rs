@@ -361,6 +361,14 @@ pub enum Action {
     },
     /// `:stats` (S-30 C): the selection's status-line stats to the clipboard, as TSV.
     CopyStats,
+    /// `zn` (S-30 B): prompt for the cursor cell's note, the old one filled in.
+    StartNoteInput,
+    /// `:note <text>`: the cursor cell's note; empty deletes it.
+    SetNote {
+        text: String,
+    },
+    /// `:notes`: a sheet of this file's notes; `Enter` jumps to the cell.
+    Notes,
     /// `<C-r>` / `:refresh` (S-30 A): rebuild a derived sheet from its parent's current view.
     Refresh,
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
@@ -518,7 +526,8 @@ impl Action {
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
-            StartSubstInput { .. } => false,
+            StartSubstInput { .. } | StartNoteInput | Notes => false,
+            SetNote { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -724,6 +733,8 @@ impl Action {
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
+        ("start_note_input", StartNoteInput),
+        ("notes", Notes),
         ("link", Link { on: true }),
         ("unlink", Link { on: false }),
         ("start_subst_input", StartSubstInput { mode: SubstMode::NewColumn }),
@@ -836,6 +847,7 @@ impl Action {
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
             Hits { needle } => format!("hits {needle}"),
+            SetNote { text } => format!("note {text}").trim_end().to_string(),
             Substitute {
                 pattern,
                 replacement,

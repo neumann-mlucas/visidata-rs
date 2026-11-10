@@ -11,6 +11,7 @@ pub mod export;
 pub mod key;
 pub mod keymap;
 pub mod lineedit;
+pub mod notes;
 pub mod plugins;
 pub mod reader;
 pub mod session;

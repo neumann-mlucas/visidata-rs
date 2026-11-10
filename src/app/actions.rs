@@ -314,6 +314,46 @@ impl App {
                     Ok(JobDone::PushSheet(Box::new(s)))
                 });
             }
+            Action::StartNoteInput => {
+                if self.notes_mut().is_none() {
+                    self.toast = Some("notes: only on sheets read from a file".into());
+                    return;
+                }
+                let old = self.cursor_note().map(|n| n.text.clone());
+                self.start_input(Prompt::Note);
+                if let (Some((_, line)), Some(old)) = (self.input.as_mut(), old) {
+                    line.set(&old);
+                }
+            }
+            Action::SetNote { text } => {
+                let Some((row, column)) = self.note_cell() else {
+                    self.toast = Some("note: no cell here".into());
+                    return;
+                };
+                let Some((path, notes)) = self.notes_mut() else {
+                    self.toast = Some("notes: only on sheets read from a file".into());
+                    return;
+                };
+                self.toast = Some(match notes.set(&path, row, &column, text.trim()) {
+                    Err(e) => format!("note: {e}"),
+                    Ok(()) if text.trim().is_empty() => "note deleted".into(),
+                    Ok(()) => "note saved".into(),
+                });
+            }
+            Action::Notes => {
+                let Some((_, notes)) = self.notes_mut() else {
+                    self.toast = Some("notes: only on sheets read from a file".into());
+                    return;
+                };
+                let notes = notes.clone();
+                let parent = self.sheets.active().clone();
+                let id = self.sheets.alloc_id();
+                self.spawn_job("notes", move || {
+                    Ok(JobDone::PushSheet(Box::new(Sheet::notes_from(
+                        &parent, id, &notes,
+                    )?)))
+                });
+            }
             Action::Refresh => self.refresh(),
             Action::Link { on } => {
                 let s = self.sheets.active_mut();

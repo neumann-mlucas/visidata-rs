@@ -555,6 +555,72 @@ impl Sheet {
     /// `:hits needle` (S-28 B): `row` (from 1), `column`, `value` and the key
     /// columns' values of each hit of `needle` in `parent`'s view, at most
     /// `cap`. Also whether the cap cut it short.
+    /// `:notes` (S-30 B): a sheet of the notes on `parent`'s cells, `row` = its
+    /// view position now (empty: filtered out or gone); `Enter` jumps, as `:hits`.
+    pub fn notes_from(
+        parent: &Sheet,
+        id: SheetId,
+        notes: &crate::notes::Notes,
+    ) -> Result<Self, String> {
+        use crate::notes::Row;
+        let e = |e: PolarsError| e.to_string();
+        let view = parent.view_plan_rid(true).collect().map_err(e)?;
+        let rids = rid_values(&view).map_err(e)?;
+        let keys = &parent.view.keys;
+        let rows: Vec<Vec<String>> = match keys.is_empty() {
+            true => Vec::new(),
+            false => (0..view.height())
+                .map(|r| key_text(&view, keys, r))
+                .collect(),
+        };
+        let at = |row: &Row| {
+            match row {
+                Row::Id(r) => rids.iter().position(|x| x == r),
+                Row::Keys(k) => rows.iter().position(|v| v == k),
+            }
+            .map(|p| p as u64 + 1)
+        };
+        let ns = &notes.notes;
+        let df = DataFrame::new_infer_height(vec![
+            Column::new(
+                "row".into(),
+                ns.iter().map(|n| at(&n.row)).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "key".into(),
+                ns.iter()
+                    .map(|n| match &n.row {
+                        Row::Id(r) => format!("id {r}"),
+                        Row::Keys(k) => k.join(" · "),
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "column".into(),
+                ns.iter().map(|n| n.column.clone()).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "note".into(),
+                ns.iter().map(|n| n.text.clone()).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "stale?".into(),
+                ns.iter().map(|n| notes.stale(n)).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "created".into(),
+                ns.iter()
+                    .map(|n| n.created as i64 * 1000)
+                    .collect::<Vec<_>>(),
+            )
+            .cast(&DataType::Datetime(TimeUnit::Milliseconds, None))
+            .map_err(e)?,
+        ])
+        .map_err(e)?;
+        let name = format!("notes: {}", parent.name);
+        Ok(Self::meta(id, name, df, Origin::Hits { parent: parent.id }))
+    }
+
     pub fn hits_from(
         parent: &Sheet,
         id: SheetId,
@@ -2122,6 +2188,18 @@ pub const HISTOGRAM_WIDTH: usize = 38;
 
 /// A value as `cast(String)` prints it: the text `values_predicate` compares.
 /// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
+/// Row `r`'s `keys` values as text: what a note on that row keys on.
+pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
+    keys.iter()
+        .map(|k| {
+            df.column(k)
+                .ok()
+                .and_then(|c| c.get(r).ok())
+                .map_or_else(String::new, |v| any_text(&v))
+        })
+        .collect()
+}
+
 pub fn any_text(v: &AnyValue) -> String {
     let cast = Series::from_any_values("v".into(), std::slice::from_ref(v), true)
         .and_then(|s| s.cast(&DataType::String));
