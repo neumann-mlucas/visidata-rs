@@ -473,6 +473,14 @@ impl App {
                     Span::raw(before.to_string()),
                     Span::styled(at, Style::default().add_modifier(Modifier::REVERSED)),
                     Span::raw(rest.as_str().to_string()),
+                    Span::styled(
+                        if line.is_normal() {
+                            "  -- NORMAL --"
+                        } else {
+                            ""
+                        },
+                        Style::default().fg(self.theme.which_key_fg),
+                    ),
                     // Tab-completion candidates, after the text.
                     Span::styled(
                         self.toast

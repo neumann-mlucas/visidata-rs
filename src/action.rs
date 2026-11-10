@@ -317,6 +317,8 @@ pub enum Action {
     SubmitInput,
     CancelInput,
     InputBackspace,
+    /// Vim profile `Esc` in a prompt: line-editor normal mode (S-26 E).
+    InputNormal,
 
     // sheet stack
     PopSheet,
@@ -694,7 +696,7 @@ impl Action {
             | StartAddRowsInput
             | StartExpandDepthInput { .. }
             | StartAggregateInput { .. } => false,
-            SubmitInput | CancelInput | InputBackspace => false,
+            SubmitInput | CancelInput | InputBackspace | InputNormal => false,
             CursorDown { .. }
             | CursorUp { .. }
             | CursorLeft { .. }
@@ -798,6 +800,7 @@ impl Action {
         ("submit_input", SubmitInput),
         ("cancel_input", CancelInput),
         ("input_backspace", InputBackspace),
+        ("input_normal", InputNormal),
         ("search_next", SearchNext),
         ("search_prev", SearchPrev),
         ("clear_filter", ClearFilter),
@@ -1089,7 +1092,10 @@ impl Action {
     pub fn is_input_layer(&self) -> bool {
         matches!(
             self,
-            Action::SubmitInput | Action::CancelInput | Action::InputBackspace
+            Action::SubmitInput
+                | Action::CancelInput
+                | Action::InputBackspace
+                | Action::InputNormal
         )
     }
 }

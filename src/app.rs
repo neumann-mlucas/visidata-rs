@@ -1796,6 +1796,14 @@ impl App {
             }
         }
         self.toast = None;
+        if line.is_normal() {
+            match key.code {
+                KeyCode::Esc => self.cancel_input(),
+                KeyCode::Enter => self.submit_input(),
+                _ => line.normal_key(key),
+            }
+            return;
+        }
         if *prompt == Prompt::Ex && key.code == KeyCode::Tab {
             let lua = self.plugins.as_ref().map(|p| p.command_names());
             let chords = self.keymap.chords(Layer::Sheet);
@@ -1824,6 +1832,11 @@ impl App {
                         Action::InputBackspace => {
                             if let Some((_, l)) = self.input.as_mut() {
                                 l.backspace();
+                            }
+                        }
+                        Action::InputNormal => {
+                            if let Some((_, l)) = self.input.as_mut() {
+                                l.enter_normal();
                             }
                         }
                         other @ (Action::Lua(_) | Action::ExCommand(_)) => self.dispatch(other),

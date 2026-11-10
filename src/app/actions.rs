@@ -1162,7 +1162,10 @@ impl App {
                 });
             }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
-            Action::SubmitInput | Action::CancelInput | Action::InputBackspace => {}
+            Action::SubmitInput
+            | Action::CancelInput
+            | Action::InputBackspace
+            | Action::InputNormal => {}
         }
         // `stale`: changed from a columns sheet while under it, now on top
         // again (popped, or raised from the sheet list / undo tree)

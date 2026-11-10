@@ -571,6 +571,7 @@ b("'", "go_mark")
 b("q", "record_macro")               -- default: pop sheet (ZZ, :q here)
 b("@", "play_macro")                 -- default: date cast (z@ here)
 b({"z", "@"}, "type_cast_date")
+vd.bind("input", "<Esc>", "input_normal", "vim: normal mode")  -- Esc again cancels
 "##;
 
 fn install_api(lua: &Lua) -> Result<(), mlua::Error> {

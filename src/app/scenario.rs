@@ -3379,6 +3379,33 @@ async fn vim_registers_named_yank_ring_and_paste() {
     assert_eq!(names, ["\"\"", "\"0", "\"1", "\"a"]);
 }
 
+/// S-26 E: in the vim profile `Esc` in a prompt is normal mode, `Esc` again
+/// cancels, `Enter` submits from it.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_prompt_normal_mode() {
+    let mut h = csv(b"id,v\n1,a\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let text = |h: &Harness| csv_text(h.app.sheets.active(), b',').replace('\n', " ");
+    h.keys("l i").await;
+    h.type_no_enter("bc d").await;
+    h.keys("<Esc>").await;
+    assert!(status(&h).contains("-- NORMAL --"), "{}", status(&h));
+    h.keys("b x").await;
+    assert!(
+        h.app.input.is_some(),
+        "normal-mode keys don't leave the prompt"
+    );
+    h.keys("<CR>").await;
+    assert_eq!(text(&h), "id,v 1,bc d ");
+    h.keys("i").await;
+    h.type_no_enter("zz").await;
+    h.keys("<Esc> <Esc>").await;
+    assert!(h.app.input.is_none());
+    assert_eq!(text(&h), "id,v 1,bc d ", "Esc Esc cancels");
+}
+
 /// S-26 D4: vim marks (`ma` / `'a`, across sheets) and register macros
 /// (`qa … q`, `@a`, `@@`); `q` no longer pops.
 #[tokio::test(flavor = "multi_thread")]
