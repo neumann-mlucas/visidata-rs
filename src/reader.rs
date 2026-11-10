@@ -170,10 +170,13 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
         return Ok(DataFrame::default());
     }
     let mut rows = range.rows();
+    let Some(head) = rows.next() else {
+        return Ok(DataFrame::default());
+    };
     // Preserve empty header names as empty strings (matches VisiData); don't
     // auto-generate col{i} — that pollutes diffs against xlsx goldens where
     // merged cells legitimately produce blank headers.
-    let headers = unique_headers(rows.next().expect("height > 0").iter().map(cell_string));
+    let headers = unique_headers(head.iter().map(cell_string));
     let mut cols: Vec<Vec<&Data>> = vec![Vec::new(); width];
     for row in rows {
         for (ci, col) in cols.iter_mut().enumerate() {
@@ -602,6 +605,7 @@ fn dates_as_text(schema: &Schema) -> Schema {
 
 /// Every value is an ISO date or datetime.
 fn all_iso(values: &StringChunked) -> bool {
+    #[expect(clippy::expect_used, reason = "a literal pattern")]
     static ISO: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^\d{4}-\d{2}-\d{2}([T ].*)?$").expect("valid regex")
     });

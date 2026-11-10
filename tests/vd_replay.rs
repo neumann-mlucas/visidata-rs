@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test helpers fail the test by panicking"
+)]
 //! S-14 — Golden corpus replay harness.
 //!
 //! Walks `../visidata/tests/*.vd{,j,x}`, translates each cmdlog longname into a

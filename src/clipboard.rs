@@ -70,7 +70,10 @@ impl Clipboard {
                         std::io::ErrorKind::NotFound => format!("{prog} not found; {hint}"),
                         _ => format!("{prog}: {e}"),
                     })?;
-                let wrote = child.stdin.take().unwrap().write_all(text.as_bytes());
+                let wrote = match child.stdin.take() {
+                    Some(mut stdin) => stdin.write_all(text.as_bytes()),
+                    None => Err(std::io::ErrorKind::BrokenPipe.into()), // piped above
+                };
                 let status = child.wait().map_err(|e| format!("{prog}: {e}"))?;
                 wrote.map_err(|e| format!("{prog}: {e}"))?;
                 if !status.success() {
@@ -193,7 +196,7 @@ pub fn tsv(df: &DataFrame) -> String {
     out.push('\n');
     let cols = df.columns();
     for i in 0..df.height() {
-        let line: Vec<String> = cols.iter().map(|c| cell(&c.get(i).unwrap())).collect();
+        let line: Vec<String> = cols.iter().map(|c| cell_at(c, i)).collect();
         out.push_str(&line.join("\t"));
         out.push('\n');
     }
@@ -203,11 +206,14 @@ pub fn tsv(df: &DataFrame) -> String {
 /// One value per line, no header (`gzY`); a single value without newline (`zY`).
 pub fn lines(c: &Column) -> String {
     if c.len() == 1 {
-        return cell(&c.get(0).unwrap());
+        return cell_at(c, 0);
     }
-    (0..c.len())
-        .map(|i| cell(&c.get(i).unwrap()) + "\n")
-        .collect()
+    (0..c.len()).map(|i| cell_at(c, i) + "\n").collect()
+}
+
+/// Row `i` of `c` as [`cell`] writes it (`i` is in range).
+fn cell_at(c: &Column, i: usize) -> String {
+    c.get(i).map(|v| cell(&v)).unwrap_or_default()
 }
 
 fn osc52(text: &str) -> String {

@@ -142,14 +142,16 @@ impl FromStr for Key {
                     .map_err(|_| format!("bad fn key: {other}"))?;
                 KeyCode::F(n)
             }
-            other if other.chars().count() == 1 => {
-                let c = other.chars().next().unwrap();
+            other => {
+                let mut cs = other.chars();
+                let (Some(c), None) = (cs.next(), cs.next()) else {
+                    return Err(format!("unknown key: {other}"));
+                };
                 if c.is_ascii_uppercase() {
                     shift = true;
                 }
                 KeyCode::Char(c)
             }
-            other => return Err(format!("unknown key: {other}")),
         };
         Ok(Key {
             code,

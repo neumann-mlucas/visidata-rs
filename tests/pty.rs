@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers fail the test by panicking"
+)]
 //! The real binary on a pseudo-terminal must draw what the in-process golden
 //! harness draws: each `tests/golden/docs-*` script is typed into `vdrs
 //! <fixture>` (100x10) and the vt100-parsed screen must reach

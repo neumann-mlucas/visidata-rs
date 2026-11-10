@@ -17,12 +17,13 @@ static CMD: RwLock<Option<String>> = RwLock::new(None);
 
 /// `vd.option("duckdb_cmd")`; `None` = `duckdb`.
 pub fn set_cmd(cmd: Option<String>) {
-    *CMD.write().unwrap() = cmd;
+    *CMD.write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = cmd;
 }
 
 fn cmd() -> String {
     CMD.read()
-        .unwrap()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
         .unwrap_or_else(|| "duckdb".into())
 }

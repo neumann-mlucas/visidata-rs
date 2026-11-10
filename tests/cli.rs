@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test helpers fail the test by panicking"
+)]
 //! The `vdrs` binary from the outside: arguments, stdin, exit codes.
 
 use std::io::Write;
