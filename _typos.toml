@@ -1,0 +1,12 @@
+[files]
+extend-exclude = ["tests/golden/", "tests/vd_replay/", "docs/fixtures/"]
+
+[default.extend-words]
+ratatui = "ratatui" # the TUI crate
+flate = "flate"     # flate2
+sav = "sav"         # SPSS file extension
+ded = "ded"         # ANDed
+wheres = "wheres"   # SQL WHERE clauses
+caf = "caf"         # latin-1 "café" test bytes
+fo = "fo"           # base64 test input
+hel = "hel"         # typed prefix of "help"

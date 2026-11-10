@@ -1,0 +1,3 @@
+[global]
+# Specs and notes use long lines and bold lead-ins on purpose.
+disable = ["MD013", "MD036", "MD038"] # MD038: some code spans hold a trailing space (prompts)

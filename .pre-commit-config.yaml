@@ -1,0 +1,52 @@
+# prek (or pre-commit) hooks: `prek install` once, `prek run --all-files` to check everything.
+# Clippy and the tests stay in `just check` (too slow for every commit).
+# Test data is byte-exact: golden files, replay corpus, fixtures.
+exclude: ^(tests/golden/|tests/vd_replay/|docs/fixtures/|LICENSE$)
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.52.0
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: v0.3.2
+    hooks:
+      - id: rumdl-fmt
+      - id: rumdl
+
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.9.10
+    hooks:
+      - id: prettier
+        types_or: [json, yaml]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.32.0
+    hooks:
+      - id: zizmor
