@@ -620,6 +620,25 @@ impl Keymap {
                 "cancel all background jobs",
             ),
             ch(vec![k("<C-l>")], vec![Redraw], "redraw"),
+            ch(
+                vec![k("z"), k("<C-h>")],
+                vec![HelpCommands],
+                "list the key bindings",
+            ),
+            ch(
+                vec![k("z"), k("<F1>")],
+                vec![HelpCommands],
+                "list the key bindings",
+            ),
+            ch(
+                vec![k("z"), k("<BS>")],
+                vec![HelpCommands],
+                "list the key bindings",
+            ),
+            ch(vec![k("<C-^>")], vec![JumpPrev], "go to the previous sheet"),
+            // terminals send Ctrl+^ as Ctrl+6
+            ch(vec![k("<C-6>")], vec![JumpPrev], "go to the previous sheet"),
+            ch(vec![k("<C-z>")], vec![Suspend], "suspend to the shell"),
         ];
         let input = vec![
             ch(vec![k("<CR>")], vec![SubmitInput], "submit"),

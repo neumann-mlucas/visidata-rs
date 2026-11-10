@@ -226,9 +226,129 @@ pub fn rgb(c: Color) -> (u8, u8, u8) {
     }
 }
 
+/// Colors the terminal can show (S-26 A4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorDepth {
+    #[default]
+    True,
+    /// xterm's 256-color palette.
+    Ansi256,
+    /// `NO_COLOR`: none; the cursor shows in reverse video, the selection bold.
+    None,
+}
+
+impl ColorDepth {
+    /// `NO_COLOR` (non-empty) wins; `COLORTERM=truecolor|24bit` = 24-bit.
+    pub fn from_env(var: impl Fn(&str) -> Option<String>) -> Self {
+        if var("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+            return Self::None;
+        }
+        match var("COLORTERM").as_deref() {
+            Some("truecolor" | "24bit") => Self::True,
+            _ => Self::Ansi256,
+        }
+    }
+}
+
+/// The frame as `depth` can show it: RGB → nearest 256-color index, or no
+/// colors at all with the cursor and selection kept as reverse / bold.
+pub fn downgrade(buf: &mut ratatui::buffer::Buffer, depth: ColorDepth, th: &Theme) {
+    let to256 = |c: Color| match c {
+        Color::Rgb(r, g, b) => Color::Indexed(ansi256(r, g, b)),
+        c => c,
+    };
+    for cell in buf.content.iter_mut() {
+        match depth {
+            ColorDepth::True => return,
+            ColorDepth::Ansi256 => {
+                cell.fg = to256(cell.fg);
+                cell.bg = to256(cell.bg);
+            }
+            ColorDepth::None => {
+                let bg = cell.bg;
+                if bg == th.row_cursor_bg || bg == th.cell_cursor_bg {
+                    cell.modifier.insert(Modifier::REVERSED);
+                } else if bg == th.selected_bg {
+                    cell.modifier.insert(Modifier::BOLD);
+                }
+                (cell.fg, cell.bg) = (Color::Reset, Color::Reset);
+            }
+        }
+    }
+}
+
+/// Nearest xterm-256 index: the 6×6×6 cube or the 24-step gray ramp.
+pub fn ansi256(r: u8, g: u8, b: u8) -> u8 {
+    let level = |v: u8| match v {
+        0..48 => 0,
+        48..115 => 1,
+        v => (v - 35) / 40,
+    };
+    let steps = [0u8, 95, 135, 175, 215, 255];
+    let (cr, cg, cb) = (level(r), level(g), level(b));
+    let dist = |x: (u8, u8, u8)| {
+        let d = |a: u8, b: u8| (a as i32 - b as i32).pow(2);
+        d(x.0, r) + d(x.1, g) + d(x.2, b)
+    };
+    let avg = ((r as u16 + g as u16 + b as u16) / 3) as u8;
+    let gi = avg.saturating_sub(8) / 10;
+    let gi = gi.min(23);
+    let gv = 8 + 10 * gi;
+    let cube = (steps[cr as usize], steps[cg as usize], steps[cb as usize]);
+    match dist((gv, gv, gv)) < dist(cube) {
+        true => 232 + gi,
+        false => 16 + 36 * cr + 6 * cg + cb,
+    }
+}
+
 #[cfg(test)]
 mod style_tests {
     use super::*;
+
+    #[test]
+    fn color_depth_from_env_and_256_mapping() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|p| p.0 == k).map(|p| p.1.to_string())
+        };
+        let depth = |pairs| ColorDepth::from_env(env(pairs));
+        assert_eq!(depth(&[("COLORTERM", "truecolor")]), ColorDepth::True);
+        assert_eq!(depth(&[("COLORTERM", "24bit")]), ColorDepth::True);
+        assert_eq!(depth(&[]), ColorDepth::Ansi256);
+        assert_eq!(
+            depth(&[("COLORTERM", "truecolor"), ("NO_COLOR", "1")]),
+            ColorDepth::None
+        );
+        assert_eq!(depth(&[("NO_COLOR", "")]), ColorDepth::Ansi256);
+        assert_eq!(ansi256(0, 0, 0), 16);
+        assert_eq!(ansi256(255, 255, 255), 231);
+        assert_eq!(ansi256(255, 0, 0), 196);
+        assert_eq!(ansi256(128, 128, 128), 244);
+        assert_eq!(ansi256(95, 135, 175), 67);
+    }
+
+    #[test]
+    fn downgrade_maps_rgb_or_strips_colors() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        let th = Theme::dark();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 2, 1));
+        buf[(0, 0)]
+            .set_bg(th.row_cursor_bg)
+            .set_fg(Color::Rgb(255, 0, 0));
+        buf[(1, 0)].set_bg(th.selected_bg);
+        let mut b256 = buf.clone();
+        downgrade(&mut b256, ColorDepth::Ansi256, &th);
+        assert_eq!(b256[(0, 0)].fg, Color::Indexed(196));
+        let rgb = |c: Color| matches!(c, Color::Rgb(..));
+        assert!(b256.content.iter().all(|c| !rgb(c.fg) && !rgb(c.bg)));
+        downgrade(&mut buf, ColorDepth::None, &th);
+        assert_eq!(
+            (buf[(0, 0)].fg, buf[(0, 0)].bg),
+            (Color::Reset, Color::Reset)
+        );
+        assert!(buf[(0, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(buf[(1, 0)].modifier.contains(Modifier::BOLD));
+    }
 
     #[test]
     fn styles_parse_and_bad_names_are_refused() {

@@ -1,6 +1,6 @@
 # S-26 — Vim grammar and TUI conventions
 
-Status: **drafted 2026-11-08**; phase 0 shipped 2026-11-08 (see §0.1); A1 quit guard shipped with S-18 C (`<C-c>` cancels jobs since phase 0, so it doesn't ask). Rest of A–E not started.
+Status: **drafted 2026-11-08**; phase 0 shipped 2026-11-08 (see §0.1); A1 quit guard shipped with S-18 C (`<C-c>` cancels jobs since phase 0, so it doesn't ask). A3, A4, A5, `<C-^>` of A7 shipped 2026-11-10; A2 is moot (derived sheets are read-only and `:refresh` refuses file sheets, so a refreshable sheet never has edits). Rest of A–E open.
 Depends on: S-04 (keymap, counts, `.`), S-18 (register, edit keys, D1–D6), S-19 (macros on `m`),
 S-20 (undo tree), S-23 B (splits). Constraint: direction §9.2 — the **default** keymap feels like
 VisiData from keystroke 1; deviations need a reason. So this spec has two layers:

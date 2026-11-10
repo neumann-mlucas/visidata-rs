@@ -129,6 +129,9 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
 | `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets only (S-18 C) |
 | `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
+| `JumpPrev` | `<C-^>` / `<C-6>` | the sheet under the active one comes to the top (VisiData `jump-prev`); twice = back (S-26 A7) |
+| `HelpCommands` | `z<C-h>` / `z<F1>` / `z<BS>`, `:help` | push a `help` sheet: key, action (`to_ex`), description per sheet-layer chord (S-26 A5) |
+| `Suspend` | `<C-z>` | leave raw mode + alt screen, `kill -TSTP` self, take the terminal back on `SIGCONT` (unix; full redraw without a cursor query) (S-26 A3) |
 
 ### 3.7 Plan panel
 
@@ -334,7 +337,7 @@ vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; insid
 
 `Theme::dark()` / `Theme::light()` in `src/theme.rs` drive the table, title bar, status bar and toasts; `vd.set_theme` picks one. No per-colour override.
 
-Colours are 24-bit RGB. Numbers are right-aligned; a sorted column's header shows ▲/▼ in place of its type (with its rank under a multi-column sort); a `│` follows the pinned columns.
+Colours are 24-bit RGB when `COLORTERM` is `truecolor`/`24bit`, else each frame maps them to the nearest xterm-256 index; `NO_COLOR` (non-empty) strips colors, keeping the cursor as reverse and the selection as bold (`theme::downgrade`, S-26 A4). Numbers are right-aligned; a sorted column's header shows ▲/▼ in place of its type (with its rank under a multi-column sort); a `│` follows the pinned columns.
 
 The title bar reads name, then file kind and what shapes the view (`sheets`, `filter`, `sort`, `sel`, `hidden`; each only when in use), then the cursor column and row with percent. A spinner joins it after 150 ms of background work, and rows from a window that's still loading dim.
 

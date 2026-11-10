@@ -428,6 +428,12 @@ pub enum Action {
     SwapPanes,
     /// `<C-r>` / `:refresh` (S-30 A): rebuild a derived sheet from its parent's current view.
     Refresh,
+    /// `z<C-h>` / `:help` (S-26 A5): a sheet of the bindings.
+    HelpCommands,
+    /// `<C-^>`: the sheet under this one comes to the top (VisiData `jump-prev`).
+    JumpPrev,
+    /// `<C-z>`: suspend to the shell (unix).
+    Suspend,
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
     Link {
         on: bool,
@@ -585,6 +591,7 @@ impl Action {
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
+            HelpCommands | JumpPrev | Suspend => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -798,6 +805,9 @@ impl Action {
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
+        ("help_commands", HelpCommands),
+        ("jump_prev", JumpPrev),
+        ("suspend", Suspend),
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),

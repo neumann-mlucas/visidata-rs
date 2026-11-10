@@ -285,6 +285,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "databar" => Ok(vec![Action::DataBar {
             column: one_arg(rest, ":databar <column>")?,
         }]),
+        "help" => Ok(vec![Action::HelpCommands]),
         "nocolor" => Ok(vec![Action::NoColor {
             column: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -528,6 +529,7 @@ pub const COMMANDS: &[&str] = &[
     "filter",
     "color",
     "nocolor",
+    "help",
     "scale",
     "databar",
     "hide",

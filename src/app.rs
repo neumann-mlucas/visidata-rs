@@ -63,6 +63,7 @@ pub async fn run(
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(initial, plugins, plugin_warning);
+    app.color = crate::theme::ColorDepth::from_env(|k| std::env::var(k).ok());
     if let Some(s) = session {
         app.source(&s, true);
     }
@@ -72,6 +73,37 @@ pub async fn run(
     crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen).ok();
     terminal.show_cursor().ok();
     result
+}
+
+/// `<C-z>`: restore the terminal, stop until `fg` (SIGCONT), take it back.
+fn suspend<B: ratatui::backend::Backend>(term: &mut Terminal<B>) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
+    #[cfg(unix)]
+    {
+        disable_raw_mode()?;
+        crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen)?;
+        // the stop lands before `kill` is reaped; `fg` continues from here
+        let stopped = std::process::Command::new("kill")
+            .args(["-TSTP", &std::process::id().to_string()])
+            .status();
+        enable_raw_mode()?;
+        crossterm::execute!(
+            io::stdout(),
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+        )?;
+        // `term.clear()` would ask the terminal for the cursor, and the
+        // event stream eats the reply: reset both buffers for a full redraw
+        term.swap_buffers();
+        term.swap_buffers();
+        stopped.context("kill -TSTP")?;
+    }
+    #[cfg(not(unix))]
+    let _ = term;
+    Ok(())
 }
 
 fn install_panic_hook() {
@@ -403,6 +435,8 @@ pub struct App {
     /// While typing `:pivot …`: hints, then a pivot of the first rows.
     pivot_preview: Option<PivotPreview>,
     theme: Theme,
+    /// What the terminal shows (S-26 A4); tests: true color.
+    color: crate::theme::ColorDepth,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
     /// Columns of the table area: a plot bins x to twice this (braille).
@@ -425,6 +459,8 @@ pub struct App {
     /// Spinner frame on screen, so ticks redraw only when it changes.
     drawn_spin: Option<usize>,
     quit: bool,
+    /// `<C-z>`: the run loop hands the terminal back and stops the process.
+    suspend: bool,
     materialize_tx: mpsc::Sender<MaterializeResult>,
     materialize_rx: mpsc::Receiver<MaterializeResult>,
     /// Per-sheet handle so pushing a new sheet doesn't cancel the previous one's work.
@@ -479,6 +515,8 @@ impl App {
             working_since: None,
             drawn_spin: None,
             quit: false,
+            suspend: false,
+            color: crate::theme::ColorDepth::True,
             materialize_tx: tx,
             materialize_rx: rx,
             materialize_handles: HashMap::new(),
@@ -541,6 +579,12 @@ impl App {
             self.feed_other_pane();
             if !self.macro_queue.is_empty() && self.idle() {
                 self.pump_macro();
+                dirty = true;
+            }
+            if std::mem::take(&mut self.suspend) {
+                if let Err(e) = suspend(term) {
+                    self.toast = Some(format!("suspend: {e}"));
+                }
                 dirty = true;
             }
             if self.quit {

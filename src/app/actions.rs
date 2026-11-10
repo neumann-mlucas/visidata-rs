@@ -402,6 +402,32 @@ impl App {
                 });
             }
             Action::Refresh => self.refresh(),
+            Action::HelpCommands => {
+                let rows: Vec<_> = self
+                    .keymap
+                    .chords(crate::keymap::Layer::Sheet)
+                    .iter()
+                    .map(|c| {
+                        let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
+                        let run: Vec<String> = c.run.iter().filter_map(Action::to_ex).collect();
+                        (keys.join(" "), run.join(" ; "), c.desc.to_string())
+                    })
+                    .collect();
+                let id = self.sheets.alloc_id();
+                self.sheets.push(Sheet::help_from(id, &rows));
+                self.spawn_materialize();
+            }
+            Action::JumpPrev => match self.sheets.len() {
+                0 | 1 => self.toast = Some("no previous sheet".into()),
+                n => {
+                    let id = self.sheets.iter().nth(n - 2).map(|s| s.id);
+                    if let Some(id) = id {
+                        self.sheets.switch_to(id);
+                        self.spawn_materialize();
+                    }
+                }
+            },
+            Action::Suspend => self.suspend = true,
             Action::Plot { x, ys } => self.plot(x, ys),
             Action::PlotColumn => self.plot_keys(false),
             Action::PlotResize { .. } | Action::ZoomAll | Action::ZoomCursor => {

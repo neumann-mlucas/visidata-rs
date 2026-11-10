@@ -13,7 +13,10 @@ impl App {
         self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
         self.drawn_spin = self.spin();
         self.refresh_sidebar_stats();
-        term.draw(|f| self.render(f))?;
+        term.draw(|f| {
+            self.render(f);
+            crate::theme::downgrade(f.buffer_mut(), self.color, &self.theme);
+        })?;
         Ok(())
     }
 
@@ -192,6 +195,7 @@ impl App {
                     theme,
                     render,
                     noted,
+                    no_color: self.color == crate::theme::ColorDepth::None,
                 },
                 area,
             ),
@@ -221,6 +225,7 @@ impl App {
                     theme: &self.theme,
                     render: None,
                     noted: None,
+                    no_color: self.color == crate::theme::ColorDepth::None,
                 },
                 inner,
             ),

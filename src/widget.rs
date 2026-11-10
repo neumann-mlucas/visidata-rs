@@ -34,6 +34,8 @@ pub struct SheetWidget<'a> {
     pub render: Option<CellRenderer<'a>>,
     /// Cells with a note (window row, column name) get a marker (S-30 B).
     pub noted: Option<Noted<'a>>,
+    /// `NO_COLOR`: rule and renderer colors become reverse video (S-26 A4).
+    pub no_color: bool,
 }
 
 impl<'a> SheetWidget<'a> {
@@ -218,7 +220,7 @@ impl SheetWidget<'_> {
         }
 
         // `:color` rules (S-27); a bad style was refused when the rule was made.
-        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        let no_color = self.no_color;
         let rules: Vec<(usize, Option<&str>, Style)> = view
             .formats
             .iter()
@@ -882,6 +884,7 @@ mod tests {
                     theme: &theme,
                     render: None,
                     noted: None,
+                    no_color: false,
                 },
                 f.area(),
             )

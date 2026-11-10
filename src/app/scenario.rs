@@ -972,7 +972,7 @@ async fn lua_command_runs_with_its_arguments() {
     );
     (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
     h.keys(":").await;
-    h.type_no_enter("hel").await;
+    h.type_no_enter("hell").await;
     h.keys("<Tab>").await; // Lua commands complete too
     h.type_("you").await;
     assert!(h.screen().contains("hi you on id"), "{}", h.screen());
@@ -3042,5 +3042,62 @@ async fn lua_renderer_styles_cells_under_color_rules() {
     assert!(
         ruled.modifier.contains(Modifier::BOLD),
         "the renderer's bold stays"
+    );
+}
+
+/// S-26 A5, A7: `z<C-h>` lists the bindings; `<C-^>` swaps to the sheet
+/// under this one.
+#[tokio::test(flavor = "multi_thread")]
+async fn help_sheet_jump_prev_and_the_refresh_guard() {
+    let mut h = Harness::new(5).await;
+    h.keys("z <C-h>").await;
+    let s = h.app.sheets.active();
+    assert_eq!(s.name, "help");
+    let t = csv_text(s, b'|');
+    assert!(
+        t.contains("z <C-h>|help_commands|list the key bindings"),
+        "{t}"
+    );
+    assert!(t.contains("<C-^>|jump_prev|"), "{t}");
+    h.keys("q l l F").await; // freq(grp) on the base sheet
+    let freq = h.app.sheets.active().name.clone();
+    h.keys("<C-^>").await;
+    assert_eq!(h.app.sheets.active().id, 0, "base sheet on top");
+    h.keys("<C-^>").await;
+    assert_eq!(h.app.sheets.active().name, freq);
+    h.keys("q").await;
+    h.keys("<C-^>").await;
+    assert_eq!(status(&h), "no previous sheet");
+}
+
+/// S-26 A4: with `NO_COLOR` nothing on screen has a color; the cursor row
+/// is reverse video. 256 colors: no RGB left.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_color_and_256_color_frames() {
+    use ratatui::style::{Color, Modifier};
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_("color * id = 2 red").await;
+    h.app.color = crate::theme::ColorDepth::Ansi256;
+    h.pump().await;
+    let rgb = |c: Color| matches!(c, Color::Rgb(..));
+    let buf = h.term.backend().buffer().clone();
+    assert!(buf.content.iter().all(|c| !rgb(c.fg) && !rgb(c.bg)));
+    h.app.color = crate::theme::ColorDepth::None;
+    h.pump().await;
+    let buf = h.term.backend().buffer();
+    assert!(
+        buf.content
+            .iter()
+            .all(|c| c.fg == Color::Reset && c.bg == Color::Reset)
+    );
+    assert!(
+        buf[(1, 2)].modifier.contains(Modifier::REVERSED),
+        "cursor row"
+    );
+    let ruled = cell_at(&h, "name_2");
+    assert!(
+        ruled.modifier.contains(Modifier::REVERSED),
+        ":color as reverse"
     );
 }

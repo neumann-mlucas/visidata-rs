@@ -53,6 +53,7 @@ impl Vdrs {
         cmd.cwd(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/fixtures"));
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        cmd.env_remove("NO_COLOR");
         cmd.env("HOME", home);
         cmd.env("XDG_CONFIG_HOME", home.join("config"));
         cmd.env("XDG_STATE_HOME", home.join("state"));
@@ -229,6 +230,38 @@ fn q_quits_and_restores_the_terminal() {
         !p.screen().alternate_screen(),
         "left the alternate screen on"
     );
+}
+
+/// S-26 A3: `<C-z>` stops the process with the terminal handed back; after
+/// SIGCONT (`fg`) it takes the screen again and keys work.
+#[test]
+fn ctrl_z_suspends_and_resumes() {
+    let mut vd = Vdrs::open("sales.csv");
+    vd.send(b"\x1a");
+    std::thread::sleep(Duration::from_millis(300));
+    // an orphaned process group ignores SIGTSTP; CONT is harmless then
+    let pid = vd.child.process_id().unwrap().to_string();
+    std::process::Command::new("kill")
+        .args(["-CONT", &pid])
+        .status()
+        .unwrap();
+    vd.send(b"j");
+    let end = Instant::now() + Duration::from_secs(20);
+    while !vd.text().contains("row 2/300") {
+        assert!(
+            Instant::now() < end,
+            "no redraw after resume:\n{}",
+            vd.text()
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        vd.text().contains(" sales.csv"),
+        "full redraw: {}",
+        vd.text()
+    );
+    assert!(vd.child.try_wait().unwrap().is_none(), "still running");
+    assert!(vd.screen.lock().unwrap().screen().alternate_screen());
 }
 
 /// S-18 G: the terminal's paste (bracketed) reaches the register, not the
