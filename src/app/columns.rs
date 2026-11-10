@@ -143,15 +143,21 @@ impl App {
                 self.toast = Some("that sheet was closed".into());
                 continue;
             };
-            let snap = s.snapshot();
+            let (snap, at) = (s.snapshot(), s.state.undo.current());
             let res = targets
                 .iter()
                 .filter(|(i, _)| *i == id)
                 .try_for_each(|(_, c)| f(s, c));
+            // `value` and `type json` edits make their own undo states
+            let made = s.state.undo.current() != at;
             match res {
-                Ok(()) => s.push_undo(snap),
+                Ok(()) if !made => s.push_undo(snap),
+                Ok(()) => {}
                 Err(e) => {
-                    s.restore(snap);
+                    match made {
+                        true => drop(s.goto_state(at)), // what it made stays as a branch
+                        false => s.restore(snap),
+                    }
                     self.toast = Some(e);
                 }
             }

@@ -400,7 +400,6 @@ impl Action {
                 | Action::SelectEqualCell
                 | Action::SelectColDuplicates
                 | Action::HideUniform
-                | Action::AggregateCol { .. }
         )
     }
 
