@@ -477,7 +477,19 @@ impl App {
                     block,
                 });
             }
-            Action::RegisterPrefix => self.awaiting_register = true,
+            Action::RegisterPrefix => self.awaiting = Some(crate::app::Await::Register),
+            Action::SetMark => self.awaiting = Some(crate::app::Await::SetMark),
+            Action::GoMark => self.awaiting = Some(crate::app::Await::GoMark),
+            Action::PlayMacro => self.awaiting = Some(crate::app::Await::Play),
+            Action::RecordMacro => match self.recording.as_ref().map(|r| r.into) {
+                None => self.awaiting = Some(crate::app::Await::Record),
+                Some(None) => self.start_input(Prompt::MacroKey),
+                Some(Some(c)) => {
+                    let steps = self.recording.take().map(|r| r.steps).unwrap_or_default();
+                    self.toast = Some(format!("macro @{c}: {} steps", steps.len()));
+                    self.macros.insert(c, steps);
+                }
+            },
             Action::Operator { op, count } => {
                 self.operator = Some(crate::app::Pending {
                     op,
@@ -2370,7 +2382,7 @@ impl App {
             }
         }
     }
-    fn here(&self) -> Jump {
+    pub(super) fn here(&self) -> Jump {
         let s = self.sheets.active();
         Jump {
             sheet: s.id,
@@ -2381,7 +2393,7 @@ impl App {
 
     /// Before a big jump (S-26 A7): the position joins the jumplist, and
     /// what was ahead of a `jump_back` is dropped (vim).
-    fn record_jump(&mut self) {
+    pub(super) fn record_jump(&mut self) {
         if let Some(i) = self.jump_at.take() {
             self.jumps.truncate(i);
         }
@@ -2397,6 +2409,11 @@ impl App {
     fn go_jump(&mut self, to: usize) {
         self.jump_at = Some(to);
         let j = self.jumps[to].clone();
+        self.go_to(j);
+    }
+
+    /// The sheet, row and column of `j`.
+    pub(super) fn go_to(&mut self, j: Jump) {
         if self.sheets.active().id != j.sheet {
             if !self.sheets.switch_to(j.sheet) {
                 self.toast = Some("that sheet is closed".into());

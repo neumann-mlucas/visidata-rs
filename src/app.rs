@@ -478,6 +478,18 @@ impl PartialEq for StatsKey {
 struct Recording {
     steps: Vec<String>,
     refused: Vec<String>,
+    /// `q{x}` (S-26 D4): stops into register `x` instead of asking for a key.
+    into: Option<char>,
+}
+
+/// What the next key names (vim profile, S-26 D2/D4).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Await {
+    Register,
+    SetMark,
+    GoMark,
+    Record,
+    Play,
 }
 
 pub struct App {
@@ -544,8 +556,13 @@ pub struct App {
     operator: Option<Pending>,
     /// `"x` typed: the next yank / cut / paste uses register `x`.
     register_prefix: Option<char>,
-    /// `"` typed, its register key not yet.
-    awaiting_register: bool,
+    /// `"` `m` `'` `q` `@` typed, the key naming the register / mark not yet.
+    awaiting: Option<Await>,
+    /// `m{a-z}` marks: view positions, like the jumplist (S-26 D4).
+    marks: std::collections::BTreeMap<char, Jump>,
+    /// `q{a-z}` macros: ex steps, this session only; `last_macro` for `@@`.
+    macros: std::collections::BTreeMap<char, Vec<String>>,
+    last_macro: Option<char>,
     /// Asked in the status line: unsaved edits would be lost (S-26 A1).
     confirm: Option<(Confirm, String)>,
     /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
@@ -618,7 +635,10 @@ impl App {
             registers: Default::default(),
             register_prefix: None,
             operator: None,
-            awaiting_register: false,
+            awaiting: None,
+            marks: Default::default(),
+            macros: Default::default(),
+            last_macro: None,
             confirm: None,
             clipboard,
             paste_cmd,
@@ -1119,7 +1139,7 @@ impl App {
 
     /// `m` stopped: bind the recording to `keys` and save it to `macros.lua`.
     fn finish_macro(&mut self, text: &str) {
-        let Some(Recording { steps, refused }) = self.recording.take() else {
+        let Some(Recording { steps, refused, .. }) = self.recording.take() else {
             return;
         };
         if text.trim().is_empty() || steps.is_empty() {
@@ -1131,17 +1151,15 @@ impl App {
             Ok(k) => k,
             Err(e) => {
                 self.toast = Some(format!("bad key: {e}; m to try again"));
-                self.recording = Some(Recording { steps, refused });
+                self.recording = Some(Recording {
+                    steps,
+                    refused,
+                    into: None,
+                });
                 return;
             }
         };
-        let run = steps
-            .iter()
-            .map(|s| match s.strip_prefix(':') {
-                Some(cmd) => Action::ExCommand(cmd.to_string()),
-                None => Action::from_name(s).unwrap_or(Action::Redraw),
-            })
-            .collect();
+        let run = macro_actions(&steps);
         self.keymap.append(
             Layer::Sheet,
             Chord {
@@ -1162,6 +1180,56 @@ impl App {
             Err(e) => format!("; not saved: {e}"),
         };
         self.toast = Some(msg);
+    }
+
+    /// The key after `"` `m` `'` `q` `@` (S-26 D2/D4).
+    fn awaited_key(&mut self, what: Await, key: Key) {
+        let c = match key.code {
+            KeyCode::Char(c) if !key.ctrl => c,
+            _ => {
+                self.toast = Some(format!("not a register or mark: {key}"));
+                return;
+            }
+        };
+        match (what, c) {
+            (Await::Register, 'a'..='z' | '0'..='9' | '"' | '+') => {
+                self.register_prefix = Some(c);
+                self.toast = Some(format!("register \"{c}"));
+            }
+            (Await::SetMark, 'a'..='z') => {
+                self.marks.insert(c, self.here());
+                self.toast = Some(format!("mark {c}"));
+            }
+            (Await::GoMark, 'a'..='z') => match self.marks.get(&c).cloned() {
+                Some(j) => {
+                    self.record_jump();
+                    self.go_to(j);
+                }
+                None => self.toast = Some(format!("no mark {c}")),
+            },
+            (Await::Record, 'a'..='z') => {
+                self.recording = Some(Recording {
+                    into: Some(c),
+                    ..Default::default()
+                });
+                self.toast = Some(format!("recording @{c}; q to stop"));
+            }
+            (Await::Play, 'a'..='z' | '@') => {
+                let Some(c) = (if c == '@' { self.last_macro } else { Some(c) }) else {
+                    self.toast = Some("no macro played yet".into());
+                    return;
+                };
+                match self.macros.get(&c) {
+                    Some(steps) => {
+                        self.last_macro = Some(c);
+                        let run = macro_actions(steps);
+                        self.dispatch(Action::Macro(run));
+                    }
+                    None => self.toast = Some(format!("register {c} holds no macro")),
+                }
+            }
+            _ => self.toast = Some(format!("not a register or mark: {key}")),
+        }
     }
 
     /// Run `work` on the blocking pool; its result lands in `on_job_done`.
@@ -1664,14 +1732,8 @@ impl App {
             self.operator_key(key);
             return;
         }
-        if std::mem::take(&mut self.awaiting_register) {
-            match key.code {
-                KeyCode::Char(c @ ('a'..='z' | '0'..='9' | '"' | '+')) if !key.ctrl => {
-                    self.register_prefix = Some(c);
-                    self.toast = Some(format!("register \"{c}"));
-                }
-                _ => self.toast = Some(format!("no register {key}")),
-            }
+        if let Some(what) = self.awaiting.take() {
+            self.awaited_key(what, key);
             return;
         }
         if self.visual.is_some() && key.code == KeyCode::Esc && self.pending.is_empty() {
@@ -2341,3 +2403,14 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod scenario;
+
+/// Recorded ex steps as the actions they run (S-19).
+fn macro_actions(steps: &[String]) -> Vec<Action> {
+    steps
+        .iter()
+        .map(|s| match s.strip_prefix(':') {
+            Some(cmd) => Action::ExCommand(cmd.to_string()),
+            None => Action::from_name(s).unwrap_or(Action::Redraw),
+        })
+        .collect()
+}

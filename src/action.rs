@@ -474,6 +474,13 @@ pub enum Action {
     /// Vim profile `"`: the next key names the register of the next yank,
     /// cut or paste (S-26 D2).
     RegisterPrefix,
+    /// Vim profile `m{a-z}` / `'{a-z}`: set / go to a mark (S-26 D4).
+    SetMark,
+    GoMark,
+    /// Vim profile `q{a-z}` / `@{a-z}` `@@`: record / play a macro in a
+    /// register (S-26 D4, S-19 machinery); `q` again stops.
+    RecordMacro,
+    PlayMacro,
     /// `:registers`: the registers as a sheet.
     Registers,
     /// `*` `#`: search this column for the cursor cell's value.
@@ -662,6 +669,7 @@ impl Action {
             HalfPage { .. } | ScreenRow { .. } | ScrollTo { .. } | CellMotion { .. } => true,
             ValueChange { .. } | SearchCell { .. } => true,
             RegisterPrefix | Registers | Operator { .. } => false,
+            SetMark | GoMark | RecordMacro | PlayMacro => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -901,6 +909,10 @@ impl Action {
         ("operator_yank", Operator { op: 'y', count: None }),
         ("operator_change", Operator { op: 'c', count: None }),
         ("register_prefix", RegisterPrefix),
+        ("set_mark", SetMark),
+        ("go_mark", GoMark),
+        ("record_macro", RecordMacro),
+        ("play_macro", PlayMacro),
         ("registers", Registers),
         ("search_cell", SearchCell { backward: false }),
         ("searchr_cell", SearchCell { backward: true }),

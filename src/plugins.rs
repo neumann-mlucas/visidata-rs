@@ -566,6 +566,11 @@ b("d", "operator_delete")             -- default: delete row (dd here)
 b("y", "operator_yank")               -- default: copy row (yy here)
 b("c", "operator_change")
 b('"', "register_prefix")            -- default: selected rows as a sheet (:dupsel)
+b("m", "set_mark")                   -- default: record macro (q here)
+b("'", "go_mark")
+b("q", "record_macro")               -- default: pop sheet (ZZ, :q here)
+b("@", "play_macro")                 -- default: date cast (z@ here)
+b({"z", "@"}, "type_cast_date")
 "##;
 
 fn install_api(lua: &Lua) -> Result<(), mlua::Error> {

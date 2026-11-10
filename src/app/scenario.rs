@@ -3379,6 +3379,33 @@ async fn vim_registers_named_yank_ring_and_paste() {
     assert_eq!(names, ["\"\"", "\"0", "\"1", "\"a"]);
 }
 
+/// S-26 D4: vim marks (`ma` / `'a`, across sheets) and register macros
+/// (`qa … q`, `@a`, `@@`); `q` no longer pops.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_marks_and_register_macros() {
+    let mut h = csv(b"id\n1\n2\n3\n4\n5\n6\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let row = |h: &Harness| h.app.sheets.active().view.row_cursor;
+    h.keys("j j m a G").await;
+    assert_eq!(row(&h), 5);
+    h.keys("' a").await;
+    assert_eq!(row(&h), 2, "'a goes back to the mark");
+    h.keys("' z").await;
+    assert_eq!(status(&h), "no mark z");
+    h.keys("g g q b j q").await;
+    assert_eq!(row(&h), 1);
+    assert_eq!(status(&h), "macro @b: 1 steps");
+    assert_eq!(h.app.sheets.len(), 1, "q stops recording, doesn't pop");
+    h.keys("@ b").await;
+    assert_eq!(row(&h), 2);
+    h.keys("@ @").await;
+    assert_eq!(row(&h), 3, "@@ replays the last macro");
+    h.keys("@ c").await;
+    assert_eq!(status(&h), "register c holds no macro");
+}
+
 /// S-26 D3: vim operators — `dd`, counts (`2dj` = 3 rows), `dG`, `.`
 /// repeats, `yic` copies the column's cells, `ciw`-style `cir` sets a row,
 /// `div` takes the run of equal values; a non-motion cancels.
