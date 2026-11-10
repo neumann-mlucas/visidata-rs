@@ -2451,6 +2451,30 @@ async fn source_runs_an_ex_script_step_by_step() {
     assert_eq!(h.current_column(), "name");
 }
 
+/// A failed step stops the script: the steps after it would land on the
+/// wrong column or sheet.
+#[tokio::test(flavor = "multi_thread")]
+async fn source_stops_at_a_failed_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("s.vdrs");
+    std::fs::write(&script, ":cursor 1 nope\n:sort -id\n").unwrap();
+    let mut h = Harness::new(3).await;
+    let first = first_cell(&h);
+    h.keys(":").await;
+    h.type_(&format!("source {}", script.display())).await;
+    assert_eq!(status(&h), "no column: nope; stopped, 1 steps not run");
+    assert_eq!(first_cell(&h), first, "the sort didn't run");
+    h.keys(":").await;
+    h.type_("bogus").await;
+    h.keys(":").await;
+    h.type_("sort -id").await;
+    assert_ne!(
+        first_cell(&h),
+        first,
+        "a typed error doesn't stop later commands"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn open_hook_cannot_open_again() {
     let h = with_lua(

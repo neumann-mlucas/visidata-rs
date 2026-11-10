@@ -508,6 +508,8 @@ pub struct App {
     /// Macro steps still to play; each waits for the previous one's jobs.
     /// `true`: a `vd.on` handler's `vd.exec`, whose new sheets fire no events.
     macro_queue: std::collections::VecDeque<(Action, bool)>,
+    /// A replayed step failed: `pump_macro` drops the steps after it.
+    failed: bool,
     /// `vd.on` (S-29): the newest sheet `open` / `push` fired for, and the
     /// ids of sheets hook commands made (they fire nothing: no loops).
     hooked: Option<SheetId>,
@@ -608,6 +610,7 @@ impl App {
             last_action: None,
             recording: None,
             macro_queue: Default::default(),
+            failed: false,
             hooked: None,
             hook_born: Vec::new(),
             sel_stats: None,
@@ -762,6 +765,13 @@ impl App {
     /// a prompt or a question pauses playback until it's answered.
     fn pump_macro(&mut self) {
         while self.idle() && self.input.is_none() && self.confirm.is_none() {
+            if std::mem::take(&mut self.failed) {
+                let n = self.macro_queue.len();
+                self.macro_queue.clear();
+                let why = self.toast.take().unwrap_or_default();
+                self.toast = Some(format!("{why}; stopped, {n} steps not run"));
+                return;
+            }
             let Some((a, hook)) = self.macro_queue.pop_front() else {
                 return;
             };
@@ -773,6 +783,12 @@ impl App {
                 self.hook_born.push(lo..self.sheets.next_id());
             }
         }
+    }
+
+    /// An error toast; during a replay it stops the steps after this one.
+    pub(super) fn fail(&mut self, msg: String) {
+        self.failed |= self.replaying || !self.macro_queue.is_empty();
+        self.toast = Some(msg);
     }
 
     /// The stats key for what's on screen; `None`: nothing selected.
@@ -1301,7 +1317,7 @@ impl App {
             None => return, // cancelled
         }
         match result {
-            Err(e) => self.toast = Some(format!("{label}: {e}")),
+            Err(e) => self.fail(format!("{label}: {e}")),
             Ok(JobDone::Toast(t)) => self.toast = Some(t),
             Ok(JobDone::SidebarStats { key, stats }) => {
                 if self.sidebar_stats.as_ref().is_some_and(|(k, _)| *k == key) {
@@ -2114,7 +2130,7 @@ impl App {
         if let Some(r) = crate::exline::ranged(text) {
             match r {
                 Ok((rows, cmd)) => self.run_ranged(rows, cmd),
-                Err(e) => self.toast = Some(format!("{e}")),
+                Err(e) => self.fail(format!("{e}")),
             }
             return;
         }
@@ -2132,10 +2148,10 @@ impl App {
                         }
                         self.dispatch(Action::LuaCommand { id, args });
                     }
-                    None => self.toast = Some(format!("unknown command: :{name}")),
+                    None => self.fail(format!("unknown command: :{name}")),
                 }
             }
-            Err(e) => self.toast = Some(format!("{e}")),
+            Err(e) => self.fail(format!("{e}")),
         }
     }
 

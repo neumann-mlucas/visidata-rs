@@ -771,7 +771,7 @@ impl App {
                     if self.sheets.active().has_column(&c) {
                         self.goto_column(&c);
                     } else {
-                        self.toast = Some(format!("no column: {c}"));
+                        self.fail(format!("no column: {c}"));
                     }
                 }
             }
