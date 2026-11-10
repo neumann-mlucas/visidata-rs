@@ -7,10 +7,12 @@ read-only `vd.undo_tree()` (nodes: id, parent, label, time) and a way to jump (`
 S-29) — plus `vd.push_sheet` to show it.
 
 ## 1. Today
+
 Per sheet `undo`/`redo: Vec<Snapshot>` (max 100); a change after `U` clears `redo`, so that branch is
 gone. Snapshots are immutable (`plan`, `view`, `steps`), which makes a tree cheap.
 
 ## 2. Design
+
 - Replace the two lists with `UndoTree { nodes: Vec<Node>, current }`,
   `Node { snapshot, parent, children, seq, made_at }`. A change after `U` adds a sibling branch.
 - `U` → parent; `R` → the most recently visited child (vim). `:earlier [n]` / `:later [n]` walk all
@@ -22,6 +24,7 @@ gone. Snapshots are immutable (`plan`, `view`, `steps`), which makes a tree chea
 - Grouping (for S-19 macros): `begin_group`/`end_group` make one node of several changes.
 
 ## 3. Test plan
+
 - Unit: tree ops — branch on change after undo, `U`/`R`/`:earlier`/`:later` sequences against a
   hand-written expected path; eviction keeps the current path.
 - Property (seeded loop): random actions + undo/redo/earlier/later; every state recorded at creation
@@ -33,6 +36,7 @@ gone. Snapshots are immutable (`plan`, `view`, `steps`), which makes a tree chea
 Effort: 1–2 days.
 
 ## 4. As shipped (2026-11-09)
+
 `src/sheet/undo.rs`: `UndoTree { nodes: BTreeMap<id, Node>, current }`; ids count up, so id order
 is creation order (`:earlier`/`:later` walk ids). The current node holds no snapshot (the sheet is
 the state); leaving it stores one. `goto_state(id)` sets each ancestor's redo child along the

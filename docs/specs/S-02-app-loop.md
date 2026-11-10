@@ -73,6 +73,7 @@ loop {
 **Multi-sheet.** `Sheets.stack` is a `Vec<Sheet>`, last = active. `q` pops (VisiData parity). A sheet switcher is a derived meta-sheet listing `stack` — same keymap as any other sheet. Dormant sheets keep their `plan`+`view` but drop `window` on memory pressure (deferred — don't implement until it bites).
 
 **Error surfacing.** Three tiers:
+
 - Fatal (initial open failure): sheet never pushes; caller shows a modal `Confirm` with the error.
 - Non-fatal materialize error (bad derive expr, missing column): sheet stays, status-line toast, `window` keeps the previous good materialization.
 - Panic in materialize task: `tokio::task::spawn` wrapped with `catch_unwind`; panic kills the sheet (replaced with an `ErrorSheet` carrying the backtrace), not the app.

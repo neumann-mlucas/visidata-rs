@@ -1808,7 +1808,7 @@ pub const DATE_LAYOUTS: [(&str, &str); 12] = [
 pub const DATE_TIME_PART: &str = r"(T| +)\d{1,2}:\d{2}.*$";
 
 /// Text → Date trying common layouts in turn; a trailing time part is ignored
-/// (`7/3/2018 1:47p` → 2018-07-03). Unparseable values become null.
+/// (`7/3/2018 1:47p` → 2018-07-03). Unparsable values become null.
 /// chrono's `%Y` takes any digit count, so numeric layouts only apply to
 /// strings of their exact shape (regex guard): `7/3/18` isn't year 7.
 fn lenient_date(name: &str) -> Expr {

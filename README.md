@@ -50,7 +50,7 @@ What it won't fix: VisiData's 60-odd loaders shrink to a core set plus Lua,
 hundreds of commands are still hard to discover, and a Rust codebase doesn't
 grow more maintainers. If VisiData does what you need, keep using it. I still do.
 
-```
+```text
 cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked   # installs `vdrs`; needs Rust 1.88+
 vdrs data.parquet          # TUI
 vdrs --headless data.csv   # schema + first rows, no TUI

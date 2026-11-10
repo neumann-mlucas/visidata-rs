@@ -5,13 +5,15 @@ Depends on: S-19 (`Action::to_ex`), S-10 (Lua API versioning), S-15 §6 (lineage
 Direction §9.5 holds: no `.vdj` compat; this is vdrs's own format.
 
 ## 1. Sessions
+
 **What is saved**: every sheet on the stack, in order, with its source path, plan steps, view (sort,
 filter, hidden, keys, casts, formats S-27, cursor, frozen cols), and — for derived sheets — how it was
 derived from which parent (`SheetState.lineage`). Not saved: windows, undo history, selections over
 100k rows (saved as a count + warning instead).
 
 **Format: an ex script.** A session is a `.vdrs` text file of ex commands, one sheet per block:
-```
+
+```text
 :open data/sales.csv
 :type amount float
 :filter region ^n
@@ -20,6 +22,7 @@ derived from which parent (`SheetState.lineage`). Not saved: windows, undo histo
 :cursor 12 amount
 :freq region          # derived: runs on the sheet above
 ```
+
 - Reuses S-19's `Action::to_ex` (every action with a payload has an ex form) and `:export`'s lineage
   walk (one block per sheet, parents first). Readable, diffable, hand-editable, shareable.
 - Edits (S-18) serialize as their ex form (`:edit`, `:setcol`); `SetCells` patches over 1k cells are
@@ -32,6 +35,7 @@ derived from which parent (`SheetState.lineage`). Not saved: windows, undo histo
 - CLI: `vdrs -S <file>` (H1, approved); `tests/cli.rs` covers it.
 
 ## 2. Lua hooks
+
 `vd.on(event, fn)` registers a handler; several per event, run in registration order; an error in a
 handler is a toast, never aborts the event.
 
@@ -45,11 +49,13 @@ handler is a toast, never aborts the event.
 
 Inside a handler: `vd.exec(":sort -date")` (new: run any ex command on the sheet the event is about),
 `vd.toast`, `vd.sheet`. Typical use:
+
 ```lua
 vd.on("open", function(s)
   if s.path:match("%.log%.csv$") then vd.exec(":type ts date"); vd.exec(":sort -ts") end
 end)
 ```
+
 - `vd.exec` inside handlers is dispatched after the handler returns (same rule as `vd.push_sheet`), so
   hooks can't re-enter themselves mid-dispatch; an `open` handler running `:open` is refused (no
   loops).
@@ -57,6 +63,7 @@ end)
 - API: `vd.api_version` bump; `since` once S-16's registry exists.
 
 ## 3. Phases
+
 | Phase | Ships | Effort |
 |---|---|---|
 | A | `vd.on` + `vd.exec`, events `open` `push` `save` `quit` | 1–1.5 d |
@@ -65,6 +72,7 @@ end)
 | D | autosave option; `-S` flag if H1 approves | 0.5 d |
 
 ## 4. Test plan
+
 - Unit: session writer → `:source` → same sheets: compare names, steps, view, collected TSV per sheet
   (round trip over the golden cases' final states — every `tests/golden/*` case becomes a session test).
 - Unit: missing source skips its block and children only.
@@ -74,5 +82,6 @@ end)
 - Session files only under the test's temp `XDG_STATE_HOME`.
 
 ## 5. Decisions (confirmed 2026-11-08)
+
 - **H1** add the CLI flag `vdrs -S <file>` (vim parity); `:source` works too.
 - **H2** a session is an ex script (`.vdrs`), not a Lua table.

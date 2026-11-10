@@ -75,6 +75,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 - `tests/vd_replay.rs`: VisiData corpus; `MIN_PASS` floor.
 
 ## Phase 0 — viewer parity (csvlens++)
+
 - [x] ~~Prep: extract VisiData default binding table~~ — superseded: S-26 §0 compares vdrs keys with VisiData's `addCommand`/`bindkey` table at `5f67ff8a` (2026-11-08)
 - [x] CSV/TSV reader via Polars `scan_csv` (S-03)
 - [x] Parquet reader via Polars `scan_parquet` (S-03)
@@ -106,6 +107,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 - [x] Clean up `materialize_handles` on sheet pop
 
 ## Phase 1 — types, sort, freq, ex-line
+
 - [x] ~~Type-inference adapter~~ — superseded by type coercion (S-13 #3); a VisiData-shaped type system is a non-goal
 - [x] Sort by column (asc/desc, multi-col toggle) — `[` asc, `]` desc, `zo` clear
 - [x] Frequency table sheet — `F` on current column; pushes derived sheet
@@ -124,17 +126,18 @@ Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts 
 Driver semantics for several chunks exist test-side only; production `App::dispatch` still needs them. Each `[driver only]` item below means the harness proves Polars-level correctness but there's no keybinding/exline entry in `vdrs` the binary.
 
 **Iteration 2 learnings:**
+
 - VisiData encodes row keys in cmdlog with a `キ` (U+30AD) prefix marker — strip before resolving.
 - `set-option` and `sheets-stack` safely no-op in replay driver except where set-option configures binning/encoding — one quarantine entry (`numeric_binning`) covers the known semantic conflict.
 
 **Iteration 3 learnings (the "Phase 3 ceiling" correction):**
+
 - The earlier estimate "~40 tests unlocked by Phase 3 Lua" was wrong. Those tests encode **Python** expressions, not neutral DSL. A Lua expression layer serves users writing their OWN Lua in vdrs, but doesn't unlock the VisiData golden corpus. Honest reclassification: those 32 tests are **UNTESTABLE**, not "Phase 3 pending".
 - Added `.json.gz` auto-decompress in `src/reader.rs` via `flate2` (now a top-level dep). Zero PASS lift because every `.json.gz` test chains into Python-expr or complex-meta features.
 - Remaining addressable skip buckets:
   - **Complex meta features (~20 tests)**: `columns-sheet` (10), `reload-selected` (3), `unfurl-col` (4), `describe-sheet` (2), `delete-cells` (2), `open-new` (2), `copy-cells` (1), `delete-cell` (1), `dup-rows` (1), `expand-col-depth` (2), `hide-uniform-cols` (1), `import-python` (1), `join-selected` (1).
   - **Missing readers (~10 tests)**: `.xlsx` (4+2), `.sqlite` (3), `.stata` (2 — probably cut per direction §7).
   - **Rest (~70 tests)**: tests that pass driver longnames but chain through something minor still unmapped. Harder to characterize until each is traced.
-
 - [x] S-13 drafted — [`docs/specs/S-13-tier1-feature-target.md`](specs/S-13-tier1-feature-target.md) (closed iter 14)
 - [x] S-14 drafted — [`docs/specs/S-14-corpus-replay-harness.md`](specs/S-14-corpus-replay-harness.md) (landed + stable)
 - [x] S-15 drafted — [`docs/specs/S-15-feature-inventory.md`](specs/S-15-feature-inventory.md) (authoritative shipped-feature list)
@@ -144,6 +147,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **CI**: `ci.yml` fetches saulpw/visidata pinned at `5f67ff8a` (was `dd1a9f0` until 2026-11-07) into `../visidata`; `cargo test` runs the replay and fails on any regression
 
 **Deferred at iteration 14** (history; struck = shipped, _now planned_ = back on the roadmap):
+
 - ~~**Describe-sheet**~~ — shipped as `I` / `:describe` (own stats, not VisiData's fmtstr output; golden tests stay quarantined).
 - **Options system** — 4-level fallback stays cut; _now planned_: flat `vd.option` (S-18 B) + data-changing subset (S-25 P6).
 - **Expression column** — _now planned_: `=` / `g=` over Polars SQL (S-21); `aggregate-col` takes an aggregator name, not Python (S-25 P4).
@@ -180,6 +184,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] **Iteration 14 — cleanup pass (+0 PASS).** Renamed `is_python_expr_longname` → `is_direction_skip_longname` (honest naming — classifier now covers (1) python-eval payloads, (2) clipboard/new-sheet workflows, (3) options system). Moved `clamp_view` above the test module in `src/widget.rs` (clippy `items-after-test-module`). Suppressed `clippy::should_implement_trait` on `History::prev/next` (naming is intentional, not an Iterator). **Zero clippy warnings.** 33 lib tests + 21 replay PASS, SKIP=0.
 
 **Iteration 4 learnings:**
+
 - Xlsx test chains work out of the box once the reader lands + `dive-row`/`open-row` no-ops. VisiData's xlsx opens into a meta-sheet-of-worksheets; we skip that layer by loading first sheet directly, so the subsequent "enter the sheet" step is a semantic no-op for single-sheet workbooks.
 - **Multi-sheet replay is a new blocker**: `append.vd` and friends load two files, use `sheets-stack` + `select-row` on `キ<sheet-name>` to pick which sheets to join, then run `join-sheets`. Our single-sheet `Replay::sheet: Option<Sheet>` can't model this. 8 tests gated on this.
 - Clippy drift: xlsx impl introduced one `needless_range_loop` warning (`for ci in row.len()..width`); fixed to `cols.iter_mut().take(width).skip(row.len())`.
@@ -187,6 +192,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 **Phase 1.5 CLOSED** (2026-10-16). Its follow-up list (plugin shapes, describe, lenient dates, visual pass) shipped; the Python subset and format plugins moved to S-21 C and S-25 P7. Still out of scope: `.vdj` runtime, `set-option` precedence tests, loaders not in core except the cheap ones S-25 P7 weighs (Lua / `vdrs-ext-*` territory per S-09). Plots and macros are planned (S-23, S-19); `unfurl-col` shipped (S-22).
 
 ## Phase 2 — pivot + plan panel (the differentiating release)
+
 - [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.
 - [x] Melt/unpivot sheet: `:unpivot <on1,on2,...> -- <idx1,idx2,...>` — lazy via `LazyFrame::unpivot`
 - [x] `W` pivot: key columns × current column (counts); custom aggregates via `:pivot … <agg>`
@@ -196,6 +202,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [ ] DuckDB backend switch for OOC pivots (optional feature) — _dropped from direction §9.3; revisit only if Polars OOC wall hit_
 
 ## Phase 3 — mlua plugins
+
 - [x] S-09 plugin system spec drafted — [`docs/specs/S-09-plugin-system.md`](specs/S-09-plugin-system.md)
 - [x] S-10 Lua API surface + versioning spec drafted — [`docs/specs/S-10-lua-api.md`](specs/S-10-lua-api.md)
 - [x] Plugin loader bootstrap: `$XDG_CONFIG_HOME/vdrs/init.lua`, Lua 5.4 VM, missing-file is not an error
@@ -209,16 +216,19 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [ ] Extract `trait Source` from the current enum — deferred; current enum + loader-returns-path pattern covers the user-facing extension story. Add only when a `LuaSource` wants in-memory streaming.
 
 ## Phase 4 — streaming / tail-sheet
+
 - [x] Tail sheet (JSONL today, CSV/Parquet by passing format): `:tail <path> [--follow|-f]`; 2s tick re-reads file
 - [x] Append-only cursor with `--follow` mode (auto-scroll to bottom when user was at bottom)
 - [x] Parquet directory watcher — `:tail <dir>` scans `*.parquet`, re-globbed each tick
 - [x] Incremental read — CSV/TSV/JSONL parse only appended bytes
 
 ## Phase 5 — modal frame diff
+
 - [x] Diff sheet via `:diff <path>` (schema diff) or `:diff <path> <keys>` (full outer join; `__diff` flags only_a/only_b/changed; same rows suppressed)
 - [x] `D` key: path prompt, key columns as diff keys
 
 ## Correctness pass (2026-11-05, branch `fix/save-full-plan`)
+
 - [x] `:save` writes every view row (was: 1024-row window); unknown extension no longer truncates the target
 - [x] Derived sheets (freq/pivot/unpivot/diff/`"`) built from the parent's view (casts/filter/sort/visible cols)
 - [x] Background row count → `G` reaches the true last row, title shows `row N/total`
@@ -231,6 +241,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] Rescan fixes: shifted symbol keys (`!`, `$`, `|`, …) match bindings on terminals that flag SHIFT; `:tail -` / `:diff -` refused (reading stdin inside the TUI hung the app)
 
 ## Cross-cutting — do when it hurts, not before
+
 - [x] CI: fmt + clippy + build — `.github/workflows/ci.yml`
 - [ ] `hyperfine` bench harness for Phase 0 scroll latency — the `app::scenario` Harness drives the UI without a TTY but is test-only; add a bench target when scroll speed regresses
 - [ ] `rust-toolchain.toml` only when a nightly is needed

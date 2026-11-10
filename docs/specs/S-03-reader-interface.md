@@ -62,6 +62,7 @@ pub fn open(path: &Path) -> Result<AnySource, OpenError> {
 ```
 
 **Per-variant construction** uses Polars `scan_*`:
+
 - `CsvSource::new(path)` wraps `LazyCsvReader::new(path).with_has_header(true).finish()?`.
 - `ParquetSource::new(path)` wraps `scan_parquet(path, Default::default())?`.
 - `ArrowSource::new(path)` wraps `scan_ipc(path, Default::default())?`.
@@ -84,6 +85,7 @@ pub struct CsvOpts {
 CLI flags that override: `--csv-delim`, `--csv-no-header`, `--csv-quote`. VisiData's `set-type-str` muscle memory lands in Phase 1 after S-05.
 
 **Error policy** (echoes S-02's three tiers):
+
 - Open fails → `OpenError`; the sheet never joins the stack. UI shows a modal `Confirm` with the message.
 - Materialize fails later → `MaterializeError`, non-fatal; `window` stays with its last-good contents, status-line toast.
 - Decoding error mid-row (e.g. bad UTF-8 inside a CSV row) → Polars' `ignore_errors` default **off**. We expose `--ignore-errors` and a `:set ignore_errors true` ex-command later. Phase 0 fails hard; users who need VisiData's "show error row" UX wait for S-05.

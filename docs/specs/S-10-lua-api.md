@@ -74,6 +74,7 @@ vd.old_fn(...)  -- fires once per session:
 ```
 
 The deprecation registry (`docs/api-versions.json`, generated) lists `{name, since, deprecated_since?, removed_in?}`. A release-time check:
+
 - If a fn has `deprecated_since = X.Y.Z` and current version ≥ `X.Y.Z + 2 minors`, it MUST be removed.
 - If a fn is removed, it MUST have had a deprecated_since at least 2 minors prior.
 

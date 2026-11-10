@@ -13,7 +13,7 @@ Previous specs (S-01…S-14) describe *decisions*. This spec describes *the ship
 
 ## 1. CLI surface
 
-```
+```text
 vdrs <path>                  open a file
 vdrs -                       read from stdin (auto-sniffed)
 vdrs --format <fmt> <path>   override format detection (csv|tsv|parquet|arrow|jsonl|json|xlsx|sqlite)
@@ -68,14 +68,14 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
 | `StartRenameColInput` → `RenameCol { new_name }` | `^` | `:rename NEW` | plan.rename() + updates hidden/keys/casts/filter/sort refs; refuses an existing name |
-| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan
+| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
 | `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |
 | `ExpandCol { depth }` / `StartExpandDepthInput` / `ExpandCols { depth }` | `(` / `z(` `gz(` / `g(` | `:expand-col` … | `PlanStep::Expand`: struct fields as `col.field` columns right after the struct (depth 0 = all the way; taken names get `_2`), struct hidden; one undo step; `(` on an expanded struct only shows its columns again (S-22 A) |
 | `OpenColumns` / `OpenColumnsAll` | `C` / `gC` | `:columns-sheet` `:columns-all` | `Origin::Columns`: a row per column (hidden too) `name width type value aggregators sortorder key` (`gC`: `sheet` first); `e` on name/width/type/value/aggregators, `d` / `g-` `gd` hide, `Enter` freq, `U`/`R` write back to the listed sheet(s), one undo step per sheet (S-25 P3) |
 | `KeySelected { on }` / `TypeSelected { name }` | `g!` `gz!` / `g#` `g%` `g~` `g@` `g$` | `:key-selected` … | columns sheet only: key / unkey / cast the selected rows' columns |
 | `StartAggregateInput { memo, selected }` → `AggregateCol` / `MemoAggregate` / `AggregateCols` | `+` / `z+` / `g+` | — | `View.aggregators` `(column, agg)`: `F` adds `{col}_{agg}` columns in view column order and hides percent/histogram; `z+` toasts `col_agg=v` over selected (or all) rows; `g+` on the columns sheet: selected rows, or every visible non-key column; export: freq lineage emits the same aggs (S-25 P4) |
 | `ContractCol` | `)` | `:contract-col` | view only: hide the struct's columns, show the struct, cursor onto it |
-| `UnfurlCol` | `zM` | `:unfurl-col` | derived sheet `unfurl(col): parent`, `Origin::Unfurl` / `Derivation::Unfurl`: `col_key` (position / field) + `col_value` in the column's place; empty list drops its row, null keeps it as item 0; struct values text when field types differ (S-22 B) | |
+| `UnfurlCol` | `zM` | `:unfurl-col` | derived sheet `unfurl(col): parent`, `Origin::Unfurl` / `Derivation::Unfurl`: `col_key` (position / field) + `col_value` in the column's place; empty list drops its row, null keeps it as item 0; struct values text when field types differ (S-22 B) |
 
 ### 3.3 Sort / filter / search
 
@@ -211,7 +211,7 @@ Full default binding table lives in `Keymap::defaults()`; see source.
 
 Full grammar: `src/exline.rs:parse()`; the complete list is what `:<Tab>` completes and what the guide documents (doc-sync test). The original commands below; later ones (`:join`, `:derive`, `:sql`, `:setcol`, `:export`, `:describe`, `:dup`, `:uniform`, `:undo`/`:redo`, `:N`, `:<action-name>`, `vd.command`s) in §3.10–3.11:
 
-```
+```text
 :q / :quit                           pop sheet
 :qa / :quit!                         hard exit
 :filter <col> <regex>                regex filter
@@ -354,7 +354,6 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
 - **Cell/row editing + clipboard** (`delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B, `edit-cell`/`setcol-input` in S-18 C) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
 - **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
-
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
 - **Export**: schema diff and Lua-aggregator pivots.

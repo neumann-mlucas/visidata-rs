@@ -93,15 +93,18 @@ Nobody has shipped "VisiData with pivot + Lua + Polars" in a terminal.
 ## 4. Direction
 
 ### Engine: Polars-primary, DuckDB-optional
+
 - LazyFrame IS the user's history/undo log. The transforms the user builds with keystrokes compile to a Polars plan.
 - DuckDB behind an optional backend switch, for SQL-heavy or OOC-pivot workloads where Polars 2.0 streaming falls short.
 - Don't ship both as first-class from day one. Polars first; DuckDB when a user actually hits the ceiling.
 
 ### TUI: Ratatui + crossterm, yazi-shaped
+
 - Model/Update/View. Render on event, not on timer. Yazi idles at 0% CPU; VisiData doesn't.
 - Async I/O for load/compute/preview via tokio. UI thread only touches state via a channel.
 
 ### Scripting: mlua, Neovim-style API discipline
+
 - Separate plugin shapes (yazi pattern): **loader** (bytes→DataFrame), **aggregator** (DataFrame→DataFrame), **renderer** (cell→display), **keymap** (binding→action).
 - `since` field per API fn, `vim.deprecate()`-style, SemVer on plugins, deprecations never silently removed. This is the one thing the Neovim ecosystem got genuinely right; copy it.
 - Config: `~/.config/vdrs/init.lua`. Hot-reload on save.

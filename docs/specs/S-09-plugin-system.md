@@ -24,7 +24,7 @@ Four shapes. One lifecycle. Must survive plugin crashes without taking the app d
 
 ### Discovery
 
-```
+```text
 $XDG_CONFIG_HOME/vdrs/init.lua           # single entry point (Neovim model)
 $XDG_CONFIG_HOME/vdrs/lua/<plugin>/*.lua # user-managed; use `require("<plugin>")`
 ```
