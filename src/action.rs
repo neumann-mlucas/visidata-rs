@@ -369,6 +369,15 @@ pub enum Action {
     },
     /// `:notes`: a sheet of this file's notes; `Enter` jumps to the cell.
     Notes,
+    /// `:plot <x> <y…>` (S-23 C1): a plot sheet of the view.
+    Plot {
+        x: String,
+        ys: Vec<String>,
+    },
+    /// `.` (VisiData plot-column): the cursor column against the numeric key column.
+    PlotColumn,
+    /// `g.` (plot-numerics): every visible numeric non-key column against it.
+    PlotNumerics,
     /// `Z` / `:split`, `:vsplit` (S-23 B): a second pane with the sheet under this one.
     SplitPane {
         vertical: bool,
@@ -535,6 +544,7 @@ impl Action {
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
+            Plot { .. } | PlotColumn | PlotNumerics => true,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -744,6 +754,8 @@ impl Action {
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
+        ("plot_column", PlotColumn),
+        ("plot_numerics", PlotNumerics),
         ("split", SplitPane { vertical: false }),
         ("vsplit", SplitPane { vertical: true }),
         ("close_pane", ClosePane),
@@ -863,6 +875,9 @@ impl Action {
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
             Hits { needle } => format!("hits {needle}"),
+            Plot { x, ys } => std::iter::once(x)
+                .chain(ys)
+                .fold("plot".to_string(), |s, c| s + " " + &q(c)),
             SetNote { text } => format!("note {text}").trim_end().to_string(),
             Substitute {
                 pattern,

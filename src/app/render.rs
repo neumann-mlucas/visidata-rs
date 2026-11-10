@@ -95,6 +95,7 @@ impl App {
             }
         };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
+        self.viewport_cols = sheet_area.width;
         // ponytail: the notes file is read here on first sight, on the UI
         // thread; it's small. Move to a job if notes files grow.
         let _ = self.notes_mut();
@@ -121,15 +122,24 @@ impl App {
                 return;
             };
             self.render_titlebar(f, title, s);
-            f.render_widget(
-                SheetWidget {
-                    sheet: s,
-                    theme: &self.theme,
-                    render,
-                    noted: None,
-                },
-                table,
-            );
+            match s.origin {
+                Origin::Plot { .. } => f.render_widget(
+                    crate::widget::PlotWidget {
+                        sheet: s,
+                        theme: &self.theme,
+                    },
+                    table,
+                ),
+                _ => f.render_widget(
+                    SheetWidget {
+                        sheet: s,
+                        theme: &self.theme,
+                        render,
+                        noted: None,
+                    },
+                    table,
+                ),
+            }
             // the unfocused pane is dim
             f.buffer_mut().set_style(
                 Rect {
@@ -155,15 +165,24 @@ impl App {
                 n.get(rid, keys.as_deref(), column).is_some()
             })
         };
-        f.render_widget(
-            SheetWidget {
-                sheet: s,
-                theme: &self.theme,
-                render,
-                noted: notes.map(|_| &noted as crate::widget::Noted),
-            },
-            sheet_area,
-        );
+        match s.origin {
+            Origin::Plot { .. } => f.render_widget(
+                crate::widget::PlotWidget {
+                    sheet: s,
+                    theme: &self.theme,
+                },
+                sheet_area,
+            ),
+            _ => f.render_widget(
+                SheetWidget {
+                    sheet: s,
+                    theme: &self.theme,
+                    render,
+                    noted: notes.map(|_| &noted as crate::widget::Noted),
+                },
+                sheet_area,
+            ),
+        }
         // Rows from the old window, while a slow new one is on its way.
         let s = self.sheets.active();
         if !s.is_loaded() && self.spin().is_some() {

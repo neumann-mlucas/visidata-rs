@@ -330,6 +330,16 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }]),
         "hits" => Err(ExError::Usage(":hits <regex> (every column)")),
         "stats" => Ok(vec![Action::CopyStats]),
+        "plot" => {
+            const USAGE: &str = ":plot <x> <y…> (x numbers or dates)";
+            match split_args(rest, USAGE)?.as_slice() {
+                [x, ys @ ..] if !ys.is_empty() => Ok(vec![Action::Plot {
+                    x: x.clone(),
+                    ys: ys.to_vec(),
+                }]),
+                _ => Err(ExError::Usage(USAGE)),
+            }
+        }
         "note" => Ok(vec![Action::SetNote {
             text: rest.to_string(),
         }]),
@@ -460,6 +470,7 @@ pub const COMMANDS: &[&str] = &[
     "hits",
     "mksession",
     "stats",
+    "plot",
     "note",
     "patch",
     "open",

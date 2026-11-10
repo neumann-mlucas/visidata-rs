@@ -355,6 +355,9 @@ impl App {
                 });
             }
             Action::Refresh => self.refresh(),
+            Action::Plot { x, ys } => self.plot(x, ys),
+            Action::PlotColumn => self.plot_keys(false),
+            Action::PlotNumerics => self.plot_keys(true),
             Action::SplitPane { .. }
             | Action::ClosePane
             | Action::FocusPane

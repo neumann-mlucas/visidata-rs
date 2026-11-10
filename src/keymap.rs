@@ -518,7 +518,16 @@ impl Keymap {
                 "new column from SQL expression",
             ),
             // repeat / sheet stack / quit
-            ch(vec![k(".")], vec![RepeatLast], "repeat last action"),
+            ch(
+                vec![k(".")],
+                vec![PlotColumn],
+                "plot this column against the key column",
+            ),
+            ch(
+                vec![k("g"), k(".")],
+                vec![PlotNumerics],
+                "plot the numeric columns against the key column",
+            ),
             ch(vec![k("m")], vec![ToggleMacroRecord], "record macro / stop"),
             ch(
                 vec![k("*")],

@@ -146,7 +146,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `view_plan()` (casts + filter + sort + visible cols); writer by extension (csv/tsv/parquet/ipc/jsonl/json); unknown extension errors without touching the file; `:w` and `:write` aliases |
 | `Quit` | `gq`, `<C-q>` | exit |
 | `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
-| `RepeatLast` | `.` | capture of resolved Action (not keystrokes) |
+| `RepeatLast` | `:repeat-last` (`.` plots since S-23 C1) | capture of resolved Action (not keystrokes) |
 | `ToggleMacroRecord` / `Macro` | `m` | record what `.` captures as ex text (`Action::to_ex`), bind it, save to `macros.lua`; playback waits for jobs between steps (S-19) |
 | `Redraw` | `^L` | force repaint |
 
@@ -173,6 +173,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Selection stats | status line, `:stats` | sum/avg/min/max (numbers) or count/distinct of the cursor column over the selection, a background job keyed by (sheet, selection, column, revision); `:stats` copies TSV (S-30 C) |
 | Cell notes | `zn`, `:note [text]`, `:notes` | per source file TSV in `$XDG_STATE_HOME/vdrs/notes/<fnv64 of path>.tsv` (header names the path), atomic write; row = key values when keys are set, else rid + size/mtime stamp (`stale?` on mismatch); `•` marker, sidebar cell page; `:notes` = hits-shaped sheet, `Enter` jumps; file sheets only (S-30 B) |
 | Split panes | `Z` `:split`, `:vsplit`, `gZ`, `Tab`, `gTab` | `App.split = { other, vertical, focus_first }`: the focused pane is the active sheet (every command unchanged), the other pane shows `other` dimmed with its own title row; `Tab` raises `other`; the pane's last `q` closes the split; the other pane materializes when stale (S-23 B) |
+| Plots | `.` `g.` `:plot x y…` | `Origin::Plot`; the parent's view binned by x into 2 × screen-width bins in Polars (mean x, min/max per y), a background job; ratatui `Chart` braille scatter, legend top left; x numbers/dates (`.`: first numeric key column, VisiData's messages), y numbers (S-23 C1) |
 | Refresh / link | `<C-r>` `:refresh`, `:link` / `:unlink` | replay the `Derivation` on the parent's current view, keep this sheet's view, undoable; changed ancestors first; parent closed → its snapshot; linked sheets refresh on activation when the parent's view plan text differs; title `⟳` (S-30 A) |
 | Sessions | `:mksession [path]`, `:source <path>`, `vdrs -S <file>`, autosave on quit | the stack as an ex script (S-29): `open`, steps, view, cursor; pasted cells / added rows as parquet next to it; what can't replay is a `#` comment |
 | Lua hooks | `vd.on(open\|push\|save\|quit, fn)`, `vd.exec(cmd)` | run on the new sheet once its window lands; commands queue like macro steps; hook-made sheets fire nothing (S-29) |

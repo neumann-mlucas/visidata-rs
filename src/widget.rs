@@ -540,6 +540,85 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
     }
 }
 
+/// A `:plot` sheet (S-23 C1): its binned rows as a braille scatter, axes from
+/// the data's range, a legend per y.
+pub struct PlotWidget<'a> {
+    pub sheet: &'a Sheet,
+    pub theme: &'a Theme,
+}
+
+impl Widget for PlotWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        use ratatui::symbols::Marker;
+        use ratatui::text::Span;
+        use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
+        let (crate::sheet::Origin::Plot { x, ys, .. }, Some(df)) =
+            (&self.sheet.origin, self.sheet.window())
+        else {
+            return;
+        };
+        let pts = crate::sheet::plot_points(df, x, ys);
+        let all = || pts.iter().flatten();
+        let bounds = |f: fn(&(f64, f64)) -> f64| {
+            let lo = all().map(f).fold(f64::INFINITY, f64::min);
+            let hi = all().map(f).fold(f64::NEG_INFINITY, f64::max);
+            match (lo.is_finite(), lo < hi) {
+                (false, _) => [0.0, 1.0],
+                (true, false) => [lo - 0.5, hi + 0.5], // one value: center it
+                (true, true) => [lo, hi],
+            }
+        };
+        let (xb, yb) = (bounds(|p| p.0), bounds(|p| p.1));
+        // x labels in the column's own type (dates read as dates)
+        let xcol = df.column(x).ok();
+        let xlabel = |i: usize| {
+            xcol.and_then(|c| c.get(i).ok())
+                .map_or_else(String::new, |v| crate::sheet::any_text(&v))
+        };
+        let th = self.theme;
+        let palette = [
+            th.num_fg,
+            th.date_fg,
+            th.bool_true_fg,
+            th.bool_false_fg,
+            th.toast_fg,
+            th.titlebar_left_bg,
+        ];
+        let datasets: Vec<Dataset> = ys
+            .iter()
+            .zip(&pts)
+            .enumerate()
+            .map(|(i, (y, p))| {
+                Dataset::default()
+                    .name(y.as_str())
+                    .marker(Marker::Braille)
+                    .graph_type(GraphType::Scatter)
+                    .style(Style::default().fg(palette[i % palette.len()]))
+                    .data(p)
+            })
+            .collect();
+        let axis = Style::default().fg(th.dtype_badge_fg);
+        let num = |v: f64| Span::raw(crate::sheet::stat_num(v));
+        use ratatui::layout::Constraint;
+        Chart::new(datasets)
+            .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
+            .legend_position(Some(ratatui::widgets::LegendPosition::TopLeft))
+            .x_axis(
+                Axis::default()
+                    .title(x.as_str())
+                    .style(axis)
+                    .bounds(xb)
+                    .labels([xlabel(0), xlabel(df.height().saturating_sub(1))]),
+            )
+            .y_axis(Axis::default().style(axis).bounds(yb).labels([
+                num(yb[0]),
+                num((yb[0] + yb[1]) / 2.0),
+                num(yb[1]),
+            ]))
+            .render(area, buf);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,7 @@ pub(crate) mod columns;
 mod derive;
 mod diff;
 mod nested;
+mod plot;
 mod refresh;
 mod step;
 mod tail;
@@ -19,6 +20,7 @@ mod undo;
 
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
+pub use plot::{plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
 pub use step::{ADDED_RID, POS, PlanStep};
 pub use undo::{Snapshot, UndoTree};
@@ -193,6 +195,12 @@ pub enum Origin {
     Hits {
         parent: SheetId,
     },
+    /// `:plot` (S-23 C1): `parent`'s view binned by `x`; drawn as a chart.
+    Plot {
+        parent: SheetId,
+        x: String,
+        ys: Vec<String>,
+    },
     /// Rows selected in parent (VisiData `"`).
     Selected {
         parent: SheetId,
@@ -241,6 +249,7 @@ impl Origin {
             Origin::Tail { .. } => "tail",
             Origin::Selected { .. } => "selected",
             Origin::Hits { .. } => "hits",
+            Origin::Plot { .. } => "plot",
             Origin::Sql { .. } => "sql",
             Origin::Describe { .. } => "describe",
             Origin::Lua { .. } => "lua",
@@ -2238,7 +2247,7 @@ pub fn grouped(n: u64) -> String {
 }
 
 /// A stat for the status line: digits grouped, at most 2 decimals.
-fn stat_num(v: f64) -> String {
+pub fn stat_num(v: f64) -> String {
     let r = (v * 100.0).round() / 100.0;
     let int = grouped(r.trunc().abs() as u64);
     let sign = if r < 0.0 { "-" } else { "" };

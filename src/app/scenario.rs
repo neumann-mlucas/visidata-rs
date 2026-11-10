@@ -1271,7 +1271,8 @@ async fn repeat_does_not_reopen_a_prompt() {
         h.app.last_action,
         Some(vec![Action::SelectByRegex { regex: "x".into() }])
     );
-    h.keys(".").await;
+    h.keys(":").await; // `.` plots (VisiData); repeat is `:repeat-last`
+    h.type_("repeat-last").await;
     assert!(h.app.input.is_none());
 }
 
@@ -2724,4 +2725,58 @@ async fn split_panes_focus_swap_and_close() {
     h.keys("Z q").await; // freq popped: the base was the other pane
     assert_eq!(titles(&h).len(), 1, "{}", h.screen());
     assert!(!active(&h).contains("freq"), "{}", active(&h));
+}
+
+/// S-23 C1: `.` needs a numeric key column (VisiData's messages), then plots
+/// the cursor column; `g.` every numeric one; `:plot` names them.
+#[tokio::test(flavor = "multi_thread")]
+async fn plots_draw_binned_series_against_the_key_column() {
+    let mut h = csv(b"x,y,z,s\n1,1,10,a\n2,4,8,b\n3,9,6,c\n4,16,4,d\n5,25,2,e\n6,36,0,f\n7,49,1,g\n8,64,3,h\n9,81,5,i\n10,100,7,j\n").await;
+    h.keys("l .").await;
+    assert_eq!(
+        status(&h),
+        "no key columns; press `!` on a numeric column to set x-axis"
+    );
+    h.keys("l l l ! .").await;
+    assert_eq!(
+        status(&h),
+        "no numeric key column; set type with `#` `%` or `@`"
+    );
+    h.keys("! 0 ! l .").await;
+    assert!(title(&h).contains("plot(x→y)"), "{}", title(&h));
+    // y = x²: braille cells, axes from the data, the legend top left
+    let screen = h.screen();
+    let plot: Vec<&str> = screen.lines().skip(1).take(10).collect();
+    let want = r#"100 │┌─┐                                                                                           ⠈
+    ││y│                                                                                 ⠄
+    │└─┘                                                                      ⢀
+    │
+50.5│                                                               ⠁
+    │                                          ⡀         ⠈
+    │                               ⠠
+1   │⡀         ⠠          ⠁                                                                        x
+    └───────────────────────────────────────────────────────────────────────────────────────────────
+  1.0                                                                                           10.0"#;
+    assert_eq!(plot.join("\n"), want);
+    h.keys("q g .").await;
+    assert!(title(&h).contains("plot(x→yz)"), "{}", title(&h));
+    assert!(h.screen().contains("z"), "{}", h.screen());
+    h.keys("q :").await;
+    h.type_("plot x s").await;
+    assert_eq!(status(&h), "plot: plot: s is str; needs numbers");
+}
+
+/// A plot of 200k rows is a few hundred binned rows (O(screen)).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plot_of_many_rows_stays_screen_sized() {
+    let mut h = Harness::new(200_000).await;
+    h.keys(":").await;
+    h.type_("plot id amt grp").await;
+    let p = h.app.sheets.active();
+    assert!(p.name.starts_with("plot(id→amt,grp)"), "{}", p.name);
+    let rows = p.window().unwrap().height();
+    assert!(
+        (100..=200).contains(&rows),
+        "{rows} bins for a 100-column screen"
+    );
 }

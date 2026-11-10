@@ -395,6 +395,8 @@ pub struct App {
     theme: Theme,
     /// Data rows visible in the sheet area at the last draw; one PageDown step.
     viewport_rows: usize,
+    /// Columns of the table area: a plot bins x to twice this (braille).
+    viewport_cols: u16,
     register: Option<Register>,
     /// Asked in the status line: unsaved edits would be lost (S-26 A1).
     confirm: Option<(Confirm, String)>,
@@ -456,6 +458,7 @@ impl App {
             pivot_preview: None,
             theme,
             viewport_rows: DEFAULT_VIEWPORT_ROWS,
+            viewport_cols: 100,
             register: None,
             confirm: None,
             clipboard,
@@ -660,6 +663,54 @@ impl App {
             })
             .flatten();
         notes.get(rid, keys.as_deref(), &self.current_column_name()?)
+    }
+
+    /// `.` / `g.`: x is the first key column holding numbers or dates (VisiData's rule).
+    fn plot_keys(&mut self, all: bool) {
+        let s = self.sheets.active();
+        let Some(df) = s.window() else { return };
+        let plottable = |c: &str| {
+            df.column(c).is_ok_and(|c| {
+                let t = c.dtype();
+                t.is_primitive_numeric() || matches!(t, DataType::Date | DataType::Datetime(..))
+            })
+        };
+        let x = match s.view.keys.iter().find(|k| plottable(k)) {
+            Some(x) => x.clone(),
+            None if s.view.keys.is_empty() => {
+                self.toast =
+                    Some("no key columns; press `!` on a numeric column to set x-axis".into());
+                return;
+            }
+            None => {
+                self.toast = Some("no numeric key column; set type with `#` `%` or `@`".into());
+                return;
+            }
+        };
+        let ys: Vec<String> = match all {
+            false => self.current_column_name().into_iter().collect(),
+            true => df
+                .columns()
+                .iter()
+                .filter(|c| {
+                    c.dtype().is_primitive_numeric() && !s.view.keys.contains(&c.name().to_string())
+                })
+                .map(|c| c.name().to_string())
+                .collect(),
+        };
+        self.plot(x, ys);
+    }
+
+    /// `:plot`: bin the view in the background, push the plot sheet.
+    fn plot(&mut self, x: String, ys: Vec<String>) {
+        let parent = self.sheets.active().clone();
+        let id = self.sheets.alloc_id();
+        let bins = u32::from(self.viewport_cols.max(10)) * 2;
+        self.spawn_job("plot", move || {
+            Ok(JobDone::PushSheet(Box::new(Sheet::plot_from(
+                &parent, id, &x, &ys, bins,
+            )?)))
+        });
     }
 
     /// `:refresh` the active sheet (and its changed ancestors) in the background.

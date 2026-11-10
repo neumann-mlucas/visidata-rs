@@ -33,7 +33,7 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 |---|---|---|---|---|---|
 | `Space` | — | `exec-longname` | opens the `:` command line | same | phase 0 |
 | `:` | command line | `addcol-split` | command line until split-column ships (R-d) | command line | when `addcol-split` ships |
-| `.` | repeat | `plot-column` | repeat until plots ship (R-d) | repeat | S-23 C1 |
+| `.` | repeat | `plot-column` | plot-column since S-23 C1 (2026-11-10); repeat = `:repeat-last` | repeat | S-23 C1 |
 | `$` | last column | `type-currency` | currency cast; last/first column = `gl` / `gh` (`0` stays: VisiData alias) | `$` / `0` | phase 0 |
 | `g-` | unhide all | `hide-uniform-cols` | `:uniform` | — | phase 0 |
 | `gv` | — | `unhide-cols` | unhide all | reselect last visual range | phase 0 |
