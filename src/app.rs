@@ -365,7 +365,6 @@ enum Prompt {
     },
 }
 
-/// A y/N question asked in the status line; any other key keeps things as they are.
 /// A visual range: from the anchor to the cursor (view rows from 0, and
 /// columns for a block).
 // ponytail: view rows, not row ids: a sort while it's open moves the range
@@ -408,6 +407,7 @@ struct Jump {
     column: Option<String>,
 }
 
+/// A y/N question asked in the status line; any other key keeps things as they are.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Confirm {
     Pop,
@@ -2087,7 +2087,7 @@ impl App {
                 // VisiData's `regex_flags` default `I`: case-insensitive
                 self.dispatch_sequence(vec![Action::SubstPrompted {
                     pattern: format!("(?i){}", pattern.replace("\\/", "/")),
-                    replacement: crate::exline::vim_backrefs(replacement),
+                    replacement: crate::exline::vim_backrefs(replacement, true),
                     mode,
                 }]);
             }

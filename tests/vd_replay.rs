@@ -1345,7 +1345,7 @@ impl Replay {
         };
         // VisiData's default `regex_flags` is `I`
         let before = format!("(?i){}", get("before"));
-        let after = visidata_rs::exline::vim_backrefs(&get("after"));
+        let after = visidata_rs::exline::vim_backrefs(&get("after"), true);
         let s = &mut self.current_slot_mut()?.sheet;
         let selected: std::sync::Arc<[u64]> = s.view.selected.iter().copied().collect();
         match ln {
