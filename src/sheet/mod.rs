@@ -697,7 +697,24 @@ impl Sheet {
         let mut hits = parent.search_hits(needle, None).map_err(e)?;
         let capped = hits.len() > cap;
         hits.truncate(cap);
-        let view = parent.view_plan().collect().map_err(e)?;
+        // only the hit rows, in view order: `pos` maps a view row to its line
+        let mut rows: Vec<u64> = hits.iter().map(|(r, _)| *r).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        let pos: std::collections::HashMap<u64, usize> =
+            rows.iter().enumerate().map(|(i, r)| (*r, i)).collect();
+        let at_rows = lit(Series::new("rows".into(), &rows)).implode(false);
+        let view = parent
+            .view_plan()
+            .with_row_index("__vdrs_hitrow", None)
+            .filter(
+                col("__vdrs_hitrow")
+                    .cast(DataType::UInt64)
+                    .is_in(at_rows, false),
+            )
+            .drop(cols(["__vdrs_hitrow"]))
+            .collect()
+            .map_err(e)?;
         let names: Vec<String> = view
             .get_column_names()
             .iter()
@@ -717,7 +734,7 @@ impl Sheet {
             texts[c]
                 .str()
                 .ok()
-                .and_then(|s| s.get(r as usize))
+                .and_then(|s| s.get(pos[&r]))
                 .map(String::from)
         };
         let mut cols = vec![
