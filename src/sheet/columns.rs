@@ -197,6 +197,7 @@ impl Sheet {
         Self::columns_sheet(sheets, id, "all_columns".into())
     }
 
+    #[expect(clippy::expect_used, reason = "columns built here have one length")]
     fn columns_sheet(sheets: &[&Sheet], id: SheetId, name: String) -> Self {
         let mut cols = Vec::new();
         let (mut sheet, mut names, mut widths, mut types, mut values) =

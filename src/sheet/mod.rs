@@ -232,11 +232,13 @@ impl Sheets {
         }
     }
 
+    #[expect(clippy::expect_used, reason = "`pop` never removes the last sheet")]
     pub fn active(&self) -> &Sheet {
         self.stack
             .last()
             .expect("sheet stack never empty while running")
     }
+    #[expect(clippy::expect_used, reason = "`pop` never removes the last sheet")]
     pub fn active_mut(&mut self) -> &mut Sheet {
         self.stack
             .last_mut()
@@ -429,6 +431,7 @@ impl Sheet {
     }
 
     /// Build a tiny in-memory sheet listing every sheet in the stack.
+    #[expect(clippy::expect_used, reason = "columns built here have one length")]
     pub fn sheet_switcher(id: SheetId, summaries: Vec<(SheetId, String, SourceKind)>) -> Self {
         let ids: Vec<i64> = summaries.iter().map(|(i, _, _)| *i as i64).collect();
         let names: Vec<String> = summaries.iter().map(|(_, n, _)| n.clone()).collect();
@@ -497,9 +500,7 @@ impl Sheet {
         let plan = if kind == SourceKind::Duckdb {
             loaded.lazy.clone()
         } else {
-            DataFrame::new_infer_height(vec![Column::new(what.into(), parts)])
-                .expect("one column")
-                .lazy()
+            Column::new(what.into(), parts).into_frame().lazy()
         };
         Sheet {
             id,
@@ -1147,7 +1148,7 @@ impl Sheet {
             }
         }
         // view order: position, then step and row order (stable sort)
-        all.sort_by(|a, b| a.partial_cmp(b).expect("positions are finite"));
+        all.sort_by(|a, b| a.0.total_cmp(&b.0).then((a.1, a.2).cmp(&(b.1, b.2))));
         let mut new = std::collections::HashMap::new();
         for gap in all.chunk_by(|a, b| a.0.floor() == b.0.floor()) {
             let g = gap[0].0.floor();
@@ -1310,10 +1311,11 @@ impl Sheet {
 
     /// `JobDone::Loaded`: the source, read into memory, becomes the base.
     pub fn set_memory_base(&mut self, df: DataFrame) {
-        self.state.memory_base = Some(df.lazy());
+        let base = df.lazy();
         if self.state.steps.is_empty() {
-            self.plan = with_rids(self.state.memory_base.clone().expect("just set"));
+            self.plan = with_rids(base.clone());
         }
+        self.state.memory_base = Some(base);
     }
 
     /// Row ids of deleted rows (`DeleteRows` steps), ascending.
@@ -1662,11 +1664,13 @@ impl Sheet {
                 .fill_null(false)
                 .alias(hit(i).as_str())
         }));
-        let any = searched
+        let Some(any) = searched
             .iter()
             .map(|&i| col(hit(i).as_str()))
             .reduce(|a, b| a.or(b))
-            .expect("searched is not empty");
+        else {
+            return Ok(Vec::new());
+        };
         let df = plan
             .with_row_index("__vdrs_row", None)
             .select(select)

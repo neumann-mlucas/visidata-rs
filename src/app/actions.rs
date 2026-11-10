@@ -306,11 +306,8 @@ impl App {
             }
             Action::OpenNew => {
                 let id = self.sheets.alloc_id();
-                let df = DataFrame::new_infer_height(vec![Column::new_empty(
-                    "A".into(),
-                    &DataType::String,
-                )])
-                .expect("one empty column");
+                let schema = Schema::from_iter([Field::new("A".into(), DataType::String)]);
+                let df = DataFrame::empty_with_schema(&schema);
                 let src = crate::reader::LoadedSource::from_df(
                     crate::reader::SourceKind::Csv,
                     "unnamed".into(),

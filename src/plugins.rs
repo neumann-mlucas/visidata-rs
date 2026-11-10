@@ -166,6 +166,7 @@ impl Plugins {
         (host, err.map(|e| format!("init.lua: {e}")))
     }
 
+    #[expect(clippy::expect_used, reason = "a fresh VM always takes the vd table")]
     fn empty(config: Option<(PathBuf, Option<std::time::SystemTime>)>) -> Self {
         let lua = Lua::new();
         lua.set_app_data(RefCell::new(Registry::default()));
@@ -960,15 +961,15 @@ pub fn default_init_lua() -> String {
         .map(|(n, _)| *n)
         .collect();
     let wrap = |text: String| -> String {
-        let mut lines = vec![String::from("--")];
+        let (mut lines, mut line) = (Vec::new(), String::from("--"));
         for word in text.split(' ') {
-            if lines.last().unwrap().len() + word.len() > 77 {
-                lines.push(String::from("--"));
+            if line.len() + word.len() > 77 {
+                lines.push(std::mem::replace(&mut line, String::from("--")));
             }
-            let line = lines.last_mut().unwrap();
             line.push(' ');
             line.push_str(word);
         }
+        lines.push(line);
         lines.join("\n") + "\n"
     };
     out += "\n";

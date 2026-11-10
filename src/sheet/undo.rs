@@ -81,6 +81,10 @@ impl UndoTree {
         self.current
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "tree invariant: the current node and its path exist"
+    )]
     fn evict(&mut self) {
         while self.nodes.len() > UNDO_MAX {
             let on_path = self.path(self.current);
@@ -122,6 +126,10 @@ impl Sheet {
 
     /// `snap` (taken before a change) is the state `U` goes back to; the
     /// sheet as it is now becomes a new state. A change after `U` branches.
+    #[expect(
+        clippy::expect_used,
+        reason = "tree invariant: the current node and its path exist"
+    )]
     pub fn push_undo(&mut self, snap: Snapshot) {
         let t = &mut self.state.undo;
         let id = t.nodes.keys().next_back().expect("never empty") + 1;
@@ -189,6 +197,10 @@ impl Sheet {
     }
 
     /// Make state `id` current. `R` then retraces the way from the old one.
+    #[expect(
+        clippy::expect_used,
+        reason = "tree invariant: the current node and its path exist"
+    )]
     pub fn goto_state(&mut self, id: u64) -> bool {
         let live = self.snapshot();
         let t = &mut self.state.undo;
@@ -241,6 +253,7 @@ impl Sheet {
 impl Sheet {
     /// `:undotree`: one row per state of `of`, oldest first; `change` is
     /// indented by depth, so branches show; `*` marks the current one.
+    #[expect(clippy::expect_used, reason = "columns built here have one length")]
     pub fn undo_tree_of(of: &Sheet, id: SheetId) -> Self {
         let states = of.undo_states();
         let now = SystemTime::now();

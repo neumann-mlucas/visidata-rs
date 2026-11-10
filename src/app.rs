@@ -549,7 +549,9 @@ impl App {
                     .map(|s| s.id)
                     .collect();
                 for id in ids {
-                    let s = self.sheets.find_by_id_mut(id).expect("listed");
+                    let Some(s) = self.sheets.find_by_id_mut(id) else {
+                        continue;
+                    };
                     s.plan = index.clone().lazy();
                     s.invalidate(crate::sheet::Reason::Plan);
                 }
@@ -815,9 +817,9 @@ impl App {
         // isn't bound. `0` is bound to goto_leftmost, so it only extends a count.
         if self.pending.is_empty()
             && let KeyCode::Char(c) = key.code
-            && c.is_ascii_digit()
+            && let Some(d) = c.to_digit(10)
         {
-            let d = c.to_digit(10).unwrap() as usize;
+            let d = d as usize;
             // A bound digit fires (`0`, `vd.bind`) unless a count is underway.
             let unbound = matches!(self.keymap.resolve(Layer::Sheet, &[], key), Dispatch::Miss);
             let accumulate = unbound || self.pending_count.is_some();

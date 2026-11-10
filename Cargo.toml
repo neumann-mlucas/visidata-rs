@@ -18,6 +18,10 @@ path = "src/main.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
 [dependencies]
 polars = { version = "0.55", features = ["lazy", "csv", "parquet", "json", "ipc", "strings", "temporal", "dtype-full", "dtype-extension", "regex", "pivot", "round_series", "sql", "is_in", "extract_jsonpath", "mode"] }
 polars-ops = { version = "0.55", features = ["pivot"] }

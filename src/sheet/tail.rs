@@ -197,14 +197,18 @@ impl Sheet {
                 .transpose();
             match more {
                 Ok(more) => {
-                    let cache = self.state.tail.as_mut().expect("checked above");
+                    let Some(cache) = self.state.tail.as_mut() else {
+                        return Ok(false); // checked above
+                    };
                     if let Some(more) = more {
                         cache.df.vstack_mut(&more)?;
                         cache.consumed += added;
                     }
                     let df = cache.df.clone();
                     let partial = self.parse_partial(rest, &df);
-                    self.state.tail.as_mut().expect("checked above").partial = partial;
+                    if let Some(cache) = self.state.tail.as_mut() {
+                        cache.partial = partial;
+                    }
                 }
                 Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
             }

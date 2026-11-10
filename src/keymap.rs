@@ -92,6 +92,10 @@ impl Keymap {
     }
 
     /// Baked-in default bindings — the VisiData muscle-memory subset relevant to Phase 0.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "literal key names; every test builds the defaults"
+    )]
     pub fn defaults() -> Self {
         use Action::*;
         let k = |s: &str| -> Key { s.parse().unwrap() };
