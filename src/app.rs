@@ -1017,8 +1017,11 @@ impl App {
             return;
         }
         self.link_seen = Some(s.id);
+        if !s.state.linked {
+            return;
+        }
         let stack: Vec<Sheet> = self.sheets.iter().cloned().collect();
-        if s.state.linked && s.parent_changed(&stack) {
+        if s.parent_changed(&stack) {
             self.refresh();
         }
     }
