@@ -9,6 +9,7 @@ const KEYS: &[&str] = &[
     "g <CR>", "\"", "g \"", "U", "R", ".", "z s", "z c", "P", "n", "N", "z f", "1", "2", "5", "d",
     "g d", "x", "y", "z y", "z p", "g z p", "z x", "z d", "a", "p", "A", "z P", "U", "R",
     "U", // history-heavy (S-20)
+    "Z", "g Z", "<Tab>", "g <Tab>", "<C-r>", // panes, refresh (S-23 B, S-30 A)
 ];
 
 /// Prompt openers paired with what to type; a tenth of the steps use these.

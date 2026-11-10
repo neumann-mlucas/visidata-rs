@@ -53,6 +53,47 @@ impl App {
                 .split(main_area);
             (halves[0], Some(halves[1]))
         };
+        // `Z` (S-23 B): two panes, each a title row over its table; the
+        // focused one shows the active sheet.
+        if self
+            .split
+            .as_ref()
+            .is_some_and(|sp| !self.sheets.iter().any(|s| s.id == sp.other))
+        {
+            self.split = None; // its sheet was closed
+        }
+        let (title_area, sheet_area, other) = match &self.split {
+            None => (chunks[0], sheet_area, None),
+            Some(sp) => {
+                let region = Rect {
+                    y: chunks[0].y,
+                    height: sheet_area.height + 1,
+                    ..sheet_area
+                };
+                let halves = Layout::default()
+                    .direction(match sp.vertical {
+                        true => Direction::Horizontal,
+                        false => Direction::Vertical,
+                    })
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(region);
+                let (mine, theirs) = match sp.focus_first {
+                    true => (halves[0], halves[1]),
+                    false => (halves[1], halves[0]),
+                };
+                let rows = |r: Rect| {
+                    let t = Rect { height: 1, ..r };
+                    let b = Rect {
+                        y: r.y + 1,
+                        height: r.height.saturating_sub(1),
+                        ..r
+                    };
+                    (t, b)
+                };
+                let (t, b) = rows(mine);
+                (t, b, Some((rows(theirs), sp.other)))
+            }
+        };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
         // ponytail: the notes file is read here on first sight, on the UI
         // thread; it's small. Move to a job if notes files grow.
@@ -69,7 +110,36 @@ impl App {
             clamp_view(&mut s.view, &df, sheet_area, &s.state.widths);
         }
 
-        self.render_titlebar(f, chunks[0]);
+        if let Some(((title, table), id)) = other
+            && let Some(s) = self.sheets.find_by_id_mut(id)
+        {
+            refresh_widths(s, render);
+            if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
+                clamp_view(&mut s.view, &df, table, &s.state.widths);
+            }
+            let Some(s) = self.sheets.iter().find(|s| s.id == id) else {
+                return;
+            };
+            self.render_titlebar(f, title, s);
+            f.render_widget(
+                SheetWidget {
+                    sheet: s,
+                    theme: &self.theme,
+                    render,
+                    noted: None,
+                },
+                table,
+            );
+            // the unfocused pane is dim
+            f.buffer_mut().set_style(
+                Rect {
+                    height: table.height + 1,
+                    ..title
+                },
+                Style::default().add_modifier(Modifier::DIM),
+            );
+        }
+        self.render_titlebar(f, title_area, self.sheets.active());
         let s = self.sheets.active();
         let notes = self
             .notes_path()
@@ -274,8 +344,7 @@ impl App {
 
     /// `name | kind · what shapes the view …| column | row`. The position
     /// on the right always shows; the name gives up its head, the chips their tail.
-    pub(super) fn render_titlebar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
-        let s = self.sheets.active();
+    pub(super) fn render_titlebar(&self, f: &mut ratatui::Frame<'_>, area: Rect, s: &Sheet) {
         let View {
             row_cursor,
             col_cursor,

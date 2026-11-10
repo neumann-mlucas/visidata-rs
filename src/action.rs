@@ -369,6 +369,16 @@ pub enum Action {
     },
     /// `:notes`: a sheet of this file's notes; `Enter` jumps to the cell.
     Notes,
+    /// `Z` / `:split`, `:vsplit` (S-23 B): a second pane with the sheet under this one.
+    SplitPane {
+        vertical: bool,
+    },
+    /// `gZ`: back to one pane.
+    ClosePane,
+    /// `Tab`: focus the other pane.
+    FocusPane,
+    /// `gTab`: swap the panes on screen.
+    SwapPanes,
     /// `<C-r>` / `:refresh` (S-30 A): rebuild a derived sheet from its parent's current view.
     Refresh,
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
@@ -524,6 +534,7 @@ impl Action {
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
+            SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -733,6 +744,11 @@ impl Action {
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
+        ("split", SplitPane { vertical: false }),
+        ("vsplit", SplitPane { vertical: true }),
+        ("close_pane", ClosePane),
+        ("focus_pane", FocusPane),
+        ("swap_panes", SwapPanes),
         ("start_note_input", StartNoteInput),
         ("notes", Notes),
         ("link", Link { on: true }),

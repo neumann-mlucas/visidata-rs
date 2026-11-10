@@ -1,6 +1,6 @@
 # S-23 — Layout: sidebar, split panes, plots
 
-Status: **drafted 2026-11-08**; A shipped 2026-11-08. Three independent parts, ship in order A → B → C.
+Status: **drafted 2026-11-08**; A shipped 2026-11-08, B 2026-11-10. Three independent parts, ship in order A → B → C.
 Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 ## 1. What exists (verified in `src/app.rs`)
@@ -52,6 +52,12 @@ in keymap order and doesn't scroll (ponytail: add scrolling when someone needs t
 - Same sheet in both panes: allowed; cursor/scroll are per `View`, so v1 shares them (VisiData does too).
   Per-pane cursors only if asked.
 - Prompts/status line/which-key belong to the focused pane; title bar shows both sheet names.
+
+As shipped: one global stack, so no `Pane` list — `App.split: Option<Split { other, vertical,
+focus_first }>`. The focused pane always shows `sheets.active()`, so no caller changed; `Tab` raises
+`other` (`switch_to`) and makes the old active sheet `other`. Each pane has its own title row; the
+unfocused pane is dimmed. `q` closes the split when the next sheet is the other pane's; a closed `other`
+closes it too. `zZ` (split size) not shipped: 50/50 only.
 
 ## 4. Part C — Plots (L: 1–2 weeks in stages)
 

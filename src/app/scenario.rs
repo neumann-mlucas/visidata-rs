@@ -51,6 +51,7 @@ impl Harness {
             self.app.fire_push_hooks();
             self.app.ask_sel_stats();
             self.app.follow_link();
+            self.app.feed_other_pane();
             self.app.pump_macro();
             if self.app.settled() {
                 break;
@@ -2673,4 +2674,54 @@ async fn notes_on_key_columns_and_refused_on_derived_sheets() {
     assert!(t.contains("2|2|name|by key|false|"), "{t}");
     h.keys("q F z n").await;
     assert_eq!(status(&h), "notes: only on sheets read from a file");
+}
+
+/// S-23 B: `Z` splits (the sheet under this one in the other pane), `Tab`
+/// moves focus, keys move only the focused pane, `gTab` swaps, `gZ` and a
+/// pane's last `q` go back to one.
+#[tokio::test(flavor = "multi_thread")]
+async fn split_panes_focus_swap_and_close() {
+    let mut h = Harness::new(30).await;
+    let titles = |h: &Harness| {
+        h.screen()
+            .lines()
+            .filter(|l| l.contains(" row "))
+            .map(|l| l.replace(',', ""))
+            .collect::<Vec<_>>()
+    };
+    h.keys("l l F").await; // freq(grp) on top of the base sheet
+    h.keys("Z").await;
+    let t = titles(&h);
+    assert_eq!(t.len(), 2, "{}", h.screen());
+    assert!(
+        t[0].contains("freq(grp)") && t[1].contains("row 1/30"),
+        "{t:?}"
+    );
+    h.keys("j").await;
+    let t = titles(&h);
+    assert!(
+        t[0].contains("row 2/7") && t[1].contains("row 1/30"),
+        "{t:?}"
+    );
+    let active = |h: &Harness| h.app.sheets.active().name.clone();
+    h.keys("<Tab> j j").await; // focus the base sheet, below
+    assert!(!active(&h).contains("freq"), "{}", active(&h));
+    let t = titles(&h);
+    assert!(
+        t[0].contains("row 2/7") && t[1].contains("row 3/30"),
+        "{t:?}"
+    );
+    h.keys("g z |").await;
+    h.type_("^3$").await; // grp 3: 4 rows
+    h.keys("<Tab>").await;
+    assert!(active(&h).contains("freq(grp)"), "{}", active(&h));
+    assert!(titles(&h)[1].contains("/4 "), "{}", h.screen());
+    h.keys("g <Tab>").await; // freq goes to the bottom, still focused
+    let t = titles(&h);
+    assert!(t[0].contains("/4 ") && t[1].contains("freq(grp)"), "{t:?}");
+    h.keys("g Z").await;
+    assert_eq!(titles(&h).len(), 1, "{}", h.screen());
+    h.keys("Z q").await; // freq popped: the base was the other pane
+    assert_eq!(titles(&h).len(), 1, "{}", h.screen());
+    assert!(!active(&h).contains("freq"), "{}", active(&h));
 }

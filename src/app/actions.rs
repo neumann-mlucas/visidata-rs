@@ -355,6 +355,12 @@ impl App {
                 });
             }
             Action::Refresh => self.refresh(),
+            Action::SplitPane { .. }
+            | Action::ClosePane
+            | Action::FocusPane
+            | Action::SwapPanes => {
+                self.pane(&action);
+            }
             Action::Link { on } => {
                 let s = self.sheets.active_mut();
                 if on && s.state.lineage.is_none() {
@@ -1557,6 +1563,14 @@ impl App {
     pub(super) fn pop_sheet(&mut self) {
         let popped_id = self.sheets.active().id;
         if self.sheets.pop() {
+            // the pane's last sheet: the other pane fills the screen
+            if self
+                .split
+                .as_ref()
+                .is_some_and(|sp| sp.other == self.sheets.active().id)
+            {
+                self.split = None;
+            }
             if let Some(h) = self.materialize_handles.remove(&popped_id) {
                 h.abort();
             }

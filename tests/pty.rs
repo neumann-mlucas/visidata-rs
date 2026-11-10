@@ -29,6 +29,12 @@ impl Vdrs {
         let home = tempfile::tempdir().unwrap();
         let mut vd = Self::spawn(&[file], home.path());
         vd._home = Some(home);
+        // cursor keys need the first window (its width): wait for the rows
+        let end = Instant::now() + Duration::from_secs(20);
+        let shown = |t: &str| t.contains(" row ") && !t.contains(" row 0/");
+        while !shown(&vd.text()) && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(20));
+        }
         vd
     }
 

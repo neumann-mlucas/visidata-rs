@@ -550,6 +550,14 @@ impl Keymap {
                 "note on this cell",
             ),
             ch(
+                vec![k("Z")],
+                vec![SplitPane { vertical: false }],
+                "split: the sheet under this one below",
+            ),
+            ch(vec![k("g"), k("Z")], vec![ClosePane], "close the split"),
+            ch(vec![k("<Tab>")], vec![FocusPane], "focus the other pane"),
+            ch(vec![k("g"), k("<Tab>")], vec![SwapPanes], "swap the panes"),
+            ch(
                 vec![k("<C-r>")],
                 vec![Refresh],
                 "refresh a derived sheet from its parent",

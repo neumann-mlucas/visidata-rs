@@ -320,6 +320,16 @@ impl Prompt {
     }
 }
 
+/// `Z` / `:vsplit` (S-23 B): the pane not focused shows `other`; the focused
+/// one shows the active sheet, so every command acts on it unchanged.
+struct Split {
+    other: SheetId,
+    /// Side by side (`:vsplit`), else top and bottom.
+    vertical: bool,
+    /// The focused pane is the top (left) one.
+    focus_first: bool,
+}
+
 /// What selection stats were computed for: sheet, selection, column, sheet
 /// revision. Holding the selection's `Arc` makes the next `make_mut` copy it,
 /// so a changed selection is always a different `Arc`.
@@ -364,6 +374,8 @@ pub struct App {
     /// Status-line stats of the selection (S-30 C), and what was last asked.
     sel_stats: Option<(StatsKey, Vec<(&'static str, String)>)>,
     sel_stats_asked: Option<StatsKey>,
+    /// `Z` (S-23 B): the second pane, if split.
+    split: Option<Split>,
     /// Cell notes by source file, read when first shown (S-30 B).
     notes: std::collections::HashMap<std::path::PathBuf, crate::notes::Notes>,
     /// The active sheet `follow_link` last looked at (S-30 A).
@@ -433,6 +445,7 @@ impl App {
             sel_stats_asked: None,
             link_seen: None,
             notes: Default::default(),
+            split: None,
             replaying: false,
             toast: plugin_warning,
             input: None,
@@ -512,6 +525,7 @@ impl App {
             dirty |= self.fire_push_hooks();
             self.ask_sel_stats();
             self.follow_link();
+            self.feed_other_pane();
             if !self.macro_queue.is_empty() && self.idle() {
                 self.pump_macro();
                 dirty = true;
@@ -533,7 +547,12 @@ impl App {
     #[cfg(test)]
     fn settled(&self) -> bool {
         let waiting = self.input.is_some() || self.confirm.is_some();
-        self.idle()
+        let other = self.split.as_ref().map(|sp| sp.other);
+        let other_loaded = other
+            .and_then(|id| self.sheets.iter().find(|s| s.id == id))
+            .is_none_or(Sheet::is_loaded);
+        other_loaded
+            && self.idle()
             && !self.sheets.active().is_counting()
             && (self.macro_queue.is_empty() || waiting)
     }
@@ -1055,7 +1074,15 @@ impl App {
     }
 
     fn spawn_materialize(&mut self) {
-        let s = self.sheets.active_mut();
+        self.spawn_materialize_for(self.sheets.active().id);
+        self.spawn_count_if_stale();
+    }
+
+    /// Materialize sheet `id`'s window (the active one, or the other pane's).
+    fn spawn_materialize_for(&mut self, id: SheetId) {
+        let Some(s) = self.sheets.find_by_id_mut(id) else {
+            return;
+        };
         let rev = s.begin_window();
         let sheet_id = s.id;
         let plan = s.window_plan_with_rids();
@@ -1087,7 +1114,57 @@ impl App {
                 let _ = tx.send(msg).await;
             }),
         );
-        self.spawn_count_if_stale();
+    }
+
+    /// The other pane's sheet gets a window when it has none or is stale.
+    fn feed_other_pane(&mut self) {
+        let Some(id) = self.split.as_ref().map(|sp| sp.other) else {
+            return;
+        };
+        let busy = self
+            .materialize_handles
+            .get(&id)
+            .is_some_and(|h| !h.is_finished());
+        let Some(s) = self.sheets.find_by_id_mut(id) else {
+            return;
+        };
+        if std::mem::take(&mut s.state.stale) || (!s.is_loaded() && !busy) {
+            self.spawn_materialize_for(id);
+        }
+    }
+
+    /// `Z` / `:vsplit`, `gZ`, `Tab`, `gTab` (S-23 B).
+    fn pane(&mut self, a: &Action) {
+        let active = self.sheets.active().id;
+        match (a, self.split.as_mut()) {
+            (Action::SplitPane { vertical }, _) => {
+                // the sheet under this one, VisiData's choice; alone: itself
+                let n = self.sheets.len();
+                let under = self
+                    .sheets
+                    .iter()
+                    .nth(n.saturating_sub(2))
+                    .map_or(active, |s| s.id);
+                let other = self.split.as_ref().map_or(under, |sp| sp.other);
+                self.split = Some(Split {
+                    other,
+                    vertical: *vertical,
+                    focus_first: true,
+                });
+            }
+            (Action::ClosePane, _) => self.split = None,
+            (Action::FocusPane, Some(sp)) => {
+                let other = std::mem::replace(&mut sp.other, active);
+                sp.focus_first = !sp.focus_first;
+                self.sheets.switch_to(other);
+                let s = self.sheets.active_mut();
+                if std::mem::take(&mut s.state.stale) {
+                    self.spawn_materialize();
+                }
+            }
+            (Action::SwapPanes, Some(sp)) => sp.focus_first = !sp.focus_first,
+            _ => self.toast = Some("no split: Z splits".into()),
+        }
     }
 
     /// Recount the active sheet's rows when its `count_key` changed. Not aborted on

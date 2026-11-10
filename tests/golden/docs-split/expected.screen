@@ -1,0 +1,10 @@
+ freq(region): sales.csv  csv · sheets 2                                  region 1/4  row 1/4 · 25%
+region str   count u  percent f histogram str
+north            116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+south             72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
+east              66       22.0 ■■■■■■■■■■■■■■■■■■■■■
+ sales.csv  csv · sheets 2                                               region 3/5  row 1/300 · 0%
+ id i date date  region str   qty i  price f
+33352 2024-10-05 south            3  1176.47
+38834 2024-12-28 south            4   405.75
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
