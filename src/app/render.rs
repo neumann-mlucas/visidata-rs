@@ -313,6 +313,13 @@ impl App {
         if !s.view.hidden.is_empty() {
             chips.push(format!("hidden {}", s.view.hidden.len()));
         }
+        if s.state.linked {
+            let behind = self
+                .busy
+                .iter()
+                .any(|j| j.label == "refresh" && j.sheet_id == s.id);
+            chips.push(if behind { "⟳!" } else { "⟳" }.into());
+        }
         let chips = format!(" {} ", chips.join(" · "));
 
         let room = (area.width as usize).saturating_sub(position.width() + column.width());

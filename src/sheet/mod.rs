@@ -10,6 +10,7 @@ pub(crate) mod columns;
 mod derive;
 mod diff;
 mod nested;
+mod refresh;
 mod step;
 mod tail;
 #[cfg(test)]
@@ -18,6 +19,7 @@ mod undo;
 
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
+pub use refresh::{Refreshed, refresh};
 pub use step::{ADDED_RID, POS, PlanStep};
 pub use undo::{Snapshot, UndoTree};
 
@@ -75,6 +77,8 @@ pub struct SheetState {
     pub memory_base: Option<LazyFrame>,
     /// Edit steps as of the last `:save` (quit guard, S-26 A1).
     pub saved_edits: Vec<PlanStep>,
+    /// `:link`: refresh when this becomes active and its parent changed.
+    pub linked: bool,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent

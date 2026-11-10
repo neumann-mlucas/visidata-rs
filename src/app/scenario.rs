@@ -50,6 +50,7 @@ impl Harness {
         loop {
             self.app.fire_push_hooks();
             self.app.ask_sel_stats();
+            self.app.follow_link();
             self.app.pump_macro();
             if self.app.settled() {
                 break;
@@ -2532,4 +2533,93 @@ async fn selection_stats_follow_selection_and_column() {
     assert_eq!(status(&h), "sel 4 · count 4 · distinct 3");
     h.keys("g u").await;
     assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
+}
+
+/// S-30 A: `<C-r>` rebuilds a freq sheet from its parent's current view; `U`
+/// goes back; `:link` catches up on activation; a closed parent leaves the copy.
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_rebuilds_derived_sheets_from_the_parent() {
+    let mut h = csv(b"id,region\n1,a\n2,b\n3,a\n4,c\n").await;
+    let freq = |h: &Harness| {
+        let t = csv_text(h.app.sheets.active(), b',');
+        t.lines()
+            .skip(1)
+            .map(|l| l.split(',').take(2).collect::<Vec<_>>().join("="))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    h.keys("l F").await;
+    assert_eq!(freq(&h), "a=2 b=1 c=1");
+    let base = h
+        .app
+        .sheets
+        .active()
+        .name
+        .split(": ")
+        .nth(1)
+        .unwrap()
+        .to_string();
+    raise(&mut h, &base).await; // freq stays open
+    h.keys("g z |").await;
+    h.type_("^[ab]$").await;
+    raise(&mut h, "freq(").await;
+    assert_eq!(freq(&h), "a=2 b=1 c=1", "unlinked: no change by itself");
+    h.keys("<C-r>").await;
+    assert_eq!(freq(&h), "a=2 b=1");
+    h.keys("U").await;
+    assert_eq!(freq(&h), "a=2 b=1 c=1");
+    h.keys("<C-r> :").await;
+    h.type_("link").await;
+    assert!(title(&h).contains("⟳"), "{}", title(&h));
+    raise(&mut h, &base).await;
+    h.keys("g z |").await;
+    h.type_("^a$").await;
+    raise(&mut h, "freq(").await;
+    assert_eq!(freq(&h), "a=2", "linked: caught up on activation");
+    raise(&mut h, &base).await;
+    h.keys("q").await; // close the parent
+    assert!(title(&h).contains("freq("), "{}", title(&h));
+    h.keys("<C-r>").await;
+    assert_eq!(status(&h), "refresh: parent closed, rebuilt from its copy");
+    assert_eq!(freq(&h), "a=2");
+    h.keys(":").await;
+    h.type_("unlink").await;
+    assert!(!title(&h).contains("⟳"), "{}", title(&h));
+}
+
+/// A chain refreshes parents first: the freq of a dive follows the base.
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_walks_the_lineage_parents_first() {
+    let mut h = csv(b"id,region\n1,a\n2,b\n3,a\n4,c\n").await;
+    h.keys("g s \"").await; // a copy of all four rows (selected)
+    h.keys("l F").await;
+    assert!(title(&h).contains("/3 "), "{}", title(&h));
+    let base = h.app.sheets.iter().next().unwrap().name.clone();
+    raise(&mut h, &base).await;
+    h.keys("g z |").await; // filter the base
+    h.type_("^a$").await;
+    raise(&mut h, "freq(").await;
+    assert!(title(&h).contains("freq("), "{}", title(&h));
+    h.keys("<C-r>").await;
+    assert!(title(&h).contains("/1 "), "{}", title(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_refuses_a_sheet_with_nothing_to_replay() {
+    let mut h = csv(b"id\n1\n").await;
+    h.keys("<C-r>").await;
+    assert_eq!(status(&h), "refresh: not a derived sheet");
+}
+
+/// `S`, then `<CR>` on the first sheet whose name starts with `name`.
+async fn raise(h: &mut Harness, name: &str) {
+    let row = h
+        .app
+        .sheets
+        .iter()
+        .position(|s| s.name.starts_with(name))
+        .unwrap();
+    h.keys("S").await;
+    h.keys(&format!("{}<CR>", "j ".repeat(row))).await;
+    assert!(title(h).contains(name), "{}", title(h));
 }

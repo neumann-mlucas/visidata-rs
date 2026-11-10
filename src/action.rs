@@ -361,6 +361,12 @@ pub enum Action {
     },
     /// `:stats` (S-30 C): the selection's status-line stats to the clipboard, as TSV.
     CopyStats,
+    /// `<C-r>` / `:refresh` (S-30 A): rebuild a derived sheet from its parent's current view.
+    Refresh,
+    /// `:link` / `:unlink`: refresh on activation when the parent changed.
+    Link {
+        on: bool,
+    },
     /// `:mksession [path]`: write the sheet stack as an ex script.
     MkSession {
         path: Option<String>,
@@ -509,7 +515,7 @@ impl Action {
             | ToggleMacroRecord => false,
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
-            MkSession { .. } | CopyStats => false,
+            MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } => false,
@@ -717,6 +723,9 @@ impl Action {
         ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ("macro_record", ToggleMacroRecord),
+        ("refresh", Refresh),
+        ("link", Link { on: true }),
+        ("unlink", Link { on: false }),
         ("start_subst_input", StartSubstInput { mode: SubstMode::NewColumn }),
         ("start_subst_selected_input", StartSubstInput { mode: SubstMode::Selected }),
         ("start_subst_all_input", StartSubstInput { mode: SubstMode::SelectedAll }),

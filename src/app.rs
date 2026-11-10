@@ -210,6 +210,8 @@ enum JobDone {
     },
     /// A new sheet, and something to say about it.
     PushSheetToast(Box<Sheet>, String),
+    /// `:refresh`: sheets to replace by id (S-30 A).
+    Refreshed(crate::sheet::Refreshed),
     /// The job's source, read into memory.
     Loaded(DataFrame),
     /// A tail that can't append, reopened.
@@ -359,6 +361,8 @@ pub struct App {
     /// Status-line stats of the selection (S-30 C), and what was last asked.
     sel_stats: Option<(StatsKey, Vec<(&'static str, String)>)>,
     sel_stats_asked: Option<StatsKey>,
+    /// The active sheet `follow_link` last looked at (S-30 A).
+    link_seen: Option<SheetId>,
     /// A macro step is dispatching: its actions are neither recorded nor `.`.
     replaying: bool,
     toast: Option<String>,
@@ -422,6 +426,7 @@ impl App {
             hook_born: Vec::new(),
             sel_stats: None,
             sel_stats_asked: None,
+            link_seen: None,
             replaying: false,
             toast: plugin_warning,
             input: None,
@@ -500,6 +505,7 @@ impl App {
             }
             dirty |= self.fire_push_hooks();
             self.ask_sel_stats();
+            self.follow_link();
             if !self.macro_queue.is_empty() && self.idle() {
                 self.pump_macro();
                 dirty = true;
@@ -581,6 +587,28 @@ impl App {
             let stats = sheet.selection_stats(&key.2).map_err(|e| e.to_string())?;
             Ok(JobDone::SelStats { key, stats })
         });
+    }
+
+    /// `:refresh` the active sheet (and its changed ancestors) in the background.
+    fn refresh(&mut self) {
+        let id = self.sheets.active().id;
+        let stack: Vec<Sheet> = self.sheets.iter().cloned().collect();
+        self.spawn_job("refresh", move || {
+            crate::sheet::refresh(id, &stack).map(JobDone::Refreshed)
+        });
+    }
+
+    /// A linked sheet that just became active catches up with its parent.
+    fn follow_link(&mut self) {
+        let s = self.sheets.active();
+        if self.link_seen == Some(s.id) {
+            return;
+        }
+        self.link_seen = Some(s.id);
+        let stack: Vec<Sheet> = self.sheets.iter().cloned().collect();
+        if s.state.linked && s.parent_changed(&stack) {
+            self.refresh();
+        }
     }
 
     /// The stats on screen now, if they're up to date.
@@ -891,6 +919,21 @@ impl App {
                 if self.sel_stats_asked.as_ref() == Some(&key) {
                     self.sel_stats = Some((key, stats));
                 }
+            }
+            Ok(JobDone::Refreshed(r)) => {
+                // ponytail: whole sheets replace the stack's, so a sort made while
+                // the job ran is lost; adopt on landing if refreshes get slow.
+                let active = self.sheets.active().id;
+                for new in r.sheets {
+                    if let Some(s) = self.sheets.find_by_id_mut(new.id) {
+                        *s = new;
+                        s.state.stale = s.id != active;
+                    }
+                }
+                if r.snapshot {
+                    self.toast = Some("refresh: parent closed, rebuilt from its copy".into());
+                }
+                self.spawn_materialize();
             }
             Ok(JobDone::PushSheetToast(sheet, toast)) => {
                 self.sheets.push(*sheet);

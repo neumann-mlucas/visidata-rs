@@ -314,6 +314,23 @@ impl App {
                     Ok(JobDone::PushSheet(Box::new(s)))
                 });
             }
+            Action::Refresh => self.refresh(),
+            Action::Link { on } => {
+                let s = self.sheets.active_mut();
+                if on && s.state.lineage.is_none() {
+                    self.toast = Some("link: not a derived sheet".into());
+                    return;
+                }
+                s.state.linked = on;
+                self.toast = Some(
+                    if on {
+                        "linked: refreshes when its parent changes"
+                    } else {
+                        "unlinked"
+                    }
+                    .into(),
+                );
+            }
             Action::CopyStats => {
                 let Some(stats) = self.current_sel_stats() else {
                     self.toast = Some("stats: select rows first (and wait for the stats)".into());

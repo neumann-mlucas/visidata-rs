@@ -545,6 +545,11 @@ impl Keymap {
             ch(vec![k("g"), k("q")], vec![Quit], "quit all sheets"),
             ch(vec![k("<C-q>")], vec![Quit], "quit"),
             ch(
+                vec![k("<C-r>")],
+                vec![Refresh],
+                "refresh a derived sheet from its parent",
+            ),
+            ch(
                 vec![k("<C-c>")],
                 vec![CancelJobs],
                 "cancel this sheet's background jobs",
