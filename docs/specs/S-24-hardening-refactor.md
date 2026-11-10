@@ -75,6 +75,25 @@ navigation writes it, and every write is followed by a materialize; a setter wou
 - Tests: the workflow runs `vdrs --headless` on a fixture per target before upload.
 - Not here: distro packages (direction §2: different politics).
 
-## 6. Test plan summary
+## 6. R6 — No full scans on the UI thread (1–2 d; deferred 2026-11-10, design to agree first)
+Found by the 2026-11-10 review: three edit paths run a whole-plan Polars collect inside `dispatch`,
+so on a large scanned file the TUI freezes with no spinner and `<C-c>` can't stop it.
+
+| Path | Blocking call | Plan |
+|---|---|---|
+| `a` `ga` `p` `P` | `Sheet::view_index_of` collects every sorted `ROW_ID` to put the cursor on the new row | pending-row marker on `View` (like `jump_bottom`): `add_rows` sets it and `spawn_materialize`s; the index lookup runs in the job, and the cursor moves when the window lands |
+| `gzp` `gzP` | `selected_in_view_order` collects the sorted ids of the selection | in a `spawn_job`; the edit is applied in `JobDone` if the sheet's revision is unchanged, else refused with a toast |
+| `:type json` | `json_decode` collects and parses the whole column to infer the type | infer in a `spawn_job` (`JobDone::JsonType { column, dtype }`), then push the `Json` step on the UI thread |
+
+- Rule: anything that reads more than the window goes through `spawn_job` or the materialize
+  path, so it shows in the status bar and `<C-c>` aborts it.
+- Keys typed before a result lands are not queued (decision 2026-11-10). Each key acts on the window
+  shown, as VisiData does on a sheet that is still loading; only `G` waits (`jump_bottom`). Meta-sheets
+  (columns, sheet list, undo tree) know their row ids up front, so they act at once.
+- Tests: scenario per path with a slow plan (a `map` that sleeps, or a big generated CSV): the
+  key returns at once, `busy` shows the job, the cursor/edit lands after `settled()`; `<C-c>`
+  during the job leaves the sheet unchanged.
+
+## 7. Test plan summary
 Each item ends with the full suite green (`cargo test`, `cargo clippy --all-targets -D warnings`,
 corpus replay at or above `MIN_PASS`). R1/R2 add no goldens; R3/R4 add goldens with export round trip.
