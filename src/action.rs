@@ -311,6 +311,10 @@ pub enum Action {
     CancelAllJobs,
     RepeatLast,
     Redraw,
+    /// `m` (S-19): start recording a macro; again: stop and ask for its key.
+    ToggleMacroRecord,
+    /// A macro's steps, played one at a time once background jobs finish.
+    Macro(Vec<Action>),
 }
 
 /// What the sidebar shows (S-23 A).
@@ -328,6 +332,16 @@ pub enum SidebarPage {
 }
 
 impl SidebarPage {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Column => "column",
+            Self::Cell => "cell",
+            Self::Help => "help",
+            Self::Plan => "plan",
+            Self::PlanOpt => "plan-opt",
+        }
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "column" => Self::Column,
@@ -422,7 +436,9 @@ impl Action {
             | Undo
             | Redo
             | TimeWalk { .. }
-            | OpenUndoTree => false,
+            | OpenUndoTree
+            | ToggleMacroRecord => false,
+            Macro(_) => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -626,6 +642,7 @@ impl Action {
         ("start_aggregate_input", StartAggregateInput { memo: false, selected: false }),
         ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
+        ("macro_record", ToggleMacroRecord),
         ]
     };
 
@@ -638,6 +655,83 @@ impl Action {
             .map(|(_, a)| a.clone())
     }
 
+    /// A cursor move takes a count (`3j`); others ignore it.
+    pub fn with_count(self, count: Option<usize>) -> Action {
+        match self {
+            Action::CursorDown { .. } => Action::CursorDown { count },
+            Action::CursorUp { .. } => Action::CursorUp { count },
+            Action::CursorLeft { .. } => Action::CursorLeft { count },
+            Action::CursorRight { .. } => Action::CursorRight { count },
+            other => other,
+        }
+    }
+
+    /// The ex command that runs this action (S-19 macros): its name when it
+    /// takes no arguments, else `:` syntax without the colon. `None`: no ex
+    /// form (a Lua function, a macro, an argument the ex syntax can't spell).
+    pub fn to_ex(&self) -> Option<String> {
+        use Action::*;
+        if let Some((n, _)) = Self::NAMED.iter().find(|(_, a)| a == self) {
+            return Some(n.to_string());
+        }
+        let q = quote_arg;
+        // `,` and ` -- ` separate list items; names holding them can't be spelled.
+        let list = |v: &[String]| {
+            v.iter()
+                .all(|s| !s.contains(',') && !s.contains(" -- ") && s.trim() == s && !s.is_empty())
+                .then(|| v.join(","))
+        };
+        Some(match self {
+            CursorDown { count: Some(n) } => format!("cursor_down {n}"),
+            CursorUp { count: Some(n) } => format!("cursor_up {n}"),
+            CursorLeft { count: Some(n) } => format!("cursor_left {n}"),
+            CursorRight { count: Some(n) } => format!("cursor_right {n}"),
+            RenameCol { new_name } => format!("rename {}", q(new_name)),
+            SetFilter { column, regex } if !regex.is_empty() && regex.trim() == regex => {
+                format!("filter {} {regex}", q(column))
+            }
+            SetSort { column, descending } => {
+                let sign = if *descending { "-" } else { "+" };
+                format!("sort {}", q(&format!("{sign}{column}")))
+            }
+            Pivot {
+                index,
+                on,
+                values,
+                agg,
+            } => {
+                format!("pivot {} {} {} {}", q(index), q(on), q(values), q(agg))
+            }
+            Unpivot { on, index } if index.is_empty() => format!("unpivot {}", list(on)?),
+            Unpivot { on, index } => format!("unpivot {} -- {}", list(on)?, list(index)?),
+            Diff { path, keys } if keys.is_empty() => format!("diff {}", q(path)),
+            Diff { path, keys } => format!("diff {} {}", q(path), q(&list(keys)?)),
+            Tail { path, follow } => {
+                format!("tail {}{}", q(path), if *follow { " --follow" } else { "" })
+            }
+            ShowSidebar { page } => format!("sidebar {}", page.name()),
+            SelectExpr { expr, unselect } => {
+                format!("{} {expr}", if *unselect { "unselect" } else { "select" })
+            }
+            TimeWalk { n } if *n > 0 => format!("earlier {n}"),
+            TimeWalk { n } if *n < 0 => format!("later {}", -n),
+            Save { path } => format!("save {}", q(path)),
+            Export { path } => format!("export {}", q(path)),
+            Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
+            Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
+            Derive { name, expr } if !name.contains('=') => format!("derive {} = {expr}", q(name)),
+            Sql { query } => format!("sql {query}"),
+            ExecSql { sql } => format!("exec-sql {sql}"),
+            SetExpr { expr } => format!("setexpr {expr}"),
+            SetFilterExpr { expr: Some(e) } => format!("filter-expr {e}"),
+            SetFilterExpr { expr: None } => "filter-expr".into(),
+            SetCol { value } => format!("setcol {}", q(value)),
+            EditCell { value } => format!("edit {}", q(value)),
+            ExCommand(s) => s.clone(),
+            _ => return None,
+        })
+    }
+
     /// Prompt editing actions: bindable in the input layer, not ex commands.
     pub fn is_input_layer(&self) -> bool {
         matches!(
@@ -645,6 +739,26 @@ impl Action {
             Action::SubmitInput | Action::CancelInput | Action::InputBackspace
         )
     }
+}
+
+/// One ex argument: bare when it splits back to itself, else double-quoted.
+fn quote_arg(s: &str) -> String {
+    let bare = !s.is_empty()
+        && !s
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '"' | '\'' | '\\'));
+    if bare {
+        return s.to_string();
+    }
+    let mut out = String::from('"');
+    for c in s.chars() {
+        if matches!(c, '"' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -660,6 +774,132 @@ mod tests {
                 html.contains(&format!("<code>{name}</code>")),
                 "docs/index.html misses {name}"
             );
+        }
+    }
+
+    /// Every payload action with an ex form parses back to itself (S-19).
+    /// A new payload action adds an entry here.
+    #[test]
+    fn to_ex_round_trips_through_the_ex_parser() {
+        use Action::*;
+        let s = |v: &str| v.to_string();
+        let cases = [
+            CursorDown { count: Some(3) },
+            CursorUp { count: Some(1) },
+            CursorLeft { count: Some(2) },
+            CursorRight { count: Some(10) },
+            RenameCol {
+                new_name: s("new name"),
+            },
+            RenameCol {
+                new_name: s("q\"uote"),
+            },
+            SetFilter {
+                column: s("my col"),
+                regex: s("^n.*\\d"),
+            },
+            SetSort {
+                column: s("amt"),
+                descending: true,
+            },
+            SetSort {
+                column: s("-odd"),
+                descending: false,
+            },
+            Pivot {
+                index: s("a"),
+                on: s("b c"),
+                values: s("v"),
+                agg: s("mean"),
+            },
+            Unpivot {
+                on: vec![s("x"), s("y")],
+                index: vec![],
+            },
+            Unpivot {
+                on: vec![s("x")],
+                index: vec![s("id"), s("k")],
+            },
+            Diff {
+                path: s("other file.csv"),
+                keys: vec![],
+            },
+            Diff {
+                path: s("b.csv"),
+                keys: vec![s("id"), s("k")],
+            },
+            Tail {
+                path: s("log.csv"),
+                follow: true,
+            },
+            Tail {
+                path: s("log.csv"),
+                follow: false,
+            },
+            ShowSidebar {
+                page: SidebarPage::PlanOpt,
+            },
+            SelectExpr {
+                expr: s("amt > 3"),
+                unselect: false,
+            },
+            SelectExpr {
+                expr: s("amt > 3"),
+                unselect: true,
+            },
+            TimeWalk { n: 2 },
+            TimeWalk { n: -3 },
+            Save {
+                path: s("out dir/x.csv"),
+            },
+            Export { path: s("x.py") },
+            Join {
+                source: s("b.csv"),
+                keys: vec![s("id")],
+                how: s("left"),
+            },
+            Join {
+                source: s("b.csv"),
+                keys: vec![],
+                how: s("append"),
+            },
+            Derive {
+                name: s("dbl"),
+                expr: s("amt * 2"),
+            },
+            Derive {
+                name: s("two words"),
+                expr: s("1"),
+            },
+            Sql {
+                query: s("SELECT * FROM self"),
+            },
+            ExecSql {
+                sql: s("DELETE FROM t"),
+            },
+            SetExpr { expr: s("amt + 1") },
+            SetFilterExpr {
+                expr: Some(s("amt > 1")),
+            },
+            SetFilterExpr { expr: None },
+            SetCol { value: s("") },
+            SetCol { value: s("a b") },
+            EditCell { value: s("") },
+            EditCell { value: s("x\\y") },
+            ExpandCol { depth: 1 },
+            KeySelected { on: false },
+        ];
+        for a in cases {
+            let ex = a.to_ex().unwrap_or_else(|| panic!("no ex form: {a:?}"));
+            let back = crate::exline::parse(&ex).unwrap_or_else(|e| panic!("{ex}: {e}"));
+            assert_eq!(back, vec![a], "{ex}");
+        }
+        for none in [
+            ExpandCol { depth: 3 },
+            SelectByRegex { regex: s("x") },
+            Lua(0),
+        ] {
+            assert_eq!(none.to_ex(), None, "{none:?}");
         }
     }
 

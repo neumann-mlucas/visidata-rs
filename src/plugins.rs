@@ -104,7 +104,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 7; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd
+pub const API_VERSION: i64 = 8; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros)
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -163,7 +163,18 @@ impl Plugins {
         };
         let host = Self::empty(config);
         let err = src.and_then(|s| host.exec(&s, "init.lua").err());
-        (host, err.map(|e| format!("init.lua: {e}")))
+        let mut warn = err.map(|e| format!("init.lua: {e}"));
+        // macros.lua (S-19) sits next to init.lua and runs after it.
+        let macros = host
+            .config
+            .as_ref()
+            .map(|(p, _)| p.with_file_name("macros.lua"));
+        if let Some(Ok(src)) = macros.map(std::fs::read_to_string)
+            && let Err(e) = host.exec(&src, "macros.lua")
+        {
+            warn = Some(warn.map_or(String::new(), |w| w + "; ") + &format!("macros.lua: {e}"));
+        }
+        (host, warn)
     }
 
     #[expect(clippy::expect_used, reason = "a fresh VM always takes the vd table")]
@@ -559,16 +570,42 @@ fn bind_fn(
             );
         }
         LuaValue::String(s) => s.to_str()?.to_string(),
+        // A list of steps (S-19 macro): played in order, each after the
+        // previous one's background work.
+        LuaValue::Table(t) => {
+            let steps = t
+                .sequence_values::<String>()
+                .map(|s| parse_step(lua, &s?))
+                .collect::<mlua::Result<Vec<_>>>()?;
+            if steps.is_empty() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.bind: empty action list".into(),
+                ));
+            }
+            return push_patch(
+                lua,
+                layer,
+                keys,
+                Action::Macro(steps),
+                desc.unwrap_or("macro".into()),
+            );
+        }
         other => {
             return Err(mlua::Error::RuntimeError(format!(
-                "vd.bind: action must be a name, \":command\" or function, not {}",
+                "vd.bind: action must be a name, \":command\", list or function, not {}",
                 other.type_name()
             )));
         }
     };
-    // ":sort -id" binds an ex-command (validated now so typos fail at load;
-    // a `vd.command` must be defined before it is bound).
-    let action = match action_s.strip_prefix(':') {
+    let action = parse_step(lua, &action_s)?;
+    let desc = desc.unwrap_or(action_s);
+    push_patch(lua, layer, keys, action, desc)
+}
+
+/// An action name or a `":command"` (validated now so typos fail at load;
+/// a `vd.command` must be defined before it is bound).
+fn parse_step(lua: &Lua, action_s: &str) -> mlua::Result<Action> {
+    match action_s.strip_prefix(':') {
         Some(cmd) => {
             let name = cmd.split_whitespace().next().unwrap_or("");
             let lua_cmd = registry(lua)?
@@ -581,13 +618,11 @@ fn bind_fn(
                     mlua::Error::RuntimeError(format!("bad ex-command {action_s}: {e}"))
                 })?;
             }
-            Action::ExCommand(cmd.to_string())
+            Ok(Action::ExCommand(cmd.to_string()))
         }
-        None => Action::from_name(&action_s)
-            .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}")))?,
-    };
-    let desc = desc.unwrap_or(action_s);
-    push_patch(lua, layer, keys, action, desc)
+        None => Action::from_name(action_s)
+            .ok_or_else(|| mlua::Error::RuntimeError(format!("unknown action: {action_s}"))),
+    }
 }
 
 fn push_patch(
@@ -990,6 +1025,59 @@ pub fn default_init_lua() -> String {
     out
 }
 
+/// Where `m` saves macros: `macros.lua` next to `init.lua` (a temp dir under
+/// `cfg!(test)`, so tests never touch the user's config).
+pub fn macros_path() -> Option<PathBuf> {
+    if cfg!(test) {
+        let dir = std::env::temp_dir().join(format!("vdrs-test-{}", std::process::id()));
+        return Some(dir.join("macros.lua"));
+    }
+    Some(default_config_path()?.with_file_name("macros.lua"))
+}
+
+/// The `vd.bind` line `m` writes for a macro on `keys`.
+pub fn macro_line(keys: &[Key], steps: &[String]) -> String {
+    let list = |v: Vec<String>| v.iter().map(|s| lua_str(s)).collect::<Vec<_>>().join(", ");
+    let keys = list(keys.iter().map(Key::to_string).collect());
+    format!(
+        "vd.bind(\"sheet\", {{{keys}}}, {{{}}}, \"macro\")",
+        list(steps.to_vec())
+    )
+}
+
+/// Save a macro to `path`, replacing an earlier one on the same keys; other
+/// lines (hand edits) stay.
+pub fn save_macro(path: &Path, keys: &[Key], steps: &[String]) -> std::io::Result<()> {
+    let line = macro_line(keys, steps);
+    let prefix = &line[..line.find("}, {").map_or(line.len(), |i| i + 3)];
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    let mut out: Vec<&str> = old.lines().filter(|l| !l.starts_with(prefix)).collect();
+    out.push(&line);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, out.join("\n") + "\n")
+}
+
+/// A Lua string literal.
+fn lua_str(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_ascii_control() => out.push_str(&format!("\\{:03}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn default_config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -1162,6 +1250,60 @@ mod tests {
         ] {
             assert!(Plugins::load_from_source(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn bind_takes_a_list_of_steps() {
+        let p = Plugins::load_from_source(
+            r#"vd.bind("sheet", "<F5>", { "goto_rightmost", ":filter region ^n", "open_freq_table" })"#,
+        )
+        .unwrap();
+        let mut km = Keymap::empty();
+        p.apply_keymap(&mut km);
+        let run = &km.chords(Layer::Sheet)[0].run;
+        assert_eq!(
+            run,
+            &vec![Action::Macro(vec![
+                Action::GotoRightmost,
+                Action::ExCommand("filter region ^n".into()),
+                Action::OpenFreqTable,
+            ])]
+        );
+        for bad in [r#"{ "no_such" }"#, r#"{ ":filter" }"#, "{}"] {
+            let src = format!(r#"vd.bind("sheet", "x", {bad})"#);
+            assert!(Plugins::load_from_source(&src).is_err(), "{bad}");
+        }
+    }
+
+    /// What `m` writes loads back through the real loader, a later macro on
+    /// the same keys replaces the earlier, and other lines stay.
+    #[test]
+    fn saved_macros_load_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vdrs").join("macros.lua");
+        let keys: Vec<Key> = vec!["g".parse().unwrap(), "<F5>".parse().unwrap()];
+        let steps = vec!["cursor_right".to_string(), ":edit \"a\\\"b\"\n".to_string()];
+        save_macro(&path, &keys, &["redraw".to_string()]).unwrap();
+        save_macro(&path, &["x".parse().unwrap()], &["redraw".to_string()]).unwrap();
+        save_macro(&path, &keys, &steps).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().count(), 2, "{text}");
+        let (p, warn) = Plugins::load_from(Some(dir.path().join("vdrs").join("init.lua")));
+        assert_eq!(warn, None);
+        let mut km = Keymap::empty();
+        p.apply_keymap(&mut km);
+        let chord = km
+            .chords(Layer::Sheet)
+            .iter()
+            .find(|c| c.on == keys)
+            .unwrap();
+        assert_eq!(
+            chord.run,
+            vec![Action::Macro(vec![
+                Action::CursorRight { count: None },
+                Action::ExCommand("edit \"a\\\"b\"\n".into()),
+            ])]
+        );
     }
 
     #[test]

@@ -244,6 +244,8 @@ enum Prompt {
     SetExpr,
     /// `ga`: how many rows.
     AddRows,
+    /// `m` again (S-19): which key the recorded macro goes on.
+    MacroKey,
     /// `z(` `gz(` (`all`): how many levels.
     ExpandDepth {
         all: bool,
@@ -290,8 +292,16 @@ impl Prompt {
             Prompt::AddRows => "add rows: ",
             Prompt::ExpandDepth { .. } => "expand depth (0 = all the way): ",
             Prompt::Aggregate { .. } => "choose aggregators: ",
+            Prompt::MacroKey => "macro key (e.g. <F5> or g x; empty discards): ",
         }
     }
+}
+
+/// A macro being recorded.
+#[derive(Default)]
+struct Recording {
+    steps: Vec<String>,
+    refused: Vec<String>,
 }
 
 pub struct App {
@@ -304,6 +314,13 @@ pub struct App {
     pending_candidates: Vec<Chord>,
     pending_count: Option<usize>,
     last_action: Option<Vec<Action>>,
+    /// While `m` records (S-19): each step as a `vd.bind` list item, and
+    /// what couldn't be recorded.
+    recording: Option<Recording>,
+    /// Macro steps still to play; each waits for the previous one's jobs.
+    macro_queue: std::collections::VecDeque<Action>,
+    /// A macro step is dispatching: its actions are neither recorded nor `.`.
+    replaying: bool,
     toast: Option<String>,
     input: Option<(Prompt, LineEdit)>,
     ex_history: crate::exline::History,
@@ -359,6 +376,9 @@ impl App {
             pending_candidates: Vec::new(),
             pending_count: None,
             last_action: None,
+            recording: None,
+            macro_queue: Default::default(),
+            replaying: false,
             toast: plugin_warning,
             input: None,
             ex_history: crate::exline::History::load(),
@@ -434,6 +454,10 @@ impl App {
                 }
                 _ = tick.tick() => dirty = self.spin() != self.drawn_spin,
             }
+            if !self.macro_queue.is_empty() && self.idle() {
+                self.pump_macro();
+                dirty = true;
+            }
             if self.quit {
                 break;
             }
@@ -441,11 +465,109 @@ impl App {
         Ok(())
     }
 
-    /// No background work outstanding for the active sheet (tests wait on this).
+    /// No background work outstanding for the active sheet (tests wait on
+    /// this); a macro waiting on a prompt counts as settled.
     #[cfg(test)]
     fn settled(&self) -> bool {
-        let s = self.sheets.active();
-        s.is_loaded() && !s.is_counting() && self.busy.is_empty()
+        let waiting = self.input.is_some() || self.confirm.is_some();
+        self.idle()
+            && !self.sheets.active().is_counting()
+            && (self.macro_queue.is_empty() || waiting)
+    }
+
+    /// The active sheet's window is current and no job runs: the next macro
+    /// step may go.
+    fn idle(&self) -> bool {
+        self.sheets.active().is_loaded() && self.busy.is_empty()
+    }
+
+    /// Play queued macro steps while nothing is in flight; a step that opens
+    /// a prompt or a question pauses playback until it's answered.
+    fn pump_macro(&mut self) {
+        while self.idle() && self.input.is_none() && self.confirm.is_none() {
+            let Some(a) = self.macro_queue.pop_front() else {
+                return;
+            };
+            self.replaying = true;
+            self.dispatch(a);
+            self.replaying = false;
+        }
+    }
+
+    /// Record what a key or prompt resolved to (S-19); `None` = recorded,
+    /// else the refused action, named.
+    fn record(&mut self, a: &Action) -> Option<String> {
+        self.recording.as_ref()?;
+        if let Action::Macro(steps) = a {
+            // M2: a macro played while recording is recorded as its steps.
+            let mut refused = None;
+            for s in steps.clone() {
+                refused = self.record(&s).or(refused);
+            }
+            return refused;
+        }
+        if !a.repeatable() {
+            return None;
+        }
+        let rec = self.recording.as_mut()?;
+        match a.to_ex() {
+            Some(ex) if Action::from_name(&ex).is_some() => rec.steps.push(ex),
+            Some(ex) => rec.steps.push(format!(":{ex}")),
+            None => {
+                let name = format!("{a:?}");
+                let end = name.find([' ', '(', '{']).unwrap_or(name.len());
+                rec.refused.push(name[..end].to_string());
+                return Some(name[..end].to_string());
+            }
+        }
+        None
+    }
+
+    /// `m` stopped: bind the recording to `keys` and save it to `macros.lua`.
+    fn finish_macro(&mut self, text: &str) {
+        let Some(Recording { steps, refused }) = self.recording.take() else {
+            return;
+        };
+        if text.trim().is_empty() || steps.is_empty() {
+            self.toast = Some("macro discarded".into());
+            return;
+        }
+        let keys: Result<Vec<Key>, _> = text.split_whitespace().map(str::parse::<Key>).collect();
+        let keys = match keys {
+            Ok(k) => k,
+            Err(e) => {
+                self.toast = Some(format!("bad key: {e}; m to try again"));
+                self.recording = Some(Recording { steps, refused });
+                return;
+            }
+        };
+        let run = steps
+            .iter()
+            .map(|s| match s.strip_prefix(':') {
+                Some(cmd) => Action::ExCommand(cmd.to_string()),
+                None => Action::from_name(s).unwrap_or(Action::Redraw),
+            })
+            .collect();
+        self.keymap.append(
+            Layer::Sheet,
+            Chord {
+                on: keys.clone(),
+                run: vec![Action::Macro(run)],
+                desc: "macro".into(),
+            },
+        );
+        let saved = crate::plugins::macros_path()
+            .ok_or_else(|| "no config dir".to_string())
+            .and_then(|p| crate::plugins::save_macro(&p, &keys, &steps).map_err(|e| e.to_string()));
+        let mut msg = format!("macro on {}: {} steps", text.trim(), steps.len());
+        if !refused.is_empty() {
+            msg += &format!(", not recorded: {}", refused.join(", "));
+        }
+        msg += &match saved {
+            Ok(()) => "; saved".to_string(),
+            Err(e) => format!("; not saved: {e}"),
+        };
+        self.toast = Some(msg);
     }
 
     /// Run `work` on the blocking pool; its result lands in `on_job_done`.
@@ -1031,8 +1153,18 @@ impl App {
         };
         let text = line.text().to_string();
         // empty = null for edits
-        if text.is_empty() && !matches!(prompt, Prompt::Ex | Prompt::Edit | Prompt::SetCol) {
+        if text.is_empty()
+            && !matches!(
+                prompt,
+                Prompt::Ex | Prompt::Edit | Prompt::SetCol | Prompt::MacroKey
+            )
+        {
             return;
+        }
+        let search = matches!(prompt, Prompt::Search { .. } | Prompt::SearchExpr { .. });
+        if let Some(rec) = self.recording.as_mut().filter(|_| search) {
+            rec.refused.push("search".into());
+            self.toast = Some("not recorded (no ex form): search".into());
         }
         match prompt {
             Prompt::Search {
@@ -1078,6 +1210,7 @@ impl App {
                 self.ex_history.push(&text);
                 self.run_ex(&text);
             }
+            Prompt::MacroKey => self.finish_macro(&text),
             Prompt::Select => self.dispatch_sequence(vec![Action::SelectByRegex { regex: text }]),
             Prompt::Rename => self.dispatch_sequence(vec![Action::RenameCol { new_name: text }]),
             Prompt::Diff => {
@@ -1108,6 +1241,9 @@ impl App {
     }
 
     fn cancel_input(&mut self) {
+        if let Some((Prompt::MacroKey, _)) = self.input {
+            self.toast = Some("still recording; m to stop".into());
+        }
         self.input = None;
         self.ex_history.reset_cursor();
     }
@@ -1121,6 +1257,11 @@ impl App {
                     Some(id) => {
                         let line = text.trim().trim_start_matches(':').trim_start();
                         let args = line[name.len()..].trim().to_string();
+                        if !self.replaying
+                            && let Some(rec) = self.recording.as_mut()
+                        {
+                            rec.steps.push(format!(":{line}"));
+                        }
                         self.dispatch(Action::LuaCommand { id, args });
                     }
                     None => self.toast = Some(format!("unknown command: :{name}")),
@@ -1397,18 +1538,8 @@ fn inject_count(actions: Vec<Action>, count: Option<usize>) -> Vec<Action> {
     actions
         .into_iter()
         .enumerate()
-        .map(|(i, a)| if i == 0 { with_count(a, count) } else { a })
+        .map(|(i, a)| if i == 0 { a.with_count(count) } else { a })
         .collect()
-}
-
-fn with_count(a: Action, count: Option<usize>) -> Action {
-    match a {
-        Action::CursorDown { .. } => Action::CursorDown { count },
-        Action::CursorUp { .. } => Action::CursorUp { count },
-        Action::CursorLeft { .. } => Action::CursorLeft { count },
-        Action::CursorRight { .. } => Action::CursorRight { count },
-        other => other,
-    }
 }
 
 #[cfg(test)]

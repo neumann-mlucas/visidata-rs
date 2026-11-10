@@ -147,6 +147,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `Quit` | `gq`, `<C-q>` | exit |
 | `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
 | `RepeatLast` | `.` | capture of resolved Action (not keystrokes) |
+| `ToggleMacroRecord` / `Macro` | `m` | record what `.` captures as ex text (`Action::to_ex`), bind it, save to `macros.lua`; playback waits for jobs between steps (S-19) |
 | `Redraw` | `^L` | force repaint |
 
 ### 3.9 Input mode
@@ -353,7 +354,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 - **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
 - **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
 - **Cell/row editing + clipboard** (`delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B, `edit-cell`/`setcol-input` in S-18 C) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
-- **Macros** (record/playback, `macro-param-*`) — deferred (decision 2026-11-07); `.` repeat and Lua function bindings cover the common case today. Plan: [`S-19-macros.md`](S-19-macros.md); undo tree: [`S-20-undo-tree.md`](S-20-undo-tree.md).
+- **Macro extras**: `macro-param-*`, `gm` macros sheet, VisiData `.vdj` macro files (S-19 ships `m` record + `macros.lua`).
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
 - **Export**: schema diff and Lua-aggregator pivots.

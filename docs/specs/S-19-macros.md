@@ -1,6 +1,6 @@
 # S-19 — Macros
 
-Status: **drafted 2026-11-08**, not started. Do after S-18 phase C (macros that edit are the useful kind)
+Status: **done 2026-11-10** (searches stay unrecorded: they aren't actions yet). Do after S-18 phase C (macros that edit are the useful kind)
 and S-20 if undo grouping is wanted.
 Depends on: S-04 (`.` repeat capture), S-09/S-10 (`vd.bind`), S-18 C (edits as steps).
 

@@ -47,7 +47,11 @@ impl Harness {
     /// Apply background results until the app is idle, then draw.
     pub async fn pump(&mut self) {
         // Generous timeout: parallel tests share CPUs; settled() ends it early.
-        while !self.app.settled() {
+        loop {
+            self.app.pump_macro();
+            if self.app.settled() {
+                break;
+            }
             let next = self.app.materialize_rx.recv();
             match tokio::time::timeout(Duration::from_secs(20), next).await {
                 Ok(Some(res)) => self.app.on_materialize(res),
@@ -2261,4 +2265,69 @@ async fn rejected_or_columns_sheet_edits_leave_no_empty_undo_state() {
     h.keys("l l l e <C-u>").await; // `value` of the cursor column, `id`
     h.type_("9").await;
     assert_eq!(depth(&h), 2, "one state for one edit");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_records_relative_steps_and_replays_on_another_sheet() {
+    let mut h = Harness::new(30).await;
+    h.keys("m").await;
+    assert!(status(&h).starts_with("● rec"), "{:?}", h.screen());
+    h.keys("l l F").await;
+    assert!(title(&h).contains("freq(grp)"), "{}", title(&h));
+    h.keys("q m").await; // `q` isn't recorded
+    h.type_("<F5>").await;
+    assert_eq!(status(&h), "macro on <F5>: 3 steps; saved");
+    assert!(!h.screen().contains("● rec"));
+    h.keys("0 l <F5>").await; // relative (M1): name → amt
+    assert!(title(&h).contains("freq(amt)"), "{}", title(&h));
+    // `.` repeats the whole macro, not its last step
+    assert!(matches!(h.app.last_action.as_deref(), Some([Action::Macro(s)]) if s.len() == 3));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_playback_waits_for_jobs_between_steps() {
+    let mut h = Harness::new(5000).await;
+    h.keys("m l l F").await;
+    h.keys("<CR>").await; // dive into the freq sheet's first row
+    let dived = title(&h);
+    assert!(dived.contains("grp="), "{dived}");
+    h.keys("q q m").await;
+    h.type_("g <F6>").await;
+    h.keys("0 g <F6>").await;
+    assert_eq!(title(&h), dived);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_with_derive_and_edit_matches_typing_it() {
+    let mut h = csv(b"id,qty\n1,2\n2,3\n").await;
+    h.keys("m :").await;
+    h.type_("derive dbl = qty * 2").await;
+    h.keys("e <C-u>").await;
+    h.type_("9").await;
+    let typed = view_csv(&h);
+    h.keys("m").await;
+    h.type_("<F7>").await;
+    h.keys("U U").await; // each step its own undo entry
+    assert_eq!(view_csv(&h), "id,qty\n1,2\n2,3\n");
+    h.keys("<F7>").await;
+    assert_eq!(view_csv(&h), typed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_refuses_steps_without_ex_form_and_discards_on_empty_key() {
+    let mut h = Harness::new(5).await;
+    h.keys("m |").await;
+    h.type_("name_1").await;
+    h.keys("j m <Esc>").await; // Esc keeps recording
+    assert_eq!(status(&h), "● rec still recording; m to stop");
+    h.keys("m").await;
+    h.type_("<F8>").await;
+    assert_eq!(
+        status(&h),
+        "macro on <F8>: 1 steps, not recorded: SelectByRegex; saved"
+    );
+    h.keys("m j m").await;
+    h.type_("").await;
+    assert_eq!(status(&h), "macro discarded");
+    assert!(h.app.recording.is_none());
 }

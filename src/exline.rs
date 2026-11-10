@@ -296,6 +296,16 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }
         // Any named action: `:select-all`, `:dedupe_rows`.
         other => match Action::from_name(other).filter(|a| !a.is_input_layer()) {
+            // `:cursor-down 3` = `3j` (S-19 macros record counts this way).
+            Some(
+                Action::CursorDown { .. }
+                | Action::CursorUp { .. }
+                | Action::CursorLeft { .. }
+                | Action::CursorRight { .. },
+            ) if rest.parse::<usize>().is_ok() => {
+                let a = Action::from_name(other).map(|a| a.with_count(rest.parse().ok()));
+                Ok(a.into_iter().collect())
+            }
             Some(_) if !rest.is_empty() => Err(ExError::NoArgs(other.to_string())),
             Some(a) => Ok(vec![a]),
             None => Err(ExError::Unknown(other.to_string())),

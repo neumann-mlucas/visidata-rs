@@ -385,6 +385,11 @@ impl App {
                 " hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q ",
             ),
         };
+        let mut text = text;
+        if self.recording.is_some() && self.input.is_none() {
+            let rec = Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD));
+            text.spans.insert(0, rec);
+        }
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
     }
 }

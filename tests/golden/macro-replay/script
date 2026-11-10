@@ -1,0 +1,8 @@
+m :
+> derive dbl = qty * 2
+j e <C-u>
+> 7
+m
+> <F5>
+U U g g
+<F5>

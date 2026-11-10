@@ -4,11 +4,21 @@ use super::*;
 
 impl App {
     pub(super) fn dispatch_sequence(&mut self, actions: Vec<Action>) {
+        if self.replaying {
+            for a in actions {
+                self.dispatch(a);
+            }
+            return;
+        }
         if actions.iter().any(|a| a.repeatable()) {
             self.last_action = Some(actions.clone());
         }
+        let refused: Vec<String> = actions.iter().filter_map(|a| self.record(a)).collect();
         for a in actions {
             self.dispatch(a);
+        }
+        if !refused.is_empty() {
+            self.toast = Some(format!("not recorded (no ex form): {}", refused.join(", ")));
         }
     }
 
@@ -71,6 +81,19 @@ impl App {
                 }
             }
             Action::Redraw => {}
+            Action::ToggleMacroRecord => match self.recording {
+                None => {
+                    self.recording = Some(Recording::default());
+                    self.toast = Some("recording macro; m to stop".into());
+                }
+                Some(_) => self.start_input(Prompt::MacroKey),
+            },
+            Action::Macro(steps) => {
+                for a in steps.into_iter().rev() {
+                    self.macro_queue.push_front(a);
+                }
+                self.pump_macro();
+            }
             Action::Lua(id) => self.run_lua(id, None),
             Action::LuaCommand { id, args } => self.run_lua(id, Some(&args)),
             Action::RepeatLast => {
