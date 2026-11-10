@@ -2231,3 +2231,16 @@ async fn all_columns_undo_touches_only_the_sheet_it_wrote() {
     h.keys("U U").await;
     assert_eq!(status(&h), "nothing to undo");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sheet_changed_from_gc_redraws_when_raised_from_the_sheet_list() {
+    let mut h = Harness::new(5).await;
+    h.keys("F").await; // the base sheet is not under the columns sheet
+    h.keys("g C").await;
+    h.keys("d").await; // hide the base sheet's `id`
+    h.keys("S").await;
+    h.keys("<CR>").await; // switcher row 1: the base sheet
+    assert!(!title(&h).contains("freq"), "{}", title(&h));
+    let hd = h.screen().lines().nth(1).unwrap().to_string();
+    assert!(!hd.contains("id") && hd.contains("name"), "{hd}");
+}
