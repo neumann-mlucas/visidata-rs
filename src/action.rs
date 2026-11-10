@@ -1080,8 +1080,7 @@ impl Action {
                 let d = ['/', '|', '#', ',', ';', '!', '@', '%', '~']
                     .into_iter()
                     .find(|d| !pattern.contains(*d) && !replacement.contains(*d))?;
-                // `\` in the replacement is literal: doubled, as vim spells it
-                let r = replacement.replace('\\', "\\\\");
+                let r = crate::exline::vim_replacement(replacement);
                 format!("s{d}{pattern}{d}{r}{d}{}", if *all { "g" } else { "" })
             }
             _ => return None,
@@ -1305,7 +1304,7 @@ mod tests {
             },
             Substitute {
                 pattern: s("a/b +$"),
-                replacement: s("${1}x"),
+                replacement: s("${1}x$$${2}0"),
                 all: true,
             },
             Substitute {

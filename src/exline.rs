@@ -487,7 +487,8 @@ fn substitute(input: &str) -> Option<Result<Action, ExError>> {
     }))
 }
 
-/// `\1` → `${1}`, `\\` → `\` (vim / VisiData replacements); the rest as is.
+/// `\1` → `${1}`, `\\` → `\`, `$` literal (vim / VisiData replacements) →
+/// regex crate syntax; [`vim_replacement`] goes back.
 pub fn vim_backrefs(r: &str) -> String {
     let mut out = String::new();
     let mut chars = r.chars().peekable();
@@ -501,8 +502,42 @@ pub fn vim_backrefs(r: &str) -> String {
                 out.push('\\');
                 chars.next();
             }
+            ('$', _) => out.push_str("$$"),
             (c, _) => out.push(c),
         }
+    }
+    out
+}
+
+/// A [`vim_backrefs`] result as vim spells it: `${1}` → `\1`, `$$` → `$`,
+/// `\` → `\\`.
+pub fn vim_replacement(r: &str) -> String {
+    let mut out = String::new();
+    let mut rest = r;
+    while let Some(c) = rest.chars().next() {
+        let group = rest
+            .strip_prefix("${")
+            .and_then(|t| t.split_once('}'))
+            .filter(|(n, _)| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit()));
+        rest = match (c, group) {
+            (_, Some((n, after))) => {
+                out.push('\\');
+                out.push_str(n);
+                after
+            }
+            ('$', _) if rest.starts_with("$$") => {
+                out.push('$');
+                &rest[2..]
+            }
+            ('\\', _) => {
+                out.push_str("\\\\");
+                &rest[1..]
+            }
+            (c, _) => {
+                out.push(c);
+                &rest[c.len_utf8()..]
+            }
+        };
     }
     out
 }
@@ -914,6 +949,16 @@ fn history_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_dollar_is_literal_and_round_trips() {
+        let re = regex::Regex::new(r"(\d+)").unwrap();
+        for (vim, out) in [(r"$\1", "$42"), ("$5.00", "$5.00"), (r"\\\1\10", r"\42420")] {
+            let r = vim_backrefs(vim);
+            assert_eq!(re.replace("42", r.as_str()), out, "{vim}");
+            assert_eq!(vim_backrefs(&vim_replacement(&r)), r, "{vim}");
+        }
+    }
 
     #[test]
     fn ranged_text_reads_back() {
