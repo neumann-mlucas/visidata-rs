@@ -253,7 +253,6 @@ fn bracketed_paste_fills_the_register() {
 fn sessions_survive_a_restart() {
     let home = tempfile::tempdir().unwrap();
     let mut vd = Vdrs::spawn(&["sales.csv"], home.path());
-    vd.send(b"ll]");
     let wait = |vd: &Vdrs, what: &str| {
         let end = Instant::now() + Duration::from_secs(20);
         while !vd.text().contains(what) {
@@ -261,6 +260,11 @@ fn sessions_survive_a_restart() {
             std::thread::sleep(Duration::from_millis(50));
         }
     };
+    // keys sent before the first frame can land before raw mode
+    wait(&vd, "row 1/300");
+    vd.send(b"ll");
+    wait(&vd, "3/5");
+    vd.send(b"]");
     wait(&vd, "sort");
     vd.send(b"j");
     wait(&vd, "row 2/");

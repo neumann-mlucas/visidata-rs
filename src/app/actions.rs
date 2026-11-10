@@ -314,6 +314,23 @@ impl App {
                     Ok(JobDone::PushSheet(Box::new(s)))
                 });
             }
+            Action::CopyStats => {
+                let Some(stats) = self.current_sel_stats() else {
+                    self.toast = Some("stats: select rows first (and wait for the stats)".into());
+                    return;
+                };
+                let (h, v): (Vec<&str>, Vec<&str>) =
+                    stats.iter().map(|(k, v)| (*k, v.as_str())).unzip();
+                let text = format!("{}\n{}\n", h.join("\t"), v.join("\t"));
+                let clip = self.clipboard.clone();
+                self.spawn_job("copy", move || {
+                    let osc52 = clip.send(&text).map_err(|e| format!("clipboard: {e}"))?;
+                    Ok(JobDone::SysCopy {
+                        note: "copied the stats to clipboard".into(),
+                        osc52,
+                    })
+                });
+            }
             Action::StartSubstInput { mode } => match self.sheets.active().editable() {
                 Ok(()) => self.start_input(Prompt::Subst { mode }),
                 Err(e) => self.toast = Some(e),

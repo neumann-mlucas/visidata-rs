@@ -501,6 +501,53 @@ impl Sheet {
         }
     }
 
+    /// Status-line stats of `column` over the selected rows (S-30 C), as
+    /// (name, value) pairs: numbers get sum avg min max, other types count
+    /// and distinct. View casts apply; filtered-out selected rows count too.
+    pub fn selection_stats(&self, column: &str) -> PolarsResult<Vec<(&'static str, String)>> {
+        let rids: Vec<u64> = self.view.selected.iter().copied().collect();
+        let c = || col(column);
+        let lf = self.filtered_plan(true).filter(rid_in(&rids)).select([c()]);
+        let dtype = lf
+            .clone()
+            .collect_schema()?
+            .get(column)
+            .cloned()
+            .unwrap_or(DataType::Null);
+        let mut out = vec![("sel", grouped(rids.len() as u64))];
+        if dtype.is_primitive_numeric() {
+            let df = lf
+                .select([
+                    c().sum().cast(DataType::Float64).alias("sum"),
+                    c().mean().alias("avg"),
+                    c().min().cast(DataType::Float64).alias("min"),
+                    c().max().cast(DataType::Float64).alias("max"),
+                ])
+                .collect()?;
+            for name in ["sum", "avg", "min", "max"] {
+                let v = df.column(name)?.f64()?.get(0);
+                out.push((name, v.map_or("·".into(), stat_num)));
+            }
+        } else {
+            let df = lf
+                .select([
+                    c().count().alias("count"),
+                    c().drop_nulls().n_unique().alias("distinct"),
+                ])
+                .collect()?;
+            for name in ["count", "distinct"] {
+                let v = df
+                    .column(name)?
+                    .cast(&DataType::UInt64)?
+                    .u64()?
+                    .get(0)
+                    .unwrap_or(0);
+                out.push((name, grouped(v)));
+            }
+        }
+        Ok(out)
+    }
+
     /// `:hits needle` (S-28 B): `row` (from 1), `column`, `value` and the key
     /// columns' values of each hit of `needle` in `parent`'s view, at most
     /// `cap`. Also whether the cap cut it short.
@@ -2095,6 +2142,31 @@ pub(crate) fn column_texts(c: &Column) -> PolarsResult<Vec<Option<String>>> {
 }
 
 /// The row's [`ROW_ID`] is one of `rids`.
+/// `1234567` as `1,234,567`.
+pub fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// A stat for the status line: digits grouped, at most 2 decimals.
+fn stat_num(v: f64) -> String {
+    let r = (v * 100.0).round() / 100.0;
+    let int = grouped(r.trunc().abs() as u64);
+    let sign = if r < 0.0 { "-" } else { "" };
+    let frac = format!("{:.2}", r.fract().abs());
+    match frac.trim_end_matches('0').trim_end_matches('.') {
+        "0" | "" => format!("{sign}{int}"),
+        f => format!("{sign}{int}{}", &f[1..]),
+    }
+}
+
 pub(crate) fn rid_in(rids: &[u64]) -> Expr {
     let ids = lit(Series::new("ids".into(), rids)).implode(false);
     col(ROW_ID).cast(DataType::UInt64).is_in(ids, false)

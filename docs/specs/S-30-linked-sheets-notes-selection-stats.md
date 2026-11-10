@@ -1,6 +1,6 @@
 # S-30 — Live derived sheets, cell notes, selection stats
 
-Status: **drafted 2026-11-08**, not started. Three independent Excel-gap items.
+Status: **C done 2026-11-10**; A, B not started. Three independent Excel-gap items.
 Depends on: S-15 §6 (lineage), S-18 (row ids, D3), S-23 A (sidebar cell page), S-26 C (visual ranges).
 
 ## 1. Part A — Refresh and live derived sheets (2–3 d)

@@ -329,6 +329,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             needle: rest.to_string(),
         }]),
         "hits" => Err(ExError::Usage(":hits <regex> (every column)")),
+        "stats" => Ok(vec![Action::CopyStats]),
         "mksession" => Ok(vec![Action::MkSession {
             path: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -455,6 +456,7 @@ pub const COMMANDS: &[&str] = &[
     "expand",
     "hits",
     "mksession",
+    "stats",
     "patch",
     "open",
     "select-ids",

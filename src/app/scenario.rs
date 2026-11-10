@@ -49,6 +49,7 @@ impl Harness {
         // Generous timeout: parallel tests share CPUs; settled() ends it early.
         loop {
             self.app.fire_push_hooks();
+            self.app.ask_sel_stats();
             self.app.pump_macro();
             if self.app.settled() {
                 break;
@@ -2514,4 +2515,21 @@ fn hits_cap_says_so() {
     let (hits, capped) = Sheet::hits_from(&s, 1, "x", 10).unwrap();
     assert!(capped);
     assert_eq!(hits.plan.collect().unwrap().height(), 10);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selection_stats_follow_selection_and_column() {
+    let mut h = csv(b"id,name,amt\n1,a,1.5\n2,b,\n3,a,-4.25\n4,c,1000\n").await;
+    assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
+    h.keys("l l s j s j s").await;
+    assert_eq!(
+        status(&h),
+        "sel 3 · sum -2.75 · avg -1.38 · min -4.25 · max 1.5"
+    );
+    h.keys("h").await; // text column: count, distinct
+    assert_eq!(status(&h), "sel 3 · count 3 · distinct 2");
+    h.keys("j s").await;
+    assert_eq!(status(&h), "sel 4 · count 4 · distinct 3");
+    h.keys("g u").await;
+    assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
 }

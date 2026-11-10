@@ -203,6 +203,11 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// Selection stats for the status line (S-30 C).
+    SelStats {
+        key: StatsKey,
+        stats: Vec<(&'static str, String)>,
+    },
     /// A new sheet, and something to say about it.
     PushSheetToast(Box<Sheet>, String),
     /// The job's source, read into memory.
@@ -310,6 +315,20 @@ impl Prompt {
     }
 }
 
+/// What selection stats were computed for: sheet, selection, column, sheet
+/// revision. Holding the selection's `Arc` makes the next `make_mut` copy it,
+/// so a changed selection is always a different `Arc`.
+// ponytail: a toggle copies the whole set once while stats are held; add a
+// selection generation counter if that shows on huge selections.
+#[derive(Clone, Debug)]
+struct StatsKey(SheetId, Arc<std::collections::BTreeSet<u64>>, String, u64);
+
+impl PartialEq for StatsKey {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0 && Arc::ptr_eq(&self.1, &o.1) && self.2 == o.2 && self.3 == o.3
+    }
+}
+
 /// A macro being recorded.
 #[derive(Default)]
 struct Recording {
@@ -337,6 +356,9 @@ pub struct App {
     /// ids of sheets hook commands made (they fire nothing: no loops).
     hooked: Option<SheetId>,
     hook_born: Vec<std::ops::Range<SheetId>>,
+    /// Status-line stats of the selection (S-30 C), and what was last asked.
+    sel_stats: Option<(StatsKey, Vec<(&'static str, String)>)>,
+    sel_stats_asked: Option<StatsKey>,
     /// A macro step is dispatching: its actions are neither recorded nor `.`.
     replaying: bool,
     toast: Option<String>,
@@ -398,6 +420,8 @@ impl App {
             macro_queue: Default::default(),
             hooked: None,
             hook_born: Vec::new(),
+            sel_stats: None,
+            sel_stats_asked: None,
             replaying: false,
             toast: plugin_warning,
             input: None,
@@ -475,6 +499,7 @@ impl App {
                 _ = tick.tick() => dirty = self.spin() != self.drawn_spin,
             }
             dirty |= self.fire_push_hooks();
+            self.ask_sel_stats();
             if !self.macro_queue.is_empty() && self.idle() {
                 self.pump_macro();
                 dirty = true;
@@ -522,6 +547,49 @@ impl App {
                 self.hook_born.push(lo..self.sheets.next_id());
             }
         }
+    }
+
+    /// The stats key for what's on screen; `None`: nothing selected.
+    fn sel_stats_key(&self) -> Option<StatsKey> {
+        let s = self.sheets.active();
+        if s.view.selected.is_empty() {
+            return None;
+        }
+        Some(StatsKey(
+            s.id,
+            s.view.selected.clone(),
+            self.current_column_name()?,
+            s.revision(),
+        ))
+    }
+
+    /// The selection's stats for the status line, once per selection and
+    /// column, in the background.
+    // ponytail: no debounce; each `s` on a huge selection starts a job and
+    // the stale results are dropped. Debounce if it shows in a profile.
+    fn ask_sel_stats(&mut self) {
+        let Some(key) = self.sel_stats_key() else {
+            return;
+        };
+        let have = self.sel_stats.as_ref().map(|(k, _)| k);
+        if have == Some(&key) || self.sel_stats_asked.as_ref() == Some(&key) {
+            return;
+        }
+        self.sel_stats_asked = Some(key.clone());
+        let sheet = self.sheets.active().clone();
+        self.spawn_job("stats", move || {
+            let stats = sheet.selection_stats(&key.2).map_err(|e| e.to_string())?;
+            Ok(JobDone::SelStats { key, stats })
+        });
+    }
+
+    /// The stats on screen now, if they're up to date.
+    fn current_sel_stats(&self) -> Option<&[(&'static str, String)]> {
+        let key = self.sel_stats_key()?;
+        self.sel_stats
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .map(|(_, s)| s.as_slice())
     }
 
     /// `vd.sheet()` of the active sheet, for a Lua callback.
@@ -817,6 +885,12 @@ impl App {
             Ok(JobDone::PushSheet(sheet)) => {
                 self.sheets.push(*sheet);
                 self.spawn_materialize();
+            }
+            // jobs finish out of order: keep only the latest ask's answer
+            Ok(JobDone::SelStats { key, stats }) => {
+                if self.sel_stats_asked.as_ref() == Some(&key) {
+                    self.sel_stats = Some((key, stats));
+                }
             }
             Ok(JobDone::PushSheetToast(sheet, toast)) => {
                 self.sheets.push(*sheet);
@@ -1626,18 +1700,7 @@ fn paste_cmd_for(plugins: Option<&crate::plugins::Plugins>) -> Option<Vec<String
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPIN_AFTER_MS: u128 = 150;
 
-/// `1234567` as `1,234,567`.
-fn grouped(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
+use crate::sheet::grouped;
 
 /// Exactly `width` display cells of `s`: cut at the end, or padded.
 fn fit(s: &str, width: usize) -> String {

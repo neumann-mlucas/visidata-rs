@@ -381,9 +381,18 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(" ")
             )),
-            _ => Line::from(
-                " hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q ",
-            ),
+            _ => match self.current_sel_stats() {
+                Some(stats) => Line::from(
+                    stats
+                        .iter()
+                        .map(|(k, v)| format!("{k} {v}"))
+                        .collect::<Vec<_>>()
+                        .join(" · "),
+                ),
+                None => Line::from(
+                    " hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q ",
+                ),
+            },
         };
         let mut text = text;
         if self.recording.is_some() && self.input.is_none() {

@@ -359,6 +359,8 @@ pub enum Action {
     Hits {
         needle: String,
     },
+    /// `:stats` (S-30 C): the selection's status-line stats to the clipboard, as TSV.
+    CopyStats,
     /// `:mksession [path]`: write the sheet stack as an ex script.
     MkSession {
         path: Option<String>,
@@ -507,7 +509,7 @@ impl Action {
             | ToggleMacroRecord => false,
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
-            MkSession { .. } => false,
+            MkSession { .. } | CopyStats => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } => false,
