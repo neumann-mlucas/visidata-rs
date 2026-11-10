@@ -596,7 +596,11 @@ impl App {
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SubmitInput | Action::CancelInput | Action::InputBackspace => {}
         }
-        if affects && self.sheets.active().revision() == before_rev {
+        // `stale`: changed from a columns sheet while under it, now on top
+        // again (popped, or raised from the sheet list / undo tree)
+        let s = self.sheets.active_mut();
+        let stale = std::mem::take(&mut s.state.stale);
+        if stale || (affects && s.revision() == before_rev) {
             self.spawn_materialize();
         }
     }
