@@ -71,6 +71,8 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan
 | `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |
 | `ExpandCol { depth }` / `StartExpandDepthInput` / `ExpandCols { depth }` | `(` / `z(` `gz(` / `g(` | `:expand-col` … | `PlanStep::Expand`: struct fields as `col.field` columns right after the struct (depth 0 = all the way; taken names get `_2`), struct hidden; one undo step; `(` on an expanded struct only shows its columns again (S-22 A) |
+| `OpenColumns` / `OpenColumnsAll` | `C` / `gC` | `:columns-sheet` `:columns-all` | `Origin::Columns`: a row per column (hidden too) `name width type value aggregators sortorder key` (`gC`: `sheet` first); `e` on name/width/type/value/aggregators, `d` / `g-` `gd` hide, `Enter` freq, `U`/`R` write back to the listed sheet(s), one undo step per sheet (S-25 P3) |
+| `KeySelected { on }` / `TypeSelected { name }` | `g!` `gz!` / `g#` `g%` `g~` `g@` `g$` | `:key-selected` … | columns sheet only: key / unkey / cast the selected rows' columns |
 | `ContractCol` | `)` | `:contract-col` | view only: hide the struct's columns, show the struct, cursor onto it |
 | `UnfurlCol` | `zM` | `:unfurl-col` | derived sheet `unfurl(col): parent`, `Origin::Unfurl` / `Derivation::Unfurl`: `col_key` (position / field) + `col_value` in the column's place; empty list drops its row, null keeps it as item 0; struct values text when field types differ (S-22 B) | |
 

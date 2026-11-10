@@ -36,6 +36,7 @@ use crate::theme::Theme;
 use crate::widget::{SheetWidget, clamp_view, refresh_widths};
 
 mod actions;
+mod columns;
 #[cfg(test)]
 mod golden;
 #[cfg(test)]

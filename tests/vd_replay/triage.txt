@@ -24,7 +24,7 @@ deferred-hidden-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-08-07\t#ERR\t#ERR" got="Date\t0\t0\t32\t2018-07-03\t2018-08-31\t\t2018-08-07"
 describe-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
 describe-through	UNTESTABLE setcol-expr
-diff-join	SKIP key-selected
+diff-join	SKIP runtime: join-sheets: unsupported jointype 'diff'
 duckdb-commit-changes	SKIP commit-sheet
 duckdb-commit-composite-pk	SKIP runtime: cannot locate row '2' (keys=[])
 duckdb-commit-no-pk	SKIP allow-error
@@ -35,10 +35,10 @@ duckdb-save-sheet	PASS
 duckdb-types	NO_GOLDEN golden is .json
 dup-rows-attrs	SKIP aggregate-col
 edit-fixed	NO_GOLDEN golden is .fixed
-edit-joinkey-1	SKIP columns-selected
-edit-joinkey-2	SKIP columns-selected
-edit-joinregular-1	SKIP columns-selected
-edit-joinregular-2	SKIP columns-selected
+edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
+edit-joinkey-2	SKIP runtime: read-only: data2+data1 is derived
+edit-joinregular-1	SKIP runtime: read-only: data2+data1 is derived
+edit-joinregular-2	SKIP runtime: read-only: data2+data1 is derived
 edit-type	FAIL line 6: want="Quantity\t0\t0\t10\t1\t144\t403.00\t2\t7.90\t21.57" got="Quantity\t0\t0\t10\t1\t144\t403.0\t2\t7.901960784313726\t21.57244066114058"
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	SKIP runtime: option unfurl_empty
@@ -49,13 +49,13 @@ extend	SKIP sheets-all
 fill	NO_GOLDEN golden is .jsonl
 fill-nested	NO_GOLDEN golden is .jsonl
 fill-zero	NO_GOLDEN golden is .json
-format-enum	SKIP setcol-format-enum
+format-enum	SKIP runtime: cannot locate row 'OrderDate' (keys=[])
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
 freeze-sheet-attrs	SKIP aggregate-col
 freq-dive-except	SKIP dive-except
 freq-error	SKIP aggregate-col
-freq-fmtstr	FAIL line 2: want="2018-07\t21\t41.18" got="2018-07-03\t2\t3.92"
+freq-fmtstr	SKIP runtime: cannot locate row 'Date' (keys=[])
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
@@ -104,7 +104,7 @@ issue3175-vds-concat	SKIP runtime: save: unknown extension '.vds'
 issue3175-vds-full	SKIP runtime: save: unknown extension '.vds'
 issue3178	SKIP runtime: column already exists: B
 issue3187	SKIP runtime: not found: "name" not found
-issue3190	FAIL line 1: want="sheet\tname\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="Key\tD"
+issue3190	PASS
 issue3190-unhide	PASS
 issue3195	SKIP set-envvar
 issue3198	PASS
@@ -128,7 +128,7 @@ issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
 issue964-inner-join	PASS
 join-cols-single-sheet	SKIP join-cols
-join-concat	SKIP runtime: no sheet named 'sample_columns'
+join-concat	SKIP runtime: cannot locate row 'Customer' (keys=[])
 join-different-types	SKIP allow-error
 join-extend-mult	PASS
 join-merge	PASS
@@ -182,7 +182,7 @@ monthly-revenue	SKIP addcol-capture
 numeric-cols	PASS
 numeric-names	PASS
 numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
-outer-join-1	SKIP key-selected
+outer-join-1	SKIP join-sheets-cols
 outer-join-2	PASS
 pandas_loader_dup_selected	PASS
 petsdiet	SKIP aggregate-col
@@ -223,7 +223,7 @@ setcol_fake	UNTESTABLE setcol-fake
 setcol_precision_less	SKIP setcol-precision-less
 setcol_precision_more	SKIP setcol-precision-more
 sort-levels	PASS
-sortorder	FAIL line 1: want="name\twidth\ttype\tfmtstr\tvalue\taggregators\tsortorder" got="OrderDate\tRegion\tRep\tItem\tUnits\tUnit_Cost\tTotal"
+sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	SKIP aggregate-col

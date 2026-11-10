@@ -6,6 +6,7 @@ use polars::prelude::*;
 
 use crate::reader::{LoadedSource, SourceKind};
 
+mod columns;
 mod derive;
 mod diff;
 mod nested;
@@ -42,6 +43,9 @@ pub struct Sheet {
 /// Per-sheet bookkeeping. `Default` so derived-sheet constructors stay short.
 #[derive(Default, Clone)]
 pub struct SheetState {
+    /// Changed while another sheet was on top (`C` writes): materialize
+    /// when it is back on top.
+    pub stale: bool,
     /// `revision` of the last materialize result applied (Ok or Err).
     loaded_rev: u64,
     /// A row count for the current `count_key` is in flight.
@@ -164,6 +168,10 @@ pub enum Origin {
     /// `:undotree` of sheet `parent`; `Enter` makes a state current there.
     UndoTree {
         parent: SheetId,
+    },
+    /// `C` / `gC` (S-25 P3): row `i` is column `cols[i].1` of sheet `cols[i].0`.
+    Columns {
+        cols: Arc<[(SheetId, String)]>,
     },
     Diff {
         left: SheetId,
@@ -308,6 +316,8 @@ pub struct View {
     pub keys: Vec<String>,
     /// Pending type casts, applied before serialize. Last-write-wins per column.
     pub type_casts: Vec<(String, DataType)>,
+    /// `+` (S-25 P4): (column, aggregator name), in the order added.
+    pub aggregators: Vec<(String, String)>,
     /// Row count of the filtered view; `None` while counting or after a failed count.
     total_rows: Option<u64>,
     /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
@@ -335,6 +345,7 @@ impl Default for View {
             hidden: std::collections::BTreeSet::new(),
             keys: Vec::new(),
             type_casts: Vec::new(),
+            aggregators: Vec::new(),
             total_rows: None,
             count_key: None,
             jump_bottom: false,

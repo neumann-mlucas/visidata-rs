@@ -39,6 +39,11 @@ impl App {
             self.toast = Some(e);
             return;
         }
+        if matches!(self.sheets.active().origin, Origin::Columns { .. })
+            && self.columns_dispatch(&action)
+        {
+            return;
+        }
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
         }
@@ -460,6 +465,11 @@ impl App {
                         sheet.uniform_columns().map_err(|e| e.to_string())?,
                     ))
                 });
+            }
+            Action::OpenColumns => self.open_columns(false),
+            Action::OpenColumnsAll => self.open_columns(true),
+            Action::KeySelected { .. } | Action::TypeSelected { .. } => {
+                self.toast = Some("only on the columns sheet (C)".into());
             }
             Action::UnfurlCol => {
                 let Some(c) = self.current_column_name() else {
@@ -1158,6 +1168,10 @@ impl App {
             if let Some(h) = self.materialize_handles.remove(&popped_id) {
                 h.abort();
             }
+            let s = self.sheets.active_mut();
+            if std::mem::take(&mut s.state.stale) {
+                self.spawn_materialize();
+            }
         } else {
             self.quit = true;
         }
@@ -1169,7 +1183,7 @@ impl App {
     }
 
     /// Row id under the cursor; None on an empty view.
-    fn rid_at_cursor(&self) -> Option<u64> {
+    pub(super) fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();
         s.window_rids().get(s.view.row_cursor).copied()
     }

@@ -377,6 +377,48 @@ impl Keymap {
                 vec![SysPasteCellsSelected],
                 "paste clipboard into selected rows from the cursor column",
             ),
+            // columns sheet (S-25 P3)
+            ch(vec![k("C")], vec![OpenColumns], "open the columns sheet"),
+            ch(
+                vec![k("g"), k("C")],
+                vec![OpenColumnsAll],
+                "open the columns of all sheets",
+            ),
+            ch(
+                vec![k("g"), k("!")],
+                vec![KeySelected { on: true }],
+                "columns sheet: key selected columns",
+            ),
+            ch(
+                vec![k("g"), k("z"), k("!")],
+                vec![KeySelected { on: false }],
+                "columns sheet: unkey selected columns",
+            ),
+            ch(
+                vec![k("g"), k("#")],
+                vec![TypeSelected { name: "int" }],
+                "columns sheet: selected columns int",
+            ),
+            ch(
+                vec![k("g"), k("%")],
+                vec![TypeSelected { name: "float" }],
+                "columns sheet: selected columns float",
+            ),
+            ch(
+                vec![k("g"), k("~")],
+                vec![TypeSelected { name: "str" }],
+                "columns sheet: selected columns text",
+            ),
+            ch(
+                vec![k("g"), k("@")],
+                vec![TypeSelected { name: "date" }],
+                "columns sheet: selected columns date",
+            ),
+            ch(
+                vec![k("g"), k("$")],
+                vec![TypeSelected { name: "currency" }],
+                "columns sheet: selected columns currency",
+            ),
             // nested data (S-22)
             ch(
                 vec![k("(")],

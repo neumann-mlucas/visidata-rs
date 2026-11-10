@@ -183,6 +183,17 @@ pub enum Action {
     ContractCol,
     /// `zM`: a sheet with a row per item of the current column.
     UnfurlCol,
+    /// `C` / `gC` (S-25 P3): the columns sheet of this sheet / of all sheets.
+    OpenColumns,
+    OpenColumnsAll,
+    /// Columns sheet `g!` / `gz!`: key / unkey the selected rows' columns.
+    KeySelected {
+        on: bool,
+    },
+    /// Columns sheet `g#` `g%` `g~` `g@` `g$`: type the selected rows' columns.
+    TypeSelected {
+        name: &'static str,
+    },
 
     // ex-line
     StartExInput,
@@ -461,6 +472,7 @@ impl Action {
             DeleteRow | DeleteSelected | CutRow | CutSelected => true,
             AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
             ExpandCol { .. } | ExpandCols { .. } | ContractCol | UnfurlCol => true,
+            OpenColumns | OpenColumnsAll | KeySelected { .. } | TypeSelected { .. } => true,
         }
     }
 }
@@ -581,6 +593,15 @@ impl Action {
         ("expand_cols", ExpandCols { depth: 1 }),
         ("contract_col", ContractCol),
         ("unfurl_col", UnfurlCol),
+        ("open_columns", OpenColumns),
+        ("open_columns_all", OpenColumnsAll),
+        ("key_selected", KeySelected { on: true }),
+        ("key_off_selected", KeySelected { on: false }),
+        ("type_int_selected", TypeSelected { name: "int" }),
+        ("type_float_selected", TypeSelected { name: "float" }),
+        ("type_string_selected", TypeSelected { name: "str" }),
+        ("type_date_selected", TypeSelected { name: "date" }),
+        ("type_currency_selected", TypeSelected { name: "currency" }),
         ]
     };
 

@@ -2135,3 +2135,38 @@ async fn unfurl_pushes_a_read_only_sheet_of_items() {
     );
     assert_eq!(h.current_column(), "tags");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn columns_sheet_writes_back_to_its_sheet() {
+    let mut h = Harness::new(5).await;
+    let header = |h: &Harness| h.screen().lines().nth(1).unwrap().to_string();
+    h.keys("l C").await; // cursor on `name`: the columns sheet starts on its row
+    assert!(
+        title(&h).contains("_columns") && title(&h).contains("row 2/4"),
+        "{}",
+        title(&h)
+    );
+    assert!(h.screen().contains("name_1"), "{}", h.screen()); // the cursor row's value
+    h.keys("d").await; // hide `name`
+    h.keys("j s g !").await; // key `grp`
+    h.keys("e <C-u>").await;
+    h.type_("group").await; // rename it
+    assert!(h.screen().contains("group"), "{}", h.screen());
+    h.keys("q").await;
+    let hd = header(&h);
+    assert!(
+        hd.trim_start().starts_with("group") && !hd.contains("name"),
+        "{hd}"
+    );
+    h.keys("C g g").await; // `group`, the key, comes first
+    h.keys("U").await; // undoes the rename, on the sheet
+    assert!(
+        h.screen().lines().any(|l| l.starts_with("grp ")),
+        "{}",
+        h.screen()
+    );
+    h.keys("<CR>").await; // freq of grp
+    assert!(title(&h).contains("freq(grp)"), "{}", title(&h));
+    h.keys("q q g #").await;
+    assert_eq!(status(&h), "only on the columns sheet (C)");
+}

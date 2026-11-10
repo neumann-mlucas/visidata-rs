@@ -1,0 +1,12 @@
+ tests/golden/columns-sheet/input.csv  csv · hidden 1                         id 1/4  row 1/5 · 20%
+ id i group str    amt i day date
+    1 a                1 2024-01-02
+    2 b                2 2024-01-03
+    3 a                · 2024-01-04
+    4 c                4 ·
+    5 b          1234567 2024-01-06
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

@@ -153,7 +153,8 @@ impl Sheet {
         })
     }
 
-    fn restore(&mut self, snap: Snapshot) {
+    /// Back to `snap` (taken just before), with no undo step.
+    pub(crate) fn restore(&mut self, snap: Snapshot) {
         self.plan = snap.plan;
         self.view = snap.view;
         self.state.steps = snap.steps;

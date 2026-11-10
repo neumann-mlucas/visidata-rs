@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 47;
+const MIN_PASS: usize = 49;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -195,10 +195,6 @@ enum MetaMode {
     /// VisiData `S` key — the "sheets stack" meta view listing all open sheets.
     /// `selected` holds names of sheets picked for a follow-up `join-sheets`.
     SheetsStack { selected: Vec<String> },
-    /// VisiData `C` — meta view listing current sheet's columns. We don't model
-    /// its contents; commands target it as a no-op surface so parent sheet
-    /// isn't mutated. `quit-sheet` returns to parent.
-    ColumnsSheet,
 }
 
 enum StepErr {
@@ -394,6 +390,138 @@ impl Replay {
         self.loaded.iter().rposition(|s| s.name == name)
     }
 
+    /// On a columns sheet: the commands that write to the sheets it lists
+    /// (`App::columns_dispatch`). `None`: not one of them.
+    fn columns_step(&mut self, r: &CmdlogRow) -> Option<Result<(), StepErr>> {
+        let slot = self.current?;
+        let Origin::Columns { cols } = &self.loaded[slot].sheet.origin else {
+            return None;
+        };
+        let cols = cols.clone();
+        let rt = StepErr::Runtime;
+        // `キsheet,name` (`gC`), `キname`, or a row number
+        let row = |key: &str| -> Result<usize, StepErr> {
+            let k = key.strip_prefix('キ').unwrap_or(key);
+            let sheet_of = |id: SheetId| {
+                self.loaded
+                    .iter()
+                    .find(|l| l.sheet.id == id)
+                    .map(|l| l.name.as_str())
+            };
+            let hit = cols.iter().position(|(id, n)| match k.split_once(',') {
+                Some((s, c)) if c == n => sheet_of(*id) == Some(s),
+                _ => n == k,
+            });
+            hit.or_else(|| k.parse().ok().filter(|i| *i < cols.len()))
+                .ok_or_else(|| rt(format!("columns sheet: no row {key}")))
+        };
+        let selected = || -> Vec<usize> {
+            self.loaded[slot]
+                .sheet
+                .view
+                .selected
+                .iter()
+                .map(|&r| r as usize)
+                .collect()
+        };
+        let (rows, op): (Vec<usize>, &str) = match r.longname.as_str() {
+            "select-row" | "unselect-row" | "stoggle-row" => {
+                let i = match row(&r.row) {
+                    Ok(i) => i as u64,
+                    Err(e) => return Some(Err(e)),
+                };
+                let sel = Arc::make_mut(&mut self.loaded[slot].sheet.view.selected);
+                match r.longname.as_str() {
+                    "select-row" => {
+                        sel.insert(i);
+                    }
+                    "unselect-row" => {
+                        sel.remove(&i);
+                    }
+                    _ if !sel.remove(&i) => {
+                        sel.insert(i);
+                    }
+                    _ => {}
+                }
+                return Some(Ok(()));
+            }
+            "select-rows" => {
+                self.loaded[slot].sheet.view.selected = Arc::new((0..cols.len() as u64).collect());
+                return Some(Ok(()));
+            }
+            "key-selected" => (selected(), "key"),
+            "key-off-selected" => (selected(), "unkey"),
+            "hide-selected" => (selected(), "hide"),
+            l if l.starts_with("type-") && l.ends_with("-selected") => (selected(), l),
+            "delete-row" => (vec![row(&r.row).ok()?], "hide"),
+            "edit-cell" if matches!(r.col.as_str(), "name" | "width" | "type") => {
+                (vec![row(&r.row).ok()?], "edit")
+            }
+            "setcol-input" if matches!(r.col.as_str(), "width" | "type") => (selected(), "edit"),
+            _ => return None,
+        };
+        for i in rows {
+            let (id, c) = cols[i].clone();
+            let Some(t) = self.loaded.iter_mut().find(|l| l.sheet.id == id) else {
+                return Some(Err(rt("columns sheet: that sheet is gone".into())));
+            };
+            let s = &mut t.sheet;
+            let res = match (op, r.col.as_str()) {
+                ("key", _) if !s.view.keys.contains(&c) => {
+                    s.view.keys.push(c);
+                    Ok(())
+                }
+                ("key", _) => Ok(()),
+                ("unkey", _) => {
+                    s.view.keys.retain(|k| *k != c);
+                    Ok(())
+                }
+                ("hide", _) => {
+                    s.view.hidden.insert(c);
+                    Ok(())
+                }
+                ("edit", "name") => s.rename_col(&c, &r.input),
+                ("edit", "width") if r.input.trim() == "0" => {
+                    s.view.hidden.insert(c);
+                    Ok(())
+                }
+                ("edit", "width") => {
+                    s.view.hidden.remove(&c);
+                    Ok(())
+                }
+                ("edit", _) => s.cast_column(&c, &r.input),
+                (l, _) => {
+                    let ty = l.trim_start_matches("type-").trim_end_matches("-selected");
+                    let ty = if ty == "string" { "str" } else { ty };
+                    s.cast_column(&c, ty)
+                }
+            };
+            if let Err(e) = res {
+                return Some(Err(rt(e)));
+            }
+        }
+        // rebuild from the sheets it lists, selection kept
+        let mut ids: Vec<SheetId> = cols.iter().map(|(id, _)| *id).collect();
+        ids.dedup();
+        let sheets: Vec<&Sheet> = ids
+            .iter()
+            .filter_map(|id| {
+                self.loaded
+                    .iter()
+                    .find(|l| l.sheet.id == *id)
+                    .map(|l| &l.sheet)
+            })
+            .collect();
+        let id = self.loaded[slot].sheet.id;
+        let mut new = match self.loaded[slot].name == "all_columns" {
+            true => Sheet::columns_all(&sheets, id),
+            false => Sheet::columns_of(sheets[0], id),
+        };
+        new.view.selected = self.loaded[slot].sheet.view.selected.clone();
+        self.loaded[slot].sheet = new;
+        Some(Ok(()))
+    }
+
     fn step(&mut self, r: &CmdlogRow) -> Result<(), StepErr> {
         use StepErr::*;
         if is_direction_skip_longname(&r.longname) {
@@ -450,6 +578,17 @@ impl Replay {
             }
             _ => r,
         };
+        // a command on `sheets` after `gC` there: the sheets list is on top again
+        if r.sheet == "sheets" && self.meta_mode.is_none() {
+            self.meta_mode = Some(MetaMode::SheetsStack {
+                selected: std::mem::take(&mut self.stack_selected),
+            });
+        }
+        if self.meta_mode.is_none()
+            && let Some(res) = self.columns_step(r)
+        {
+            return res;
+        }
         match r.longname.as_str() {
             "open-file" => {
                 let path = self.path(&r.input);
@@ -715,8 +854,40 @@ impl Replay {
             // columns-sheet: enter a meta view listing parent sheet's columns.
             // ponytail: no-op mode; parent sheet is unchanged. edit-cell /
             // select-row / etc. while active become no-ops. quit-sheet exits.
-            "columns-sheet" | "columns-all" => {
-                self.meta_mode = Some(MetaMode::ColumnsSheet);
+            // S-25 P3: the app's columns sheet, written back as the app does
+            "columns-sheet" => {
+                let cur = self.current_slot()?;
+                let name = format!("{}_columns", cur.name);
+                let id = self.next_id;
+                let s = Sheet::columns_of(&self.current_slot()?.sheet, id);
+                self.next_id += 1;
+                self.push_sheet(name, s);
+                Ok(())
+            }
+            "columns-all" | "columns-selected" => {
+                let names: Vec<String> = match self.meta_mode.take() {
+                    Some(MetaMode::SheetsStack { selected })
+                        if r.longname == "columns-selected" =>
+                    {
+                        self.stack_selected = selected.clone();
+                        selected
+                    }
+                    _ => self
+                        .stack
+                        .iter()
+                        .rev()
+                        .map(|&i| self.loaded[i].name.clone())
+                        .filter(|n| !n.ends_with("columns"))
+                        .collect(),
+                };
+                let slots: Vec<usize> = names
+                    .iter()
+                    .filter_map(|n| self.find_sheet_by_name(n))
+                    .collect();
+                let sheets: Vec<&Sheet> = slots.iter().map(|&i| &self.loaded[i].sheet).collect();
+                let s = Sheet::columns_all(&sheets, self.next_id);
+                self.next_id += 1;
+                self.push_sheet("all_columns".into(), s);
                 Ok(())
             }
             // quit-sheet: clear meta mode if any; otherwise no-op (we don't
@@ -735,30 +906,6 @@ impl Replay {
             }
             // edit-cell / set-cell-input while in a meta view: no-op (we don't
             // model meta contents). Outside meta, edit-cell is a data edit.
-            // Columns sheet: a column's width 0 hides it, any other shows it.
-            "edit-cell"
-                if matches!(self.meta_mode, Some(MetaMode::ColumnsSheet)) && r.col == "width" =>
-            {
-                let key = r.row.strip_prefix('キ').unwrap_or(&r.row);
-                // `columns-all` rows are keyed `sheet,column`.
-                let (slot, name) = match key.split_once(',') {
-                    Some((sheet, c)) if self.find_sheet_by_name(sheet).is_some() => {
-                        (self.find_sheet_by_name(sheet).unwrap(), c.to_string())
-                    }
-                    _ => (
-                        self.current
-                            .ok_or_else(|| Runtime("no active sheet".into()))?,
-                        key.to_string(),
-                    ),
-                };
-                let hidden = &mut self.loaded[slot].sheet.view.hidden;
-                if r.input.trim() == "0" {
-                    hidden.insert(name);
-                } else {
-                    hidden.remove(&name);
-                }
-                Ok(())
-            }
             "edit-cell" if self.meta_mode.is_some() => Ok(()),
             "edit-cell" => self.setcol_input(&r.col, &r.row, &r.input),
             // join-sheets: consumes sheets-stack selection, builds a joined sheet
@@ -1098,12 +1245,6 @@ impl Replay {
             } else {
                 selected.retain(|n| n != &name);
             }
-            return Ok(());
-        }
-        // columns-sheet meta mode: select-row targets a column (by name).
-        // We don't model that selection yet; treat as no-op so parent isn't
-        // polluted and the chain can continue.
-        if matches!(self.meta_mode, Some(MetaMode::ColumnsSheet)) {
             return Ok(());
         }
         let keys = self.current_slot()?.sheet.view.keys.clone();
@@ -1568,11 +1709,14 @@ impl Replay {
             _ => "no active sheet".into(),
         })?;
         // The app's own query: casts, filter, stable sort, hide, keys first.
-        let mut df = slot
-            .sheet
-            .view_plan()
-            .collect()
-            .map_err(|e| e.to_string())?;
+        let mut df = match &slot.sheet.origin {
+            Origin::Columns { cols } => self.visidata_columns(cols, slot.name == "all_columns")?,
+            _ => slot
+                .sheet
+                .view_plan()
+                .collect()
+                .map_err(|e| e.to_string())?,
+        };
         let shown: Vec<String> = df
             .get_column_names()
             .into_iter()
@@ -1603,6 +1747,96 @@ impl Replay {
             .finish(&mut df)
             .map_err(|e| e.to_string())?;
         Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+}
+
+impl Replay {
+    /// A columns sheet as VisiData prints it: `width` = widest text + 2 (empty
+    /// when hidden), `type` only when set, an empty `fmtstr`, `value` from the
+    /// first row. vdrs measures widths on screen and always names the type.
+    fn visidata_columns(&self, cols: &[(SheetId, String)], all: bool) -> Result<DataFrame, String> {
+        let err = |e: PolarsError| e.to_string();
+        let mut out: [Vec<Option<String>>; 8] = Default::default();
+        for (id, name) in cols {
+            let slot = self
+                .loaded
+                .iter()
+                .find(|l| l.sheet.id == *id)
+                .ok_or("sheet gone")?;
+            let s = &slot.sheet;
+            let v = &s.view;
+            let df = s.data_plan().collect().map_err(err)?;
+            let view = s.view_plan().collect().map_err(err)?;
+            let texts: Vec<String> = match view.column(name).or_else(|_| df.column(name)) {
+                Ok(c) => (0..c.len())
+                    .map(|i| c.get(i).map(|a| av_display(&a)).unwrap_or_default())
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
+            let width = texts.iter().map(|t| t.chars().count()).max().unwrap_or(0);
+            let width = width.max(name.chars().count()) + 2;
+            let currency = s
+                .state
+                .steps
+                .iter()
+                .any(|st| matches!(st, PlanStep::Currency { column } if column == name));
+            let ty = v
+                .type_casts
+                .iter()
+                .rev()
+                .find(|(c, _)| c == name)
+                .map(|(_, d)| match d {
+                    DataType::Int64 => "int",
+                    DataType::Float64 => "float",
+                    DataType::Date => "date",
+                    _ => "str",
+                });
+            let ty = if currency { Some("currency") } else { ty };
+            let order = v.sort.iter().position(|k| k.column == *name).map(|i| {
+                let i = i as i64 + 1;
+                if v.sort[i as usize - 1].order == SortOrder::Desc {
+                    -i
+                } else {
+                    i
+                }
+            });
+            let aggs: Vec<&str> = v
+                .aggregators
+                .iter()
+                .filter(|(c, _)| c == name)
+                .map(|(_, a)| a.as_str())
+                .collect();
+            let row = [
+                Some(slot.name.clone()),
+                Some(name.clone()),
+                (!v.hidden.contains(name)).then(|| width.to_string()),
+                ty.map(String::from),
+                None,
+                texts.first().cloned(),
+                (!aggs.is_empty()).then(|| aggs.join(" ")),
+                order.map(|o| o.to_string()),
+            ];
+            for (col, val) in out.iter_mut().zip(row) {
+                col.push(val);
+            }
+        }
+        let names = [
+            "sheet",
+            "name",
+            "width",
+            "type",
+            "fmtstr",
+            "value",
+            "aggregators",
+            "sortorder",
+        ];
+        let columns: Vec<Column> = names
+            .iter()
+            .zip(out)
+            .skip(if all { 0 } else { 1 })
+            .map(|(n, v)| Column::new((*n).into(), v))
+            .collect();
+        DataFrame::new_infer_height(columns).map_err(err)
     }
 }
 
