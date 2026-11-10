@@ -2210,8 +2210,7 @@ async fn aggregators_add_freq_columns_and_memo() {
 async fn all_columns_undo_touches_only_the_sheet_it_wrote() {
     let mut h = Harness::new(5).await;
     h.keys("F [").await; // a freq sheet with its own (sort) change
-    h.keys("g C").await; // its row ids land before `d` can act
-    h.keys("d").await; // all_columns: hide the first sheet's first column
+    h.keys("g C d").await; // all_columns: hide the first sheet's first column
     let hidden = |h: &Harness| {
         let s = h.app.sheets.iter().find(|s| !s.name.contains('(')).unwrap();
         s.view.hidden.len()

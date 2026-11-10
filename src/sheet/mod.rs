@@ -443,7 +443,10 @@ impl Sheet {
     }
 
     /// An in-memory meta-sheet (sheet list, columns, undo tree) showing `df`.
+    /// Its row ids are positions (the view numbers its rows), known now, so
+    /// row keys work before the first materialize lands.
     fn meta(id: SheetId, name: String, df: DataFrame, origin: Origin) -> Self {
+        let window_rids = (0..df.height() as u64).collect();
         Sheet {
             id,
             name,
@@ -453,7 +456,10 @@ impl Sheet {
             view: View::default(),
             window: Some(df),
             revision: 0,
-            state: Default::default(),
+            state: SheetState {
+                window_rids,
+                ..Default::default()
+            },
             origin,
         }
     }
