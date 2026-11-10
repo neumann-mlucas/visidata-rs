@@ -1336,12 +1336,18 @@ impl App {
             return;
         }
         let s = self.sheets.active();
-        let columns: Vec<String> = s.window().map_or_else(Vec::new, |df| {
-            df.get_column_names()
+        // the window is gone while a new one loads: the schema still knows
+        let columns: Vec<String> = match s.window() {
+            Some(df) => df
+                .get_column_names()
                 .iter()
                 .map(|n| n.to_string())
-                .collect()
-        });
+                .collect(),
+            None => s.view_plan().collect_schema().map_or_else(
+                |_| Vec::new(),
+                |sc| sc.iter_names().map(|n| n.to_string()).collect(),
+            ),
+        };
         let args = crate::exline::split_args(&rest, PIVOT_USAGE).unwrap_or_default();
         let hint = |next: &str| {
             format!(
