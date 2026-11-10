@@ -29,6 +29,10 @@ Found 2026-11-09 (S-25 P3/P4), open:
 - [ ] Derived sheets start with a fresh view: no inherited types/aggregators (`dup-rows-attrs`, `freeze-sheet-attrs`)
 - [ ] `[` on a columns sheet sorts only it; VisiData reorders the source's columns (`aggregators-set`)
 
+Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
+
+- [ ] S-24 R6 — `a` `p` `gzp` `:type json` run full scans on the UI thread; move them to jobs (design first)
+
 ## Roadmap (ordered, 2026-11-08)
 
 One list, worked top to bottom. Each item ships alone with its spec's test plan and updates S-15 + the guide. Keymap rule for all of them: [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md) — the default keymap matches VisiData; new or more standard meanings live in the opt-in vim profile. After each item that ships a VisiData command: translate its longnames in `tests/vd_replay.rs`, re-check the quarantine, raise `MIN_PASS`.
