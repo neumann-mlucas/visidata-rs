@@ -286,6 +286,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             column: one_arg(rest, ":databar <column>")?,
         }]),
         "help" => Ok(vec![Action::HelpCommands]),
+        // vim's `:d` / `:y`; with a range, its rows (S-26 B)
+        "d" | "delete" => Ok(vec![Action::DeleteRow]),
+        "y" | "yank" => Ok(vec![Action::CopyRow]),
         "nocolor" => Ok(vec![Action::NoColor {
             column: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -530,6 +533,8 @@ pub const COMMANDS: &[&str] = &[
     "color",
     "nocolor",
     "help",
+    "delete",
+    "yank",
     "scale",
     "databar",
     "hide",
@@ -585,6 +590,111 @@ pub fn command_names() -> Vec<String> {
         .map(|c| c.to_string())
         .chain(actions)
         .collect()
+}
+
+/// A row address of an ex range (S-26 B), rows counting from 1.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Addr {
+    Line(u64),
+    /// `.`: the cursor row.
+    Cursor,
+    /// `$`: the last row.
+    Last,
+}
+
+/// Which rows a ranged command runs on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Rows {
+    Span(Addr, Addr),
+    /// `%`
+    All,
+    /// `g/re/`, `v/re/` (`invert`); `col=re` may name the column.
+    Match {
+        pattern: String,
+        invert: bool,
+    },
+    /// `g{sql predicate}`
+    Where(String),
+}
+
+/// `:5,20 setcol 0`, `:% y`, `:g/^n/d`: rows, then the command (empty: just
+/// select them). `None`: not a ranged line (a bare `:12` goes to row 12).
+pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
+    let s = input
+        .trim()
+        .strip_prefix(':')
+        .unwrap_or(input.trim())
+        .trim_start();
+    let done = |rows, rest: &str| Some(Ok((rows, rest.trim().to_string())));
+    if let Some(rest) = s.strip_prefix('%') {
+        return done(Rows::All, rest);
+    }
+    for (head, invert) in [("g/", false), ("v/", true)] {
+        if let Some(body) = s.strip_prefix(head) {
+            // the pattern ends at the next `/` not escaped by `\`
+            let mut end = None;
+            let mut esc = false;
+            for (i, c) in body.char_indices() {
+                match (esc, c) {
+                    (true, _) => esc = false,
+                    (false, '\\') => esc = true,
+                    (false, '/') => {
+                        end = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let (pattern, rest) = match end {
+                Some(i) => (&body[..i], &body[i + 1..]),
+                None => (body, ""),
+            };
+            if pattern.is_empty() {
+                return Some(Err(ExError::Usage(
+                    ":g/regex/[command] or :v/regex/[command]",
+                )));
+            }
+            let pattern = pattern.replace("\\/", "/");
+            return done(Rows::Match { pattern, invert }, rest);
+        }
+    }
+    if let Some(body) = s.strip_prefix("g{") {
+        return Some(match body.split_once('}') {
+            Some((pred, rest)) if !pred.trim().is_empty() => Ok((
+                Rows::Where(pred.trim().to_string()),
+                rest.trim().to_string(),
+            )),
+            _ => Err(ExError::Usage(":g{sql predicate}[command]")),
+        });
+    }
+    let addr = |t: &str| -> Option<(Addr, usize)> {
+        match t.chars().next()? {
+            '.' => Some((Addr::Cursor, 1)),
+            '$' => Some((Addr::Last, 1)),
+            c if c.is_ascii_digit() => {
+                let n = t.bytes().take_while(u8::is_ascii_digit).count();
+                Some((Addr::Line(t[..n].parse().ok()?), n))
+            }
+            _ => None,
+        }
+    };
+    let (a, n) = addr(s)?;
+    let (b, rest) = match s[n..].strip_prefix(',') {
+        Some(t) => match addr(t) {
+            Some((b, m)) => (b, &t[m..]),
+            None => {
+                return Some(Err(ExError::Usage(
+                    ":<from>,<to> <command> (rows: 5, ., $)",
+                )));
+            }
+        },
+        None => (a.clone(), &s[n..]),
+    };
+    // `:12` alone goes to row 12; a ranged command needs a space or a name
+    if matches!(a, Addr::Line(_)) && a == b && rest.trim().is_empty() {
+        return None;
+    }
+    done(Rows::Span(a, b), rest)
 }
 
 /// Lines kept in the history file; older ones are dropped on load.
@@ -756,6 +866,36 @@ fn history_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ranges_parse() {
+        let r = |s| ranged(s).unwrap().unwrap();
+        use Addr::*;
+        assert_eq!(
+            r(":5,20 setcol 0"),
+            (Rows::Span(Line(5), Line(20)), "setcol 0".into())
+        );
+        assert_eq!(r(".,$d"), (Rows::Span(Cursor, Last), "d".into()));
+        assert_eq!(r("% y"), (Rows::All, "y".into()));
+        assert_eq!(r("3 d"), (Rows::Span(Line(3), Line(3)), "d".into()));
+        assert_eq!(r("5,9"), (Rows::Span(Line(5), Line(9)), String::new()));
+        let m = |p: &str, invert| Rows::Match {
+            pattern: p.into(),
+            invert,
+        };
+        assert_eq!(r("g/^n/d"), (m("^n", false), "d".into()));
+        assert_eq!(r("v/a\\/b/ y"), (m("a/b", true), "y".into()));
+        assert_eq!(r("g/x"), (m("x", false), String::new()));
+        assert_eq!(
+            r("g{amt > 1} d"),
+            (Rows::Where("amt > 1".into()), "d".into())
+        );
+        assert!(ranged("12").is_none(), "bare row number: goto");
+        assert!(ranged("sort x").is_none());
+        assert!(ranged("g//").unwrap().is_err());
+        assert!(ranged("5,x d").unwrap().is_err());
+        assert!(ranged("g{} d").unwrap().is_err());
+    }
 
     #[test]
     fn substitute_parses_delimiters_flags_and_backrefs() {

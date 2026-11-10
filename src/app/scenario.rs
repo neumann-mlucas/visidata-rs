@@ -3199,3 +3199,55 @@ async fn jumplist_walks_back_and_forward() {
     h.keys("g g").await;
     assert_eq!(h.app.jumps.len(), 2, "{:?}", h.app.jumps);
 }
+
+/// S-26 B: ex ranges run a command on rows as if they were selected (the
+/// user's selection comes back); `:g` / `:v` pick rows by regex, `:g{}` by
+/// SQL; no command selects; `:normal` types keys on each row.
+#[tokio::test(flavor = "multi_thread")]
+async fn ex_ranges_global_and_normal() {
+    let mut h = csv(b"id,name\n1,a1\n2,b2\n3,a3\n4,b4\n5,a5\n").await;
+    let ids = |h: &Harness| {
+        let t = csv_text(h.app.sheets.active(), b',');
+        t.lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap().to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let sel = |h: &Harness| h.app.sheets.active().view.selected.len();
+    h.keys("s").await; // the user's selection: row 1
+    h.keys(":").await;
+    h.type_("2,3 d").await;
+    assert_eq!(ids(&h), "1 4 5", "{}", h.screen());
+    assert_eq!(sel(&h), 1, "selection restored");
+    h.keys("U").await;
+    assert_eq!(ids(&h), "1 2 3 4 5");
+    h.keys(":").await;
+    h.type_("g/name=^a/d").await;
+    assert_eq!(ids(&h), "2 4", "{}", h.screen());
+    h.keys("U :").await;
+    h.type_("% y").await;
+    assert_eq!(h.app.register.as_ref().unwrap().df.height(), 5);
+    assert_eq!(sel(&h), 1);
+    h.keys(":").await;
+    h.type_("v/name=^a/").await; // no command: select
+    assert_eq!(status(&h), "selected 2 rows");
+    assert_eq!(sel(&h), 3);
+    h.keys("g u :").await;
+    h.type_("g{id >= 4}").await;
+    assert_eq!(sel(&h), 2);
+    h.keys("g u l :").await; // the name column
+    h.type_("2,4 setcol z").await;
+    let t = csv_text(h.app.sheets.active(), b',');
+    assert_eq!(t, "id,name\n1,a1\n2,z\n3,z\n4,z\n5,a5\n");
+    h.keys(":").await;
+    h.type_("4,$ normal s").await;
+    assert_eq!(sel(&h), 2, "s typed on rows 4 and 5");
+    h.keys(":").await;
+    h.type_("2,1000 normal s").await;
+    assert!(
+        status(&h).starts_with("normal: rows 2–1000 aren't all loaded"),
+        "{}",
+        status(&h)
+    );
+}

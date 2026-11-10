@@ -290,6 +290,11 @@ enum JobDone {
         select: bool,
         rids: Vec<u64>,
     },
+    /// A ranged ex command's rows (S-26 B): run `cmd` with them selected.
+    Ranged {
+        rids: Vec<u64>,
+        cmd: String,
+    },
     /// `:scale` / `:databar` with its column's range (S-27 B).
     Scale(crate::sheet::ScaleRule),
     /// `:refresh`: sheets to replace by id (S-30 A).
@@ -1294,6 +1299,11 @@ impl App {
                     self.sheets.active_mut().view.col_cursor = col;
                 }
             }
+            Ok(JobDone::Ranged { rids, cmd }) => {
+                if self.sheets.active().id == sheet_id {
+                    self.run_on_rows(rids, &cmd);
+                }
+            }
             Ok(JobDone::Scale(rule)) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
                     s.checkpoint();
@@ -1955,6 +1965,13 @@ impl App {
 
     /// Run an ex command: a built-in or named action, else a `vd.command`.
     fn run_ex(&mut self, text: &str) {
+        if let Some(r) = crate::exline::ranged(text) {
+            match r {
+                Ok((rows, cmd)) => self.run_ranged(rows, cmd),
+                Err(e) => self.toast = Some(format!("{e}")),
+            }
+            return;
+        }
         match crate::exline::parse(text) {
             Ok(actions) => self.dispatch_sequence(actions),
             Err(crate::exline::ExError::Unknown(name)) => {

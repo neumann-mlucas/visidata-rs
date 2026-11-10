@@ -1987,14 +1987,38 @@ impl Sheet {
 
     /// Row ids of view rows whose `column` (as text) matches `pattern`.
     pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
+        self.rids_matching(column, pattern, false)
+    }
+
+    /// `rows_matching`, or (`invert`, `:v`) the rows that don't match, empty
+    /// cells among them.
+    pub fn rids_matching(
+        &self,
+        column: &str,
+        pattern: &str,
+        invert: bool,
+    ) -> PolarsResult<Vec<u64>> {
+        let m = col(column)
+            .cast(DataType::String)
+            .str()
+            .contains(lit(pattern), true);
+        let m = match invert {
+            true => m.fill_null(lit(false)).not(),
+            false => m,
+        };
         let df = self
             .filtered_plan(true)
-            .filter(
-                col(column)
-                    .cast(DataType::String)
-                    .str()
-                    .contains(lit(pattern), true),
-            )
+            .filter(m)
+            .select([col(ROW_ID)])
+            .collect()?;
+        rid_values(&df)
+    }
+
+    /// Row ids of view rows `from..from + n` (from 0), in view order.
+    pub fn rids_in_rows(&self, from: u64, n: u64) -> PolarsResult<Vec<u64>> {
+        let df = self
+            .sorted_plan(true)
+            .slice(from as i64, n as IdxSize)
             .select([col(ROW_ID)])
             .collect()?;
         rid_values(&df)

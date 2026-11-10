@@ -124,6 +124,37 @@ impl Sheet {
         self.push_undo(self.snapshot());
     }
 
+    /// The current undo state's id, for [`Sheet::undo_selection_since`].
+    pub fn undo_mark(&self) -> u64 {
+        self.state.undo.current
+    }
+
+    /// States `U` goes back to that were saved after `mark` get `selected`:
+    /// a ranged command (S-26 B) ran with its rows as a stand-in selection.
+    pub fn undo_selection_since(
+        &mut self,
+        mark: u64,
+        selected: &Arc<std::collections::BTreeSet<u64>>,
+    ) {
+        let t = &mut self.state.undo;
+        let mut at = t.current;
+        while at != mark {
+            let Some(n) = t.nodes.get_mut(&at) else {
+                return;
+            };
+            let parent = n.parent;
+            if let Some(p) = parent.and_then(|p| t.nodes.get_mut(&p))
+                && let Some(snap) = p.snap.as_mut()
+            {
+                snap.view.selected = selected.clone();
+            }
+            match parent {
+                Some(p) => at = p,
+                None => return,
+            }
+        }
+    }
+
     /// `snap` (taken before a change) is the state `U` goes back to; the
     /// sheet as it is now becomes a new state. A change after `U` branches.
     #[expect(

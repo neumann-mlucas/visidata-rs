@@ -481,6 +481,7 @@ print(t3.collect())</code></pre>
 
 <h2 id="prompt">Prompt editing</h2>
 <p>All prompts (<kbd>/</kbd>, <kbd>:</kbd>, <kbd>=</kbd>, filters, rename, diff) support: <kbd>←</kbd> <kbd>→</kbd>, <kbd>Home</kbd>/<kbd>Ctrl-a</kbd>, <kbd>End</kbd>/<kbd>Ctrl-e</kbd>, <kbd>Backspace</kbd>, <kbd>Del</kbd>, <kbd>Ctrl-u</kbd> (delete to start), <kbd>Ctrl-w</kbd> (delete previous word). <kbd>Enter</kbd> runs, <kbd>Esc</kbd> cancels. In the <kbd>:</kbd> prompt, <kbd>↑</kbd>/<kbd>↓</kbd> walk the command history (kept in <code>$XDG_STATE_HOME/vdrs/exline_history</code>), and <kbd>Tab</kbd> completes the command name: one match is filled in, several are listed after the prompt (with their keys) and filled in up to where they differ. When no name starts with what you typed, names holding its letters in order match: <code>dedrw</code> finds <code>dedupe-rows</code>.</p>
+<p>A command can start with the rows it runs on, as in vim. It then runs as if those rows were selected, and your own selection comes back afterwards (less the rows it deleted): <code>:5,20 setcol 0</code>, <code>:.,$ d</code> (the cursor row to the last), <code>:% y</code> (all rows). <code>:g/^n/d</code> deletes the rows whose current column matches a regex, <code>:v/^n/d</code> those that don't, <code>:g/name=^n/d</code> tests the <code>name</code> column, and <code>:g{qty &gt; 2} d</code> takes a SQL condition. Without a command, the rows are selected: <code>:g/^n/</code> is <kbd>|</kbd><code>^n</code>. <code>:5,20 normal s</code> types keys on each row in turn (<code>&lt;CR&gt;</code>, <code>&lt;C-d&gt;</code> name special keys); the rows have to be loaded already (about a thousand around the cursor).</p>
 <p>Arguments are split on spaces; use quotes (<code>"a b"</code> or <code>'a b'</code>) or a backslash for spaces inside one argument.</p>
 
 <h2 id="ex">Ex commands</h2>
@@ -515,6 +516,8 @@ print(t3.collect())</code></pre>
 <tr data-ex="hist"><td><code>:hist [bins]</code></td><td>Histogram of the current number column (20 bins by default).</td></tr>
 <tr data-ex="bar"><td><code>:bar</code></td><td>On a frequency table: its counts as bars.</td></tr>
 <tr data-ex="split"><td><code>:split</code>, <code>:vsplit</code></td><td>Two panes, top and bottom or side by side (<kbd>Z</kbd>).</td></tr>
+<tr data-ex="delete"><td><code>:d</code>, <code>:delete</code></td><td>Delete the cursor row; with a range, its rows.</td></tr>
+<tr data-ex="yank"><td><code>:y</code>, <code>:yank</code></td><td>Copy the cursor row; with a range, its rows.</td></tr>
 <tr data-ex="jumps"><td><code>:jumps</code></td><td>The jumplist: where the cursor was before each big jump (<kbd>g</kbd><kbd>g</kbd>, <kbd>G</kbd>, <code>:cursor</code>, <kbd>n</kbd>/<kbd>N</kbd>, <kbd>Enter</kbd>, <kbd>F</kbd>, <kbd>S</kbd>, <kbd>Ctrl-^</kbd>). <code>:jump-back</code> and <code>:jump-forward</code> walk it; bind them with <code>vd.bind</code>.</td></tr>
 <tr data-ex="help"><td><code>:help</code></td><td>A sheet of the key bindings (<kbd>z</kbd> <kbd>Ctrl-h</kbd>).</td></tr>
 <tr data-ex="refresh"><td><code>:refresh</code></td><td>Rebuild a derived sheet from its parent as it is now (<kbd>Ctrl-r</kbd>).</td></tr>

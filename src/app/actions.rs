@@ -6,6 +6,29 @@ use super::*;
 const SCALE_LOW: &str = "#2c7bb6";
 const SCALE_HIGH: &str = "#d7191c";
 
+/// `:normal`'s keys: `<…>` names one (`<CR>`, `<C-d>`), any other char is
+/// itself, a space is `<Space>`.
+fn normal_keys(s: &str) -> Result<Vec<Key>, String> {
+    let mut out = Vec::new();
+    let mut rest = s;
+    while let Some(c) = rest.chars().next() {
+        let (tok, len) = match c {
+            '<' => match rest.find('>') {
+                Some(i) => (rest[..=i].to_string(), i + 1),
+                None => ("<".to_string(), 1),
+            },
+            ' ' => ("<Space>".to_string(), 1),
+            c => (c.to_string(), c.len_utf8()),
+        };
+        out.push(tok.parse::<Key>()?);
+        rest = &rest[len..];
+    }
+    match out.is_empty() {
+        true => Err("no keys".into()),
+        false => Ok(out),
+    }
+}
+
 impl App {
     /// `:scale` (`colors`) / `:databar` (`None`): the column's range comes
     /// from a job; the rule lands with it (S-27 B).
@@ -1768,7 +1791,145 @@ impl App {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 
-    /// Where the cursor is, as a jumplist entry.
+    /// `:5,20 cmd`, `:% cmd`, `:g/re/cmd` … (S-26 B): the rows' ids come from
+    /// a job, then `cmd` runs as if they were selected (`run_on_rows`).
+    pub(super) fn run_ranged(&mut self, rows: crate::exline::Rows, cmd: String) {
+        use crate::exline::{Addr, Rows};
+        let s = self.sheets.active();
+        let cursor = s.view.window_offset + s.view.row_cursor as u64;
+        let total = s.row_count();
+        let line = |a: &Addr| match a {
+            Addr::Line(n) => Ok(n.saturating_sub(1)),
+            Addr::Cursor => Ok(cursor),
+            Addr::Last => total
+                .map(|t| t.saturating_sub(1))
+                .ok_or("$: the row count isn't known yet"),
+        };
+        let span = match &rows {
+            Rows::Span(a, b) => match (line(a), line(b)) {
+                (Ok(a), Ok(b)) => Some((a.min(b), a.max(b))),
+                (Err(e), _) | (_, Err(e)) => {
+                    self.toast = Some(e.into());
+                    return;
+                }
+            },
+            Rows::All => total.map(|t| (0, t.saturating_sub(1))),
+            _ => None,
+        };
+        if let Some(keys) = cmd.strip_prefix("normal ") {
+            match span {
+                Some((a, b)) => self.normal_on_rows(a, b, keys),
+                None => self.toast = Some(":normal takes a row range (:5,20 normal …)".into()),
+            }
+            return;
+        }
+        let column = self.current_column_name();
+        let sheet = s.clone();
+        self.spawn_job("range", move || {
+            let e = |e: PolarsError| e.to_string();
+            let rids = match rows {
+                Rows::Span(..) | Rows::All => match span {
+                    Some((a, b)) => sheet.rids_in_rows(a, b - a + 1).map_err(e)?,
+                    None => sheet.rids_in_rows(0, u64::MAX >> 1).map_err(e)?,
+                },
+                Rows::Match { pattern, invert } => {
+                    // `col=re` names the column when `col` is one
+                    let (column, pattern) = match pattern.split_once('=') {
+                        Some((c, p)) if sheet.has_column(c) => (c.to_string(), p.to_string()),
+                        _ => (column.ok_or("no column")?, pattern),
+                    };
+                    sheet.rids_matching(&column, &pattern, invert).map_err(e)?
+                }
+                Rows::Where(pred) => sheet.rids_where(&pred)?,
+            };
+            Ok(JobDone::Ranged { rids, cmd })
+        });
+    }
+
+    /// `cmd` with `rids` as the selection; the user's selection comes back
+    /// after, less the rows `cmd` unselected (a delete) plus those it
+    /// selected. No `cmd`: select them.
+    pub(super) fn run_on_rows(&mut self, rids: Vec<u64>, cmd: &str) {
+        let s = self.sheets.active_mut();
+        if cmd.is_empty() {
+            let n = rids.len();
+            Arc::make_mut(&mut s.view.selected).extend(rids);
+            self.toast = Some(format!("selected {n} rows"));
+            return;
+        }
+        let saved = std::mem::replace(&mut s.view.selected, Arc::new(rids.into_iter().collect()));
+        let ranged = s.view.selected.clone();
+        let actions = match crate::exline::parse(cmd) {
+            Ok(a) => a,
+            Err(e) => {
+                s.view.selected = saved;
+                self.toast = Some(format!("{e}"));
+                return;
+            }
+        };
+        let (id, mark) = (s.id, s.undo_mark());
+        // a row command on a range: its selected-rows form
+        let actions = actions.into_iter().map(|a| match a {
+            Action::DeleteRow => Action::DeleteSelected,
+            Action::CopyRow => Action::CopySelected,
+            Action::CutRow => Action::CutSelected,
+            Action::SysCopyRow => Action::SysCopySelected,
+            a => a,
+        });
+        self.dispatch_sequence(actions.collect());
+        if let Some(s) = self.sheets.find_by_id_mut(id) {
+            let now = &s.view.selected;
+            let mut back: std::collections::BTreeSet<u64> = saved
+                .iter()
+                .filter(|r| !ranged.contains(r) || now.contains(r))
+                .copied()
+                .collect();
+            back.extend(now.difference(&ranged));
+            s.view.selected = Arc::new(back);
+            // `U` goes back to the user's selection, not the range
+            s.undo_selection_since(mark, &saved);
+        }
+    }
+
+    /// `:5,20 normal <keys>`: the keys, typed on each row in turn. Only rows
+    /// already loaded (the window): moving there must not wait for a load.
+    // ponytail: keys run back to back; a key whose effect lands in a job
+    // (a freq, a copy) sees each row's state when it started.
+    fn normal_on_rows(&mut self, from: u64, to: u64, keys: &str) {
+        const MAX: u64 = 10_000;
+        let keys = match normal_keys(keys) {
+            Ok(k) => k,
+            Err(e) => {
+                self.toast = Some(format!("normal: {e}"));
+                return;
+            }
+        };
+        let s = self.sheets.active();
+        let (lo, n) = (
+            s.view.window_offset,
+            s.window().map_or(0, |w| w.height() as u64),
+        );
+        if to - from + 1 > MAX || from < lo || to >= lo + n {
+            self.toast = Some(format!(
+                "normal: rows {}–{} aren't all loaded (rows {}–{} are, up to {MAX})",
+                from + 1,
+                to + 1,
+                lo + 1,
+                lo + n
+            ));
+            return;
+        }
+        let id = s.id;
+        for row in from..=to {
+            if self.sheets.active().id != id {
+                break; // a key left the sheet
+            }
+            self.goto_row(row);
+            for k in &keys {
+                self.on_key(*k);
+            }
+        }
+    }
     fn here(&self) -> Jump {
         let s = self.sheets.active();
         Jump {
