@@ -139,6 +139,13 @@ impl App {
             Action::PasteCell | Action::PasteCells | Action::PasteAfter | Action::PasteBefore
         );
         if pastes && let Some(c) = self.register_prefix.take().filter(|c| *c != '"') {
+            // ponytail: clipboard text has no row schema; `"+p` could parse it
+            // into rows like `:patch` if someone needs it
+            if c == '+' && matches!(action, Action::PasteAfter | Action::PasteBefore) {
+                self.toast =
+                    Some("\"+ pastes cells (\"+zp); rows from the clipboard: not yet".into());
+                return;
+            }
             if c == '+' {
                 return self.syspaste(action == Action::PasteCells);
             }

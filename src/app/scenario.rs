@@ -3398,6 +3398,8 @@ async fn vim_registers_named_yank_ring_and_paste() {
     assert_eq!(reg(&h, '1').as_deref(), Some("2"), "a cut goes to \"1");
     h.keys("\" q p").await;
     assert_eq!(status(&h), "register \"q is empty");
+    h.keys("\" + p").await;
+    assert!(status(&h).starts_with("\"+ pastes cells"), "{}", status(&h));
     h.keys(":").await;
     h.type_("registers").await;
     let df = h.app.sheets.active().window().unwrap().clone();
