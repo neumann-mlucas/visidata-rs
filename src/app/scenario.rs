@@ -2244,3 +2244,22 @@ async fn a_sheet_changed_from_gc_redraws_when_raised_from_the_sheet_list() {
     let hd = h.screen().lines().nth(1).unwrap().to_string();
     assert!(!hd.contains("id") && hd.contains("name"), "{hd}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rejected_or_columns_sheet_edits_leave_no_empty_undo_state() {
+    let mut h = Harness::new(5).await;
+    let depth = |h: &Harness| {
+        let s = h.app.sheets.iter().find(|s| !s.name.contains("_columns"));
+        s.unwrap().state.undo.depth()
+    };
+    h.keys("l +").await;
+    h.type_("sum").await; // name isn't numeric: refused
+    assert_eq!(depth(&h), 0);
+    h.keys("l l +").await;
+    h.type_("sum").await;
+    assert_eq!(depth(&h), 1);
+    h.keys("g g C").await;
+    h.keys("l l l e <C-u>").await; // `value` of the cursor column, `id`
+    h.type_("9").await;
+    assert_eq!(depth(&h), 2, "one state for one edit");
+}

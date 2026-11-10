@@ -476,8 +476,12 @@ impl App {
                 let Some(c) = self.current_column_name() else {
                     return;
                 };
-                if let Err(e) = self.sheets.active_mut().add_aggregators(&c, &names) {
-                    self.toast = Some(e);
+                // undo step only once the names are checked
+                let s = self.sheets.active_mut();
+                let before = s.snapshot();
+                match s.add_aggregators(&c, &names) {
+                    Ok(()) => s.push_undo(before),
+                    Err(e) => self.toast = Some(e),
                 }
             }
             Action::MemoAggregate { names } => {
