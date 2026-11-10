@@ -2205,3 +2205,29 @@ async fn aggregators_add_freq_columns_and_memo() {
     let hd = h.screen().lines().nth(1).unwrap().to_string();
     assert!(hd.contains("amt_mean") && !hd.contains("id_count"), "{hd}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn all_columns_undo_touches_only_the_sheet_it_wrote() {
+    let mut h = Harness::new(5).await;
+    h.keys("F [").await; // a freq sheet with its own (sort) change
+    h.keys("g C").await; // its row ids land before `d` can act
+    h.keys("d").await; // all_columns: hide the first sheet's first column
+    let hidden = |h: &Harness| {
+        let s = h.app.sheets.iter().find(|s| !s.name.contains('(')).unwrap();
+        s.view.hidden.len()
+    };
+    assert_eq!(hidden(&h), 1);
+    h.keys("U").await;
+    assert_eq!(hidden(&h), 0);
+    let freq = h
+        .app
+        .sheets
+        .iter()
+        .find(|s| s.name.starts_with("freq("))
+        .unwrap();
+    assert!(!freq.view.sort.is_empty(), "the freq sheet's sort stays");
+    h.keys("R").await;
+    assert_eq!(hidden(&h), 1);
+    h.keys("U U").await;
+    assert_eq!(status(&h), "nothing to undo");
+}

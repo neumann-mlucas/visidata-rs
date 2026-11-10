@@ -161,10 +161,11 @@ impl App {
         self.rebuild_columns(renamed);
     }
 
-    /// `U` / `R` on a columns sheet: on the sheet it lists.
+    /// `U` / `R` on a columns sheet: on the sheet of the cursor row (`gC`
+    /// lists several; the others keep their changes).
     fn columns_undo(&mut self, undo: bool) {
         let mut moved = false;
-        for id in self.columns_sheet_ids() {
+        for (id, _) in self.columns_targets(false) {
             if let Some(s) = self.sheets.find_by_id_mut(id)
                 && s.time_travel(undo)
             {
