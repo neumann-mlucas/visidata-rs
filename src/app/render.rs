@@ -122,24 +122,7 @@ impl App {
                 return;
             };
             self.render_titlebar(f, title, s);
-            match s.origin {
-                Origin::Plot { .. } => f.render_widget(
-                    crate::widget::PlotWidget {
-                        sheet: s,
-                        theme: &self.theme,
-                    },
-                    table,
-                ),
-                _ => f.render_widget(
-                    SheetWidget {
-                        sheet: s,
-                        theme: &self.theme,
-                        render,
-                        noted: None,
-                    },
-                    table,
-                ),
-            }
+            self.draw_sheet(f, table, s, render, None);
             // the unfocused pane is dim
             f.buffer_mut().set_style(
                 Rect {
@@ -165,24 +148,8 @@ impl App {
                 n.get(rid, keys.as_deref(), column).is_some()
             })
         };
-        match s.origin {
-            Origin::Plot { .. } => f.render_widget(
-                crate::widget::PlotWidget {
-                    sheet: s,
-                    theme: &self.theme,
-                },
-                sheet_area,
-            ),
-            _ => f.render_widget(
-                SheetWidget {
-                    sheet: s,
-                    theme: &self.theme,
-                    render,
-                    noted: notes.map(|_| &noted as crate::widget::Noted),
-                },
-                sheet_area,
-            ),
-        }
+        let noted = notes.map(|_| &noted as crate::widget::Noted);
+        self.draw_sheet(f, sheet_area, s, render, noted);
         // Rows from the old window, while a slow new one is on its way.
         let s = self.sheets.active();
         if !s.is_loaded() && self.spin().is_some() {
@@ -199,6 +166,35 @@ impl App {
         self.render_statusbar(f, chunks[2]);
         if !self.pending_candidates.is_empty() {
             self.render_which_key(f, main_area);
+        }
+    }
+
+    /// A sheet's body: a table, or a chart for plot and bar sheets (S-23 C).
+    fn draw_sheet(
+        &self,
+        f: &mut ratatui::Frame<'_>,
+        area: Rect,
+        sheet: &Sheet,
+        render: Option<crate::widget::CellRenderer>,
+        noted: Option<crate::widget::Noted>,
+    ) {
+        let theme = &self.theme;
+        match sheet.origin {
+            Origin::Plot { .. } => {
+                f.render_widget(crate::widget::PlotWidget { sheet, theme }, area)
+            }
+            Origin::Bars { .. } => {
+                f.render_widget(crate::widget::BarsWidget { sheet, theme }, area)
+            }
+            _ => f.render_widget(
+                SheetWidget {
+                    sheet,
+                    theme,
+                    render,
+                    noted,
+                },
+                area,
+            ),
         }
     }
 

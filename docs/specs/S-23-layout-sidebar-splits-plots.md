@@ -1,6 +1,6 @@
 # S-23 — Layout: sidebar, split panes, plots
 
-Status: **drafted 2026-11-08**; A shipped 2026-11-08, B and C1 2026-11-10. Three independent parts, ship in order A → B → C.
+Status: **drafted 2026-11-08**; A shipped 2026-11-08, B, C1 and C2 2026-11-10. Three independent parts, ship in order A → B → C.
 Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 ## 1. What exists (verified in `src/app.rs`)
@@ -70,6 +70,7 @@ parent's `view_plan()`; the widget draws it.
 | C1 | scatter/line: `:plot <x> <y…>` (numeric/date x); braille `Canvas`; axes + legend; colors per y (theme); data downsampled to ≤ 2 points per screen cell (`group_by_dynamic` / binning by x pixel, min+max per bin so spikes survive) | 3–4 d |
 | C1 as shipped | `Origin::Plot { parent, x, ys }`, `Sheet::plot_from` bins lazily (`floor((x-lo)/span·(bins-1))`, group-by, sort), bins = 2 × table width; `PlotWidget` = ratatui `Chart` scatter, braille only (`plot_marker` option not shipped), categorical key columns don't split series yet; `.` repeat is `:repeat-last` until S-26 D's vim profile binds `.`; memory test at 200k rows (1M takes 30 s in debug) | — |
 | C2 | histogram of the current numeric column (`:hist`, binned in Polars) and bar chart of a freq sheet (`:bar` on `F` output; VisiData can't) | 1–2 d |
+| C2 as shipped | `:hist [bins]` bins lazily (`ceil((x-lo)/w)-1`, clipped: Polars' right-closed edges without collecting the column — `hist_series` is eager); `:bar` on a freq sheet, first 1000 values, horizontal; both `Origin::Bars`, drawn by `BarsWidget` | — |
 | C3 | navigation: `hjkl` pan, `+`/`-` zoom (VisiData `zoom-*`), `0` reset; re-sample on zoom | 2 d |
 | C4 | select by region: a box cursor; `s` selects the parent rows inside it (rid-keyed → shows in the parent), `Enter` dives to them | 2–3 d |
 | C5 | `:export` of a plot as a Polars/plotnine or DuckDB+vega-lite snippet — only if asked | — |

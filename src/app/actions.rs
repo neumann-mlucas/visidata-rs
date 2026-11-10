@@ -357,6 +357,24 @@ impl App {
             Action::Refresh => self.refresh(),
             Action::Plot { x, ys } => self.plot(x, ys),
             Action::PlotColumn => self.plot_keys(false),
+            Action::Hist { bins } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let parent = self.sheets.active().clone();
+                let id = self.sheets.alloc_id();
+                self.spawn_job("hist", move || {
+                    let s = Sheet::hist_from(&parent, id, &column, bins.unwrap_or(20))?;
+                    Ok(JobDone::PushSheet(Box::new(s)))
+                });
+            }
+            Action::Bars => {
+                let parent = self.sheets.active().clone();
+                let id = self.sheets.alloc_id();
+                self.spawn_job("bar", move || {
+                    Ok(JobDone::PushSheet(Box::new(Sheet::bars_from(&parent, id)?)))
+                });
+            }
             Action::PlotNumerics => self.plot_keys(true),
             Action::SplitPane { .. }
             | Action::ClosePane

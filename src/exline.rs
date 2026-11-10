@@ -330,6 +330,15 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }]),
         "hits" => Err(ExError::Usage(":hits <regex> (every column)")),
         "stats" => Ok(vec![Action::CopyStats]),
+        "hist" => match rest {
+            "" => Ok(vec![Action::Hist { bins: None }]),
+            n => n
+                .parse()
+                .ok()
+                .filter(|n| (1..=1000).contains(n))
+                .map(|bins| vec![Action::Hist { bins: Some(bins) }])
+                .ok_or(ExError::Usage(":hist [bins] (1–1000; 20 by default)")),
+        },
         "plot" => {
             const USAGE: &str = ":plot <x> <y…> (x numbers or dates)";
             match split_args(rest, USAGE)?.as_slice() {
@@ -471,6 +480,7 @@ pub const COMMANDS: &[&str] = &[
     "mksession",
     "stats",
     "plot",
+    "hist",
     "note",
     "patch",
     "open",

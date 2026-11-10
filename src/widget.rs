@@ -540,6 +540,61 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
     }
 }
 
+/// A `:hist` / `:bar` sheet (S-23 C2): a bar per row, labelled.
+pub struct BarsWidget<'a> {
+    pub sheet: &'a Sheet,
+    pub theme: &'a Theme,
+}
+
+impl Widget for BarsWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        use ratatui::layout::Direction;
+        use ratatui::widgets::{Bar, BarChart};
+        let (
+            crate::sheet::Origin::Bars {
+                label,
+                value,
+                horizontal,
+                ..
+            },
+            Some(df),
+        ) = (&self.sheet.origin, self.sheet.window())
+        else {
+            return;
+        };
+        let (Ok(l), Ok(v)) = (df.column(label), df.column(value)) else {
+            return;
+        };
+        let v = v.cast(&DataType::UInt64).ok();
+        let v = v.as_ref().and_then(|c| c.u64().ok());
+        let n = df.height();
+        let bars: Vec<Bar> = (0..n)
+            .map(|i| {
+                let text = l.get(i).map_or_else(|_| String::new(), |a| display_av(&a));
+                Bar::with_label(text, v.and_then(|v| v.get(i)).unwrap_or(0))
+            })
+            .collect();
+        let th = self.theme;
+        let chart = BarChart::new(bars)
+            .bar_style(Style::default().fg(th.num_fg))
+            .value_style(Style::default().fg(th.header_bg).bg(th.num_fg))
+            .label_style(Style::default().fg(th.header_fg));
+        let chart = match horizontal {
+            // one row per value, most common first, as many as fit
+            true => chart
+                .direction(Direction::Horizontal)
+                .bar_width(1)
+                .bar_gap(0),
+            // bins share the width
+            false => {
+                let w = (area.width as usize / n.max(1)).max(2) as u16;
+                chart.bar_width(w - 1).bar_gap(1)
+            }
+        };
+        chart.render(area, buf);
+    }
+}
+
 /// A `:plot` sheet (S-23 C1): its binned rows as a braille scatter, axes from
 /// the data's range, a legend per y.
 pub struct PlotWidget<'a> {

@@ -195,6 +195,13 @@ pub enum Origin {
     Hits {
         parent: SheetId,
     },
+    /// `:hist`, `:bar` (S-23 C2): a bar per row, `label` and `value` columns.
+    Bars {
+        parent: SheetId,
+        label: String,
+        value: String,
+        horizontal: bool,
+    },
     /// `:plot` (S-23 C1): `parent`'s view binned by `x`; drawn as a chart.
     Plot {
         parent: SheetId,
@@ -250,6 +257,7 @@ impl Origin {
             Origin::Selected { .. } => "selected",
             Origin::Hits { .. } => "hits",
             Origin::Plot { .. } => "plot",
+            Origin::Bars { .. } => "bars",
             Origin::Sql { .. } => "sql",
             Origin::Describe { .. } => "describe",
             Origin::Lua { .. } => "lua",

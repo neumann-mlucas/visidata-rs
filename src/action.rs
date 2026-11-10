@@ -374,6 +374,12 @@ pub enum Action {
         x: String,
         ys: Vec<String>,
     },
+    /// `:hist [bins]` (S-23 C2): histogram of the cursor column.
+    Hist {
+        bins: Option<u32>,
+    },
+    /// `:bar`: the frequency table as bars.
+    Bars,
     /// `.` (VisiData plot-column): the cursor column against the numeric key column.
     PlotColumn,
     /// `g.` (plot-numerics): every visible numeric non-key column against it.
@@ -544,7 +550,7 @@ impl Action {
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
-            Plot { .. } | PlotColumn | PlotNumerics => true,
+            Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -755,6 +761,7 @@ impl Action {
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
         ("plot_column", PlotColumn),
+        ("bar", Bars),
         ("plot_numerics", PlotNumerics),
         ("split", SplitPane { vertical: false }),
         ("vsplit", SplitPane { vertical: true }),
@@ -875,6 +882,7 @@ impl Action {
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
             Hits { needle } => format!("hits {needle}"),
+            Hist { bins } => bins.map_or("hist".into(), |b| format!("hist {b}")),
             Plot { x, ys } => std::iter::once(x)
                 .chain(ys)
                 .fold("plot".to_string(), |s, c| s + " " + &q(c)),

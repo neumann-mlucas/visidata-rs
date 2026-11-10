@@ -96,6 +96,133 @@ impl Sheet {
     }
 }
 
+impl Sheet {
+    /// `:hist [bins]` (S-23 C2): counts of `column` in `bins` equal ranges,
+    /// right-closed as Polars' `hist` (`(lo, hi]`, the first takes the minimum).
+    pub fn hist_from(parent: &Sheet, id: SheetId, column: &str, bins: u32) -> Result<Self, String> {
+        let e = |e: PolarsError| e.to_string();
+        let lf = parent.view_plan();
+        let t = lf
+            .clone()
+            .collect_schema()
+            .map_err(e)?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("hist: no column {column}"))?;
+        if !t.is_primitive_numeric() {
+            return Err(format!("hist: {column} is {t}; needs numbers"));
+        }
+        let x = lf
+            .select([col(column).cast(DataType::Float64).alias("x")])
+            .filter(col("x").is_not_null());
+        let range = x
+            .clone()
+            .select([col("x").min().alias("lo"), col("x").max().alias("hi")])
+            .collect()
+            .map_err(e)?;
+        let get = |n: &str| range.column(n).ok()?.f64().ok()?.get(0);
+        let (Some(lo), Some(hi)) = (get("lo"), get("hi")) else {
+            return Err(format!("hist: {column} has no values"));
+        };
+        let bins = if hi > lo { bins.max(1) } else { 1 };
+        let width = (hi - lo) / f64::from(bins);
+        let last = i64::from(bins) - 1;
+        let idx = match width > 0.0 {
+            true => {
+                ((col("x") - lit(lo)) / lit(width))
+                    .ceil()
+                    .cast(DataType::Int64)
+                    - lit(1i64)
+            }
+            false => lit(0i64),
+        };
+        let counts = x
+            .select([idx
+                .clip(lit(0i64), lit(last))
+                .cast(DataType::Int64)
+                .alias("bin")])
+            .group_by([col("bin")])
+            .agg([len().alias("count")])
+            .collect()
+            .map_err(e)?;
+        let mut n = vec![0u64; bins as usize];
+        let (b, c) = (
+            counts.column("bin").map_err(e)?,
+            counts.column("count").map_err(e)?,
+        );
+        for (b, c) in b.i64().map_err(e)?.iter().zip(c.u32().map_err(e)?.iter()) {
+            if let (Some(b), Some(c)) = (b, c) {
+                n[b as usize] = u64::from(c);
+            }
+        }
+        let edge = |i: u32| lo + width * f64::from(i);
+        let label: Vec<String> = (0..bins)
+            .map(|i| format!("{}–{}", stat_num(edge(i)), stat_num(edge(i + 1))))
+            .collect();
+        let df = DataFrame::new_infer_height(vec![
+            Column::new("bin".into(), label),
+            Column::new("count".into(), n),
+            Column::new("lo".into(), (0..bins).map(edge).collect::<Vec<_>>()),
+            Column::new(
+                "hi".into(),
+                (0..bins).map(|i| edge(i + 1)).collect::<Vec<_>>(),
+            ),
+        ])
+        .map_err(e)?;
+        let origin = Origin::Bars {
+            parent: parent.id,
+            label: "bin".into(),
+            value: "count".into(),
+            horizontal: false,
+        };
+        Ok(Self::meta(
+            id,
+            format!("hist({column}): {}", parent.name),
+            df,
+            origin,
+        ))
+    }
+
+    /// `:bar` on a freq sheet: its rows (most common first) as bars.
+    // ponytail: the first 1000 values; scroll the bars if someone needs more
+    pub fn bars_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
+        let Origin::Freq { column, .. } = &parent.origin else {
+            return Err("bar: needs a frequency table (F)".into());
+        };
+        let e = |e: PolarsError| e.to_string();
+        let lf = parent.view_plan();
+        let names: Vec<String> = lf
+            .clone()
+            .collect_schema()
+            .map_err(e)?
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect();
+        // the count column follows the value column
+        let value = names
+            .iter()
+            .position(|n| n == column)
+            .and_then(|i| names.get(i + 1))
+            .ok_or("bar: no count column")?
+            .clone();
+        let df = lf
+            .select([
+                col(column.as_str()).cast(DataType::String),
+                col(value.as_str()),
+            ])
+            .limit(1000)
+            .collect()
+            .map_err(e)?;
+        let origin = Origin::Bars {
+            parent: parent.id,
+            label: column.clone(),
+            value,
+            horizontal: true,
+        };
+        Ok(Self::meta(id, format!("bar: {}", parent.name), df, origin))
+    }
+}
+
 /// Points per y of a binned frame: each bin's (x, min) and (x, max).
 pub fn plot_points(df: &DataFrame, x: &str, ys: &[String]) -> Vec<Vec<(f64, f64)>> {
     let f = |c: &str| -> Vec<Option<f64>> {
@@ -175,6 +302,55 @@ mod tests {
         assert_eq!(
             p.window().unwrap().column("d").unwrap().dtype(),
             &DataType::Date
+        );
+    }
+}
+
+#[cfg(test)]
+mod hist_tests {
+    use super::*;
+
+    #[test]
+    fn hist_bins_are_right_closed_and_count_every_value() {
+        let v: Vec<f64> = vec![0.0, 1.0, 2.5, 2.5, 5.0, 7.5, 7.5, 10.0, 3.0, 9.99];
+        let df = df!["v" => &v].unwrap();
+        let s = Sheet::meta(0, "t".into(), df, Origin::File);
+        let h = Sheet::hist_from(&s, 1, "v", 4).unwrap();
+        let w = h.window().unwrap();
+        let counts: Vec<u64> = w
+            .column("count")
+            .unwrap()
+            .u64()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
+        // (0, 2.5] takes 0 too; (2.5, 5]; (5, 7.5]; (7.5, 10]
+        let want = |lo: f64, hi: f64, first: bool| {
+            v.iter()
+                .filter(|x| (**x > lo || (first && **x == lo)) && **x <= hi)
+                .count() as u64
+        };
+        assert_eq!(
+            counts,
+            [
+                want(0.0, 2.5, true),
+                want(2.5, 5.0, false),
+                want(5.0, 7.5, false),
+                want(7.5, 10.0, false)
+            ]
+        );
+        assert_eq!(counts.iter().sum::<u64>(), v.len() as u64);
+        assert_eq!(
+            w.column("bin").unwrap().str().unwrap().get(0),
+            Some("0–2.5")
+        );
+        let one = Sheet::meta(0, "t".into(), df!["v" => [3.0, 3.0]].unwrap(), Origin::File);
+        let h = Sheet::hist_from(&one, 1, "v", 4).unwrap();
+        assert_eq!(h.window().unwrap().height(), 1, "one value: one bin");
+        let txt = Sheet::meta(0, "t".into(), df!["s" => ["a"]].unwrap(), Origin::File);
+        assert_eq!(
+            Sheet::hist_from(&txt, 1, "s", 4).err().unwrap(),
+            "hist: s is str; needs numbers"
         );
     }
 }

@@ -2780,3 +2780,32 @@ async fn a_plot_of_many_rows_stays_screen_sized() {
         "{rows} bins for a 100-column screen"
     );
 }
+
+/// S-23 C2: `:hist` bars the cursor column; `:bar` draws a freq table.
+#[tokio::test(flavor = "multi_thread")]
+async fn hist_and_bar_sheets_draw_bars() {
+    let mut h = csv(b"v,g\n1,a\n2,a\n2,b\n3,a\n9,c\n10,a\n").await;
+    h.keys(":").await;
+    h.type_("hist 3").await;
+    assert!(title(&h).contains("hist(v)"), "{}", title(&h));
+    let screen = h.screen();
+    let lines: Vec<&str> = screen.lines().collect();
+    // (1,4] holds 1 2 2 3, (4,7] nothing, (7,10] 9 10
+    let labels: Vec<&str> = lines[10].split_whitespace().collect();
+    assert_eq!(labels, ["1–4", "4–7", "7–10"], "{screen}");
+    let values: String = lines[9].chars().filter(char::is_ascii_digit).collect();
+    assert_eq!(values, "42", "{screen}");
+    h.keys("q :").await;
+    h.type_("bar").await;
+    assert_eq!(status(&h), "bar: bar: needs a frequency table (F)");
+    h.keys("l F :").await;
+    h.type_("bar").await;
+    let screen = h.screen();
+    let rows: Vec<String> = screen
+        .lines()
+        .skip(1)
+        .take(3)
+        .map(|l| l.replace('█', ""))
+        .collect();
+    assert_eq!(rows, ["a 4", "b 1", "c 1"], "{screen}");
+}
