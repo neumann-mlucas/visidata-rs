@@ -605,11 +605,6 @@ impl Sheet {
         Ok(out)
     }
 
-    /// `:hits needle` (S-28 B): `row` (from 1), `column`, `value` and the key
-    /// columns' values of each hit of `needle` in `parent`'s view, at most
-    /// `cap`. Also whether the cap cut it short.
-    /// `:notes` (S-30 B): a sheet of the notes on `parent`'s cells, `row` = its
-    /// view position now (empty: filtered out or gone); `Enter` jumps, as `:hits`.
     /// A sheet of text columns `names`, one `rows` entry per row.
     pub fn listing(id: SheetId, name: &str, names: &[&str], rows: &[Vec<String>]) -> Self {
         let cols = names.iter().enumerate().map(|(i, n)| {
@@ -623,6 +618,8 @@ impl Sheet {
         Self::meta(id, name.into(), df, Origin::Listing)
     }
 
+    /// `:notes` (S-30 B): a sheet of the notes on `parent`'s cells, `row` = its
+    /// view position now (empty: filtered out or gone); `Enter` jumps, as `:hits`.
     pub fn notes_from(
         parent: &Sheet,
         id: SheetId,
@@ -687,6 +684,9 @@ impl Sheet {
         Ok(Self::meta(id, name, df, Origin::Hits { parent: parent.id }))
     }
 
+    /// `:hits needle` (S-28 B): `row` (from 1), `column`, `value` and the key
+    /// columns' values of each hit of `needle` in `parent`'s view, at most
+    /// `cap`. Also whether the cap cut it short.
     pub fn hits_from(
         parent: &Sheet,
         id: SheetId,
@@ -2366,8 +2366,6 @@ pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
 /// width, less 2); others scale down by count, rounding down.
 pub const HISTOGRAM_WIDTH: usize = 38;
 
-/// A value as `cast(String)` prints it: the text `values_predicate` compares.
-/// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
 /// Row `r`'s `keys` values as text: what a note on that row keys on.
 pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
     keys.iter()
@@ -2380,6 +2378,8 @@ pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
         .collect()
 }
 
+/// A value as `cast(String)` prints it: the text `values_predicate` compares.
+/// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
 pub fn any_text(v: &AnyValue) -> String {
     let cast = Series::from_any_values("v".into(), std::slice::from_ref(v), true)
         .and_then(|s| s.cast(&DataType::String));
@@ -2403,7 +2403,6 @@ pub(crate) fn column_texts(c: &Column) -> PolarsResult<Vec<Option<String>>> {
     Ok(c.str()?.iter().map(|v| v.map(String::from)).collect())
 }
 
-/// The row's [`ROW_ID`] is one of `rids`.
 /// `1234567` as `1,234,567`.
 pub fn grouped(n: u64) -> String {
     let digits = n.to_string();
@@ -2429,6 +2428,7 @@ pub fn stat_num(v: f64) -> String {
     }
 }
 
+/// The row's [`ROW_ID`] is one of `rids`.
 pub(crate) fn rid_in(rids: &[u64]) -> Expr {
     let ids = lit(Series::new("ids".into(), rids)).implode(false);
     col(ROW_ID).cast(DataType::UInt64).is_in(ids, false)

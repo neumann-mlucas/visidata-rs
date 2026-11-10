@@ -128,11 +128,6 @@ fn dived_from(l: &crate::sheet::Lineage, below: &Sheet) -> bool {
     matches!(&fl.how, Derivation::Freq { column: c } if c == column) && fl.parent.id == l.parent.id
 }
 
-/// A SQL string literal.
-fn sql_str(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
 struct Block {
     lines: Vec<String>,
     /// Folder for step data, and this sheet's index in the stack.
@@ -145,8 +140,12 @@ impl Block {
         let Derivation::Values { column, values } = &l.how else {
             return false;
         };
-        let c = format!("\"{}\"", column.replace('"', "\"\""));
-        let texts: Vec<String> = values.iter().flatten().map(|v| sql_str(v)).collect();
+        let c = crate::duckdb::ident(column);
+        let texts: Vec<String> = values
+            .iter()
+            .flatten()
+            .map(|v| crate::duckdb::lit(v))
+            .collect();
         let mut terms = Vec::new();
         if !texts.is_empty() {
             terms.push(format!("CAST({c} AS VARCHAR) IN ({})", texts.join(", ")));
@@ -281,8 +280,8 @@ impl Block {
                 keys: keys.clone(),
             }),
             Derivation::Values { .. } => {
-                // ponytail: a freq dive needs the freq sheet's rows picked; save
-                // it as a SQL `IN` select if dives in sessions matter.
+                // a dive right above its freq sheet is saved (`Block::dive`);
+                // ponytail: one whose freq sheet was closed isn't
                 self.note("a sheet opened from a frequency row (<CR>)");
                 return false;
             }

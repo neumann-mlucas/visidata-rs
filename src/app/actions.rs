@@ -1439,7 +1439,7 @@ impl App {
         let done = match mode {
             SubstMode::NewColumn => {
                 let name = format!("{c}_re");
-                let q = format!("\"{}\"", c.replace('"', "\"\""));
+                let q = crate::duckdb::ident(&c);
                 s.derive(&name, &format!("CAST({q} AS VARCHAR)"))
                     .and_then(|()| s.replace(&name, pattern, replacement, true, None, false))
                     .map(|()| format!("added {name}"))
@@ -2746,9 +2746,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// The terminal pasted `text` (bracketed paste). In a prompt it's typed
-    /// in (first line); in the table it fills the register, as TSV or CSV,
-    /// for `p` `zp` `gzp`, and is what `zP` `gzP` paste without a command.
     /// `vd.option("mouse", "true")` (S-26 A9): the wheel moves the cursor 3
     /// rows, a click puts it on a cell, a click on the header on a column.
     pub(super) fn on_mouse(&mut self, m: crossterm::event::MouseEvent) {
@@ -2777,6 +2774,9 @@ impl App {
         }
     }
 
+    /// The terminal pasted `text` (bracketed paste). In a prompt it's typed
+    /// in (first line); in the table it fills the register, as TSV or CSV,
+    /// for `p` `zp` `gzp`, and is what `zP` `gzP` paste without a command.
     pub(super) fn on_paste(&mut self, text: String) {
         self.toast = None;
         if let Some((_, line)) = self.input.as_mut() {

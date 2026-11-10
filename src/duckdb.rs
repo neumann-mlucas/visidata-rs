@@ -34,7 +34,7 @@ pub fn ident(s: &str) -> String {
 }
 
 /// `'x'` as a DuckDB string literal.
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
