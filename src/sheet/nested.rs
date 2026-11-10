@@ -230,7 +230,9 @@ impl Sheet {
             .ok_or_else(|| format!("no column: {column}"))?;
         let (key, val) = (format!("{column}_key"), format!("{column}_value"));
         let c = || col(column);
-        let items = match unfurl_kind(dt)? {
+        let kind = unfurl_kind(dt)?;
+        let is_struct = matches!(kind, Unfurl::Struct { .. });
+        let items = match kind {
             Unfurl::List => c(),
             Unfurl::Struct { fields, text } => concat_list(
                 fields
@@ -245,7 +247,6 @@ impl Sheet {
             .map_err(|e| e.to_string())?,
             Unfurl::Scalar => concat_list([c()]).map_err(|e| e.to_string())?,
         };
-        let is_struct = matches!(dt, DataType::Struct(_));
         let (k, v) = if is_struct {
             (
                 c().struct_().field_by_name("k"),
