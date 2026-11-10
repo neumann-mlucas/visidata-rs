@@ -390,6 +390,16 @@ impl Visual {
     }
 }
 
+/// An operator waiting for its motion: `op`, the counts typed before it and
+/// before the motion, and whether `i` (a text object) came.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Pending {
+    op: char,
+    count: Option<usize>,
+    motion_count: Option<usize>,
+    object: bool,
+}
+
 /// A jumplist place: sheet, view row (from 0), column.
 #[derive(Debug, Clone, PartialEq)]
 struct Jump {
@@ -530,6 +540,8 @@ pub struct App {
     /// `"0` last yank, `"1`–`"9` last cuts, `"a`–`"z` named (S-26 D2); the
     /// unnamed `""` is `register`.
     registers: std::collections::BTreeMap<char, Register>,
+    /// `d` `y` `c` waiting for a motion (vim profile, S-26 D3).
+    operator: Option<Pending>,
     /// `"x` typed: the next yank / cut / paste uses register `x`.
     register_prefix: Option<char>,
     /// `"` typed, its register key not yet.
@@ -605,6 +617,7 @@ impl App {
             register: None,
             registers: Default::default(),
             register_prefix: None,
+            operator: None,
             awaiting_register: false,
             confirm: None,
             clipboard,
@@ -1645,6 +1658,10 @@ impl App {
         if self.input.is_some() {
             self.on_input_key(key);
             self.refresh_pivot_preview();
+            return;
+        }
+        if self.operator.is_some() {
+            self.operator_key(key);
             return;
         }
         if std::mem::take(&mut self.awaiting_register) {

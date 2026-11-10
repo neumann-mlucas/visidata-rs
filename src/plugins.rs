@@ -562,6 +562,9 @@ b({"<C-w>", "w"}, "focus_pane")
 b({"<C-w>", "o"}, "close_pane")
 b({"<C-w>", "q"}, "close_pane")
 b({"Z", "Z"}, "pop_sheet")
+b("d", "operator_delete")             -- default: delete row (dd here)
+b("y", "operator_yank")               -- default: copy row (yy here)
+b("c", "operator_change")
 b('"', "register_prefix")            -- default: selected rows as a sheet (:dupsel)
 "##;
 

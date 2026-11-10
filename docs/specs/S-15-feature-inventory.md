@@ -131,6 +131,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
 | `JumpPrev` | `<C-^>` / `<C-6>` | the sheet under the active one comes to the top (VisiData `jump-prev`); twice = back (S-26 A7) |
 | `HelpCommands` | `z<C-h>` / `z<F1>` / `z<BS>`, `:help` | push a `help` sheet: key, action (`to_ex`), description per sheet-layer chord (S-26 A5) |
+| Operators | vim `d` `y` `c` + `dd`/motion/`i{r,s,c,v,b}` | `App.operator: Pending`; motions `j k G gg H M L <C-d> <C-u> { }` (counts multiply) → rows → `run_ranged` (`cut-row`, `y`, `:'<,'> setcol`); `ic iv ib` act on cells; `.` = `:.,.+N cmd` (S-26 D3) |
 | Registers | `:registers`; vim `"x` prefix | `App.registers`: `"0` last yank, `"1`–`"9` cut ring, `"a`–`"z`; `""` = `App.register`; `"+` routes to the system clipboard; a prefixed paste swaps the named one in for that action (S-26 D2) |
 | Vim profile | `vd.option("keymap", "vim")` | `plugins::VIM_PROFILE`: `vd.bind` patches over the defaults (guide table synced by test); new actions `HalfPage`, `ScreenRow`, `ScrollTo`, `CellMotion`, `ValueChange` (loaded rows), `SearchCell` (`^value$`) (S-26 D1) |
 | Visual | `V` rows, `<C-v>` block, `Esc`; `:reselect`; `'<,'>` | `App.visual` (anchor + cursor, view rows); verbs `s u y d x e " :` → `run_ranged` (`e`/`:` prefill `:'<,'>`); block `-` hides its columns (undoable); highlighted reverse; status line `-- VISUAL --` (S-26 C) |

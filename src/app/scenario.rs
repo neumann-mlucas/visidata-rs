@@ -3342,8 +3342,8 @@ async fn vim_registers_named_yank_ring_and_paste() {
         Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
     (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
     let ids = |h: &Harness| csv_text(h.app.sheets.active(), b',').replace('\n', " ");
-    h.keys("\" a y").await; // row 1 into "a
-    h.keys("j y").await; // row 2 into "" and "0
+    h.keys("\" a y y").await; // row 1 into "a
+    h.keys("j y y").await; // row 2 into "" and "0
     let reg = |h: &Harness, c: char| {
         h.app
             .registers
@@ -3377,4 +3377,56 @@ async fn vim_registers_named_yank_ring_and_paste() {
         .map(|v| v.unwrap_or_default().to_string())
         .collect();
     assert_eq!(names, ["\"\"", "\"0", "\"1", "\"a"]);
+}
+
+/// S-26 D3: vim operators — `dd`, counts (`2dj` = 3 rows), `dG`, `.`
+/// repeats, `yic` copies the column's cells, `ciw`-style `cir` sets a row,
+/// `div` takes the run of equal values; a non-motion cancels.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_operators_motions_and_text_objects() {
+    let mut h = csv(b"id,g\n1,a\n2,a\n3,b\n4,b\n5,b\n6,c\n7,c\n8,d\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let ids = |h: &Harness| {
+        let t = csv_text(h.app.sheets.active(), b',');
+        t.lines()
+            .skip(1)
+            .map(|l| l.split(',').next().unwrap().to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    h.keys("y i c").await;
+    let r = h.app.register.clone().unwrap();
+    assert_eq!(
+        (r.kind, r.df.height()),
+        (RegisterKind::Cells, 8),
+        "yic: the column"
+    );
+    h.keys("d d").await;
+    assert_eq!(ids(&h), "2 3 4 5 6 7 8", "{}", h.screen());
+    assert_eq!(h.app.register.as_ref().unwrap().df.height(), 1, "dd cuts");
+    h.keys(".").await;
+    assert_eq!(ids(&h), "3 4 5 6 7 8", ". repeats dd");
+    h.keys("2 d j").await;
+    assert_eq!(ids(&h), "6 7 8", "2dj: three rows");
+    h.keys("j d G").await;
+    assert_eq!(ids(&h), "6", "dG: to the end");
+    h.keys("u u u u").await; // vim profile: u undoes
+    assert_eq!(ids(&h), "1 2 3 4 5 6 7 8");
+    h.keys("j j l d i v").await; // g = b on rows 3–5
+    let t = csv_text(h.app.sheets.active(), b',');
+    assert!(t.contains("3,\n4,\n5,\n"), "div empties the run: {t}");
+    h.keys("c i r").await;
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "'<,'> setcol ");
+    h.type_("z").await;
+    assert!(
+        csv_text(h.app.sheets.active(), b',').contains("3,z\n4,\n"),
+        "{}",
+        h.screen()
+    );
+    h.keys("d x").await;
+    assert!(status(&h).starts_with("d needs a motion"), "{}", status(&h));
+    h.keys("d <Esc> j").await;
+    assert!(h.app.operator.is_none());
 }

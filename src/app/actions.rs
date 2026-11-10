@@ -478,6 +478,13 @@ impl App {
                 });
             }
             Action::RegisterPrefix => self.awaiting_register = true,
+            Action::Operator { op, count } => {
+                self.operator = Some(crate::app::Pending {
+                    op,
+                    count,
+                    ..Default::default()
+                });
+            }
             Action::Registers => {
                 let mut all: Vec<(char, &Register)> =
                     self.registers.iter().map(|(c, r)| (*c, r)).collect();
@@ -1950,6 +1957,187 @@ impl App {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 
+    /// A key after `d` `y` `c` (S-26 D3): a count, the operator again (its
+    /// rows: `dd`), `i` + an object, or a motion whose rows it acts on.
+    pub(super) fn operator_key(&mut self, key: Key) {
+        let Some(mut p) = self.operator else { return };
+        let ch = match key.code {
+            KeyCode::Char(c) if !key.ctrl && !key.alt => Some(c),
+            _ => None,
+        };
+        if key.code == KeyCode::Esc {
+            (self.operator, self.pending) = (None, Vec::new());
+            return;
+        }
+        if p.object {
+            self.operator = None;
+            return match ch {
+                Some(o @ ('r' | 'c' | 's' | 'v' | 'b')) => self.operator_object(p, o),
+                _ => self.toast = Some(format!("no text object i{key} (ir ic is iv ib)")),
+            };
+        }
+        if self.pending.is_empty()
+            && let Some(d) = ch.and_then(|c| c.to_digit(10))
+            && (d > 0 || p.motion_count.is_some())
+        {
+            p.motion_count = Some(p.motion_count.unwrap_or(0) * 10 + d as usize);
+            self.operator = Some(p);
+            return;
+        }
+        let n = p.count.unwrap_or(1) * p.motion_count.unwrap_or(1);
+        if self.pending.is_empty() && ch == Some(p.op) {
+            self.operator = None;
+            let at = self.cursor_row();
+            return self.operator_rows(p.op, at, at + n as u64 - 1);
+        }
+        if self.pending.is_empty() && ch == Some('i') {
+            p.object = true;
+            self.operator = Some(p);
+            return;
+        }
+        let actions = match self.keymap.resolve(Layer::Sheet, &self.pending, key) {
+            Dispatch::Pending(_) => {
+                self.pending.push(key);
+                return;
+            }
+            Dispatch::Fire(a) => a,
+            Dispatch::Miss => Vec::new(),
+        };
+        (self.operator, self.pending) = (None, Vec::new());
+        let [motion] = actions.as_slice() else {
+            self.toast = Some(format!("{} needs a motion (j k G gg H L {{ }} …)", p.op));
+            return;
+        };
+        let from = self.cursor_row();
+        let to = match motion {
+            Action::GotoTop => 0,
+            Action::GotoBottom => match self.sheets.active().row_count() {
+                Some(t) => t.saturating_sub(1),
+                None => return self.toast = Some("the row count isn't known yet".into()),
+            },
+            Action::CursorDown { .. }
+            | Action::CursorUp { .. }
+            | Action::HalfPage { .. }
+            | Action::PageDown
+            | Action::PageUp
+            | Action::ScreenRow { .. }
+            | Action::ValueChange { .. } => {
+                let m = motion.clone().with_count(Some(n));
+                self.dispatch(m);
+                let to = self.cursor_row();
+                self.goto_row(from);
+                to
+            }
+            _ => {
+                self.toast = Some(format!("{} needs a motion (j k G gg H L {{ }} …)", p.op));
+                return;
+            }
+        };
+        self.operator_rows(p.op, from.min(to), from.max(to));
+    }
+
+    fn cursor_row(&self) -> u64 {
+        let s = self.sheets.active();
+        s.view.window_offset + s.view.row_cursor as u64
+    }
+
+    /// `op` on view rows `lo..=hi` (`d` cuts, `y` copies, `c` sets the
+    /// column); `.` repeats it from the cursor.
+    fn operator_rows(&mut self, op: char, lo: u64, hi: u64) {
+        let cmd = match op {
+            'd' => "cut-row",
+            'y' => "y",
+            _ => return self.change_rows(lo, hi),
+        };
+        self.goto_row(lo);
+        let l = |r: u64| crate::exline::Addr::Line(r + 1);
+        self.run_ranged(crate::exline::Rows::Span(l(lo), l(hi)), cmd.into());
+        let again = format!(".,.+{} {cmd}", hi - lo);
+        self.last_action = Some(vec![Action::ExCommand(again)]);
+    }
+
+    /// `c`: `:'<,'> setcol ` on the rows, waiting for the value.
+    fn change_rows(&mut self, lo: u64, hi: u64) {
+        let s = self.sheets.active();
+        let col = s.view.col_cursor;
+        self.last_visual = Some(Visual {
+            sheet: s.id,
+            row: lo,
+            col,
+            end: (hi, col),
+            block: false,
+        });
+        self.start_input(Prompt::Ex);
+        if let Some((_, line)) = self.input.as_mut() {
+            line.set("'<,'> setcol ");
+        }
+    }
+
+    /// `ir` rows, `is` the selection, `ic` the column's cells, `iv` the run of
+    /// equal values around the cursor, `ib` the block of non-empty cells.
+    fn operator_object(&mut self, p: crate::app::Pending, o: char) {
+        let at = self.cursor_row();
+        let n = p.count.unwrap_or(1) as u64;
+        let cells = match p.op {
+            'd' => "cut-cells",
+            'y' => "copy-cells",
+            _ => "",
+        };
+        match o {
+            'r' => self.operator_rows(p.op, at, at + n - 1),
+            's' => match p.op {
+                'd' => self.dispatch(Action::CutSelected),
+                'y' => self.dispatch(Action::CopySelected),
+                _ => {
+                    self.start_input(Prompt::Ex);
+                    if let Some((_, line)) = self.input.as_mut() {
+                        line.set("setcol ");
+                    }
+                }
+            },
+            'c' if p.op == 'c' => {
+                self.start_input(Prompt::Ex);
+                if let Some((_, line)) = self.input.as_mut() {
+                    line.set("% setcol ");
+                }
+            }
+            'c' => self.run_ranged(crate::exline::Rows::All, cells.into()),
+            _ => {
+                // ponytail: the loaded rows only, like `{` `}`
+                let s = self.sheets.active();
+                let Some(col) = s
+                    .window()
+                    .and_then(|w| w.columns().get(s.view.col_cursor).cloned())
+                else {
+                    return;
+                };
+                let r = s.view.row_cursor;
+                let get = |i: usize| col.get(i).map(|v| v.into_static()).ok();
+                let here = get(r);
+                let keep = |i: usize| match o {
+                    'v' => get(i) == here,
+                    _ => get(i).is_some_and(|v| !v.is_null()),
+                };
+                if !keep(r) {
+                    return self.toast = Some("the cursor cell is empty".into());
+                }
+                let top = (0..r).rev().take_while(|i| keep(*i)).last().unwrap_or(r);
+                let bottom = (r + 1..col.len())
+                    .take_while(|i| keep(*i))
+                    .last()
+                    .unwrap_or(r);
+                let off = s.view.window_offset;
+                let (lo, hi) = (off + top as u64, off + bottom as u64);
+                if p.op == 'c' {
+                    return self.change_rows(lo, hi);
+                }
+                self.goto_row(lo);
+                let l = |r: u64| crate::exline::Addr::Line(r + 1);
+                self.run_ranged(crate::exline::Rows::Span(l(lo), l(hi)), cells.into());
+            }
+        }
+    }
+
     /// The visual range with its moving corner at the cursor; `None` when
     /// the active sheet isn't the one it was started on.
     pub(super) fn live_visual(&self) -> Option<Visual> {
@@ -2043,6 +2231,7 @@ impl App {
         let line = |a: &Addr| match a {
             Addr::Line(n) => Ok(n.saturating_sub(1)),
             Addr::Cursor => Ok(cursor),
+            Addr::Offset(d) => Ok(cursor.saturating_add_signed(*d)),
             Addr::VisualStart => marks
                 .map(|m| m.0)
                 .ok_or("'<: no visual range on this sheet"),
@@ -2124,7 +2313,10 @@ impl App {
             Action::SysCopyRow => Action::SysCopySelected,
             a => a,
         });
+        // `.` repeats the ranged command, not its selected-rows form
+        let repeat = self.last_action.clone();
         self.dispatch_sequence(actions.collect());
+        self.last_action = repeat;
         if let Some(s) = self.sheets.find_by_id_mut(id) {
             let now = &s.view.selected;
             let mut back: std::collections::BTreeSet<u64> = saved

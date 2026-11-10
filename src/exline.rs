@@ -601,6 +601,8 @@ pub enum Addr {
     Line(u64),
     /// `.`: the cursor row.
     Cursor,
+    /// `.+N` / `.-N`: rows below / above the cursor.
+    Offset(i64),
     /// `$`: the last row.
     Last,
     /// `'<` / `'>`: the first / last row of the last visual range.
@@ -680,6 +682,12 @@ pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
                 '>' => Some((Addr::VisualEnd, 2)),
                 _ => None,
             };
+        }
+        if let Some(m) = t.strip_prefix(".+").or(t.strip_prefix(".-")) {
+            let n = m.bytes().take_while(u8::is_ascii_digit).count();
+            let v: i64 = m[..n].parse().ok()?;
+            let v = if t.starts_with(".-") { -v } else { v };
+            return Some((Addr::Offset(v), n + 2));
         }
         match t.chars().next()? {
             '.' => Some((Addr::Cursor, 1)),
@@ -896,6 +904,8 @@ mod tests {
             r("'<,'>d"),
             (Rows::Span(VisualStart, VisualEnd), "d".into())
         );
+        assert_eq!(r(".,.+2 y"), (Rows::Span(Cursor, Offset(2)), "y".into()));
+        assert_eq!(r(".-1,. y"), (Rows::Span(Offset(-1), Cursor), "y".into()));
         let m = |p: &str, invert| Rows::Match {
             pattern: p.into(),
             invert,

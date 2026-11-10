@@ -465,6 +465,12 @@ pub enum Action {
     ValueChange {
         forward: bool,
     },
+    /// Vim profile `d` `y` `c` (S-26 D3): wait for a motion or text object,
+    /// then delete (cut) / copy / set its rows or cells. `count` multiplies.
+    Operator {
+        op: char,
+        count: Option<usize>,
+    },
     /// Vim profile `"`: the next key names the register of the next yank,
     /// cut or paste (S-26 D2).
     RegisterPrefix,
@@ -655,7 +661,7 @@ impl Action {
             Visual { .. } | Reselect => false,
             HalfPage { .. } | ScreenRow { .. } | ScrollTo { .. } | CellMotion { .. } => true,
             ValueChange { .. } | SearchCell { .. } => true,
-            RegisterPrefix | Registers => false,
+            RegisterPrefix | Registers | Operator { .. } => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -891,6 +897,9 @@ impl Action {
         ("last_cell", CellMotion { to: 2 }),
         ("next_value", ValueChange { forward: true }),
         ("prev_value", ValueChange { forward: false }),
+        ("operator_delete", Operator { op: 'd', count: None }),
+        ("operator_yank", Operator { op: 'y', count: None }),
+        ("operator_change", Operator { op: 'c', count: None }),
         ("register_prefix", RegisterPrefix),
         ("registers", Registers),
         ("search_cell", SearchCell { backward: false }),
@@ -935,6 +944,7 @@ impl Action {
             Action::CursorUp { .. } => Action::CursorUp { count },
             Action::CursorLeft { .. } => Action::CursorLeft { count },
             Action::CursorRight { .. } => Action::CursorRight { count },
+            Action::Operator { op, .. } => Action::Operator { op, count },
             other => other,
         }
     }
