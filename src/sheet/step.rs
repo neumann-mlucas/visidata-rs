@@ -310,7 +310,11 @@ impl PlanStep {
 pub(super) fn insert_point(steps: &[PlanStep], column: &str) -> usize {
     steps
         .iter()
-        .rposition(|s| s.writes() == Some(column))
+        .rposition(|s| match s {
+            // `(` makes its field columns: their edits go after it
+            PlanStep::Expand { fields, .. } => fields.iter().any(|(_, n)| n == column),
+            s => s.writes() == Some(column),
+        })
         .map_or(0, |i| i + 1)
 }
 
