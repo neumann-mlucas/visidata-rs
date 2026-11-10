@@ -13,4 +13,4 @@ lint:
     cargo clippy --locked --no-deps --all-targets -- -D warnings
 
 # Done-gate for humans, agents and CI
-check: lint test
+check *ARGS: lint (test ARGS)
