@@ -7,13 +7,13 @@ add-col-dup-attrs	SKIP addcol-new
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
 aggregators-cols	SKIP addcol-aggregate
-aggregators-errors	SKIP aggregate-col
-aggregators-set	SKIP aggregate-cols
+aggregators-errors	SKIP runtime: no column "qty"
+aggregators-set	FAIL line 1: want="Item\tPaid_avg\tPaid_sum\tQuantity_sum\tcount" got="Item\tcount\tQuantity_sum\tPaid_sum\tPaid_avg"
 append	PASS
-avg-nulls	SKIP aggregate-col
+avg-nulls	FAIL line 2: want="Food, Senior Wet Cat - 3 oz\t5\t12.00" got="Food, Senior Wet Cat - 3 oz\t5\t12.0"
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	SKIP addcol-capture
-column-copy	SKIP aggregate-col
+column-copy	SKIP freeze-col
 column-name-__name__	NO_GOLDEN golden is .csv
 column-name-_fields	NO_GOLDEN golden is .csv
 column-name-length	NO_GOLDEN golden is .csv
@@ -33,7 +33,7 @@ duckdb-index	PASS
 duckdb-open-alt-schema	PASS
 duckdb-save-sheet	PASS
 duckdb-types	NO_GOLDEN golden is .json
-dup-rows-attrs	SKIP aggregate-col
+dup-rows-attrs	FAIL line 4: want="Rep\t10\t\t\tJones" got="Rep\t8\t\t\tJones"
 edit-fixed	NO_GOLDEN golden is .fixed
 edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
 edit-joinkey-2	SKIP runtime: read-only: data2+data1 is derived
@@ -52,15 +52,15 @@ fill-zero	NO_GOLDEN golden is .json
 format-enum	SKIP runtime: cannot locate row 'OrderDate' (keys=[])
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
-freeze-sheet-attrs	SKIP aggregate-col
+freeze-sheet-attrs	FAIL line 6: want="Units\t7\tint\t\t95\tsum" got="Units\t7\t\t\t95"
 freq-dive-except	SKIP dive-except
-freq-error	SKIP aggregate-col
+freq-error	SKIP runtime: no column "qty"
 freq-fmtstr	SKIP runtime: cannot locate row 'Date' (keys=[])
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
 freqtbl-openrow	PASS
-frozen-attrs	SKIP aggregate-col
+frozen-attrs	SKIP freeze-col
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr
 getitem	SKIP runtime: cannot locate row 'geolocation' (keys=[])
@@ -185,9 +185,9 @@ numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
 outer-join-1	SKIP join-sheets-cols
 outer-join-2	PASS
 pandas_loader_dup_selected	PASS
-petsdiet	SKIP aggregate-col
-pivot	SKIP aggregate-col
-pivot-error	SKIP aggregate-col
+petsdiet	FAIL line 5: want="FOOD213\t1\t4" got="FOOD211\t1\t4"
+pivot	FAIL line 1: want="Rep\tsum_Pencil\tmean_Pencil\tsum_Binder\tmean_Binder\tsum_Pen\tmean_Pen\tsum_Desk\tmean_Desk\tsum_Pen Set\tmean_Pen Set" got="Pencil\tBinder
+pivot-error	SKIP runtime: no column "qty"
 pivot-noaggr	PASS
 postgres-exec-sql-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 postgres-open-table-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/benchmark: unknown format for ../visidata/postgres:///vdtest/benchmark
@@ -226,9 +226,9 @@ sort-levels	PASS
 sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
-sum-freq-table	SKIP aggregate-col
+sum-freq-table	PASS
 syspaste-crlf	NO_GOLDEN golden is .json
-test_quartiles	SKIP aggregate-col
+test_quartiles	SKIP runtime: no aggregator "q3": count distinct sum mean avg median mode min max stdev
 transform-cols	SKIP setcol-regex-subst-all
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
 unfurl-dict	SKIP runtime: unfurl: struct fields of different nested types

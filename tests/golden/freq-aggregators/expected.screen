@@ -1,0 +1,12 @@
+ …ion): tests/golden/freq-aggregators/input.csv  csv · sheets 2 · hidden region 1/10  row 1/3 · 33%
+region str   count u  units_sum i  units_mean f  units_median f  price_max f    price_stdev f  note_
+east               3            4           2.0             2.0          4.0 1.25830573921179
+west               2            6           3.0             3.0         2.25 1.23743686707646
+north              1            5           5.0             5.0            ·                ·
+
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

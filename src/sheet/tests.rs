@@ -1049,3 +1049,75 @@ fn every_state_comes_back_exactly() {
         seen.insert(id, fp);
     }
 }
+
+#[test]
+fn freq_adds_aggregator_columns_in_view_order() {
+    let (mut s, _tmp) = sheet_of("k,a,b\nx,1,\nx,3,a\ny,,b\n");
+    s.add_aggregators("b", "count distinct").unwrap();
+    s.add_aggregators("a", "sum mean avg min max median mode stdev sum")
+        .unwrap();
+    assert!(
+        s.add_aggregators("b", "sum")
+            .unwrap_err()
+            .contains("isn't numeric")
+    );
+    assert!(
+        s.add_aggregators("a", "nope")
+            .unwrap_err()
+            .contains("no aggregator")
+    );
+    let freq = Sheet::freq_from(&s, 1, "k");
+    let df = freq.plan.clone().collect().unwrap();
+    let names: Vec<String> = df
+        .get_column_names_owned()
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    assert_eq!(
+        names[2..12],
+        [
+            "a_sum",
+            "a_mean",
+            "a_avg",
+            "a_min",
+            "a_max",
+            "a_median",
+            "a_mode",
+            "a_stdev",
+            "b_count",
+            "b_distinct"
+        ]
+    );
+    assert!(freq.view.hidden.contains("percent") && freq.view.hidden.contains("histogram"));
+    let row = |i: usize| -> Vec<String> {
+        df.columns()[2..12]
+            .iter()
+            .map(|c| any_text(&c.get(i).unwrap()))
+            .collect()
+    };
+    // x: a = 1, 3; b = null, "a". y: a all null (sum 0, the rest null).
+    assert_eq!(
+        row(0),
+        [
+            "4",
+            "2.0",
+            "2.0",
+            "1",
+            "3",
+            "2.0",
+            "1",
+            "1.4142135623730951",
+            "1",
+            "1"
+        ]
+    );
+    assert_eq!(row(1)[..2], ["0", "null"]);
+    assert_eq!(
+        s.memo_aggregate("a", "sum count").unwrap(),
+        "a_sum=4  a_count=2"
+    );
+    Arc::make_mut(&mut s.view.selected).insert(1);
+    assert_eq!(s.memo_aggregate("a", "sum").unwrap(), "a_sum=3");
+    s.rename_col("a", "z").unwrap(); // aggregators follow the rename
+    assert!(s.view.aggregators.iter().all(|(c, _)| c != "a"));
+}

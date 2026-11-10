@@ -27,6 +27,22 @@ impl App {
             Action::DeleteRow => false, // d: hide, as VisiData drops it
             Action::HideUniform | Action::DeleteSelected => true, // g- gd
             Action::KeySelected { .. } | Action::TypeSelected { .. } => true,
+            Action::StartAggregateInput { memo, selected } => {
+                self.start_input(Prompt::Aggregate {
+                    memo: *memo,
+                    selected: *selected,
+                });
+                return true;
+            }
+            Action::AggregateCols { names } => {
+                let names = names.clone();
+                let mut targets = self.columns_targets(true);
+                if targets.is_empty() {
+                    targets = self.columns_visible_nonkey();
+                }
+                self.columns_write(targets, None, |s, c| s.add_aggregators(c, &names));
+                return true;
+            }
             Action::StartEditInput => {
                 self.columns_start_edit();
                 return true;
@@ -47,7 +63,8 @@ impl App {
             _ => return false,
         };
         let action = action.clone();
-        self.columns_write(selected, None, move |s, c| {
+        let targets = self.columns_targets(selected);
+        self.columns_write(targets, None, move |s, c| {
             match &action {
                 Action::KeySelected { on: true } if !s.view.keys.iter().any(|k| k == c) => {
                     s.view.keys.push(c.into())
@@ -79,25 +96,33 @@ impl App {
             .collect()
     }
 
+    /// The listed columns their sheet shows and doesn't key (`g+` with no
+    /// rows selected, VisiData's `nonKeyVisibleCols`).
+    fn columns_visible_nonkey(&self) -> Vec<(SheetId, String)> {
+        let Origin::Columns { cols } = &self.sheets.active().origin else {
+            return Vec::new();
+        };
+        cols.iter()
+            .filter(|(id, c)| {
+                self.sheets
+                    .iter()
+                    .any(|s| s.id == *id && !s.view.hidden.contains(c) && !s.view.keys.contains(c))
+            })
+            .cloned()
+            .collect()
+    }
+
     /// `f` on each target column's sheet, one undo step per sheet; on an
     /// error that sheet is left as it was. Then the columns sheet is rebuilt.
     /// `renamed`: the cursor column's new name, when `f` renames it.
     fn columns_write(
         &mut self,
-        selected: bool,
+        targets: Vec<(SheetId, String)>,
         renamed: Option<&str>,
         mut f: impl FnMut(&mut Sheet, &str) -> Result<(), String>,
     ) {
-        let targets = self.columns_targets(selected);
         if targets.is_empty() {
-            self.toast = Some(
-                if selected {
-                    "no rows selected"
-                } else {
-                    "no column here"
-                }
-                .into(),
-            );
+            self.toast = Some("no rows selected".into());
             return;
         }
         let mut ids: Vec<SheetId> = targets.iter().map(|(id, _)| *id).collect();
@@ -222,7 +247,8 @@ impl App {
         };
         let text = text.trim().to_string();
         let renamed = (field == "name").then_some(text.as_str());
-        self.columns_write(false, renamed, |s, c| match field.as_str() {
+        let targets = self.columns_targets(false);
+        self.columns_write(targets, renamed, |s, c| match field.as_str() {
             "name" => s.rename_col(c, &text),
             "width" => match text.parse::<u32>() {
                 Ok(0) => {

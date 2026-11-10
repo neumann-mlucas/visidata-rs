@@ -16,7 +16,7 @@ name = "vdrs"
 path = "src/main.rs"
 
 [dependencies]
-polars = { version = "0.55", features = ["lazy", "csv", "parquet", "json", "ipc", "strings", "temporal", "dtype-full", "dtype-extension", "regex", "pivot", "round_series", "sql", "is_in", "extract_jsonpath"] }
+polars = { version = "0.55", features = ["lazy", "csv", "parquet", "json", "ipc", "strings", "temporal", "dtype-full", "dtype-extension", "regex", "pivot", "round_series", "sql", "is_in", "extract_jsonpath", "mode"] }
 polars-ops = { version = "0.55", features = ["pivot"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "send"] }
 ratatui = "0.30"

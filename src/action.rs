@@ -194,6 +194,25 @@ pub enum Action {
     TypeSelected {
         name: &'static str,
     },
+    /// `+` `z+` (`memo`) / columns sheet `g+` (`selected`) (S-25 P4): ask
+    /// for aggregator names.
+    StartAggregateInput {
+        memo: bool,
+        selected: bool,
+    },
+    /// `+`: add aggregators (space-separated) to the current column.
+    AggregateCol {
+        names: String,
+    },
+    /// Columns sheet `g+`: to the selected rows' columns; none selected:
+    /// every visible non-key column.
+    AggregateCols {
+        names: String,
+    },
+    /// `z+`: their values over the selected rows (all when none), in the status line.
+    MemoAggregate {
+        names: String,
+    },
 
     // ex-line
     StartExInput,
@@ -381,6 +400,7 @@ impl Action {
                 | Action::SelectEqualCell
                 | Action::SelectColDuplicates
                 | Action::HideUniform
+                | Action::AggregateCol { .. }
         )
     }
 
@@ -418,7 +438,8 @@ impl Action {
             | StartSetColInput
             | StartSetExprInput
             | StartAddRowsInput
-            | StartExpandDepthInput { .. } => false,
+            | StartExpandDepthInput { .. }
+            | StartAggregateInput { .. } => false,
             SubmitInput | CancelInput | InputBackspace => false,
             CursorDown { .. }
             | CursorUp { .. }
@@ -473,6 +494,7 @@ impl Action {
             AddRow | AddRows { .. } | PasteAfter | PasteBefore | OpenNew => true,
             ExpandCol { .. } | ExpandCols { .. } | ContractCol | UnfurlCol => true,
             OpenColumns | OpenColumnsAll | KeySelected { .. } | TypeSelected { .. } => true,
+            AggregateCol { .. } | AggregateCols { .. } | MemoAggregate { .. } => true,
         }
     }
 }
@@ -602,6 +624,9 @@ impl Action {
         ("type_string_selected", TypeSelected { name: "str" }),
         ("type_date_selected", TypeSelected { name: "date" }),
         ("type_currency_selected", TypeSelected { name: "currency" }),
+        ("start_aggregate_input", StartAggregateInput { memo: false, selected: false }),
+        ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
+        ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
         ]
     };
 

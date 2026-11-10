@@ -6,7 +6,7 @@ use polars::prelude::*;
 
 use crate::reader::{LoadedSource, SourceKind};
 
-mod columns;
+pub(crate) mod columns;
 mod derive;
 mod diff;
 mod nested;
@@ -891,7 +891,8 @@ impl Sheet {
         let names = v
             .keys
             .iter_mut()
-            .chain(v.type_casts.iter_mut().map(|(c, _)| c));
+            .chain(v.type_casts.iter_mut().map(|(c, _)| c))
+            .chain(v.aggregators.iter_mut().map(|(c, _)| c));
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
             .chain(v.sort.iter_mut().map(|k| &mut k.column));

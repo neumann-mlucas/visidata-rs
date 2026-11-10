@@ -379,6 +379,31 @@ impl Keymap {
             ),
             // columns sheet (S-25 P3)
             ch(vec![k("C")], vec![OpenColumns], "open the columns sheet"),
+            // aggregators (S-25 P4)
+            ch(
+                vec![k("+")],
+                vec![StartAggregateInput {
+                    memo: false,
+                    selected: false,
+                }],
+                "add aggregators to this column",
+            ),
+            ch(
+                vec![k("z"), k("+")],
+                vec![StartAggregateInput {
+                    memo: true,
+                    selected: false,
+                }],
+                "aggregate this column in the status line",
+            ),
+            ch(
+                vec![k("g"), k("+")],
+                vec![StartAggregateInput {
+                    memo: false,
+                    selected: true,
+                }],
+                "columns sheet: add aggregators to selected columns",
+            ),
             ch(
                 vec![k("g"), k("C")],
                 vec![OpenColumnsAll],

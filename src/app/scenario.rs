@@ -2170,3 +2170,33 @@ async fn columns_sheet_writes_back_to_its_sheet() {
     h.keys("q q g #").await;
     assert_eq!(status(&h), "only on the columns sheet (C)");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn aggregators_add_freq_columns_and_memo() {
+    let mut h = Harness::new(5).await;
+    h.keys("l +").await;
+    h.type_("sum").await;
+    assert!(status(&h).contains("name isn't numeric"), "{}", status(&h));
+    h.keys("l l +").await;
+    h.type_("sum mean").await;
+    h.keys("z +").await;
+    h.type_("sum").await;
+    assert_eq!(status(&h), "amt_sum=22.5");
+    h.keys("h F").await;
+    let hd = h.screen().lines().nth(1).unwrap().to_string();
+    assert!(
+        hd.contains("amt_sum") && hd.contains("amt_mean") && !hd.contains("percent"),
+        "{hd}"
+    );
+    h.keys("q C").await;
+    assert!(h.screen().contains("sum mean"), "{}", h.screen());
+    h.keys("g +").await; // nothing selected: every visible non-key column
+    h.type_("count").await;
+    assert!(h.screen().contains("sum mean count"), "{}", h.screen());
+    h.keys("q F").await;
+    let hd = h.screen().lines().nth(1).unwrap().to_string();
+    assert!(hd.contains("id_count") && hd.contains("amt_count"), "{hd}");
+    h.keys("q U F").await; // the columns sheet's g+ is one undo step on the sheet
+    let hd = h.screen().lines().nth(1).unwrap().to_string();
+    assert!(hd.contains("amt_mean") && !hd.contains("id_count"), "{hd}");
+}

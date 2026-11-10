@@ -468,8 +468,30 @@ impl App {
             }
             Action::OpenColumns => self.open_columns(false),
             Action::OpenColumnsAll => self.open_columns(true),
-            Action::KeySelected { .. } | Action::TypeSelected { .. } => {
+            Action::KeySelected { .. }
+            | Action::TypeSelected { .. }
+            | Action::AggregateCols { .. }
+            | Action::StartAggregateInput { selected: true, .. } => {
                 self.toast = Some("only on the columns sheet (C)".into());
+            }
+            Action::StartAggregateInput { memo, selected } => {
+                self.start_input(Prompt::Aggregate { memo, selected })
+            }
+            Action::AggregateCol { names } => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                if let Err(e) = self.sheets.active_mut().add_aggregators(&c, &names) {
+                    self.toast = Some(e);
+                }
+            }
+            Action::MemoAggregate { names } => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                self.toast = Some(match self.sheets.active().memo_aggregate(&c, &names) {
+                    Ok(t) | Err(t) => t,
+                });
             }
             Action::UnfurlCol => {
                 let Some(c) = self.current_column_name() else {

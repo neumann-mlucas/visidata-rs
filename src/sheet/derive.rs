@@ -13,8 +13,11 @@ impl Sheet {
         } else {
             parent.view_plan().group_by([col(col_name)])
         };
+        let aggs = columns::freq_aggregators(parent);
+        let exprs = std::iter::once(len().alias(count));
+        let exprs = exprs.chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)));
         let plan = grouped
-            .agg([len().alias(count)])
+            .agg(exprs.collect::<Vec<_>>())
             .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
                 / col(count).cast(DataType::Float64).sum())
             .round(2, RoundMode::HalfAwayFromZero)
@@ -35,7 +38,7 @@ impl Sheet {
                     .with_nulls_last(true),
             )
         };
-        Sheet::child(
+        let mut freq = Sheet::child(
             parent,
             id,
             format!("freq({}): {}", col_name, parent.name),
@@ -50,7 +53,14 @@ impl Sheet {
             Derivation::Freq {
                 column: col_name.to_string(),
             },
-        )
+        );
+        // VisiData hides percent and histogram once aggregators add columns.
+        if !aggs.is_empty() {
+            freq.view
+                .hidden
+                .extend([percent.to_string(), histogram.to_string()]);
+        }
+        freq
     }
 
     /// Build a pivot sheet. Eager: collects parent, then pivots.

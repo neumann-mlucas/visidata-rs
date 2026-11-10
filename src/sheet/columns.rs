@@ -20,21 +20,122 @@ pub fn type_name(dt: &DataType) -> String {
 
 /// Aggregators `+` offers (S-25 P4), VisiData's names.
 pub const AGGREGATORS: &[&str] = &[
-    "count", "distinct", "sum", "mean", "median", "mode", "min", "max", "stdev",
+    "count", "distinct", "sum", "mean", "avg", "median", "mode", "min", "max", "stdev",
 ];
+
+/// Aggregators that need numbers.
+const NUMERIC: &[&str] = &["sum", "mean", "avg", "median", "stdev"];
+
+/// `agg` of `column`'s non-null values, named `{column}_{agg}` (VisiData's
+/// `aggname`). `agg` is one of [`AGGREGATORS`].
+pub fn agg_expr(column: &str, agg: &str) -> Expr {
+    let c = col(column);
+    let e = match agg {
+        "count" => c.count().cast(DataType::Int64),
+        "distinct" => c.drop_nulls().n_unique().cast(DataType::Int64),
+        "sum" => c.sum(),
+        "mean" | "avg" => c.mean(),
+        "median" => c.median(),
+        // ties: the first seen, as VisiData's `statistics.mode`
+        "mode" => c.drop_nulls().mode(true).first(),
+        "min" => c.min(),
+        "max" => c.max(),
+        _ => c.std(1),
+    };
+    e.alias(format!("{column}_{agg}"))
+}
+
+/// The aggregators `F` on `parent` adds: (column, aggregator), in the
+/// order of `parent`'s visible columns (VisiData's).
+pub fn freq_aggregators(parent: &Sheet) -> Vec<(String, String)> {
+    if parent.view.aggregators.is_empty() {
+        return Vec::new();
+    }
+    let Ok(schema) = parent.view_plan().collect_schema() else {
+        return Vec::new();
+    };
+    schema
+        .iter_names()
+        .flat_map(|n| {
+            parent
+                .view
+                .aggregators
+                .iter()
+                .filter(move |(c, _)| c == n.as_str())
+        })
+        .cloned()
+        .collect()
+}
 
 impl Sheet {
     /// The columns sheet's `aggregators` cell: space-separated names for
     /// `column`, replacing its list. Unchanged on error.
     pub fn set_aggregators(&mut self, column: &str, names: &str) -> Result<(), String> {
-        let names: Vec<&str> = names.split_whitespace().collect();
-        if let Some(bad) = names.iter().find(|n| !AGGREGATORS.contains(n)) {
-            return Err(format!("no aggregator {bad:?}: {}", AGGREGATORS.join(" ")));
-        }
+        let names = self.aggregator_names(column, names)?;
         self.view.aggregators.retain(|(c, _)| c != column);
-        let new = names.iter().map(|n| (column.to_string(), n.to_string()));
+        let new = names.into_iter().map(|n| (column.to_string(), n));
         self.view.aggregators.extend(new);
         Ok(())
+    }
+
+    /// `+`: add the space-separated `names` to `column`'s aggregators
+    /// (ones it has stay put). Unchanged on error.
+    pub fn add_aggregators(&mut self, column: &str, names: &str) -> Result<(), String> {
+        for n in self.aggregator_names(column, names)? {
+            let a = (column.to_string(), n);
+            if !self.view.aggregators.contains(&a) {
+                self.view.aggregators.push(a);
+            }
+        }
+        Ok(())
+    }
+
+    /// `names` split and checked against [`AGGREGATORS`] and `column`'s type.
+    fn aggregator_names(&self, column: &str, names: &str) -> Result<Vec<String>, String> {
+        let dt = self
+            .all_columns()
+            .into_iter()
+            .find(|(n, _)| n == column)
+            .map(|(_, d)| d)
+            .ok_or_else(|| format!("no column {column:?}"))?;
+        names
+            .split_whitespace()
+            .map(|n| match n {
+                n if !AGGREGATORS.contains(&n) => {
+                    Err(format!("no aggregator {n:?}: {}", AGGREGATORS.join(" ")))
+                }
+                n if NUMERIC.contains(&n) && !dt.is_primitive_numeric() => {
+                    Err(format!("{n}: {column} isn't numeric ({})", type_name(&dt)))
+                }
+                n => Ok(n.to_string()),
+            })
+            .collect()
+    }
+
+    /// `z+`: `column_agg=value` for each of `names` over the selected rows
+    /// (all rows when none are), as VisiData's status line.
+    pub fn memo_aggregate(&self, column: &str, names: &str) -> Result<String, String> {
+        let names = self.aggregator_names(column, names)?;
+        if names.is_empty() {
+            return Err("no aggregator given".into());
+        }
+        let mut lf = self.view_plan_rid(true);
+        if !self.view.selected.is_empty() {
+            let sel: Vec<u64> = self.view.selected.iter().copied().collect();
+            let ids = lit(Series::new("ids".into(), sel)).implode(false);
+            lf = lf.filter(col(ROW_ID).cast(DataType::UInt64).is_in(ids, false));
+        }
+        let exprs: Vec<Expr> = names.iter().map(|n| agg_expr(column, n)).collect();
+        let df = lf.select(exprs).collect().map_err(|e| e.to_string())?;
+        let parts: Vec<String> = df
+            .columns()
+            .iter()
+            .map(|c| {
+                let v = c.get(0).map(|v| any_text(&v)).unwrap_or_default();
+                format!("{}={v}", c.name())
+            })
+            .collect();
+        Ok(parts.join("  "))
     }
 
     /// `ty` (a columns-sheet type: `int float str date currency json`, or

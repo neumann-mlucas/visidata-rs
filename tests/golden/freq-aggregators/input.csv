@@ -1,0 +1,7 @@
+region,units,price,note
+east,3,1.5,a
+west,2,2.25,
+east,,4.0,b
+north,5,,a
+east,1,3.0,a
+west,4,0.5,c

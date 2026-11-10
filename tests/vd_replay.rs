@@ -26,7 +26,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 49;
+const MIN_PASS: usize = 50;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -454,7 +454,24 @@ impl Replay {
             "hide-selected" => (selected(), "hide"),
             l if l.starts_with("type-") && l.ends_with("-selected") => (selected(), l),
             "delete-row" => (vec![row(&r.row).ok()?], "hide"),
-            "edit-cell" if matches!(r.col.as_str(), "name" | "width" | "type") => {
+            "aggregate-cols" => {
+                let mut rows = selected();
+                if rows.is_empty() {
+                    // VisiData: the source's visible non-key columns
+                    rows = (0..cols.len())
+                        .filter(|&i| {
+                            let (id, c) = &cols[i];
+                            self.loaded.iter().any(|l| {
+                                l.sheet.id == *id
+                                    && !l.sheet.view.hidden.contains(c)
+                                    && !l.sheet.view.keys.contains(c)
+                            })
+                        })
+                        .collect();
+                }
+                (rows, "aggregate")
+            }
+            "edit-cell" if matches!(r.col.as_str(), "name" | "width" | "type" | "aggregators") => {
                 (vec![row(&r.row).ok()?], "edit")
             }
             "setcol-input" if matches!(r.col.as_str(), "width" | "type") => (selected(), "edit"),
@@ -480,6 +497,8 @@ impl Replay {
                     s.view.hidden.insert(c);
                     Ok(())
                 }
+                ("aggregate", _) => s.add_aggregators(&c, &r.input),
+                ("edit", "aggregators") => s.set_aggregators(&c, &r.input),
                 ("edit", "name") => s.rename_col(&c, &r.input),
                 ("edit", "width") if r.input.trim() == "0" => {
                     s.view.hidden.insert(c);
@@ -761,6 +780,10 @@ impl Replay {
                 let new = Sheet::copy_from(&slot.sheet, id);
                 self.push_sheet(name, new);
                 Ok(())
+            }
+            "aggregate-col" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.add_aggregators(&r.col, &r.input).map_err(Runtime)
             }
             "rename-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;

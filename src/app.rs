@@ -248,6 +248,11 @@ enum Prompt {
     ExpandDepth {
         all: bool,
     },
+    /// `+` `z+` `g+`: aggregator names.
+    Aggregate {
+        memo: bool,
+        selected: bool,
+    },
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
@@ -284,6 +289,7 @@ impl Prompt {
             Prompt::SetExpr => "set selected rows to expr= ",
             Prompt::AddRows => "add rows: ",
             Prompt::ExpandDepth { .. } => "expand depth (0 = all the way): ",
+            Prompt::Aggregate { .. } => "choose aggregators: ",
         }
     }
 }
@@ -1088,6 +1094,14 @@ impl App {
                 Ok(depth) => self.dispatch_sequence(vec![Action::ExpandCol { depth }]),
                 Err(_) => self.toast = Some(format!("expand depth: {text:?} isn't a number")),
             },
+            Prompt::Aggregate { memo, selected } => {
+                let names = text;
+                self.dispatch_sequence(vec![match (memo, selected) {
+                    (true, _) => Action::MemoAggregate { names },
+                    (_, true) => Action::AggregateCols { names },
+                    _ => Action::AggregateCol { names },
+                }]);
+            }
         }
     }
 

@@ -1,0 +1,4 @@
+region	count	units_sum	units_mean	units_median	price_max	price_stdev	note_count	note_distinct	note_mode
+east	3	4	2.0	2.0	4.0	1.2583057392117916	3	2	a
+west	2	6	3.0	3.0	2.25	1.2374368670764582	1	1	c
+north	1	5	5.0	5.0			1	1	a

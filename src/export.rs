@@ -425,8 +425,12 @@ impl Script {
                         ),
                     )
                 };
+                let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
+                    .iter()
+                    .map(|(c, a)| format!(", {}", py_agg(c, a)))
+                    .collect();
                 format!(
-                    "{p}.group_by({c}{stable}).agg(pl.len().alias({n}))\
+                    "{p}.group_by({c}{stable}).agg(pl.len().alias({n}){aggs})\
                      .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
                      .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist})){order}",
                     c = py_str(column),
@@ -455,8 +459,12 @@ impl Script {
                         ),
                     )
                 };
+                let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
+                    .iter()
+                    .map(|(c, a)| format!(", {}", sql_agg(c, a)))
+                    .collect();
                 format!(
-                    "SELECT {c}, count(*) AS {n}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct},\n\
+                    "SELECT {c}, count(*) AS {n}{aggs}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct},\n\
                      repeat('■', (count(*) * {w} // max(count(*)) OVER ())::INTEGER) AS {hist}\n\
                      FROM {from} GROUP BY {c} ORDER BY {order}",
                     c = q_ident(column),
@@ -1639,6 +1647,36 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
 }
 
 /// Base column `c` holds text, so `@` parses it leniently (see `Sheet::view_plan`).
+/// [`crate::sheet::columns::agg_expr`] in Polars Python.
+fn py_agg(c: &str, agg: &str) -> String {
+    let m = match agg {
+        "count" => "count().cast(pl.Int64)",
+        "distinct" => "drop_nulls().n_unique().cast(pl.Int64)",
+        "mean" | "avg" => "mean()",
+        "mode" => "drop_nulls().mode(maintain_order=True).first()",
+        "stdev" => "std()",
+        _ => &format!("{agg}()"),
+    };
+    format!(
+        "pl.col({}).{m}.alias({})",
+        py_str(c),
+        py_str(&format!("{c}_{agg}"))
+    )
+}
+
+/// [`crate::sheet::columns::agg_expr`] in DuckDB SQL.
+fn sql_agg(c: &str, agg: &str) -> String {
+    let q = q_ident(c);
+    let e = match agg {
+        "distinct" => format!("count(DISTINCT {q})"),
+        "sum" => format!("coalesce(sum({q}), 0)"),
+        "mean" | "avg" => format!("avg({q})"),
+        "stdev" => format!("stddev_samp({q})"),
+        _ => format!("{agg}({q})"),
+    };
+    format!("{e} AS {}", q_ident(&format!("{c}_{agg}")))
+}
+
 fn is_float(s: &Sheet, c: &str) -> bool {
     let schema = s.plan.clone().collect_schema();
     schema.is_ok_and(|sc| sc.get(c).is_some_and(DataType::is_float))
