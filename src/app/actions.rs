@@ -140,6 +140,14 @@ impl App {
                     self.spawn_materialize();
                 }
             }
+            Action::HideNamed { column } => {
+                let s = self.sheets.active_mut();
+                if !s.has_column(&column) && !s.view.hidden.contains(&column) {
+                    self.toast = Some(format!("no column: {column}"));
+                } else if s.view.hidden.insert(column) {
+                    self.spawn_materialize();
+                }
+            }
             Action::UnhideAll => {
                 let s = self.sheets.active_mut();
                 if !s.view.hidden.is_empty() {
@@ -269,7 +277,36 @@ impl App {
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::Open { path } => self.open_file(&path),
-            Action::Source { path } => self.source(&path),
+            Action::Source { path } => self.source(&path, false),
+            Action::Patch { column, path } => {
+                let read = polars::prelude::LazyFrame::scan_parquet(
+                    path.as_str().into(),
+                    Default::default(),
+                )
+                .and_then(|lf| lf.collect());
+                let done = read.map_err(|e| e.to_string()).and_then(|df| {
+                    self.sheets
+                        .active_mut()
+                        .restore_patch(column.as_deref(), df)
+                });
+                match done {
+                    Ok(()) => self.spawn_materialize(),
+                    Err(e) => self.toast = Some(format!("patch {path}: {e}")),
+                }
+            }
+            Action::SelectIds { ids } => {
+                let s = self.sheets.active_mut();
+                let mut sel = (*s.view.selected).clone();
+                sel.extend(ids);
+                s.view.selected = std::sync::Arc::new(sel);
+            }
+            Action::MkSession { path } => {
+                let path = path.map_or_else(crate::session::default_path, Into::into);
+                self.toast = Some(match crate::session::save(self.sheets.iter(), &path) {
+                    Ok(()) => format!("session saved to {}", path.display()),
+                    Err(e) => format!("mksession {}: {e}", path.display()),
+                });
+            }
             Action::SetCursor { row, column } => {
                 self.goto_row(row - 1);
                 if let Some(c) = column {
@@ -873,7 +910,8 @@ impl App {
     /// `:source`: each line of an ex script becomes a macro step (blank lines
     /// and `#` comments skipped). A block from `:open`/`:tail` of a missing
     /// file to the next one is skipped whole: its steps were for that file.
-    fn source(&mut self, path: &str) {
+    /// `skip_open`: the first `:open` is the sheet already open (`vdrs -S`).
+    pub(crate) fn source(&mut self, path: &str, skip_open: bool) {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) => {
@@ -881,7 +919,14 @@ impl App {
                 return;
             }
         };
-        let (steps, missing) = source_steps(&text, |p| std::path::Path::new(p).exists());
+        let (mut steps, missing) = source_steps(&text, |p| std::path::Path::new(p).exists());
+        if skip_open
+            && let Some(i) = steps.iter().position(
+                |a| matches!(a, Action::ExCommand(c) if crate::session::root(c).is_some()),
+            )
+        {
+            steps.remove(i);
+        }
         for a in steps.into_iter().rev() {
             self.macro_queue.push_front((a, false));
         }

@@ -1,6 +1,18 @@
 # S-29 — Sessions and Lua event hooks
 
-Status: **drafted 2026-11-08**, not started.
+Status: **done 2026-11-10** (A–D). As built:
+
+- Hooks fire for the sheet on top once its first window lands (so `vd.sheet()` has columns); sheets
+  that hook commands open fire nothing (covers `:open` from `open` and any `push` loop). No `tick`
+  event yet.
+- Session lines are vdrs ex commands, bare (no `:`): `open`, `cursor <row> <col>` before
+  column commands, `hide <col>`, `select-ids`, `patch cells|rows <parquet>` for every pasted-cell /
+  added-row step (all sizes, `<session>.d/`), `expand <depth>`, freq dives as
+  `select CAST(col AS VARCHAR) IN (…)` + `submit_selected`.
+- Not saved, as `# not saved:` comments: `A` sheets, `vd.push_sheet`, columns/undo-tree/sheets
+  lists, joins and diffs against an edited sheet, `:sql` naming other sheets. A parent edited after
+  a child was made gets a comment (replay derives from its current state).
+- `tests/golden` round trip: every case but `open-new` rebuilds its active sheet.
 Depends on: S-19 (`Action::to_ex`), S-10 (Lua API versioning), S-15 §6 (lineage), S-18 (edits as steps).
 Direction §9.5 holds: no `.vdj` compat; this is vdrs's own format.
 

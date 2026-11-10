@@ -324,6 +324,24 @@ pub enum Action {
     Source {
         path: String,
     },
+    /// `:select-ids 3,7`: select rows by id (sessions, S-29 C).
+    SelectIds {
+        ids: Vec<u64>,
+    },
+    /// `:hide <column>`: hide a column by name (already hidden: nothing).
+    HideNamed {
+        column: String,
+    },
+    /// `:patch cells <column> <file>` / `:patch rows <file>` (sessions):
+    /// pasted cells or added rows, saved by `:mksession` as parquet.
+    Patch {
+        column: Option<String>,
+        path: String,
+    },
+    /// `:mksession [path]`: write the sheet stack as an ex script.
+    MkSession {
+        path: Option<String>,
+    },
     /// `m` (S-19): start recording a macro; again: stop and ask for its key.
     ToggleMacroRecord,
     /// A macro's steps, played one at a time once background jobs finish.
@@ -400,6 +418,8 @@ impl Action {
         matches!(
             self,
             Action::HideCol
+                | Action::HideNamed { .. }
+                | Action::Patch { .. }
                 | Action::UnhideAll
                 | Action::KeyCol
                 | Action::UnkeyAll
@@ -424,6 +444,7 @@ impl Action {
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
                 | Action::SelectExpr { .. }
+                | Action::SelectIds { .. }
                 | Action::SelectEqualCell
                 | Action::SelectColDuplicates
                 | Action::HideUniform
@@ -452,7 +473,9 @@ impl Action {
             | OpenUndoTree
             | ToggleMacroRecord => false,
             Macro(_) => true,
-            Open { .. } | SetCursor { .. } | Source { .. } => true,
+            Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
+            MkSession { .. } => false,
+            HideNamed { .. } | Patch { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -749,6 +772,20 @@ impl Action {
                 column: Some(c),
             } => format!("cursor {row} {}", q(c)),
             Source { path } => format!("source {}", q(path)),
+            SelectIds { ids } => format!(
+                "select-ids {}",
+                ids.iter().map(u64::to_string).collect::<Vec<_>>().join(",")
+            ),
+            MkSession { path: None } => "mksession".into(),
+            MkSession { path: Some(p) } => format!("mksession {}", q(p)),
+            AggregateCol { names } => format!("aggregate {names}"),
+            HideNamed { column } => format!("hide {}", q(column)),
+            Patch { column: None, path } => format!("patch rows {}", q(path)),
+            Patch {
+                column: Some(c),
+                path,
+            } => format!("patch cells {} {}", q(c), q(path)),
+            ExpandCol { depth } => format!("expand {depth}"),
             _ => return None,
         })
     }
@@ -921,17 +958,31 @@ mod tests {
                 column: None,
             },
             Source { path: s("s.vdrs") },
+            SelectIds { ids: vec![3, 7] },
+            MkSession { path: None },
+            MkSession {
+                path: Some(s("my session.vdrs")),
+            },
+            AggregateCol {
+                names: s("sum mean"),
+            },
+            HideNamed { column: s("a b") },
+            Patch {
+                column: None,
+                path: s("/x/s.vdrs.d/0-1.parquet"),
+            },
+            Patch {
+                column: Some(s("my col")),
+                path: s("p.parquet"),
+            },
+            ExpandCol { depth: 3 },
         ];
         for a in cases {
             let ex = a.to_ex().unwrap_or_else(|| panic!("no ex form: {a:?}"));
             let back = crate::exline::parse(&ex).unwrap_or_else(|e| panic!("{ex}: {e}"));
             assert_eq!(back, vec![a], "{ex}");
         }
-        for none in [
-            ExpandCol { depth: 3 },
-            SelectByRegex { regex: s("x") },
-            Lua(0),
-        ] {
+        for none in [SelectByRegex { regex: s("x") }, Lua(0)] {
             assert_eq!(none.to_ex(), None, "{none:?}");
         }
     }

@@ -33,6 +33,8 @@ struct Registry {
     clipboard_paste_cmd: Option<String>,
     /// `vd.option("duckdb_cmd", …)`.
     duckdb_cmd: Option<String>,
+    /// `vd.option("session_autosave", "false")` turns it off.
+    no_autosave: bool,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -427,6 +429,13 @@ impl Plugins {
     }
 
     /// `vd.option("duckdb_cmd", …)`, if set.
+    /// Save the session on quit (S-29 D); on unless `session_autosave` is "false".
+    pub fn session_autosave(&self) -> bool {
+        self.lua
+            .app_data_ref::<RefCell<Registry>>()
+            .is_none_or(|r| !r.borrow().no_autosave)
+    }
+
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         reg.borrow().duckdb_cmd.clone()
@@ -609,9 +618,20 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     registry(lua)?.borrow_mut().clipboard_paste_cmd = Some(value)
                 }
                 "duckdb_cmd" => registry(lua)?.borrow_mut().duckdb_cmd = Some(value),
+                "session_autosave" => {
+                    registry(lua)?.borrow_mut().no_autosave = match value.as_str() {
+                        "true" => false,
+                        "false" => true,
+                        _ => {
+                            return Err(mlua::Error::RuntimeError(
+                                "vd.option: session_autosave is \"true\" or \"false\"".into(),
+                            ));
+                        }
+                    }
+                }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, session_autosave)"
                     )));
                 }
             }

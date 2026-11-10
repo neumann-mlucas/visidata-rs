@@ -47,10 +47,12 @@ mod render;
 const DEFAULT_VIEWPORT_ROWS: usize = 20;
 
 /// Entry point from main.
+/// `session`: a `.vdrs` file `initial` is the first sheet of (`vdrs -S`).
 pub async fn run(
     initial: Sheet,
     plugins: Option<crate::plugins::Plugins>,
     plugin_warning: Option<String>,
+    session: Option<String>,
 ) -> Result<()> {
     install_panic_hook();
 
@@ -60,9 +62,11 @@ pub async fn run(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = App::new(initial, plugins, plugin_warning)
-        .run(&mut terminal)
-        .await;
+    let mut app = App::new(initial, plugins, plugin_warning);
+    if let Some(s) = session {
+        app.source(&s, true);
+    }
+    let result = app.run(&mut terminal).await;
 
     disable_raw_mode().ok();
     crossterm::execute!(io::stdout(), DisableBracketedPaste, LeaveAlternateScreen).ok();
@@ -473,6 +477,10 @@ impl App {
             }
         }
         self.fire_event("quit", &[]);
+        if self.plugins.as_ref().is_none_or(|p| p.session_autosave()) {
+            // best effort: a failed save mustn't keep vdrs from exiting
+            let _ = crate::session::save(self.sheets.iter(), &crate::session::default_path());
+        }
         Ok(())
     }
 

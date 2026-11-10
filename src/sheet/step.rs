@@ -351,6 +351,39 @@ impl Sheet {
         Ok(())
     }
 
+    /// `:patch` (S-29 sessions): pasted cells into `column`, or (`None`)
+    /// added rows, as `:mksession` saved their step's data.
+    pub fn restore_patch(&mut self, column: Option<&str>, df: DataFrame) -> Result<(), String> {
+        self.editable()?;
+        let df = Arc::new(df);
+        match column {
+            Some(c) => self
+                .insert_edit(
+                    c,
+                    PlanStep::SetCells {
+                        column: c.to_string(),
+                        patch: df,
+                    },
+                )
+                .map_err(|e| e.to_string()),
+            None => {
+                let at = self
+                    .state
+                    .steps
+                    .iter()
+                    .take_while(|s| matches!(s, PlanStep::AddRows { .. }))
+                    .count();
+                self.state.steps.insert(at, PlanStep::AddRows { rows: df });
+                if let Err(e) = self.rebuild_plan() {
+                    self.state.steps.remove(at);
+                    return Err(e.to_string());
+                }
+                self.invalidate(Reason::Rows);
+                Ok(())
+            }
+        }
+    }
+
     /// Bake `step` into the plan and remember it for `:export` and `:tail`.
     pub fn apply_step(&mut self, step: PlanStep) -> PolarsResult<()> {
         self.plan = step.apply(self.plan.clone())?;

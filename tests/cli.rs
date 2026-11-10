@@ -93,3 +93,21 @@ fn a_closed_stdout_is_not_an_error() {
     drop(child.stdout.take()); // the reader left, like `| head`
     assert!(child.wait().unwrap().success());
 }
+
+#[test]
+fn session_flag_needs_a_session_with_a_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = dir.path().join("s.vdrs");
+    std::fs::write(&s, "# nothing\n").unwrap();
+    let out = vdrs(&["-S", s.to_str().unwrap()], b"");
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("no :open line"),
+        "{}",
+        text(&out.stderr)
+    );
+    let out = vdrs(&["-S", "/no/such.vdrs"], b"");
+    assert!(!out.status.success());
+    let out = vdrs(&[], b"");
+    assert!(!out.status.success(), "a path or -S is required");
+}

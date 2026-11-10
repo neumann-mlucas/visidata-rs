@@ -140,7 +140,10 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }
             Ok(vec![Action::Unpivot { on, index }])
         }
-        "hide" => Ok(vec![Action::HideCol]),
+        "hide" if rest.is_empty() => Ok(vec![Action::HideCol]),
+        "hide" => Ok(vec![Action::HideNamed {
+            column: one_arg(rest, ":hide [column]")?,
+        }]),
         "unhide" | "unhide-cols" => Ok(vec![Action::UnhideAll]),
         "key" => Ok(vec![Action::KeyCol]),
         "unkey" => Ok(vec![Action::UnkeyAll]),
@@ -292,6 +295,40 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             [p] => Ok(vec![Action::Source { path: p.clone() }]),
             _ => Err(ExError::Usage(":source <path>")),
         },
+        "select-ids" => {
+            const USAGE: &str = ":select-ids <id,id,...>";
+            let ids: Result<Vec<u64>, _> = comma_list(rest).iter().map(|i| i.parse()).collect();
+            match ids {
+                Ok(ids) if !ids.is_empty() => Ok(vec![Action::SelectIds { ids }]),
+                _ => Err(ExError::Usage(USAGE)),
+            }
+        }
+        "patch" => {
+            const USAGE: &str = ":patch cells <column> <file> | :patch rows <file>";
+            match split_args(rest, USAGE)?.as_slice() {
+                [k, c, p] if k == "cells" => Ok(vec![Action::Patch {
+                    column: Some(c.clone()),
+                    path: p.clone(),
+                }]),
+                [k, p] if k == "rows" => Ok(vec![Action::Patch {
+                    column: None,
+                    path: p.clone(),
+                }]),
+                _ => Err(ExError::Usage(USAGE)),
+            }
+        }
+        "expand" => match rest.parse() {
+            Ok(depth) => Ok(vec![Action::ExpandCol { depth }]),
+            Err(_) if rest.is_empty() => Ok(vec![Action::ExpandCol { depth: 1 }]),
+            Err(_) => Err(ExError::Usage(":expand [depth] (0 = all the way)")),
+        },
+        "mksession" => Ok(vec![Action::MkSession {
+            path: (!rest.is_empty()).then(|| unquote(rest)),
+        }]),
+        "aggregate" if !rest.is_empty() => Ok(vec![Action::AggregateCol {
+            names: rest.to_string(),
+        }]),
+        "aggregate" => Err(ExError::Usage(":aggregate <names> (current column)")),
         "cursor" => {
             const USAGE: &str = ":cursor <row> [column]";
             let a = split_args(rest, USAGE)?;
@@ -337,8 +374,13 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
 pub const COMMANDS: &[&str] = &[
     "clear-filter",
     "clear-sort",
+    "aggregate",
     "cursor",
+    "expand",
+    "mksession",
+    "patch",
     "open",
+    "select-ids",
     "source",
     "derive",
     "describe",

@@ -479,3 +479,52 @@ async fn golden_cases() {
     }
     assert!(fails.is_empty(), "{}", fails.join("\n\n"));
 }
+
+/// Every case's final stack saved with `:mksession` and replayed as `vdrs -S`
+/// does rebuilds the active sheet (S-29 C), unless the session says what it
+/// couldn't save.
+#[tokio::test(flavor = "multi_thread")]
+async fn golden_cases_round_trip_through_sessions() {
+    let mut cases: Vec<PathBuf> = std::fs::read_dir(ROOT)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.is_dir())
+        .collect();
+    cases.sort();
+    let (mut fails, mut lossy) = (Vec::new(), Vec::new());
+    for dir in &cases {
+        let (h, _) = play(dir).await;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("s.vdrs");
+        crate::session::save(h.app.sheets.iter(), &path).unwrap();
+        let script = std::fs::read_to_string(&path).unwrap();
+        if script.contains("# not saved") {
+            let why: Vec<&str> = script
+                .lines()
+                .filter(|l| l.starts_with("# not saved"))
+                .collect();
+            eprintln!("{}: {}", dir.display(), why.join(" | "));
+            lossy.push(dir.file_name().unwrap().to_string_lossy().into_owned());
+            continue;
+        }
+        let root = crate::session::first_root(&script).expect("session opens a file");
+        let loaded = crate::reader::open(root.as_ref(), None).unwrap();
+        let mut r = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
+        r.app.source(&path.display().to_string(), true);
+        r.pump().await;
+        let (want, got) = (h.app.sheets.active(), r.app.sheets.active());
+        let same = csv_text(want, b'\t') == csv_text(got, b'\t')
+            && h.app.sheets.len() == r.app.sheets.len()
+            && h.current_column() == r.current_column();
+        if !same {
+            fails.push(format!(
+                "{}\n{script}\n--- want\n{}\n--- got\n{}",
+                dir.display(),
+                h.screen(),
+                r.screen()
+            ));
+        }
+    }
+    eprintln!("sessions: {} lossy: {}", lossy.len(), lossy.join(" "));
+    assert!(fails.is_empty(), "{}", fails.join("\n\n"));
+}

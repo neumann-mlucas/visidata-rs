@@ -12,7 +12,17 @@ use visidata_rs::{app, plugins, reader};
 #[command(name = "vdrs", version, about)]
 struct Cli {
     /// Path to open; `-` for stdin.
-    path: OsString,
+    #[arg(required_unless_present = "session")]
+    path: Option<OsString>,
+
+    /// Restore a session (`:mksession`, or the one saved on quit).
+    #[arg(
+        short = 'S',
+        long = "session",
+        value_name = "FILE",
+        conflicts_with = "path"
+    )]
+    session: Option<String>,
 
     /// Force a format (useful for stdin or when the extension is wrong).
     #[arg(long, value_enum)]
@@ -68,7 +78,30 @@ fn main() -> ExitCode {
     visidata_rs::duckdb::set_cmd(plugins.duckdb_cmd());
     let plugins = Some(plugins);
 
-    let loaded = match plugins::open(plugins.as_ref(), &cli.path, fmt) {
+    let path = match (&cli.session, cli.path) {
+        (Some(s), _) => {
+            let text = match std::fs::read_to_string(s) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("vdrs: {s}: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            match visidata_rs::session::first_root(&text) {
+                Some(p) => OsString::from(p),
+                None => {
+                    eprintln!("vdrs: {s}: no :open line, nothing to restore");
+                    return ExitCode::from(1);
+                }
+            }
+        }
+        (None, Some(p)) => p,
+        (None, None) => {
+            eprintln!("vdrs: give a file to open, or -S <session>");
+            return ExitCode::from(2);
+        }
+    };
+    let loaded = match plugins::open(plugins.as_ref(), &path, fmt) {
         Ok(l) => l,
         Err(e) => {
             eprintln!("vdrs: {e}");
@@ -104,7 +137,7 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let result = rt.block_on(app::run(sheet, plugins, plugin_warning));
+    let result = rt.block_on(app::run(sheet, plugins, plugin_warning, cli.session));
     rt.shutdown_background(); // or quitting waits for running sorts and loads
     match result {
         Ok(()) => ExitCode::SUCCESS,

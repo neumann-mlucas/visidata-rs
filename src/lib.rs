@@ -13,6 +13,7 @@ pub mod keymap;
 pub mod lineedit;
 pub mod plugins;
 pub mod reader;
+pub mod session;
 pub mod sheet;
 pub mod theme;
 pub mod widget;

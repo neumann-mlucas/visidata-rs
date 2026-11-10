@@ -57,7 +57,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 16. - [x] S-22 A/B/C — `(` `z(` `g(` expand, `)` contract; `zM` unfurl sheet; `:type json` (2.5–3 d) — done 2026-11-09; replay PASS=47
 17. - [x] S-25 P3 — columns sheet `C` (3–5 d); P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d) — done 2026-11-09
 18. - [x] S-19 — macros: `m` record, `macros.lua`, `vd.bind` lists, `Action::to_ex` (2–3 d) — done 2026-11-10
-19. - [ ] S-29 A–D — `vd.on` + `vd.exec`; `:source`; `:mksession`; autosave + `vdrs -S` (4–5 d)
+19. - [x] S-29 A–D — `vd.on` + `vd.exec`; `:source`; `:mksession`; autosave + `vdrs -S` (4–5 d) — done 2026-11-10
 20. - [ ] S-28 A/B — `:s`, `*` / `g*`, `PlanStep::Replace`; `:hits` sheet (2.5–3 d)
 21. - [ ] S-30 C, A, B — selection stats; `:refresh` (`<C-r>`) + `:link`; cell notes `zn` (5–6 d)
 22. - [ ] S-27 A/B/C — `:color` / `:nocolor`; `:scale`, `:databar`; Lua renderer styles (3–4 d)

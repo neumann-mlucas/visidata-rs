@@ -21,11 +21,19 @@ struct Vdrs {
     child: Box<dyn portable_pty::Child + Send + Sync>,
     input: Box<dyn Write + Send>,
     screen: Arc<Mutex<vt100::Parser>>,
-    _home: tempfile::TempDir,
+    _home: Option<tempfile::TempDir>,
 }
 
 impl Vdrs {
     fn open(file: &str) -> Self {
+        let home = tempfile::tempdir().unwrap();
+        let mut vd = Self::spawn(&[file], home.path());
+        vd._home = Some(home);
+        vd
+    }
+
+    /// `vdrs <args>` in docs/fixtures with config and state under `home`.
+    fn spawn(args: &[&str], home: &Path) -> Self {
         let pty = native_pty_system()
             .openpty(PtySize {
                 rows: ROWS,
@@ -34,15 +42,14 @@ impl Vdrs {
                 pixel_height: 0,
             })
             .unwrap();
-        let home = tempfile::tempdir().unwrap();
         let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_vdrs"));
-        cmd.arg(file);
+        cmd.args(args);
         cmd.cwd(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/fixtures"));
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("HOME", home.path());
-        cmd.env("XDG_CONFIG_HOME", home.path().join("config"));
-        cmd.env("XDG_STATE_HOME", home.path().join("state"));
+        cmd.env("HOME", home);
+        cmd.env("XDG_CONFIG_HOME", home.join("config"));
+        cmd.env("XDG_STATE_HOME", home.join("state"));
         let child = pty.slave.spawn_command(cmd).unwrap();
         let mut reader = pty.master.try_clone_reader().unwrap();
         let screen = Arc::new(Mutex::new(vt100::Parser::new(
@@ -63,15 +70,16 @@ impl Vdrs {
             child,
             input,
             screen,
-            _home: home,
+            _home: None,
         };
         // Keys before the columns are known have nothing to move over.
         let start = Instant::now();
-        // counted: "row 1/<digits>"
+        // counted: "row <n>/<digits>"
         let counted = |t: &str| {
-            t.split("row 1/")
-                .nth(1)
-                .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+            t.split("row ").skip(1).any(|r| {
+                r.split_once('/')
+                    .is_some_and(|(_, c)| c.starts_with(|c: char| c.is_ascii_digit()))
+            })
         };
         while !counted(&vd.text()) {
             assert!(start.elapsed() < Duration::from_secs(20), "never loaded");
@@ -237,4 +245,43 @@ fn bracketed_paste_fills_the_register() {
     }
     std::thread::sleep(Duration::from_millis(100));
     assert!(!vd.screen.lock().unwrap().screen().bracketed_paste());
+}
+
+/// Quitting saves the session; `vdrs -S` on it brings the screen back, and
+/// so does a `:mksession` file (S-29 D).
+#[test]
+fn sessions_survive_a_restart() {
+    let home = tempfile::tempdir().unwrap();
+    let mut vd = Vdrs::spawn(&["sales.csv"], home.path());
+    vd.send(b"ll]j");
+    std::thread::sleep(Duration::from_millis(500));
+    let named = home.path().join("named.vdrs");
+    vd.send(format!(":mksession {}\r", named.display()).as_bytes());
+    let end = Instant::now() + Duration::from_secs(20);
+    while !vd.text().contains("session saved") {
+        assert!(Instant::now() < end, "{}", vd.text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    vd.send(b"F");
+    let end = Instant::now() + Duration::from_secs(20);
+    while !vd.text().contains("freq(") {
+        assert!(Instant::now() < end, "{}", vd.text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    let freq = vd.text();
+    vd.send(b"gq");
+    let _ = vd.child.wait();
+    let saved = home.path().join("state/vdrs/session.vdrs");
+    let again = Vdrs::spawn(&["-S", saved.to_str().unwrap()], home.path());
+    if let Err(got) = again.wait_for(&freq) {
+        panic!("--- want\n{freq}\n--- got\n{got}");
+    }
+    drop(again);
+    let named = Vdrs::spawn(&["-S", named.to_str().unwrap()], home.path());
+    let end = Instant::now() + Duration::from_secs(20);
+    while !(named.text().contains("sort") && named.text().contains("row 2/")) {
+        assert!(Instant::now() < end, "{}", named.text());
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
