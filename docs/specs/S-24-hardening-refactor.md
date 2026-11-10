@@ -5,6 +5,7 @@ user-visible change except R3–R5. Order: R1 before S-18 C (editing adds code t
 R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha is finished (direction §9.12: every planned feature in `docs/` implemented, tests robust).
 
 ## 0. Review findings, re-checked
+
 | Finding (review 2026-11-08) | Re-check | Action |
 |---|---|---|
 | `app.rs` 2802 / `sheet.rs` 2450 lines | `app.rs`: ~1360 lines of code, the rest tests (`mod tests` at 1362, `scenario` at 1561). `sheet.rs`: ~1985 code, ~20 `*_from` constructors | R1 |
@@ -16,6 +17,7 @@ R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha
 | ~45 min source install | true (README) | R5 |
 
 ## 1. R1 — Module layout (0.5–1 d, mechanical)
+
 - `src/app.rs` tests → `src/app/tests.rs` + `src/app/scenario.rs` (bodies unchanged).
 - `src/app.rs` render code (`render*`, `render_titlebar/statusbar/which_key/plan_panel/pivot_preview`)
   → `src/app/render.rs`.
@@ -26,8 +28,10 @@ R2 with S-18 E (both touch row bookkeeping), R3–R4 any time, R5 when the alpha
   no test edits; `git diff --stat` shows moves (`-M`).
 
 ## 2. R2 — Window invariants behind methods (1–2 d)
+
 Not a general encapsulation pass (cost: every caller, benefit: little). Only the fields whose
 consistency is a correctness rule:
+
 - `window`, `revision`, `state.loaded_rev`, `state.window_rids`, `view.window_offset`,
   `view.total_rows`/`view.count_key`.
 - Methods: `Sheet::invalidate(Reason)` (bump revision, reset count key when the row set changes),
@@ -47,6 +51,7 @@ As shipped (2026-11-08): `window`, `revision`, `state.loaded_rev`/`counting`/`wi
 navigation writes it, and every write is followed by a materialize; a setter would enforce nothing.
 
 ## 3. R3 — Typed xlsx and sqlite columns (1 d)
+
 - xlsx (calamine `Data`): per column, if every non-empty cell is `Int` → i64, `Float`/`Int` → f64,
   `Bool` → bool, `DateTime`/`DateTimeIso` → datetime; mixed → String (today's behavior). Header row
   excluded.
@@ -59,6 +64,7 @@ navigation writes it, and every write is followed by a materialize; a setter wou
 - Tests: unit per type rule incl. mixed columns; golden `xlsx-typed`, `sqlite-typed` with export.
 
 ## 4. R4 — CSV inference: no silent data change (1 d; ships as part of S-25 P2)
+
 - Zero-padded integers: a column inferred as int where any sampled value matches `^[+-]?0\d` stays
   String (zip codes, IDs). Implementation: after schema inference, re-check int columns on the same
   sample rows Polars inferred from (`CSV_INFER_ROWS`) read as text; override via `with_schema_overwrite`.
@@ -68,6 +74,7 @@ navigation writes it, and every write is followed by a materialize; a setter wou
   `issue964-inner-join` leaves the quarantine if it then passes.
 
 ## 5. R5 — Release binaries (0.5–1 d; not before the alpha is finished — decision 2026-11-08)
+
 - GitHub Actions release workflow on tag `v*`: build `vdrs` for x86_64/aarch64 Linux (musl), macOS
   (x86_64 + arm64), Windows; attach archives + SHA256 to the release. Prefer `cargo-dist` (generates the
   workflow and a shell installer) over a hand-written matrix; pin its version.
@@ -76,6 +83,7 @@ navigation writes it, and every write is followed by a materialize; a setter wou
 - Not here: distro packages (direction §2: different politics).
 
 ## 6. R6 — No full scans on the UI thread (1–2 d; deferred 2026-11-10, design to agree first)
+
 Found by the 2026-11-10 review: three edit paths run a whole-plan Polars collect inside `dispatch`,
 so on a large scanned file the TUI freezes with no spinner and `<C-c>` can't stop it.
 
@@ -95,5 +103,6 @@ so on a large scanned file the TUI freezes with no spinner and `<C-c>` can't sto
   during the job leaves the sheet unchanged.
 
 ## 7. Test plan summary
+
 Each item ends with the full suite green (`cargo test`, `cargo clippy --all-targets -D warnings`,
 corpus replay at or above `MIN_PASS`). R1/R2 add no goldens; R3/R4 add goldens with export round trip.

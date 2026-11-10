@@ -4,10 +4,12 @@ Status: **drafted 2026-11-08**, not started. Three independent Excel-gap items.
 Depends on: S-15 §6 (lineage), S-18 (row ids, D3), S-23 A (sidebar cell page), S-26 C (visual ranges).
 
 ## 1. Part A — Refresh and live derived sheets (2–3 d)
+
 Today a derived sheet (freq, pivot, join, `:sql`, describe, …) is built once from the parent's
 `view_plan()`; later parent changes don't reach it (S-18 §2.5 "open children don't change"). Every
 derived sheet already stores how it was made (`SheetState.lineage = { parent snapshot, Derivation }`),
 which `:export` replays.
+
 - `:refresh` (`<C-r>`, VisiData reload-sheet; K1) rebuilds the current derived
   sheet: same `Derivation`, the parent's **current** view, keeps this sheet's own view state (sort,
   hidden, formats) where columns still exist. Undoable (snapshot before).
@@ -21,7 +23,9 @@ which `:export` replays.
   on activation; parent popped → snapshot refresh + toast; golden `refresh-freq`.
 
 ## 2. Part B — Cell notes (2 d)
+
 Annotations on cells; source files stay read-only.
+
 - `:note <text>` (and a key, decision K2) on the cursor cell; empty text deletes; `:notes` pushes a sheet
   of all notes (`row keys, column, note`), `Enter` jumps to the cell.
 - Display: a marker in the cell's last character cell (theme color); the sidebar cell page (S-23 A)
@@ -38,7 +42,9 @@ Annotations on cells; source files stay read-only.
   shown; `:notes` jump; atomic write leaves no partial file on a simulated failure.
 
 ## 3. Part C — Selection stats in the status line (1 d)
+
 Excel's status bar (sum / average / count of the selected cells).
+
 - When rows are selected (or a S-26 visual range is active) and the cursor column is numeric, the
   status line shows `sel 1,204 · sum 88,410.5 · avg 73.4 · min 0 · max 990`; non-numeric: `count`,
   `distinct`.
@@ -53,6 +59,7 @@ Excel's status bar (sum / average / count of the selected cells).
   stays a background job (spinner, no UI stall).
 
 ## 4. Decisions (confirmed 2026-11-08)
+
 - **K1** `<C-r>` = `:refresh` (VisiData `reload-sheet`, S-26 §0), asking first when the sheet has
   unsaved edits; redo stays `R` (and `<C-r>` in the vim profile).
 - **K2** notes on `zn` (unbound in both VisiData and vdrs, checked 2026-11-08) + `:note`. VisiData has

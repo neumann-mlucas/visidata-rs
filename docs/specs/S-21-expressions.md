@@ -7,6 +7,7 @@ expression language vdrs already has (Polars SQL), and leaves a Python-flavoured
 optional phase gated on evidence.
 
 ## 1. What exists (verified)
+
 - `:derive name = <SQL expr>` → `Sheet::derive` (`src/sheet.rs`): `PlanStep::Derive`, schema-checked
   before it lands, undoable, exported to `.py`/`.sql`.
 - `:sql <query>` over the view and other sheets.
@@ -26,6 +27,7 @@ optional phase gated on evidence.
 | — | — | `:filter-expr <pred>` | optional: a predicate filter alongside the regex filter (`FilterState` gains `Expr(String)`) |
 
 Rules:
+
 - Expressions are Polars SQL (`sql_expr`): `qty * price`, `upper(name)`, `amount > 100 AND region = 'east'`.
   Window functions work too (verified 2026-11-08 on polars-sql 0.55): `x / sum(x) OVER ()` (share of
   total), `sum(x) OVER (PARTITION BY g)`, `sum(x) OVER (ORDER BY d)` (running total),
@@ -40,6 +42,7 @@ Rules:
 - History: `=`/`z/`/`:select` prompts share the ex history file (they are ex commands).
 
 ### Phase C (optional, evidence-gated): Python-flavoured subset
+
 A translator `pyexpr → polars Expr` for the shapes in the VisiData corpus and in day-one muscle memory:
 arithmetic and comparisons on column names, `and/or/not`, string methods (`.strip() .lower() .upper()
 .replace(a,b) .startswith(x) len()`), `int() float() str()`, `curcol`. Anything else: refused with
@@ -58,6 +61,7 @@ chain into other UNTESTABLE longnames, so the real unlock is lower — measure f
 | C | Python subset translator — only if C0 or users justify it | 3–4 d |
 
 ## 4. Test plan
+
 - Unit: `:select` predicate type check (bool ok, number refused, unknown column refused).
 - Unit: `SetExpr` on selected rids only; null handling (`otherwise(col)` keeps nulls on unselected).
 - Scenario: `=` `qty*price` Enter → new column named `qty*price`; `=` `total = qty*price` → `total`;
@@ -70,7 +74,9 @@ chain into other UNTESTABLE longnames, so the real unlock is lower — measure f
 - Corpus (C only): translated files leave the UNTESTABLE list; `MIN_PASS` raised by what passes.
 
 ## 5. Decisions (confirmed 2026-11-08)
+
 Keymap rule: S-26 §0 (default = VisiData; changed meanings only in the vim profile).
+
 - **E1** `=` names the column with the expression text (VisiData); `name = expr` names it `name`.
 - **E2** `g=` = setcol-expr on selected rows (VisiData).
 - **E3** `z|` = select-expr (VisiData). The regex filter moves to `gz|` (free in both; VisiData `zF` is

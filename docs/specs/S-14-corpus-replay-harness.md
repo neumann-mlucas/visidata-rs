@@ -20,7 +20,7 @@ Hand-rolled Rust unit tests per feature are too much ceremony. Co-running VisiDa
 
 **Strategy B — reuse upstream goldens; replay in vdrs only.**
 
-Upstream ships 189 cmdlog files (`.vd`/`.vdj`) paired with 168 golden TSVs in `../visidata/tests/`. Those goldens *are* VisiData's known-correct output, versioned in their git. We replay each cmdlog through vdrs headless, diff output against the golden. VisiData the runtime stays out of CI.
+Upstream ships 189 cmdlog files (`.vd`/`.vdj`) paired with 168 golden TSVs in `../visidata/tests/`. Those goldens _are_ VisiData's known-correct output, versioned in their git. We replay each cmdlog through vdrs headless, diff output against the golden. VisiData the runtime stays out of CI.
 
 The direction §9.5 compat ban forbids runtime `.vd` support. A translator living in `tests/` is **not production surface** — it exists only to drive goldens. If vdrs is ever packaged standalone from the visidata source tree, the test harness is skipped; the production binary never sees `.vd` syntax.
 
@@ -28,7 +28,7 @@ The direction §9.5 compat ban forbids runtime `.vd` support. A translator livin
 
 ### File layout
 
-```
+```text
 visidata-rs/
 ├── tests/
 │   ├── vd_replay.rs              # the one #[test] fn
@@ -219,7 +219,7 @@ fn vd_replay_corpus() {
 
 ### Quarantine file
 
-```
+```text
 # tests/vd_replay/quarantine.txt
 # One filename stem per line. Add a reason comment on the line above.
 
@@ -267,7 +267,7 @@ No upstream golden exists for these. One `#[test]` per module, as needed.
 ## Lessons from the baseline run
 
 - **Float formatting drift is pervasive.** VisiData writes `999.50`, Polars writes `999.5`. Caught by `eq_loose` numeric-aware line compare — don't global-quarantine or coerce float precision. Loose compare parses each tab-split cell as f64; if both sides parse and equal within 1e-9 relative, they match.
-- **Polars quotes empty header names, VisiData doesn't.** `CsvWriter::with_quote_style(QuoteStyle::Never)` on the serializer; VisiData's golden data in `tests/` has no fields containing tabs/newlines so never-quote is safe. If a future golden file *does* contain embedded tabs, revisit.
+- **Polars quotes empty header names, VisiData doesn't.** `CsvWriter::with_quote_style(QuoteStyle::Never)` on the serializer; VisiData's golden data in `tests/` has no fields containing tabs/newlines so never-quote is safe. If a future golden file _does_ contain embedded tabs, revisit.
 - **Polars sort is unstable by default, VisiData is stable.** `SortMultipleOptions::with_maintain_order(true)` is mandatory for golden parity whenever sort keys have ties (`pr2688a/b` tests surface this immediately).
 - **Driver vs production split.** The replay driver intentionally reimplements command semantics at the Sheet level, not through `App::dispatch`. This lets us prove Polars-level correctness of a Tier 1 chunk before any keybinding/exline/view-state production work. Divergence between driver and production is a known cost, mitigated by `[driver only]` tags in `tasks.md`.
 - **Pre-existing bugs surface in lib conversion.** `src/widget.rs` referenced a nonexistent `paint_text`; dead-code-elimination in the bin-only build hid it. Adding `src/lib.rs` for integration tests forced the fix.

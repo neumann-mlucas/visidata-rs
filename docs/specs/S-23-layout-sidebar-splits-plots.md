@@ -4,6 +4,7 @@ Status: **drafted 2026-11-08**; A shipped 2026-11-08. Three independent parts, s
 Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 ## 1. What exists (verified in `src/app.rs`)
+
 - `App::render` splits the screen: title (1 row) / main / status (1 row); main splits 65/35 for the
   plan panel or 50/50 for the `:pivot` preview. One table: `SheetWidget { sheet: sheets.active() }`.
 - Single-sheet assumptions: `App.viewport_rows` (one value), `refresh_widths`/`clamp_view` on the
@@ -17,7 +18,9 @@ splitwin-half, `gZ` close, `Tab` swap focus, `gTab` swap panes, `zZ` split at N 
 `g.` plot-numerics (in vdrs `.` is repeat until plots ship — see L3).
 
 ## 2. Part A — Sidebar (0.5–1 d)
+
 A right-hand panel that shows text about the current context; the plan panel becomes one of its pages.
+
 - Pages: `plan` (today's panel), `column` (dtype, nulls, distinct, min/max of the cursor column — the
   `I` describe row, computed for one column in the background), `cell` (full value, wrapped; nested
   values pretty-printed — pairs with S-22), `help` (bindings of the current layer, which-key list).
@@ -35,6 +38,7 @@ and undo counts (ponytail: a selection change recomputes too). Help lists the sh
 in keymap order and doesn't scroll (ponytail: add scrolling when someone needs the bottom of it).
 
 ## 3. Part B — Split panes (2–3 d)
+
 - Model: `App.panes: Vec<Pane>` (1 or 2), `Pane { sheet: SheetId, area: Rect, viewport_rows }`,
   `App.focus: usize`. The sheet stack stays global; a pane points at a sheet id. `sheets.active()`
   becomes "the focused pane's sheet" — one accessor change, then grep every `sheets.active()` caller
@@ -50,6 +54,7 @@ in keymap order and doesn't scroll (ponytail: add scrolling when someone needs t
 - Prompts/status line/which-key belong to the focused pane; title bar shows both sheet names.
 
 ## 4. Part C — Plots (L: 1–2 weeks in stages)
+
 A plot is a derived **sheet kind** (`Origin::Plot { parent, x, ys, kind }`), so it lives on the stack,
 `q` pops it, `S` lists it. Its data is an aggregated/sampled frame computed in the background from the
 parent's `view_plan()`; the widget draws it.
@@ -63,6 +68,7 @@ parent's `view_plan()`; the widget draws it.
 | C5 | `:export` of a plot as a Polars/plotnine or DuckDB+vega-lite snippet — only if asked | — |
 
 Drawing library (checked 2026-11-08):
+
 - **ratatui built-ins** (`Canvas` braille/half-block, `Chart` line/scatter with axes + legend,
   `BarChart`, `Sparkline`): already a dependency, cover C1–C3. **Use these.**
 - `tui-chart` 0.6 (ratatui 0.30; line, bar, histogram, heatmap, candlestick, pie via `tui-piechart`):
@@ -75,6 +81,7 @@ Drawing library (checked 2026-11-08):
   ≤ 2 × width points.
 
 Rules:
+
 - Keys: `.` / `g.` (L3) and `:plot`/`:hist`/`:bar`.
 - x types: int/float/date/datetime; y numeric; anything else refused with the column + dtype.
 - A plot of a 100M-row view must stay O(screen) in memory: the sample/bin step runs lazily in Polars,
@@ -82,6 +89,7 @@ Rules:
 - Terminals without braille glyphs: `vd.option("plot_marker", "braille"|"halfblock"|"dot")`.
 
 ## 5. Test plan
+
 - A: scenario — `b` shows the column page with the cursor column's stats; `Ctrl+G` cycles; `:plan`
   still cycles plan → optimized → off; render snapshot (TestBackend) per page.
 - B: scenario — `Z` → two panes, `Tab` moves focus, `j` moves only the focused pane, a background job
@@ -97,7 +105,9 @@ Rules:
 - Docs: guide cards + recordings per part; doc-sync test covers new keys.
 
 ## 6. Decisions (confirmed 2026-11-08)
+
 Keymap rule: S-26 §0.
+
 - **L1** sidebar starts closed (VisiData).
 - **L2** `Z` splits top/bottom (VisiData); `:vsplit` for side by side.
 - **L3** plot keys as VisiData: `.` = plot current column, `g.` = plot numeric columns, plus `:plot`.

@@ -4,13 +4,16 @@ Status: **drafted 2026-11-08**, not started.
 Depends on: S-18 C (edits as steps; `SetCells`/`SetCol` patterns), S-26 B (ranges), S-15 §3.3 (search).
 
 ## 1. VisiData reference
+
 - `*` `addcol-regex-subst`: new column `<col>_re` = regex replace of the current column.
 - `g*` `setcol-regex-subst`: replace in place on selected rows. Corpus: `setcol-regex-subst-all` sits in
   UNTESTABLE today (S-14), reachable after this spec.
 - No hit list: `/` `n` `N` only (`features/hlsearch.py` highlights matches).
 
 ## 2. `:s` — substitute
+
 Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`.
+
 - Scope: current column. Rows: the range (S-26 B), else the selection if any, else every row of the
   view (vim's `%` default would surprise on a 10M-row file — decision S1).
 - `g` = all matches in a cell (else first), `i` = case-insensitive. Replacement uses `$1`/`${name}`
@@ -27,6 +30,7 @@ Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`
   with the S-18 read-only message.
 
 ## 3. Search-hit sheet (quickfix)
+
 - `:hits <text>` pushes a sheet (no default key: `g/` is VisiData's search-all-columns, S-26 §0; the
   vim profile may bind one): one row per hit `row, column, value` (+ key column values), from
   `Sheet::search_hits` (already returns `(rid, col)` pairs; background job).
@@ -38,12 +42,14 @@ Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`
 - Derived sheet `Origin::Hits { parent, needle }`, read-only, not exported (S2).
 
 ## 4. Phases
+
 | Phase | Ships | Effort |
 |---|---|---|
 | A | `:s` in place + `*` / `g*`, `PlanStep::Replace`, export | 1.5–2 d |
 | B | hit sheet `:hits`, `Enter` jumps back | 1 d |
 
 ## 5. Test plan
+
 - Unit: `:s` parser — delimiters, flags, escapes, `\1` → `$1`, empty replacement, bad regex message.
 - Unit: `Replace` on selected rids only; nulls stay null; `g` vs first-only.
 - Scenario: `:s/ +$//` on selected rows; `U`; `*` adds `name_re`; read-only refusal on a freq sheet.
@@ -53,6 +59,7 @@ Grammar (vim): `:[range]s/<regex>/<replacement>/[g][i]`, any delimiter after `s`
 - Corpus: translate `addcol-regex-subst`, `setcol-regex-subst(-all)`; move them out of UNTESTABLE.
 
 ## 6. Decisions (confirmed 2026-11-08)
+
 - **S1** `:s` with no range and no selection changes every row of the view; the status line gives the
   count, `U` undoes.
 - **S2** the hit sheet is not exported.

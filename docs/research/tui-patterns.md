@@ -192,11 +192,13 @@ Take **television's shape with yazi's layering**:
 - zellij: WASM plugins can act as sources via pipe system (`CliPipe`,
   `MessageFromPlugin`, `pipe_to_all_plugins()`). Overkill for us.
 - atuin: `SearchEngine` **trait** (`search/engines.rs` L63-72):
+
   ```rust
   async fn full_query(&mut self, ...) -> Result<Vec<History>>;
   async fn query(&mut self, ...)      -> Result<Vec<History>>;
   fn get_highlight_indices(&self, cmd: &str, input: &str) -> Vec<usize>;
   ```
+
   Static dispatch via `#[enum_dispatch(SearchEngine)]` on `AnySearchEngine`
   (L91-96, variants `Db`, `Daemon`). No vtable.
 - television: multiple built-in "cable channels"; preview is an async task
@@ -222,6 +224,7 @@ magic bytes a fallback. `infer` fits.
 ### Synthesis — Q2
 
 - `trait Source` with Polars-shaped async methods:
+
   ```rust
   trait Source {
       async fn schema(&mut self) -> Result<Schema>;
@@ -230,6 +233,7 @@ magic bytes a fallback. `infer` fits.
       fn total_rows_hint(&self) -> Option<usize>;
   }
   ```
+
   Static dispatch via `#[enum_dispatch]` (atuin): one
   `AnySource { Csv, Tsv, Parquet, Jsonl, Stdin, Lua(LuaSource) }`. `Lua`
   variant lets mlua plugins register sources without a Box.
@@ -370,46 +374,55 @@ Versions as seen in surveyed manifests + docs.rs (2026-10-08). MIT or
 MIT/Apache dual unless noted.
 
 **UI / terminal**
+
 - `ratatui` 0.30 (bottom, csvlens).
 - `crossterm` 0.29 with `event-stream`.
 - `tui-input` optional — if a text widget is needed before writing one.
 
 **Async**
+
 - `tokio` 1.41+ with `rt-multi-thread`, `macros`, `sync`, `signal`, `time`,
   `fs`.
 - `tokio-stream` for `EventStream`.
 - `signal-hook-tokio` 0.3 (yazi) for OS signals into the bus.
 
 **Data**
+
 - `polars` latest with `lazy`, `csv`, `parquet`, `json`, `strings`,
   `temporal`.
 - `csv` 1.4 — low-level streaming fallback (csvlens).
 - `arrow` 59 — transitive via polars; direct for `arrow-csv` streaming.
 
 **Config / serde**
+
 - `serde` 1.0 derive.
 - `toml` 0.8.
 - `struct_patch` — gitui's sparse override trick (optional).
 - `enum_dispatch` 0.3 — atuin pattern for `AnySource`.
 
 **Scripting**
+
 - `mlua` 0.12 with `lua54` + `async` + `vendored` + `send`. Matches yazi.
   (`luau` is a sandboxed alt; defer.)
 
 **Format detection**
+
 - `infer` 0.22. Skip `tree_magic` (system DB) and `file-format` (heavier)
   unless we need deep introspection.
 
 **Keymap parsing**
+
 - No crate. Roll `Key` parsing (~50 lines, mirror yazi `key.rs`). Pulling
   `kdl` or similar would be over-engineering.
 
 **Errors / logging**
+
 - `anyhow` for app flow, `thiserror` for boundary errors (`OpenError`,
   `QueryError`).
 - `tracing` + `tracing-subscriber`.
 
 **Testing**
+
 - `insta` for frame snapshots.
 - `rstest` for parameterised cases.
 - No Lua test framework at Phase 0 — assert-based `demo()` per module.

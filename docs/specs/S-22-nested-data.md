@@ -7,6 +7,7 @@ strings"; fixed 2026-11-08): verified 2026-11-08 that Polars' JSON/JSONL readers
 data is already typed; only the operations are missing.
 
 ## 1. VisiData surface (reference)
+
 - `(` `expand-col`: struct/dict → one column per field (`user.name`, `user.geo`), one level.
 - `g(` `expand-cols` (selected/all), `z(` `expand-col-depth N`, `gz(` `expand-cols-depth`.
 - `)` `contract-col`: undo the expansion (hide children, show parent).
@@ -16,6 +17,7 @@ data is already typed; only the operations are missing.
   chain into Python exprs — measure after phase A).
 
 ## 2. Design
+
 New plan steps, applied in `PlanStep::apply`, so undo / `:export` / `:tail` / plan panel get them:
 
 | Step | Key | Polars | DuckDB export |
@@ -30,6 +32,7 @@ in the lineage (`explode` / DuckDB `UNNEST` + `generate_subscripts`). Being deri
 under S-18 D3, so the row-count change never meets row ids or edits.
 
 Rules:
+
 - Naming `parent.field` (VisiData). Name clash with an existing column → suffix `_2`.
 - Empty list → one row with null element (VisiData keeps the row); null list → same.
 - Map-like structs (JSON objects with varying keys) arrive as a struct with the union of keys and nulls,
@@ -48,6 +51,7 @@ Rules:
 | C | `:type json` (decode JSON text) | 0.5 d |
 
 ## 4. Test plan
+
 - Unit: field naming + clash suffix; depth 2 expansion order matches VisiData (parent position, fields
   in schema order).
 - Unit: unfurl of `[]`, null, `[x]`, nested list → expected rows.
@@ -59,6 +63,7 @@ Rules:
 - S-15: move nested data from §10.1 (planned) to §3 when phase A ships.
 
 ## 5. As shipped (2026-11-09)
+
 - `PlanStep::Expand { column, fields, after }`: `fields` = (path into the struct, new name), `after` = the
   columns that followed the struct, so Polars, Python and DuckDB put the new columns in the same place
   (`select(all - after, fields…, after)` / `SELECT * EXCLUDE (after), struct_extract(…) AS …, after`).

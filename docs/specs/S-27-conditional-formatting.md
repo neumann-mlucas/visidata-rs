@@ -5,12 +5,14 @@ Depends on: S-15 §7.3 (renderers), S-21 (SQL predicates), theme (`src/theme.rs`
 depth). Excel-gap item: VisiData colors rows only by state (cursor, selected, error).
 
 ## 1. What exists (verified)
+
 - `vd.register_renderer { column | dtype, render = fn(v) -> string|nil }`, memoized per value, counted
   in column widths. Returns text only.
 - Theme is two fixed palettes (`Theme::dark/light`), 24-bit RGB.
 - Only the 1024-row window is ever materialized, so any per-cell rule costs O(window), not O(file).
 
 ## 2. Design
+
 Rules live in `View.formats: Vec<FormatRule>`: per sheet, undoable, display only. Derived sheets start
 without rules (F1).
 
@@ -32,6 +34,7 @@ without rules (F1).
 - Export: `:export` ignores formats (data only). Persist via S-29 sessions.
 
 ## 3. Phases
+
 | Phase | Ships | Effort |
 |---|---|---|
 | A | `:color` predicate rules + `:nocolor`, row and cell, styles | 1.5–2 d |
@@ -39,6 +42,7 @@ without rules (F1).
 | C | Lua renderer styles (`vd.api_version` bump) | 0.5 d |
 
 ## 4. Test plan
+
 - Unit: style parser (`bg=yellow,bold`, bad names refused); scale interpolation endpoints + nulls; data
   bar eighths for 0, 0.5, 1.
 - Scenario: `:color amount amount > 100 red` → TestBackend buffer has the red fg exactly on matching
@@ -48,5 +52,6 @@ without rules (F1).
 - Docs: guide card + `docs-format` recording.
 
 ## 5. Decisions (confirmed 2026-11-08)
+
 - **F1** derived sheets start without format rules.
 - **F2** data bars are `:databar` (`:bar` is the S-23 bar chart).

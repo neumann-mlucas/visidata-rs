@@ -13,6 +13,7 @@ VisiData from keystroke 1; deviations need a reason. So this spec has two layers
    same idea as `visidata/experimental/vimcompat.py` (`Ctrl+D`/`Ctrl+U` half page, `go` home).
 
 ## 0. Keymap rule (confirmed 2026-11-08, applies to every spec)
+
 - **R-a** A key VisiData binds to a command vdrs has → the VisiData meaning, in the default keymap.
 - **R-b** A key VisiData leaves free → vdrs may bind a new feature to it in the default keymap
   (additive, breaks no muscle memory): `V` / `<C-v>` visual, `gz|` filter, `zn` notes.
@@ -48,6 +49,7 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 | `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`); case-insensitive regex, as VisiData's default `regex_flags` | `/` all columns (vim searches the whole buffer) | phase 0 |
 
 ### 0.1 Phase 0 as shipped (2026-11-08)
+
 - Default keymap: `Space` → `:`; `$` currency, `gh`/`gl` first/last column (`0` kept); `g-` `:uniform`,
   `gv` unhide-cols; `<C-c>` / `g<C-c>` cancel jobs (the result is dropped; Polars work can't be
   interrupted, it finishes in the pool), `gq` / `<C-q>` quit; `<C-f>` / `<C-b>` page; `/` `?` `g/` `g?`.
@@ -64,6 +66,7 @@ S-15 §3–4 and the `init.lua` template. Tests: scenario per moved key (old key
 new key does the vdrs thing); `<C-c>` during a running job cancels it and the app stays open.
 
 ## 1. What exists (verified)
+
 - Count prefix for motions (`3j`), `.` repeats resolved Actions, `:` ex line with history + Tab
   completion, `:N` go to row, which-key overlay after a pending prefix (1000 ms).
 - Free in vdrs today: `<C-r> <C-o> <C-z> <C-w> v V ' \` <Space> ?`; `y p d x a e m` are claimed by S-18 /
@@ -73,6 +76,7 @@ new key does the vdrs thing); `<C-c>` during a running job cancels it and the ap
   (`Tab` and `<C-i>` are the same key; `Esc` vs `Alt` ambiguity).
 
 ## 2. Part A — Default keymap: safety + conventions (2–3 d)
+
 | Item | Behavior | Why |
 |---|---|---|
 | A1 quit guard | `q` / `:q` / `<C-c>` on a sheet with unsaved edits (S-18) asks `discard 3 edits to sales.csv? y/N`; `:q!` / `:qa!` skip it | VisiData's `quitguard` defaults off, so `q` silently drops edits; vim refuses `:q` with changes |
@@ -86,7 +90,9 @@ new key does the vdrs thing); `<C-c>` during a running job cancels it and the ap
 | A9 mouse (opt-in) | `vd.option("mouse", true)`: wheel scrolls, click moves cursor, click header = column | off by default so terminal text selection keeps working |
 
 ## 3. Part B — Ex-line ranges and global commands (2 d, default keymap)
+
 No key conflicts — all on `:`.
+
 - Ranges: `:5,20 <cmd>`, `:.,$ <cmd>`, `:'<,'> <cmd>` (visual, Part C), `:% <cmd>` = all rows.
   A range resolves to a row-id set, then the command runs as if those rows were selected:
   `:5,20 setcol 0`, `:'<,'>d` (S-18 E), `:% y`.
@@ -97,7 +103,9 @@ No key conflicts — all on `:`.
 - Tests: parser unit tests per range form; scenario `:g/^n/d` = `|^n` + `gd`.
 
 ## 4. Part C — Visual mode (2–3 d, default keymap)
+
 `v`/`V` are free in vdrs (VisiData `v` is a multiline-display toggle — move that to `zv`?, decision V1).
+
 - `V` starts a **row range** at the cursor; motions (`j k G gg :N /`, counts) extend it; the range is
   highlighted; `Esc` cancels.
 - `<C-v>` starts a **cell block** (rows × columns): `h l` extend columns too.
@@ -110,6 +118,7 @@ No key conflicts — all on `:`.
 - Tests: scenario per verb on a range; range survives `[` sort; monkey gets `V`, `<C-v>`.
 
 ## 5. Part D — `keymap = "vim"` profile (3–4 d)
+
 Rebinds only where VisiData and vim disagree; everything else stays VisiData.
 
 | Key | VisiData / vdrs default | vim profile |
@@ -146,11 +155,13 @@ row-id / cell set and dispatches the operator's `g` form on it. Counts multiply 
 `.` repeats the whole operator + motion (already captures resolved Actions).
 
 ## 6. Part E — Line editor normal mode (2 d)
+
 Prompts and cell edits (S-18 C) get vim normal mode on `Esc` when the vim profile is on (default
 profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` again cancels,
 `Enter` submits from either mode. `src/lineedit.rs` already has the cursor model. VisiData #2500.
 
 ## 7. Phases
+
 | Phase | Ships | Effort |
 |---|---|---|
 | 0 | §0 key alignment, rows marked "phase 0" (`Space`, `$`/`gl`/`gh`, `g-`/`gv`, `<C-c>`/`gq`/`<C-q>` + job cancel, `<C-f>`/`<C-b>`, `/`/`g/`/`?`); the R-d rows move with their features | 2–2.5 d |
@@ -161,6 +172,7 @@ profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` 
 | E | line editor normal mode | 2 d |
 
 ## 8. Test plan
+
 - Unit: operator resolver — `dd`, `d3j`, `2d3j`, `dG`, `yic`, `"ayy`, `diw`-like invalid object →
   refused, timeout on `q` without register; range parser.
 - Unit: profile table — every key it binds resolves to an existing action / ex command (as the
@@ -173,6 +185,7 @@ profile: `Esc` cancels, as today): `h l w b e 0 $ x dw cw D C i a A I u`, `Esc` 
 - Docs: guide "vim users" page lists the profile table; doc-sync test covers both profiles.
 
 ## 9. Decisions (confirmed 2026-11-08)
+
 - **Rule**: §0 (R-a … R-e) for every spec. Direction §9.7: default = VisiData, opt-in vim profile for new or more standard meanings.
 - **V1** `v` unbound for now; `V` / `<C-v>` visual in the default keymap (R-b). When multi-line cells
   ship, default `v` = VisiData's toggle; a charwise visual on `v` would be vim-profile only.

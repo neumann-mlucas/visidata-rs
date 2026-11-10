@@ -27,6 +27,7 @@ editable and gets a clipboard. `direction.md` records it (§9.8, 2026-11-08); up
 ## 2. Model
 
 ### 2.1 Edits are plan steps
+
 New step kinds, each applied by `PlanStep::apply`, so undo, `:save`, `:tail`, `:export` and the plan
 panel get them with no new machinery:
 
@@ -42,6 +43,7 @@ per snapshot). `SetCells` applies as a left join on rid + `coalesce`-style `when
 path for 1 cell or 50k (no giant `when` chains).
 
 ### 2.2 Placement: an edit goes after the last step that writes its column
+
 Not "last": `:derive total = qty * price`, then edit `qty` → `total` must follow (VisiData computes
 expression columns live). Rule: insert the edit right after the last step that *writes* `column`
 (`Derive name=column`, `Currency`, `Rename new=column`, an earlier edit), or at the front if none.
@@ -53,6 +55,7 @@ Consequence: inserting mid-list rebuilds the plan from the source + all steps (a
 works); fine, it's lazy.
 
 ### 2.3 Stable row ids (phase E, before any row add/delete)
+
 Positional ids break once rows are deleted or added. Phase E makes the rid a real column, added once
 right after the source scan and carried through every step; `filtered_plan` and `SetCol` read it
 instead of numbering rows. Added rows get ids `1<<62 | n` (`n` = per-sheet counter), so a growing
@@ -70,12 +73,14 @@ rebuild, only for sheets that have added rows; `ponytail:` fine in memory, slow 
 upgrade path = keep added rows in a side table and merge them into the window.
 
 ### 2.4 Types
+
 The value typed or pasted must convert to the column **as displayed** (after `#%~@` casts), and is
 stored converted to the **base** type (so the view cast still applies). Empty input = null.
 Rejected values: nothing changes, status line `"abc" doesn't fit qty (i64)` (same as `:setcol`).
 Dates: ISO only in v1 (`2024-01-31`); the lenient `@` layouts are a follow-up.
 
 ### 2.5 Which sheets are editable (D3: source sheets only)
+
 Only sheets read from a source take edits: a file opened from the command line or `:open`-like paths,
 a `:tail`, a part of an xlsx/sqlite file, and `A` (open-new). Derived sheets (freq, describe, pivot,
 join, `:sql`, diff, selected rows, `:dup`, dedupe, the sheet list) refuse every edit key with
@@ -85,12 +90,14 @@ first. Children opened after an edit see it (they're built from the parent's vie
 don't change, as today.
 
 ### 2.6 Register (internal clipboard)
+
 `App.register: Option<Register>`, one per app (copy on one sheet, paste on another):
 `Register { kind: Rows | Cells, df: DataFrame }`, typed, column names kept. Rows paste by column
 name (missing → null, extra → ignored, type mismatch → refused as a whole with the first bad value).
 Cells paste by position from the cursor column rightwards.
 
 ### 2.7 Export
+
 `SetCells`/`AddRows` export their data literally: Polars `pl.DataFrame({...})` joined/concatenated,
 DuckDB `VALUES (...)` lists; `DeleteRows` = `filter(~pl.col(rid).is_in([...]))` / `NOT IN`. Since
 exports need the rid, exported scripts add `with_row_index` once at the source, as `:setcol` export
@@ -116,11 +123,13 @@ and S-15 + the user guide updated.
 Total ≈ 12–18 days.
 
 ### A — Copy to register
+
 Collect the cursor row / selected rows / cell / column-of-selected from the view (background job for
 selections, like `"`), store typed. Status: `copied 1,204 rows`. Copying a wide selection of a huge
 file is bounded by memory; refuse above 10M cells with a message (`ponytail:` limit, raise on demand).
 
 ### B — System clipboard out
+
 As VisiData's `clipboard.py` (decision 2026-11-08, replaces the arboard plan): pipe text to a copy
 command. `Y`/`gY` send visible columns as TSV with a header; `zY` the raw cell text (no newline);
 `gzY` the current column of the selected rows, one value per line. Tab/newline inside a value become
@@ -133,6 +142,7 @@ the UI thread. Unit tests always get an in-memory sink (`cfg(test)`), never the 
 `vd.option(name, value)` is the general setter (Lua API v5, S-10); unknown names are init.lua errors.
 
 ### C — Cell editing
+
 `e` opens the existing line editor on the cell's display text; Enter → `SetCells` (one cell) via
 §2.2/§2.4; Esc cancels. `ge` = `:setcol` with the prompt prefilled. `:edit <value>` for scripts and
 `vd.bind`. Undo/redo as any step. The cursor stays on the edited cell; sort/filter re-run (an edited
@@ -149,6 +159,7 @@ quit guard (S-26 A1) counts edit steps against `state.saved_edits` (set when `:s
 replay driver still uses its own `edit-cell`/`setcol-input` path; S-25 P1 moves it onto `edit_cell`.
 
 ### D — Paste into cells
+
 `zp`: register cell → cursor cell. `gzp`: register's cells → current column of selected rows
 (VisiData `setcol-clipboard`). `zx`: copy cell, then set null. All reuse `SetCells`/`SetCol`.
 
@@ -161,6 +172,7 @@ whole paste. `zp` pastes the register's first cell (VisiData: the last `zy` valu
 `paste-cell`, `cut-cell(s)`, `setcol-clipboard` translated; `pr2372` still waits on `addcol-new`.
 
 ### E — Stable rids + delete
+
 Do §2.3 first, as its own commit with no visible change (all existing tests must pass unchanged — the
 proof the rid switch is safe). Then `DeleteRows`. `d` keeps the cursor on the next row; `gd` on the
 selection; `x`/`gx` = copy then delete.
@@ -181,6 +193,7 @@ outside `sheet` (the replay driver); `:derive`/rename refuse the name. Replay: `
 (`1410a`).
 
 ### F — Add/paste rows
+
 First, as its own commit: `P` stops toggling the plan panel; `:plan` (from S-23 A, which ships with or
 before this phase: `:sidebar plan`, same plan → optimized → off cycle; `:toggle-plan-panel` keeps working) replaces it in the keymap, the guide
 (`docs-plan` recording, key tables), S-15 and the `init.lua` template. Then `AddRows` with the
@@ -202,6 +215,7 @@ clamps only a current window), so the cursor can land on a row the next window b
 translated (+0 PASS: the files they unblock stop at `commit-sheet`, `setcol-incr`, `addcol-new`).
 
 ### G — System paste in
+
 Enable bracketed paste. In the table, a paste event parses TSV (CSV if no tab) into the register
 (`clipboard: 3 rows × 2 cols`); then `p`/`zp`/`gzP` apply it. In a prompt, a paste inserts the text
 (first line only for single-line prompts). Reading the clipboard directly (OSC 52 query) is not
@@ -230,6 +244,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 (`tests/vd_replay.rs`, `MIN_PASS`). No test touches the real system clipboard.
 
 ### A — Copy to register
+
 - Unit: `Register` from rows/cells keeps dtypes (date, float, null) and column names.
 - Scenario: `y` on row 3 → register = that row; `gy` with sel 2 after `[` sort → the selected rows,
   view order; `zy`/`gzy` cells; copy with nothing selected → message, register unchanged.
@@ -238,6 +253,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
   S-25 P0); files pass only with paste in D/F; count moves recorded in S-14.
 
 ### B — System clipboard out
+
 - Unit: TSV encoding (tabs/newlines inside values, nulls empty, header rules), matched to VisiData's
   `syscopyCells` output (`visidata/clipboard.py`) before writing it.
 - Unit: backend choice table (option set, `osc52`, SSH, WSL, Wayland, X11) → expected command.
@@ -246,6 +262,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Manual checklist (not automatable): X11, Wayland, macOS, SSH+OSC52 in kitty/wezterm/iTerm, tmux.
 
 ### C — Cell editing
+
 - Unit: `insert_point` — no writer, after `Derive`, after `Rename`, after an earlier edit, derived
   column itself.
 - Unit: type rule table — int/float/bool/date/text, displayed cast vs base type, empty → null, refusal.
@@ -265,12 +282,14 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
   edit-join* re-checked, `MIN_PASS` raised by what passes.
 
 ### D — Paste into cells
+
 - Scenario: `zy` then `zp` elsewhere; `gzp` over selection; `zx` = copy + null; type mismatch refused
   whole (no partial paste).
 - Golden: `paste-cell`, `setcol-clipboard` with export round trip.
 - Corpus: `setcol-clipboard` translated.
 
 ### E — Stable rids + delete rows
+
 - Rid switch commit: the whole suite passes unchanged (golden, replay, pty), plus a unit test that
   rids are equal before/after the switch on a sorted+filtered view.
 - Unit: added-row id range never meets source ids, including after `:tail` growth.
@@ -281,6 +300,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Corpus: `delete-row`, `delete-selected`; S-14 counts updated.
 
 ### F — Add/paste rows
+
 - Plan-key commit: scenario `:plan` cycles plan → optimized → off; `P` no longer opens it; the
   `docs-plan` recording and the guide's key tables regenerate; `default_init_lua` test still passes.
 - Unit: position keys — insert after/before source rows, between two inserted rows (repeatedly, no
@@ -295,6 +315,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Corpus: `add-row`, `add-rows`, `paste-after`, `open-new` (`issue3195` re-checked).
 
 ### G — System paste in
+
 - Unit: TSV/CSV text → register (ragged rows, quotes, trailing newline, one value).
 - Scenario: a synthetic `Event::Paste` in the table fills the register; in a prompt inserts text.
 - pty: bracketed-paste bytes (`ESC[200~ … ESC[201~`) into the real binary → register message on screen.
