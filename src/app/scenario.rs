@@ -3332,3 +3332,49 @@ async fn vim_profile_motions_and_undo_keys() {
         "u undid the s"
     );
 }
+
+/// S-26 D2: in the vim profile `"a` names the register of the next yank or
+/// paste; yanks also fill `0`, cuts the `1`–`9` ring; `:registers` lists them.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_registers_named_yank_ring_and_paste() {
+    let mut h = csv(b"id\n1\n2\n3\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let ids = |h: &Harness| csv_text(h.app.sheets.active(), b',').replace('\n', " ");
+    h.keys("\" a y").await; // row 1 into "a
+    h.keys("j y").await; // row 2 into "" and "0
+    let reg = |h: &Harness, c: char| {
+        h.app
+            .registers
+            .get(&c)
+            .map(|r| crate::sheet::any_text(&r.df.columns()[0].get(0).unwrap()))
+    };
+    assert_eq!(reg(&h, 'a').as_deref(), Some("1"));
+    assert_eq!(reg(&h, '0').as_deref(), Some("2"));
+    h.keys("\" a p").await;
+    assert_eq!(ids(&h), "id 1 2 1 3 ", "\"ap pastes row 1 after row 2");
+    h.keys("p").await;
+    assert_eq!(
+        ids(&h),
+        "id 1 2 1 2 3 ",
+        "p: the unnamed register, still row 2"
+    );
+    h.keys(":").await;
+    h.type_("cut-row").await;
+    assert_eq!(reg(&h, '1').as_deref(), Some("2"), "a cut goes to \"1");
+    h.keys("\" q p").await;
+    assert_eq!(status(&h), "register \"q is empty");
+    h.keys(":").await;
+    h.type_("registers").await;
+    let df = h.app.sheets.active().window().unwrap().clone();
+    let names: Vec<String> = df
+        .column("register")
+        .unwrap()
+        .str()
+        .unwrap()
+        .iter()
+        .map(|v| v.unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(names, ["\"\"", "\"0", "\"1", "\"a"]);
+}

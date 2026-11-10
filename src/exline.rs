@@ -289,6 +289,8 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         // vim's `:d` / `:y`; with a range, its rows (S-26 B)
         "d" | "delete" => Ok(vec![Action::DeleteRow]),
         "y" | "yank" => Ok(vec![Action::CopyRow]),
+        // the vim profile's `"` is a register prefix; its rows sheet is here (V3)
+        "dupsel" => Ok(vec![Action::DupSelected]),
         "nocolor" => Ok(vec![Action::NoColor {
             column: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -535,6 +537,7 @@ pub const COMMANDS: &[&str] = &[
     "help",
     "delete",
     "yank",
+    "dupsel",
     "scale",
     "databar",
     "hide",

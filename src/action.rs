@@ -465,6 +465,11 @@ pub enum Action {
     ValueChange {
         forward: bool,
     },
+    /// Vim profile `"`: the next key names the register of the next yank,
+    /// cut or paste (S-26 D2).
+    RegisterPrefix,
+    /// `:registers`: the registers as a sheet.
+    Registers,
     /// `*` `#`: search this column for the cursor cell's value.
     SearchCell {
         backward: bool,
@@ -650,6 +655,7 @@ impl Action {
             Visual { .. } | Reselect => false,
             HalfPage { .. } | ScreenRow { .. } | ScrollTo { .. } | CellMotion { .. } => true,
             ValueChange { .. } | SearchCell { .. } => true,
+            RegisterPrefix | Registers => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -885,6 +891,8 @@ impl Action {
         ("last_cell", CellMotion { to: 2 }),
         ("next_value", ValueChange { forward: true }),
         ("prev_value", ValueChange { forward: false }),
+        ("register_prefix", RegisterPrefix),
+        ("registers", Registers),
         ("search_cell", SearchCell { backward: false }),
         ("searchr_cell", SearchCell { backward: true }),
         ("plot_column", PlotColumn),

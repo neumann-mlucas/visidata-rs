@@ -133,6 +133,24 @@ impl App {
         if action.is_jump() {
             self.record_jump();
         }
+        // `"xp`: the paste reads register `x` (`"+p`: the system clipboard)
+        let pastes = matches!(
+            action,
+            Action::PasteCell | Action::PasteCells | Action::PasteAfter | Action::PasteBefore
+        );
+        if pastes && let Some(c) = self.register_prefix.take().filter(|c| *c != '"') {
+            if c == '+' {
+                return self.syspaste(action == Action::PasteCells);
+            }
+            let Some(named) = self.registers.get(&c).cloned() else {
+                self.toast = Some(format!("register \"{c} is empty"));
+                return;
+            };
+            let unnamed = self.register.replace(named);
+            self.dispatch(action);
+            self.register = unnamed;
+            return;
+        }
         match action {
             Action::Quit => {
                 let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum();
@@ -459,6 +477,44 @@ impl App {
                     block,
                 });
             }
+            Action::RegisterPrefix => self.awaiting_register = true,
+            Action::Registers => {
+                let mut all: Vec<(char, &Register)> =
+                    self.registers.iter().map(|(c, r)| (*c, r)).collect();
+                if let Some(r) = &self.register {
+                    all.insert(0, ('"', r));
+                }
+                let rows: Vec<Vec<String>> = all
+                    .iter()
+                    .map(|(c, r)| {
+                        let kind = match r.kind {
+                            RegisterKind::Rows => "rows",
+                            RegisterKind::Cells => "cells",
+                        };
+                        let first =
+                            r.df.get_row(0)
+                                .map(|row| {
+                                    row.0
+                                        .iter()
+                                        .map(crate::sheet::any_text)
+                                        .collect::<Vec<_>>()
+                                        .join(" · ")
+                                })
+                                .unwrap_or_default();
+                        vec![
+                            format!("\"{c}"),
+                            kind.into(),
+                            r.df.height().to_string(),
+                            first,
+                        ]
+                    })
+                    .collect();
+                let id = self.sheets.alloc_id();
+                let names = ["register", "kind", "rows", "first row"];
+                self.sheets
+                    .push(Sheet::listing(id, "registers", &names, &rows));
+                self.spawn_materialize();
+            }
             Action::HalfPage { down } => {
                 let count = Some((self.viewport_rows / 2).max(1));
                 self.dispatch(match down {
@@ -718,6 +774,7 @@ impl App {
                 self.copy(
                     selected,
                     matches!(action, Action::CopyCell | Action::CopyCells),
+                    true,
                 );
             }
             Action::SysCopyRow => self.syscopy(false, false),
@@ -2245,13 +2302,40 @@ impl App {
 
     /// `y` `gy` `zy` `gzy`: the cursor row or the selected rows, every column
     /// or (`cells`) only the cursor column, into the register.
-    fn copy(&mut self, selected: bool, cells: bool) -> bool {
-        self.spawn_copy(selected, cells, None)
+    /// `yank`: a copy, else a cut (registers `0` vs `1`–`9`). Register `+`
+    /// (`"+y`) is the system clipboard.
+    fn copy(&mut self, selected: bool, cells: bool, yank: bool) -> bool {
+        match self.register_prefix.take() {
+            Some('+') => {
+                self.spawn_copy(selected, cells, Some(self.clipboard.clone()), (None, yank))
+            }
+            to => self.spawn_copy(selected, cells, None, (to.filter(|c| *c != '"'), yank)),
+        }
+    }
+
+    /// A copy landed: the unnamed register, `0` (yank) or the `1`–`9` ring
+    /// (cut), and the named one `"x` asked for.
+    pub(super) fn store_register(&mut self, r: Register, (to, yank): (Option<char>, bool)) {
+        let regs = &mut self.registers;
+        if yank {
+            regs.insert('0', r.clone());
+        } else {
+            for d in (b'1'..b'9').rev() {
+                if let Some(old) = regs.remove(&(d as char)) {
+                    regs.insert((d + 1) as char, old);
+                }
+            }
+            regs.insert('1', r.clone());
+        }
+        if let Some(c) = to {
+            regs.insert(c, r.clone());
+        }
+        self.register = Some(r);
     }
 
     /// `Y` …: visible columns as TSV (rows) or one value per line (cells).
     fn syscopy(&mut self, selected: bool, cells: bool) {
-        self.spawn_copy(selected, cells, Some(self.clipboard.clone()));
+        self.spawn_copy(selected, cells, Some(self.clipboard.clone()), (None, true));
     }
 
     /// Register copy, or with `clip` the same rows as text to the system clipboard.
@@ -2260,6 +2344,7 @@ impl App {
         selected: bool,
         cells: bool,
         clip: Option<crate::clipboard::Clipboard>,
+        to: (Option<char>, bool),
     ) -> bool {
         // ponytail: the register holds the copy in memory; refuse past 10M cells, raise on demand.
         const MAX_CELLS: usize = 10_000_000;
@@ -2315,7 +2400,7 @@ impl App {
             } else {
                 RegisterKind::Rows
             };
-            Ok(JobDone::Copy(Box::new(Register { kind, df })))
+            Ok(JobDone::Copy(Box::new(Register { kind, df }), to))
         });
         true
     }
@@ -2573,7 +2658,7 @@ impl App {
         let rid = self.rid_at_cursor();
         // The copy job clones the sheet now, before the edit below; a refused
         // copy (toast says why) cuts nothing.
-        if copy && !self.copy(selected, true) {
+        if copy && !self.copy(selected, true, false) {
             return;
         }
         let s = self.sheets.active_mut();
@@ -2614,7 +2699,7 @@ impl App {
             return;
         }
         // The copy job clones the sheet now, before the delete.
-        if cut && !self.copy(selected, false) {
+        if cut && !self.copy(selected, false, false) {
             return;
         }
         match self.sheets.active_mut().delete_rows(rids) {

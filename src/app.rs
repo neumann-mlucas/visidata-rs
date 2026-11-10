@@ -244,8 +244,8 @@ enum JobDone {
         rids: Vec<u64>,
         note: String,
     },
-    /// Fill the register (`y` …).
-    Copy(Box<Register>),
+    /// Fill the register (`y` …): the named one, and whether it's a yank.
+    Copy(Box<Register>, (Option<char>, bool)),
     /// `zP` `gzP`: the clipboard's text, read by the paste command.
     SysPaste {
         text: String,
@@ -527,6 +527,13 @@ pub struct App {
     /// Where the active sheet was last drawn (mouse clicks).
     sheet_area: ratatui::layout::Rect,
     register: Option<Register>,
+    /// `"0` last yank, `"1`–`"9` last cuts, `"a`–`"z` named (S-26 D2); the
+    /// unnamed `""` is `register`.
+    registers: std::collections::BTreeMap<char, Register>,
+    /// `"x` typed: the next yank / cut / paste uses register `x`.
+    register_prefix: Option<char>,
+    /// `"` typed, its register key not yet.
+    awaiting_register: bool,
     /// Asked in the status line: unsaved edits would be lost (S-26 A1).
     confirm: Option<(Confirm, String)>,
     /// Where `Y` … send text; from `vd.option("clipboard_copy_cmd")` or the platform.
@@ -596,6 +603,9 @@ impl App {
             visual: None,
             last_visual: None,
             register: None,
+            registers: Default::default(),
+            register_prefix: None,
+            awaiting_register: false,
             confirm: None,
             clipboard,
             paste_cmd,
@@ -1355,7 +1365,7 @@ impl App {
                     self.toast = Some(note);
                 }
             }
-            Ok(JobDone::Copy(r)) => {
+            Ok(JobDone::Copy(r, to)) => {
                 let (n, what) = match r.kind {
                     RegisterKind::Rows => (r.df.height(), "row"),
                     RegisterKind::Cells => (r.df.height() * r.df.width(), "cell"),
@@ -1366,7 +1376,7 @@ impl App {
                     n => format!("copied {} {what}s", grouped(n as u64)),
                 });
                 if n > 0 {
-                    self.register = Some(*r);
+                    self.store_register(*r, to);
                 }
             }
             Ok(JobDone::SysPaste { text, selected }) => {
@@ -1635,6 +1645,16 @@ impl App {
         if self.input.is_some() {
             self.on_input_key(key);
             self.refresh_pivot_preview();
+            return;
+        }
+        if std::mem::take(&mut self.awaiting_register) {
+            match key.code {
+                KeyCode::Char(c @ ('a'..='z' | '0'..='9' | '"' | '+')) if !key.ctrl => {
+                    self.register_prefix = Some(c);
+                    self.toast = Some(format!("register \"{c}"));
+                }
+                _ => self.toast = Some(format!("no register {key}")),
+            }
             return;
         }
         if self.visual.is_some() && key.code == KeyCode::Esc && self.pending.is_empty() {

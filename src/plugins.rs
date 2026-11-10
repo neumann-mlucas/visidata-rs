@@ -562,6 +562,7 @@ b({"<C-w>", "w"}, "focus_pane")
 b({"<C-w>", "o"}, "close_pane")
 b({"<C-w>", "q"}, "close_pane")
 b({"Z", "Z"}, "pop_sheet")
+b('"', "register_prefix")            -- default: selected rows as a sheet (:dupsel)
 "##;
 
 fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
@@ -1787,7 +1788,11 @@ mod tests {
             let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
             let attr = format!(
                 "data-vim-keys=\"{}\"",
-                keys.join(" ").replace('<', "&lt;").replace('>', "&gt;")
+                keys.join(" ")
+                    .replace('&', "&amp;")
+                    .replace('"', "&quot;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
             );
             assert!(html.contains(&attr), "docs/index.html misses {attr}");
         }
