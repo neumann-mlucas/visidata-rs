@@ -380,6 +380,16 @@ pub enum Action {
     },
     /// `:bar`: the frequency table as bars.
     Bars,
+    /// On a plot (S-23 C3): `H` `L` `J` `K` make the cursor box thinner,
+    /// wider, taller, shorter by a character cell.
+    PlotResize {
+        wider: i8,
+        taller: i8,
+    },
+    /// `_`: zoom to fit everything.
+    ZoomAll,
+    /// `zz`: zoom to the cursor box.
+    ZoomCursor,
     /// `.` (VisiData plot-column): the cursor column against the numeric key column.
     PlotColumn,
     /// `g.` (plot-numerics): every visible numeric non-key column against it.
@@ -551,6 +561,7 @@ impl Action {
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
+            PlotResize { .. } | ZoomAll | ZoomCursor => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -761,6 +772,12 @@ impl Action {
         ("macro_record", ToggleMacroRecord),
         ("refresh", Refresh),
         ("plot_column", PlotColumn),
+        ("zoom_all", ZoomAll),
+        ("plot_thinner", PlotResize { wider: -1, taller: 0 }),
+        ("plot_wider", PlotResize { wider: 1, taller: 0 }),
+        ("plot_taller", PlotResize { wider: 0, taller: 1 }),
+        ("plot_shorter", PlotResize { wider: 0, taller: -1 }),
+        ("zoom_cursor", ZoomCursor),
         ("bar", Bars),
         ("plot_numerics", PlotNumerics),
         ("split", SplitPane { vertical: false }),

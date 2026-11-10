@@ -210,6 +210,14 @@ enum JobDone {
     },
     /// A new sheet, and something to say about it.
     PushSheetToast(Box<Sheet>, String),
+    /// A plot binned again (zoom): its rows, and whether its view goes too (`_`).
+    Rebinned(Box<Sheet>, bool),
+    /// A plot's `s` / `u` (S-23 C4): rows of sheet `sheet` to (un)select.
+    SelectIn {
+        sheet: SheetId,
+        select: bool,
+        rids: Vec<u64>,
+    },
     /// `:refresh`: sheets to replace by id (S-30 A).
     Refreshed(crate::sheet::Refreshed),
     /// The job's source, read into memory.
@@ -701,6 +709,85 @@ impl App {
         self.plot(x, ys);
     }
 
+    /// Keys on a plot sheet (S-23 C3/C4, VisiData's canvas): `hjkl` move the
+    /// cursor box by its size, `HJKL` resize it, `+` `-` zoom around it, `_`
+    /// fits, `zz` zooms to it; `s` `u` (un)select the parent's rows in it,
+    /// `Enter` opens them. `false`: not a plot key.
+    fn plot_dispatch(&mut self, a: &Action) -> bool {
+        let (cols, rows) = (
+            f64::from(self.viewport_cols.max(1)),
+            self.viewport_rows.max(1) as f64,
+        );
+        let bins = u32::from(self.viewport_cols.max(10)) * 2;
+        let s = self.sheets.active_mut();
+        let id = s.id;
+        let (Origin::Plot { parent, x, ys }, Some(v)) = (s.origin.clone(), s.state.plot.as_mut())
+        else {
+            return false;
+        };
+        let n = |c: &Option<usize>| c.unwrap_or(1) as f64;
+        let mut range = None; // Some: bin again, `None` inside: fit all
+        match a {
+            Action::CursorLeft { count } => v.step(-n(count), 0.0),
+            Action::CursorRight { count } => v.step(n(count), 0.0),
+            Action::CursorUp { count } => v.step(0.0, n(count)),
+            Action::CursorDown { count } => v.step(0.0, -n(count)),
+            Action::PlotResize { wider, taller } => {
+                let (cw, ch) = ((v.x[1] - v.x[0]) / cols, (v.y[1] - v.y[0]) / rows);
+                let c = &mut v.cursor;
+                c[2] = (c[2] + f64::from(*wider) * cw).max(cw);
+                c[3] = (c[3] + f64::from(*taller) * ch).max(ch);
+            }
+            Action::StartAggregateInput { .. } => {
+                v.zoom(0.5);
+                range = Some(Some(v.x));
+            }
+            Action::HideCol => {
+                v.zoom(2.0);
+                range = Some(Some(v.x));
+            }
+            Action::ZoomCursor => {
+                v.zoom_to_cursor();
+                range = Some(Some(v.x));
+            }
+            Action::ZoomAll => range = Some(None),
+            Action::ToggleSelectRow | Action::UnselectRow | Action::SubmitRow => {
+                let cursor = v.cursor;
+                let Some(p) = self.sheets.iter().find(|p| p.id == parent).cloned() else {
+                    self.toast = Some("plot: its sheet was closed".into());
+                    return true;
+                };
+                let a = a.clone();
+                let new = self.sheets.alloc_id();
+                self.spawn_job("plot", move || {
+                    let rids = Sheet::rids_in_box(&p, &x, &ys, cursor)?;
+                    Ok(match a {
+                        Action::SubmitRow => {
+                            JobDone::PushSheet(Box::new(Sheet::box_from(&p, new, rids)?))
+                        }
+                        a => JobDone::SelectIn {
+                            sheet: p.id,
+                            select: matches!(a, Action::ToggleSelectRow),
+                            rids,
+                        },
+                    })
+                });
+                return true;
+            }
+            _ => return false,
+        }
+        if let Some(range) = range {
+            let snapshot = (*v.parent).clone();
+            let p = self.sheets.iter().find(|p| p.id == parent).cloned();
+            let p = p.unwrap_or(snapshot);
+            self.spawn_job("plot", move || {
+                let fresh = Sheet::plot_from(&p, id, &x, &ys, bins, range)?;
+                Ok(JobDone::Rebinned(Box::new(fresh), range.is_none()))
+            });
+        }
+        true
+    }
+
     /// `:plot`: bin the view in the background, push the plot sheet.
     fn plot(&mut self, x: String, ys: Vec<String>) {
         let parent = self.sheets.active().clone();
@@ -708,7 +795,7 @@ impl App {
         let bins = u32::from(self.viewport_cols.max(10)) * 2;
         self.spawn_job("plot", move || {
             Ok(JobDone::PushSheet(Box::new(Sheet::plot_from(
-                &parent, id, &x, &ys, bins,
+                &parent, id, &x, &ys, bins, None,
             )?)))
         });
     }
@@ -1042,6 +1129,36 @@ impl App {
             Ok(JobDone::SelStats { key, stats }) => {
                 if self.sel_stats_asked.as_ref() == Some(&key) {
                     self.sel_stats = Some((key, stats));
+                }
+            }
+            Ok(JobDone::Rebinned(fresh, reset)) => {
+                if let Some(s) = self.sheets.find_by_id_mut(fresh.id) {
+                    s.plan = fresh.plan.clone();
+                    if reset {
+                        s.state.plot = fresh.state.plot.clone();
+                    }
+                    s.invalidate(crate::sheet::Reason::Plan);
+                    self.spawn_materialize_for(fresh.id);
+                }
+            }
+            Ok(JobDone::SelectIn {
+                sheet,
+                select,
+                rids,
+            }) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet) {
+                    s.checkpoint();
+                    let sel = std::sync::Arc::make_mut(&mut s.view.selected);
+                    let n = rids.len();
+                    for r in rids {
+                        if select {
+                            sel.insert(r);
+                        } else {
+                            sel.remove(&r);
+                        }
+                    }
+                    let verb = if select { "selected" } else { "unselected" };
+                    self.toast = Some(format!("{verb} {} rows in {}", grouped(n as u64), s.name));
                 }
             }
             Ok(JobDone::Refreshed(r)) => {

@@ -603,32 +603,17 @@ pub struct PlotWidget<'a> {
 }
 
 impl Widget for PlotWidget<'_> {
+    /// Braille points on a `Canvas` over the plot's view, the cursor box on
+    /// top; y labels left, x labels below, the legend top left.
     fn render(self, area: Rect, buf: &mut Buffer) {
         use ratatui::symbols::Marker;
-        use ratatui::text::Span;
-        use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
-        let (crate::sheet::Origin::Plot { x, ys, .. }, Some(df)) =
-            (&self.sheet.origin, self.sheet.window())
-        else {
+        use ratatui::widgets::canvas::{Canvas, Points, Rectangle};
+        let (crate::sheet::Origin::Plot { x, ys, .. }, Some(df), Some(v)) = (
+            &self.sheet.origin,
+            self.sheet.window(),
+            self.sheet.state.plot.as_ref(),
+        ) else {
             return;
-        };
-        let pts = crate::sheet::plot_points(df, x, ys);
-        let all = || pts.iter().flatten();
-        let bounds = |f: fn(&(f64, f64)) -> f64| {
-            let lo = all().map(f).fold(f64::INFINITY, f64::min);
-            let hi = all().map(f).fold(f64::NEG_INFINITY, f64::max);
-            match (lo.is_finite(), lo < hi) {
-                (false, _) => [0.0, 1.0],
-                (true, false) => [lo - 0.5, hi + 0.5], // one value: center it
-                (true, true) => [lo, hi],
-            }
-        };
-        let (xb, yb) = (bounds(|p| p.0), bounds(|p| p.1));
-        // x labels in the column's own type (dates read as dates)
-        let xcol = df.column(x).ok();
-        let xlabel = |i: usize| {
-            xcol.and_then(|c| c.get(i).ok())
-                .map_or_else(String::new, |v| crate::sheet::any_text(&v))
         };
         let th = self.theme;
         let palette = [
@@ -639,38 +624,84 @@ impl Widget for PlotWidget<'_> {
             th.toast_fg,
             th.titlebar_left_bg,
         ];
-        let datasets: Vec<Dataset> = ys
-            .iter()
-            .zip(&pts)
-            .enumerate()
-            .map(|(i, (y, p))| {
-                Dataset::default()
-                    .name(y.as_str())
-                    .marker(Marker::Braille)
-                    .graph_type(GraphType::Scatter)
-                    .style(Style::default().fg(palette[i % palette.len()]))
-                    .data(p)
+        let num = crate::sheet::stat_num;
+        let ylabels = [num(v.y[1]), num((v.y[0] + v.y[1]) / 2.0), num(v.y[0])];
+        let lw = ylabels.iter().map(|l| l.width()).max().unwrap_or(0) as u16;
+        if area.width <= lw + 2 || area.height < 3 {
+            return;
+        }
+        let plot = Rect {
+            x: area.x + lw + 1,
+            y: area.y,
+            width: area.width - lw - 1,
+            height: area.height - 1,
+        };
+        let label = Style::default().fg(th.dtype_badge_fg);
+        let rows = [plot.y, plot.y + plot.height / 2, plot.y + plot.height - 1];
+        for (l, y) in ylabels.iter().zip(rows) {
+            buf.set_string(area.x + lw - l.width() as u16, y, l, label);
+        }
+        for y in plot.y..plot.y + plot.height {
+            buf.set_string(plot.x - 1, y, "│", label);
+        }
+        // x labels in the column's own type: dates read as dates
+        let dtype = df
+            .column(x)
+            .map_or(DataType::Float64, |c| c.dtype().clone());
+        let xtext = |f: f64| {
+            let v = match &dtype {
+                DataType::Date => AnyValue::Date(f.round() as i32),
+                DataType::Datetime(u, _) => AnyValue::Datetime(f.round() as i64, *u, None),
+                _ => return crate::sheet::stat_num(f),
+            };
+            crate::sheet::any_text(&v)
+        };
+        let (left, right) = (xtext(v.x[0]), xtext(v.x[1]));
+        let by = area.y + area.height - 1;
+        buf.set_string(plot.x, by, &left, label);
+        let rx = (plot.x + plot.width).saturating_sub(right.width() as u16);
+        buf.set_string(rx.max(plot.x + left.width() as u16 + 1), by, &right, label);
+        let mid = format!(" {x} ");
+        let mx = plot.x + plot.width.saturating_sub(mid.width() as u16) / 2;
+        buf.set_string(mx, by, &mid, label.add_modifier(Modifier::BOLD));
+        let pts = crate::sheet::plot_points(df, x, ys);
+        let [x0, y0, w, h] = v.cursor;
+        Canvas::default()
+            .marker(Marker::Braille)
+            .x_bounds(v.x)
+            .y_bounds(v.y)
+            .paint(|ctx| {
+                for (i, p) in pts.iter().enumerate() {
+                    ctx.draw(&Points {
+                        coords: p,
+                        color: palette[i % palette.len()],
+                    });
+                }
+                ctx.layer();
+                ctx.draw(&Rectangle {
+                    x: x0,
+                    y: y0,
+                    width: w,
+                    height: h,
+                    color: th.cell_cursor_bg,
+                });
             })
-            .collect();
-        let axis = Style::default().fg(th.dtype_badge_fg);
-        let num = |v: f64| Span::raw(crate::sheet::stat_num(v));
-        use ratatui::layout::Constraint;
-        Chart::new(datasets)
-            .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
-            .legend_position(Some(ratatui::widgets::LegendPosition::TopLeft))
-            .x_axis(
-                Axis::default()
-                    .title(x.as_str())
-                    .style(axis)
-                    .bounds(xb)
-                    .labels([xlabel(0), xlabel(df.height().saturating_sub(1))]),
-            )
-            .y_axis(Axis::default().style(axis).bounds(yb).labels([
-                num(yb[0]),
-                num((yb[0] + yb[1]) / 2.0),
-                num(yb[1]),
-            ]))
-            .render(area, buf);
+            .render(plot, buf);
+        // legend: one colored name per y
+        let mut lx = plot.x + 1;
+        for (i, y) in ys.iter().enumerate() {
+            let t = format!("■ {y} ");
+            if lx + t.width() as u16 > plot.x + plot.width {
+                break;
+            }
+            buf.set_string(
+                lx,
+                plot.y,
+                &t,
+                Style::default().fg(palette[i % palette.len()]),
+            );
+            lx += t.width() as u16;
+        }
     }
 }
 

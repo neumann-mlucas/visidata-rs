@@ -1,6 +1,6 @@
 # S-23 — Layout: sidebar, split panes, plots
 
-Status: **drafted 2026-11-08**; A shipped 2026-11-08, B, C1 and C2 2026-11-10. Three independent parts, ship in order A → B → C.
+Status: **drafted 2026-11-08**; A shipped 2026-11-08, B and C1–C4 2026-11-10 (C5 only if asked). Three independent parts, ship in order A → B → C.
 Depends on: S-02 (app loop), S-04 (keymap). C depends on nothing in A/B.
 
 ## 1. What exists (verified in `src/app.rs`)
@@ -73,6 +73,7 @@ parent's `view_plan()`; the widget draws it.
 | C2 as shipped | `:hist [bins]` bins lazily (`ceil((x-lo)/w)-1`, clipped: Polars' right-closed edges without collecting the column — `hist_series` is eager); `:bar` on a freq sheet, first 1000 values, horizontal; both `Origin::Bars`, drawn by `BarsWidget` | — |
 | C3 | navigation: `hjkl` pan, `+`/`-` zoom (VisiData `zoom-*`), `0` reset; re-sample on zoom | 2 d |
 | C4 | select by region: a box cursor; `s` selects the parent rows inside it (rid-keyed → shows in the parent), `Enter` dives to them | 2–3 d |
+| C3/C4 as shipped | VisiData's canvas model instead of the spec's `0` reset: a cursor box moved by its size (`hjkl`, the view pans to follow), resized by a cell (`HJKL`), `+`/`-` zoom ×½/×2 around it, `zz` zooms to it, `_` fits (VisiData `zoom-all`); zoom re-bins the visible x range; `s` selects / `u` unselects the parent rows inside (x in range and any y), `Enter` opens them. Bound in the default keymap; on other sheets `HJKL` `_` `zz` say "not a plot" (VisiData's `H J K L` slide columns/rows: not in vdrs yet) | — |
 | C5 | `:export` of a plot as a Polars/plotnine or DuckDB+vega-lite snippet — only if asked | — |
 
 Drawing library (checked 2026-11-08):

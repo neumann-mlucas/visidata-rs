@@ -4,6 +4,62 @@
 
 use super::*;
 
+/// What a plot shows (S-23 C3): the visible x and y ranges, and the cursor
+/// box (`x`, `y` of its lower left corner, width, height), in data units.
+#[derive(Clone)]
+pub struct PlotView {
+    pub x: [f64; 2],
+    pub y: [f64; 2],
+    pub cursor: [f64; 4],
+    /// The parent as it was: binning again (zoom) works after it's closed.
+    pub parent: Box<Sheet>,
+}
+
+impl PlotView {
+    /// The box moved by `dx`, `dy` box sizes; the view pans to keep it in.
+    pub fn step(&mut self, dx: f64, dy: f64) {
+        let c = &mut self.cursor;
+        c[0] += dx * c[2];
+        c[1] += dy * c[3];
+        let pan = |lo: &mut f64, hi: &mut f64, a: f64, b: f64| {
+            let d = if a < *lo {
+                a - *lo
+            } else if b > *hi {
+                b - *hi
+            } else {
+                0.0
+            };
+            *lo += d;
+            *hi += d;
+        };
+        let [x0, y0, w, h] = *c;
+        let [mut a, mut b] = self.x;
+        pan(&mut a, &mut b, x0, x0 + w);
+        self.x = [a, b];
+        let [mut a, mut b] = self.y;
+        pan(&mut a, &mut b, y0, y0 + h);
+        self.y = [a, b];
+    }
+
+    /// Zoom by `f` (< 1 in) around the cursor box's center.
+    pub fn zoom(&mut self, f: f64) {
+        let [x0, y0, w, h] = self.cursor;
+        let (cx, cy) = (x0 + w / 2.0, y0 + h / 2.0);
+        let z = |[lo, hi]: [f64; 2], c: f64| [c - (c - lo) * f, c + (hi - c) * f];
+        self.x = z(self.x, cx);
+        self.y = z(self.y, cy);
+        self.cursor = [cx - w * f / 2.0, cy - h * f / 2.0, w * f, h * f];
+    }
+
+    /// The box as the view: `zz`.
+    pub fn zoom_to_cursor(&mut self) {
+        let [x0, y0, w, h] = self.cursor;
+        self.x = [x0, x0 + w];
+        self.y = [y0, y0 + h];
+        self.cursor = [x0 + w * 0.375, y0 + h * 0.375, w / 4.0, h / 4.0];
+    }
+}
+
 /// The x column of a binned frame is first, then `{y}_min`, `{y}_max` per y.
 pub fn plot_columns(y: &str) -> (String, String) {
     (format!("{y}_min"), format!("{y}_max"))
@@ -18,6 +74,7 @@ impl Sheet {
         x: &str,
         ys: &[String],
         bins: u32,
+        range: Option<[f64; 2]>,
     ) -> Result<Self, String> {
         let e = |e: PolarsError| e.to_string();
         let lf = parent.view_plan();
@@ -46,15 +103,25 @@ impl Sheet {
         let f = |c: &str| col(c).to_physical().cast(DataType::Float64);
         let mut cols = vec![f(x).alias(x)];
         cols.extend(ys.iter().map(|y| f(y).alias(y.as_str())));
-        let base = lf.select(cols).filter(col(x).is_not_null());
-        let range = base
-            .clone()
-            .select([col(x).min().alias("lo"), col(x).max().alias("hi")])
-            .collect()
-            .map_err(e)?;
-        let get = |n: &str| range.column(n).ok()?.f64().ok()?.get(0);
-        let (Some(lo), Some(hi)) = (get("lo"), get("hi")) else {
-            return Err(format!("plot: {x} has no values"));
+        let mut base = lf.select(cols).filter(col(x).is_not_null());
+        let (lo, hi) = match range {
+            // zoomed: bin only what's in view
+            Some([lo, hi]) => {
+                base = base.filter(col(x).gt_eq(lit(lo)).and(col(x).lt_eq(lit(hi))));
+                (lo, hi)
+            }
+            None => {
+                let r = base
+                    .clone()
+                    .select([col(x).min().alias("lo"), col(x).max().alias("hi")])
+                    .collect()
+                    .map_err(e)?;
+                let get = |n: &str| r.column(n).ok()?.f64().ok()?.get(0);
+                let (Some(lo), Some(hi)) = (get("lo"), get("hi")) else {
+                    return Err(format!("plot: {x} has no values"));
+                };
+                (lo, hi)
+            }
         };
         let span = (hi - lo).max(f64::MIN_POSITIVE);
         let last = f64::from(bins.max(1) - 1);
@@ -87,12 +154,65 @@ impl Sheet {
             .collect()
             .map_err(e)?;
         let name = format!("plot({x}→{}): {}", ys.join(","), parent.name);
+        let pts = plot_points(&df, x, ys);
+        let all = || pts.iter().flatten();
+        let ylo = all().map(|p| p.1).fold(f64::INFINITY, f64::min);
+        let yhi = all().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+        let pad = |lo: f64, hi: f64| match (lo.is_finite(), lo < hi) {
+            (false, _) => [0.0, 1.0],
+            (true, false) => [lo - 0.5, hi + 0.5], // one value: center it
+            (true, true) => [lo, hi],
+        };
+        let (xr, yr) = (pad(lo, hi), pad(ylo, yhi));
+        let (w, h) = ((xr[1] - xr[0]) / 8.0, (yr[1] - yr[0]) / 8.0);
         let origin = Origin::Plot {
             parent: parent.id,
             x: x.into(),
             ys: ys.to_vec(),
         };
-        Ok(Self::meta(id, name, df, origin))
+        let mut s = Self::meta(id, name, df, origin);
+        s.state.plot = Some(PlotView {
+            x: xr,
+            y: yr,
+            cursor: [xr[0] + 3.5 * w, yr[0] + 3.5 * h, w, h],
+            parent: Box::new(parent.clone()),
+        });
+        Ok(s)
+    }
+
+    /// `Enter` on a plot (S-23 C4): `parent`'s rows `rids` (in its box).
+    pub fn box_from(parent: &Sheet, id: SheetId, rids: Vec<u64>) -> Result<Self, String> {
+        let df = parent
+            .view_plan_rid(true)
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let keep = rids.into_iter().collect();
+        let name = format!("plot box: {}", parent.name);
+        Self::rows_from(parent, id, df, &keep, name)
+    }
+
+    /// Row ids of `parent`'s view whose x and some y fall in `cursor`.
+    pub fn rids_in_box(
+        parent: &Sheet,
+        x: &str,
+        ys: &[String],
+        cursor: [f64; 4],
+    ) -> Result<Vec<u64>, String> {
+        let [x0, y0, w, h] = cursor;
+        let f = |c: &str| col(c).to_physical().cast(DataType::Float64);
+        let within = |c: &str, lo: f64, hi: f64| f(c).gt_eq(lit(lo)).and(f(c).lt_eq(lit(hi)));
+        let any_y = ys
+            .iter()
+            .map(|y| within(y, y0, y0 + h))
+            .reduce(Expr::or)
+            .unwrap_or(lit(false));
+        let df = parent
+            .view_plan_rid(true)
+            .filter(within(x, x0, x0 + w).and(any_y))
+            .select([col(ROW_ID)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        rid_values(&df).map_err(|e| e.to_string())
     }
 }
 
@@ -268,7 +388,7 @@ mod tests {
             })
             .collect();
         let df = df!["x" => &x, "y" => &y].unwrap();
-        let p = Sheet::plot_from(&sheet(df), 1, "x", &["y".into()], 10).unwrap();
+        let p = Sheet::plot_from(&sheet(df), 1, "x", &["y".into()], 10, None).unwrap();
         let w = p.window().unwrap();
         assert!(w.height() <= 10, "{}", w.height());
         let mins = w.column("y_min").unwrap().f64().unwrap();
@@ -292,13 +412,17 @@ mod tests {
         let mut df = df!["d" => [19723i32, 19725], "s" => ["a", "b"], "v" => [1.0, 2.0]].unwrap();
         df.apply("d", |c| c.cast(&DataType::Date).unwrap()).unwrap();
         let s = sheet(df);
-        let err = |x: &str, y: &str| Sheet::plot_from(&s, 1, x, &[y.into()], 4).err().unwrap();
+        let err = |x: &str, y: &str| {
+            Sheet::plot_from(&s, 1, x, &[y.into()], 4, None)
+                .err()
+                .unwrap()
+        };
         assert_eq!(
             err("s", "v"),
             "plot: x column s is str; needs numbers or dates"
         );
         assert_eq!(err("d", "s"), "plot: s is str; needs numbers");
-        let p = Sheet::plot_from(&s, 1, "d", &["v".into()], 4).unwrap();
+        let p = Sheet::plot_from(&s, 1, "d", &["v".into()], 4, None).unwrap();
         assert_eq!(
             p.window().unwrap().column("d").unwrap().dtype(),
             &DataType::Date

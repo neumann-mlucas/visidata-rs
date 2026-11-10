@@ -2744,19 +2744,20 @@ async fn plots_draw_binned_series_against_the_key_column() {
     );
     h.keys("! 0 ! l .").await;
     assert!(title(&h).contains("plot(x→y)"), "{}", title(&h));
-    // y = x²: braille cells, axes from the data, the legend top left
+    // y = x²: braille cells, axes from the data, the legend top left, the
+    // cursor box (an eighth of each range) in the middle
     let screen = h.screen();
     let plot: Vec<&str> = screen.lines().skip(1).take(10).collect();
-    let want = r#"100 │┌─┐                                                                                           ⠈
-    ││y│                                                                                 ⠄
-    │└─┘                                                                      ⢀
+    let want = r#" 100│ ■ y                                                                                          ⠈
+    │                                                                                    ⡀
     │
-50.5│                                                               ⠁
-    │                                          ⡀         ⠈
+    │                                         ⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀                   ⠐
+50.5│                                         ⢸           ⡇         ⠄
+    │                                         ⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁
+    │                                          ⡀
     │                               ⠠
-1   │⡀         ⠠          ⠁                                                                        x
-    └───────────────────────────────────────────────────────────────────────────────────────────────
-  1.0                                                                                           10.0"#;
+   1│⡀         ⠠          ⠁
+     1                                              x                                             10"#;
     assert_eq!(plot.join("\n"), want);
     h.keys("q g .").await;
     assert!(title(&h).contains("plot(x→yz)"), "{}", title(&h));
@@ -2808,4 +2809,61 @@ async fn hist_and_bar_sheets_draw_bars() {
         .map(|l| l.replace('█', ""))
         .collect();
     assert_eq!(rows, ["a 4", "b 1", "c 1"], "{screen}");
+}
+
+/// S-23 C3/C4: `+` zooms and bins again inside the view, `_` fits; `s` on
+/// the plot selects the parent's rows in the cursor box, `Enter` opens them.
+#[tokio::test(flavor = "multi_thread")]
+async fn plot_zoom_bins_the_view_and_box_selects_parent_rows() {
+    let mut rows = String::from("x,y\n");
+    for i in 0..400 {
+        rows += &format!("{i},{}\n", (i * 7) % 100);
+    }
+    let mut h = csv(rows.as_bytes()).await;
+    h.keys("! l .").await;
+    let view = |h: &Harness| h.app.sheets.active().state.plot.clone().unwrap();
+    let full = view(&h).x;
+    assert_eq!(full, [0.0, 399.0]);
+    h.keys("+").await;
+    let z = view(&h).x;
+    assert!((z[1] - z[0] - 399.0 / 2.0).abs() < 1e-9, "{z:?}");
+    // bins cover only what's in view
+    let xs = h
+        .app
+        .sheets
+        .active()
+        .window()
+        .unwrap()
+        .column("x")
+        .unwrap()
+        .f64()
+        .unwrap()
+        .clone();
+    assert!(
+        xs.min().unwrap() >= z[0] && xs.max().unwrap() <= z[1],
+        "{z:?}"
+    );
+    h.keys("_").await;
+    assert_eq!(view(&h).x, full);
+    h.keys("l L L k").await; // move right, wider, up
+    let [x0, y0, w, hh] = view(&h).cursor;
+    assert!(status(&h).starts_with(" box x "), "{}", status(&h));
+    let want = (0..400)
+        .filter(|i| {
+            let (x, y) = (f64::from(*i), f64::from((i * 7) % 100));
+            (x0..=x0 + w).contains(&x) && (y0..=y0 + hh).contains(&y)
+        })
+        .count();
+    assert!(want > 0);
+    h.keys("s").await;
+    let parent = h.app.sheets.iter().next().unwrap();
+    assert_eq!(parent.view.selected.len(), want);
+    assert_eq!(
+        status(&h),
+        format!("selected {want} rows in {}", parent.name)
+    );
+    h.keys("<CR>").await;
+    assert!(title(&h).contains(&format!("/{want} ")), "{}", title(&h));
+    h.keys("q u").await;
+    assert!(h.app.sheets.iter().next().unwrap().view.selected.is_empty());
 }

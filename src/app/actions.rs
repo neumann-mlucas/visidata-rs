@@ -54,6 +54,10 @@ impl App {
         {
             return;
         }
+        if matches!(self.sheets.active().origin, Origin::Plot { .. }) && self.plot_dispatch(&action)
+        {
+            return;
+        }
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
         }
@@ -357,6 +361,9 @@ impl App {
             Action::Refresh => self.refresh(),
             Action::Plot { x, ys } => self.plot(x, ys),
             Action::PlotColumn => self.plot_keys(false),
+            Action::PlotResize { .. } | Action::ZoomAll | Action::ZoomCursor => {
+                self.toast = Some("not a plot (. plots)".into());
+            }
             Action::Hist { bins } => {
                 let Some(column) = self.current_column_name() else {
                     return;

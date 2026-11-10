@@ -564,6 +564,44 @@ impl Keymap {
                 "split: the sheet under this one below",
             ),
             ch(vec![k("g"), k("Z")], vec![ClosePane], "close the split"),
+            ch(
+                vec![k("H")],
+                vec![PlotResize {
+                    wider: -1,
+                    taller: 0,
+                }],
+                "plot: thinner cursor box",
+            ),
+            ch(
+                vec![k("L")],
+                vec![PlotResize {
+                    wider: 1,
+                    taller: 0,
+                }],
+                "plot: wider cursor box",
+            ),
+            ch(
+                vec![k("J")],
+                vec![PlotResize {
+                    wider: 0,
+                    taller: 1,
+                }],
+                "plot: taller cursor box",
+            ),
+            ch(
+                vec![k("K")],
+                vec![PlotResize {
+                    wider: 0,
+                    taller: -1,
+                }],
+                "plot: shorter cursor box",
+            ),
+            ch(vec![k("_")], vec![ZoomAll], "plot: zoom to fit"),
+            ch(
+                vec![k("z"), k("z")],
+                vec![ZoomCursor],
+                "plot: zoom to the cursor box",
+            ),
             ch(vec![k("<Tab>")], vec![FocusPane], "focus the other pane"),
             ch(vec![k("g"), k("<Tab>")], vec![SwapPanes], "swap the panes"),
             ch(

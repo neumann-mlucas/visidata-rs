@@ -496,6 +496,18 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(" ")
             )),
+            _ if self.sheets.active().state.plot.is_some() => {
+                let v = self.sheets.active().state.plot.as_ref();
+                let [x0, y0, w, h] = v.map_or([0.0; 4], |v| v.cursor);
+                let n = crate::sheet::stat_num;
+                Line::from(format!(
+                    " box x {}–{} · y {}–{} · hjkl move · HJKL size · + - zoom · _ fit · s u select · Enter rows",
+                    n(x0),
+                    n(x0 + w),
+                    n(y0),
+                    n(y0 + h)
+                ))
+            }
             _ => match self.current_sel_stats() {
                 Some(stats) => Line::from(
                     stats

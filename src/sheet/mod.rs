@@ -20,7 +20,7 @@ mod undo;
 
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
-pub use plot::{plot_columns, plot_points};
+pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
 pub use step::{ADDED_RID, POS, PlanStep};
 pub use undo::{Snapshot, UndoTree};
@@ -81,6 +81,8 @@ pub struct SheetState {
     pub saved_edits: Vec<PlanStep>,
     /// `:link`: refresh when this becomes active and its parent changed.
     pub linked: bool,
+    /// Plot sheets: what's in view and the cursor box (S-23 C3).
+    pub plot: Option<PlotView>,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent
