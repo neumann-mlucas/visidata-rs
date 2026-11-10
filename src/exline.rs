@@ -600,6 +600,9 @@ pub enum Addr {
     Cursor,
     /// `$`: the last row.
     Last,
+    /// `'<` / `'>`: the first / last row of the last visual range.
+    VisualStart,
+    VisualEnd,
 }
 
 /// Which rows a ranged command runs on.
@@ -668,6 +671,13 @@ pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
         });
     }
     let addr = |t: &str| -> Option<(Addr, usize)> {
+        if let Some(m) = t.strip_prefix('\'') {
+            return match m.chars().next()? {
+                '<' => Some((Addr::VisualStart, 2)),
+                '>' => Some((Addr::VisualEnd, 2)),
+                _ => None,
+            };
+        }
         match t.chars().next()? {
             '.' => Some((Addr::Cursor, 1)),
             '$' => Some((Addr::Last, 1)),
@@ -879,6 +889,10 @@ mod tests {
         assert_eq!(r("% y"), (Rows::All, "y".into()));
         assert_eq!(r("3 d"), (Rows::Span(Line(3), Line(3)), "d".into()));
         assert_eq!(r("5,9"), (Rows::Span(Line(5), Line(9)), String::new()));
+        assert_eq!(
+            r("'<,'>d"),
+            (Rows::Span(VisualStart, VisualEnd), "d".into())
+        );
         let m = |p: &str, invert| Rows::Match {
             pattern: p.into(),
             invert,

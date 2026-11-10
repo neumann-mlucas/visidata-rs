@@ -1,6 +1,6 @@
 # S-26 — Vim grammar and TUI conventions
 
-Status: **drafted 2026-11-08**; phase 0 shipped 2026-11-08 (see §0.1); A1 quit guard shipped with S-18 C (`<C-c>` cancels jobs since phase 0, so it doesn't ask). A3–A9 shipped 2026-11-10 (A6 pushes the kitty flags without a support query: terminals without it ignore them; A7 keys `<C-o>`/`<C-i>` come with D); A2 is moot (derived sheets are read-only and `:refresh` refuses file sheets, so a refreshable sheet never has edits). B shipped 2026-11-10 (`:normal` only on loaded rows; `:'<,'>` waits for C). C–E open.
+Status: **drafted 2026-11-08**; phase 0 shipped 2026-11-08 (see §0.1); A1 quit guard shipped with S-18 C (`<C-c>` cancels jobs since phase 0, so it doesn't ask). A3–A9 shipped 2026-11-10 (A6 pushes the kitty flags without a support query: terminals without it ignore them; A7 keys `<C-o>`/`<C-i>` come with D); A2 is moot (derived sheets are read-only and `:refresh` refuses file sheets, so a refreshable sheet never has edits). B shipped 2026-11-10 (`:normal` only on loaded rows; `:'<,'>` waits for C). C shipped 2026-11-10 (ranges are view rows, so a sort while one is open keeps positions; `F` on a block not mapped). D–E open.
 Depends on: S-04 (keymap, counts, `.`), S-18 (register, edit keys, D1–D6), S-19 (macros on `m`),
 S-20 (undo tree), S-23 B (splits). Constraint: direction §9.2 — the **default** keymap feels like
 VisiData from keystroke 1; deviations need a reason. So this spec has two layers:

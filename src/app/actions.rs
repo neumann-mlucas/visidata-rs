@@ -124,6 +124,9 @@ impl App {
         {
             return;
         }
+        if self.visual.is_some() && self.visual_dispatch(&action) {
+            return;
+        }
         if action.undoable() {
             self.sheets.active_mut().checkpoint();
         }
@@ -444,6 +447,26 @@ impl App {
                 self.sheets.push(Sheet::listing(id, "help", &names, &rows));
                 self.spawn_materialize();
             }
+            Action::Visual { block } => {
+                let s = self.sheets.active();
+                let row = s.view.window_offset + s.view.row_cursor as u64;
+                let col = s.view.col_cursor;
+                self.visual = Some(Visual {
+                    sheet: s.id,
+                    row,
+                    col,
+                    end: (row, col),
+                    block,
+                });
+            }
+            Action::Reselect => match self.last_visual {
+                Some(v) if v.sheet == self.sheets.active().id => {
+                    self.goto_row(v.end.0);
+                    self.sheets.active_mut().view.col_cursor = v.end.1;
+                    self.visual = Some(v);
+                }
+                _ => self.toast = Some("no visual range on this sheet".into()),
+            },
             Action::JumpBack => {
                 let cur = match self.jump_at {
                     Some(i) => i,
@@ -1791,6 +1814,85 @@ impl App {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 
+    /// The visual range with its moving corner at the cursor; `None` when
+    /// the active sheet isn't the one it was started on.
+    pub(super) fn live_visual(&self) -> Option<Visual> {
+        let mut v = self.visual?;
+        let s = self.sheets.active();
+        if v.sheet != s.id {
+            return None;
+        }
+        v.end = (
+            s.view.window_offset + s.view.row_cursor as u64,
+            s.view.col_cursor,
+        );
+        Some(v)
+    }
+
+    /// The live range in `sheet`'s window rows, for the widget.
+    pub(super) fn visual_on(&self, sheet: &Sheet) -> Option<crate::widget::VisualSpan> {
+        let v = self.live_visual().filter(|v| v.sheet == sheet.id)?;
+        let (a, b) = v.rows();
+        let off = sheet.view.window_offset;
+        let clip = |r: u64| r.saturating_sub(off) as usize;
+        (b >= off).then(|| ((clip(a), clip(b)), v.cols()))
+    }
+
+    /// A verb while `V` / `<C-v>` is open (S-26 C) runs on the range, then
+    /// the range closes; motions and other keys pass through and move it.
+    fn visual_dispatch(&mut self, a: &Action) -> bool {
+        let Some(v) = self.live_visual() else {
+            self.visual = None; // the sheet changed under it
+            return false;
+        };
+        let (r0, r1) = v.rows();
+        let span = || {
+            let l = |r: u64| crate::exline::Addr::Line(r + 1);
+            crate::exline::Rows::Span(l(r0), l(r1))
+        };
+        let ex = |me: &mut Self, prefill: &str| {
+            me.start_input(Prompt::Ex);
+            if let Some((_, line)) = me.input.as_mut() {
+                line.set(prefill);
+            }
+        };
+        match a {
+            Action::Visual { block } if *block == v.block => {}
+            Action::Visual { .. } => {
+                self.visual = Some(Visual {
+                    block: !v.block,
+                    ..v
+                });
+                return true;
+            }
+            Action::ToggleSelectRow | Action::SelectRow => self.run_ranged(span(), String::new()),
+            Action::UnselectRow => self.run_ranged(span(), "unselect-all".into()),
+            Action::CopyRow => self.run_ranged(span(), "y".into()),
+            Action::DeleteRow => self.run_ranged(span(), "d".into()),
+            Action::CutRow => self.run_ranged(span(), "cut-row".into()),
+            Action::DupSelected => self.run_ranged(span(), "dup-selected".into()),
+            Action::StartEditInput => ex(self, "'<,'> setcol "),
+            Action::StartExInput => ex(self, "'<,'> "),
+            Action::HideCol if v.block => {
+                let (c0, c1) = v.cols().unwrap_or_default();
+                let names: Vec<String> = self.sheets.active().window().map_or(Vec::new(), |df| {
+                    let names = df.get_column_names();
+                    names[c0.min(names.len())..(c1 + 1).min(names.len())]
+                        .iter()
+                        .map(|n| n.to_string())
+                        .collect()
+                });
+                self.sheets.active_mut().checkpoint();
+                self.sheets.active_mut().view.hidden.extend(names);
+                self.spawn_materialize();
+            }
+            _ => return false,
+        }
+        self.last_visual = Some(v);
+        self.visual = None;
+        true
+    }
+
     /// `:5,20 cmd`, `:% cmd`, `:g/re/cmd` … (S-26 B): the rows' ids come from
     /// a job, then `cmd` runs as if they were selected (`run_on_rows`).
     pub(super) fn run_ranged(&mut self, rows: crate::exline::Rows, cmd: String) {
@@ -1798,9 +1900,19 @@ impl App {
         let s = self.sheets.active();
         let cursor = s.view.window_offset + s.view.row_cursor as u64;
         let total = s.row_count();
+        let marks = self
+            .last_visual
+            .filter(|v| v.sheet == s.id)
+            .map(|v| v.rows());
         let line = |a: &Addr| match a {
             Addr::Line(n) => Ok(n.saturating_sub(1)),
             Addr::Cursor => Ok(cursor),
+            Addr::VisualStart => marks
+                .map(|m| m.0)
+                .ok_or("'<: no visual range on this sheet"),
+            Addr::VisualEnd => marks
+                .map(|m| m.1)
+                .ok_or("'>: no visual range on this sheet"),
             Addr::Last => total
                 .map(|t| t.saturating_sub(1))
                 .ok_or("$: the row count isn't known yet"),

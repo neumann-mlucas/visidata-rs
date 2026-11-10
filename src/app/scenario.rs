@@ -3251,3 +3251,42 @@ async fn ex_ranges_global_and_normal() {
         status(&h)
     );
 }
+
+/// S-26 C: `V` grows a row range with the cursor; a verb runs on it and
+/// closes it; `:'<,'>` names it after; `<C-v>` blocks take columns too.
+#[tokio::test(flavor = "multi_thread")]
+async fn visual_ranges_run_verbs_on_their_rows() {
+    let mut h = csv(b"id,name,n\n1,a,1\n2,b,2\n3,c,3\n4,d,4\n5,e,5\n").await;
+    let sel = |h: &Harness| h.app.sheets.active().view.selected.len();
+    h.keys("j V j j").await; // rows 2–4
+    assert!(
+        status(&h).starts_with(" -- VISUAL -- rows 2–4"),
+        "{}",
+        status(&h)
+    );
+    let screen = h.screen();
+    let y = screen.lines().position(|l| l.contains(" 3 c")).unwrap() as u16;
+    let rev = |h: &Harness, y| {
+        h.term.backend().buffer()[(4, y)]
+            .modifier
+            .contains(ratatui::style::Modifier::REVERSED)
+    };
+    assert!(rev(&h, y), "range highlighted:\n{screen}");
+    h.keys("s").await;
+    assert_eq!(sel(&h), 3);
+    assert!(h.app.visual.is_none(), "a verb closes it");
+    assert!(!rev(&h, y));
+    h.keys("g u :").await;
+    h.type_("'<,'> d").await;
+    let t = csv_text(h.app.sheets.active(), b',');
+    assert_eq!(t, "id,name,n\n1,a,1\n5,e,5\n", "'<,'> = the last range");
+    h.keys("U").await;
+    h.keys("g g V j <Esc>").await;
+    assert!(h.app.visual.is_none() && status(&h) != " -- VISUAL --");
+    h.keys("<C-v> l -").await; // block: columns id–name
+    let t = csv_text(h.app.sheets.active(), b',');
+    assert!(t.starts_with("n\n"), "{t}");
+    h.keys(":").await;
+    h.type_("reselect").await;
+    assert!(h.app.visual.is_some());
+}

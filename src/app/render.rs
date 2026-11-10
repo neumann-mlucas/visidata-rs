@@ -197,6 +197,7 @@ impl App {
                     render,
                     noted,
                     no_color: self.color == crate::theme::ColorDepth::None,
+                    visual: self.visual_on(sheet),
                 },
                 area,
             ),
@@ -227,6 +228,7 @@ impl App {
                     render: None,
                     noted: None,
                     no_color: self.color == crate::theme::ColorDepth::None,
+                    visual: None,
                 },
                 inner,
             ),
@@ -502,6 +504,15 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(" ")
             )),
+            _ if let Some(v) = self.live_visual().or(self.visual) => {
+                let (a, b) = v.rows();
+                let what = if v.block { "block" } else { "rows" };
+                Line::from(format!(
+                    " -- VISUAL -- {what} {}–{} · s u select · y copy · d delete · e set · \" sheet · : ex · Esc",
+                    a + 1,
+                    b + 1
+                ))
+            }
             _ if self.sheets.active().state.plot.is_some() => {
                 let v = self.sheets.active().state.plot.as_ref();
                 let [x0, y0, w, h] = v.map_or([0.0; 4], |v| v.cursor);

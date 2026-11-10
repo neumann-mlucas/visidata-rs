@@ -366,6 +366,30 @@ enum Prompt {
 }
 
 /// A y/N question asked in the status line; any other key keeps things as they are.
+/// A visual range: from the anchor to the cursor (view rows from 0, and
+/// columns for a block).
+// ponytail: view rows, not row ids: a sort while it's open moves the range
+// with the positions, not the rows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Visual {
+    sheet: SheetId,
+    row: u64,
+    col: usize,
+    /// The other corner; the live range takes the cursor instead.
+    end: (u64, usize),
+    block: bool,
+}
+
+impl Visual {
+    fn rows(&self) -> (u64, u64) {
+        (self.row.min(self.end.0), self.row.max(self.end.0))
+    }
+    fn cols(&self) -> Option<(usize, usize)> {
+        self.block
+            .then(|| (self.col.min(self.end.1), self.col.max(self.end.1)))
+    }
+}
+
 /// A jumplist place: sheet, view row (from 0), column.
 #[derive(Debug, Clone, PartialEq)]
 struct Jump {
@@ -494,6 +518,9 @@ pub struct App {
     viewport_rows: usize,
     /// Columns of the table area: a plot bins x to twice this (braille).
     viewport_cols: u16,
+    /// `V` / `<C-v>` in progress (S-26 C), and the last one (`'<,'>`).
+    visual: Option<Visual>,
+    last_visual: Option<Visual>,
     /// Places before big jumps (S-26 A7); `jump_at`: where `jump_back` is.
     jumps: Vec<Jump>,
     jump_at: Option<usize>,
@@ -566,6 +593,8 @@ impl App {
             sheet_area: ratatui::layout::Rect::default(),
             jumps: Vec::new(),
             jump_at: None,
+            visual: None,
+            last_visual: None,
             register: None,
             confirm: None,
             clipboard,
@@ -1605,6 +1634,10 @@ impl App {
         if self.input.is_some() {
             self.on_input_key(key);
             self.refresh_pivot_preview();
+            return;
+        }
+        if self.visual.is_some() && key.code == KeyCode::Esc && self.pending.is_empty() {
+            self.visual = None;
             return;
         }
         // Count prefix: digits accumulate when no chord is pending and the digit

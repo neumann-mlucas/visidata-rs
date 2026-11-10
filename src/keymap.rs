@@ -639,6 +639,16 @@ impl Keymap {
             // terminals send Ctrl+^ as Ctrl+6
             ch(vec![k("<C-6>")], vec![JumpPrev], "go to the previous sheet"),
             ch(vec![k("<C-z>")], vec![Suspend], "suspend to the shell"),
+            ch(
+                vec![k("V")],
+                vec![Visual { block: false }],
+                "visual: a row range",
+            ),
+            ch(
+                vec![k("<C-v>")],
+                vec![Visual { block: true }],
+                "visual: a cell block",
+            ),
         ];
         let input = vec![
             ch(vec![k("<CR>")], vec![SubmitInput], "submit"),

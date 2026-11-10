@@ -439,6 +439,12 @@ pub enum Action {
     JumpForward,
     /// `:jumps`: the jumplist as a sheet.
     Jumps,
+    /// `V` / `<C-v>` (S-26 C): start (or end) a visual row range / cell block.
+    Visual {
+        block: bool,
+    },
+    /// `:reselect` (vim profile `gv`): the last visual range again.
+    Reselect,
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
     Link {
         on: bool,
@@ -615,6 +621,7 @@ impl Action {
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HelpCommands | JumpPrev | Suspend => false,
             JumpBack | JumpForward | Jumps => false,
+            Visual { .. } | Reselect => false,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -834,6 +841,9 @@ impl Action {
         ("jump_back", JumpBack),
         ("jump_forward", JumpForward),
         ("jumps", Jumps),
+        ("visual_rows", Visual { block: false }),
+        ("visual_block", Visual { block: true }),
+        ("reselect", Reselect),
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),

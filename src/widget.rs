@@ -36,7 +36,12 @@ pub struct SheetWidget<'a> {
     pub noted: Option<Noted<'a>>,
     /// `NO_COLOR`: rule and renderer colors become reverse video (S-26 A4).
     pub no_color: bool,
+    /// A visual range on screen (S-26 C): window rows, and columns for a block.
+    pub visual: Option<VisualSpan>,
 }
+
+/// Window rows (first, last) of a visual range, and its columns for a block.
+pub type VisualSpan = ((usize, usize), Option<(usize, usize)>);
 
 impl<'a> SheetWidget<'a> {
     const MIN_COL_WIDTH: u16 = 4;
@@ -355,6 +360,19 @@ impl SheetWidget<'_> {
                             }
                         }
                     }
+                }
+                if let Some(((r0, r1), block)) = self.visual
+                    && (r0..=r1).contains(&ri)
+                    && block.is_none_or(|(c0, c1)| (c0..=c1).contains(&ci))
+                {
+                    let r = Rect {
+                        x,
+                        y,
+                        width: w,
+                        height: 1,
+                    }
+                    .intersection(buf.area);
+                    buf.set_style(r, Style::default().add_modifier(Modifier::REVERSED));
                 }
                 if w > 0
                     && self.noted.is_some_and(|n| n(ri, cols[ci].name()))
@@ -897,6 +915,7 @@ mod tests {
                     render: None,
                     noted: None,
                     no_color: false,
+                    visual: None,
                 },
                 f.area(),
             )
