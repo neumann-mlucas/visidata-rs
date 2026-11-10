@@ -459,6 +459,85 @@ impl App {
                     block,
                 });
             }
+            Action::HalfPage { down } => {
+                let count = Some((self.viewport_rows / 2).max(1));
+                self.dispatch(match down {
+                    true => Action::CursorDown { count },
+                    false => Action::CursorUp { count },
+                });
+            }
+            Action::ScreenRow { at } => {
+                let rows = self.viewport_rows;
+                let s = self.sheets.active_mut();
+                let loaded = s.window().map_or(0, |w| w.height());
+                let last = (s.view.row_offset + rows).min(loaded).saturating_sub(1);
+                s.view.row_cursor = match at {
+                    0 => s.view.row_offset,
+                    1 => (s.view.row_offset + last) / 2,
+                    _ => last,
+                };
+            }
+            Action::ScrollTo { at } => {
+                let rows = self.viewport_rows;
+                let v = &mut self.sheets.active_mut().view;
+                let back = match at {
+                    0 => 0,
+                    1 => rows / 2,
+                    _ => rows.saturating_sub(1),
+                };
+                v.row_offset = v.row_cursor.saturating_sub(back);
+            }
+            Action::CellMotion { to } => {
+                let s = self.sheets.active_mut();
+                let Some(df) = s.window() else { return };
+                let (r, c) = (s.view.row_cursor, s.view.col_cursor);
+                let full = |i: &usize| df.columns()[*i].get(r).is_ok_and(|v| !v.is_null());
+                let n = df.width();
+                let hit = match to {
+                    1 => (c + 1..n).find(full),
+                    -1 => (0..c).rev().find(full),
+                    _ => (0..n).rev().find(full),
+                };
+                match hit {
+                    Some(i) => s.view.col_cursor = i,
+                    None => self.toast = Some("no other non-empty cell in this row".into()),
+                }
+            }
+            Action::ValueChange { forward } => {
+                // ponytail: the loaded rows only; a job over the view if it matters
+                let s = self.sheets.active_mut();
+                let Some(df) = s.window() else { return };
+                let (r, c) = (s.view.row_cursor, s.view.col_cursor);
+                let Some(col) = df.columns().get(c) else {
+                    return;
+                };
+                let here = col.get(r).map(|v| v.into_static()).ok();
+                let differs = |i: &usize| col.get(*i).map(|v| v.into_static()).ok() != here;
+                let hit = match forward {
+                    true => (r + 1..df.height()).find(differs),
+                    false => (0..r).rev().find(differs),
+                };
+                match hit {
+                    Some(i) => s.view.row_cursor = i,
+                    None => self.toast = Some("no other value in the loaded rows".into()),
+                }
+            }
+            Action::SearchCell { backward } => {
+                let s = self.sheets.active();
+                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
+                    return;
+                };
+                let Ok(v) = df.column(&column).and_then(|c| c.get(s.view.row_cursor)) else {
+                    return;
+                };
+                let text = crate::sheet::any_text(&v);
+                self.start_search(SearchState {
+                    pattern: format!("^{}$", regex::escape(&text)),
+                    all_columns: false,
+                    backward,
+                    expr: false,
+                });
+            }
             Action::Reselect => match self.last_visual {
                 Some(v) if v.sheet == self.sheets.active().id => {
                     self.goto_row(v.end.0);

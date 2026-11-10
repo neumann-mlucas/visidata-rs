@@ -524,6 +524,46 @@ pub fn open(
     crate::reader::open(path, fmt)
 }
 
+/// `vd.option("keymap", "vim")` (S-26 D): the keys where vim and VisiData
+/// disagree, as vd.bind patches over the defaults. Copy it into init.lua to
+/// change it.
+pub const VIM_PROFILE: &str = r##"-- vdrs vim profile
+local function b(keys, action) vd.bind("sheet", keys, action, "vim: " .. action) end
+b(".", "repeat_last")
+b("$", "goto_rightmost")             -- default: currency cast
+b("<C-d>", "half_page_down")
+b("<C-u>", "half_page_up")
+b("<C-r>", "redo")                   -- default: :refresh
+b("<C-o>", "jump_back")
+b("<C-i>", "jump_forward")           -- apart from <Tab> where the terminal tells them apart
+b({"g", "v"}, "reselect")            -- default: unhide columns (:unhide)
+b("u", "undo")                       -- default: unselect row
+b("U", "unselect_row")               -- default: undo
+vd.unbind("sheet", "R")              -- default: redo
+b("x", "cut_cell")                   -- default: cut row
+b("H", "screen_top")                 -- default: slide column left
+b("M", "screen_middle")              -- default: melt
+b("L", "screen_bottom")              -- default: slide column right
+b({"z", "t"}, "scroll_top")
+b({"z", "z"}, "scroll_middle")
+b({"z", "b"}, "scroll_bottom")
+b("w", "next_cell")
+b("b", "prev_cell")                  -- default: sidebar (<C-g> cycles it)
+b("e", "last_cell")                  -- default: edit (i here)
+b("i", "start_edit_input")
+b("}", "next_value")
+b("{", "prev_value")
+b("*", "search_cell")
+b("#", "searchr_cell")               -- default: int cast (z# here)
+b({"z", "#"}, "type_cast_int")
+b({"<C-w>", "s"}, "split")
+b({"<C-w>", "v"}, "vsplit")
+b({"<C-w>", "w"}, "focus_pane")
+b({"<C-w>", "o"}, "close_pane")
+b({"<C-w>", "q"}, "close_pane")
+b({"Z", "Z"}, "pop_sheet")
+"##;
+
 fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     let vd = lua.create_table()?;
     let bind = lua.create_function(bind_fn)?;
@@ -658,6 +698,15 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                         }
                     }
                 }
+                "keymap" => match value.as_str() {
+                    "vim" => lua.load(VIM_PROFILE).set_name("vim profile").exec()?,
+                    "visidata" => {}
+                    _ => {
+                        return Err(mlua::Error::RuntimeError(
+                            "vd.option: keymap is \"vim\" or \"visidata\"".into(),
+                        ));
+                    }
+                },
                 "mouse" => {
                     registry(lua)?.borrow_mut().mouse = match value.as_str() {
                         "true" => true,
@@ -671,7 +720,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, mouse, session_autosave)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, keymap, mouse, session_autosave)"
                     )));
                 }
             }
@@ -1689,6 +1738,59 @@ mod tests {
                 .call(0, &ctx, None)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn vim_profile_binds_known_actions_and_twice_is_once() {
+        use crate::keymap::{Dispatch, Layer};
+        let km = |src: &str| {
+            let p = Plugins::load_from_source(src).unwrap();
+            let mut km = Keymap::defaults();
+            p.apply_keymap(&mut km);
+            km
+        };
+        let once = km(r#"vd.option("keymap", "vim")"#);
+        let twice = km(r#"vd.option("keymap", "vim") vd.option("keymap", "vim")"#);
+        let fire = |km: &Keymap, keys: &[&str]| {
+            let mut pending = Vec::new();
+            for k in keys {
+                match km.resolve(Layer::Sheet, &pending, k.parse().unwrap()) {
+                    Dispatch::Fire(a) => return Some(a),
+                    Dispatch::Pending(_) => pending.push(k.parse().unwrap()),
+                    Dispatch::Miss => return None,
+                }
+            }
+            None
+        };
+        let keys: [&[&str]; 6] = [&["u"], &["U"], &["$"], &["g", "v"], &["<C-w>", "s"], &["x"]];
+        for k in keys {
+            assert_eq!(fire(&once, k), fire(&twice, k), "{k:?}");
+        }
+        assert_eq!(fire(&once, &["u"]), Some(vec![Action::Undo]));
+        assert_eq!(fire(&once, &["$"]), Some(vec![Action::GotoRightmost]));
+        assert_eq!(fire(&once, &["R"]), Some(vec![Action::Redraw]), "unbound");
+        assert_eq!(
+            fire(&Keymap::defaults(), &["u"]),
+            Some(vec![Action::UnselectRow])
+        );
+        assert!(Plugins::load_from_source(r#"vd.option("keymap", "emacs")"#).is_err());
+    }
+
+    #[test]
+    fn user_guide_lists_every_vim_profile_key() {
+        let html = include_str!("../docs/index.html");
+        let p = Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap();
+        let mut km = Keymap::defaults();
+        let n = km.chords(crate::keymap::Layer::Sheet).len();
+        p.apply_keymap(&mut km);
+        for c in &km.chords(crate::keymap::Layer::Sheet)[n..] {
+            let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
+            let attr = format!(
+                "data-vim-keys=\"{}\"",
+                keys.join(" ").replace('<', "&lt;").replace('>', "&gt;")
+            );
+            assert!(html.contains(&attr), "docs/index.html misses {attr}");
+        }
     }
 
     #[test]

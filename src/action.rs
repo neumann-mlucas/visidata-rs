@@ -445,6 +445,30 @@ pub enum Action {
     },
     /// `:reselect` (vim profile `gv`): the last visual range again.
     Reselect,
+    /// Vim profile motions (S-26 D). `<C-d>` / `<C-u>`: half a screen.
+    HalfPage {
+        down: bool,
+    },
+    /// `H` `M` `L`: the cursor to the screen's top / middle / bottom row (0, 1, 2).
+    ScreenRow {
+        at: u8,
+    },
+    /// `zt` `zz` `zb`: scroll so the cursor row is at the top / middle / bottom.
+    ScrollTo {
+        at: u8,
+    },
+    /// `w` `b` `e`: the next / previous / last non-empty cell of the row (1, -1, 2).
+    CellMotion {
+        to: i8,
+    },
+    /// `}` `{`: the next / previous row whose value in this column differs.
+    ValueChange {
+        forward: bool,
+    },
+    /// `*` `#`: search this column for the cursor cell's value.
+    SearchCell {
+        backward: bool,
+    },
     /// `:link` / `:unlink`: refresh on activation when the parent changed.
     Link {
         on: bool,
@@ -589,6 +613,8 @@ impl Action {
                 | SearchNext
                 | SearchPrev
                 | JumpPrev
+                | SearchCell { .. }
+                | ValueChange { .. }
                 | SubmitRow
                 | OpenFreqTable
                 | OpenSheetSwitcher
@@ -622,6 +648,8 @@ impl Action {
             HelpCommands | JumpPrev | Suspend => false,
             JumpBack | JumpForward | Jumps => false,
             Visual { .. } | Reselect => false,
+            HalfPage { .. } | ScreenRow { .. } | ScrollTo { .. } | CellMotion { .. } => true,
+            ValueChange { .. } | SearchCell { .. } => true,
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
@@ -844,6 +872,21 @@ impl Action {
         ("visual_rows", Visual { block: false }),
         ("visual_block", Visual { block: true }),
         ("reselect", Reselect),
+        ("half_page_down", HalfPage { down: true }),
+        ("half_page_up", HalfPage { down: false }),
+        ("screen_top", ScreenRow { at: 0 }),
+        ("screen_middle", ScreenRow { at: 1 }),
+        ("screen_bottom", ScreenRow { at: 2 }),
+        ("scroll_top", ScrollTo { at: 0 }),
+        ("scroll_middle", ScrollTo { at: 1 }),
+        ("scroll_bottom", ScrollTo { at: 2 }),
+        ("next_cell", CellMotion { to: 1 }),
+        ("prev_cell", CellMotion { to: -1 }),
+        ("last_cell", CellMotion { to: 2 }),
+        ("next_value", ValueChange { forward: true }),
+        ("prev_value", ValueChange { forward: false }),
+        ("search_cell", SearchCell { backward: false }),
+        ("searchr_cell", SearchCell { backward: true }),
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),

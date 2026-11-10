@@ -3290,3 +3290,45 @@ async fn visual_ranges_run_verbs_on_their_rows() {
     h.type_("reselect").await;
     assert!(h.app.visual.is_some());
 }
+
+/// S-26 D: the vim profile's motions and its `u` / `U` swap.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_profile_motions_and_undo_keys() {
+    let mut h = csv(b"id,a,b,c\n1,x,,z\n1,y,,z\n2,y,q,\n3,,,\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("w").await;
+    assert_eq!(h.current_column(), "a");
+    h.keys("w").await;
+    assert_eq!(h.current_column(), "c", "w skips the empty b");
+    h.keys("b b").await;
+    assert_eq!(h.current_column(), "id");
+    h.keys("e").await;
+    assert_eq!(h.current_column(), "c", "e: the row's last non-empty cell");
+    h.keys("0 }").await; // id 1, 1, 2: the next change is row 3
+    assert!(title(&h).contains("row 3/4"), "{}", title(&h));
+    h.keys("{").await;
+    assert!(title(&h).contains("row 2/4"), "{}", title(&h));
+    h.keys("L").await;
+    assert!(title(&h).contains("row 4/4"), "{}", title(&h));
+    h.keys("H").await;
+    assert!(title(&h).contains("row 1/4"), "{}", title(&h));
+    h.keys("l j *").await; // search a = y
+    assert!(title(&h).contains("row 3/4"), "{}", title(&h));
+    h.keys("$").await;
+    assert_eq!(h.current_column(), "c");
+    h.keys("s").await;
+    assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+    h.keys("U").await;
+    assert!(
+        h.app.sheets.active().view.selected.is_empty(),
+        "U unselects"
+    );
+    h.keys("s j u").await; // unselect-row would act on the row below
+    assert_eq!(
+        h.app.sheets.active().view.selected.len(),
+        0,
+        "u undid the s"
+    );
+}
