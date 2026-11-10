@@ -1927,7 +1927,7 @@ impl Sheet {
             .ok_or_else(|| format!("no column: {column}"))?;
         if dtype != DataType::String {
             return Err(format!(
-                "{column} is {dtype}: replace works on text (:type string)"
+                "{column} is {dtype} in the data: replace works on text (* makes a text copy)"
             ));
         }
         let step = PlanStep::Replace {

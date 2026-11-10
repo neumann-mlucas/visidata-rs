@@ -1442,12 +1442,18 @@ impl App {
                 .replace(&c, pattern, replacement, true, Some(selected.clone()), true)
                 .map(|()| format!("replaced in {c} on {} rows", selected.len())),
             SubstMode::SelectedAll => {
+                // text in the data (a `~` view cast isn't), and visible
+                let visible = s.view_plan().collect_schema().ok();
                 let text: Vec<String> = s
-                    .view_plan()
+                    .plan
+                    .clone()
                     .collect_schema()
                     .map(|sc| {
                         sc.iter()
-                            .filter(|(_, t)| **t == DataType::String)
+                            .filter(|(n, t)| {
+                                **t == DataType::String
+                                    && visible.as_ref().is_some_and(|v| v.contains(n))
+                            })
                             .map(|(n, _)| n.to_string())
                             .collect()
                     })
@@ -1466,8 +1472,10 @@ impl App {
                         )
                     });
                 }
-                if r.is_ok() {
-                    s.push_undo(before);
+                match r {
+                    Ok(()) => s.push_undo(before),
+                    // all columns or none
+                    Err(_) => s.restore(before),
                 }
                 r.map(|()| {
                     format!(

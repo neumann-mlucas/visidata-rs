@@ -2488,6 +2488,15 @@ async fn substitute_on_selection_new_column_and_read_only() {
     h.keys("s g *").await;
     h.type_("b/B").await;
     assert_eq!(view_csv(&h), "id,name\n1,a\n2,B\n3,c\n");
+    // gz*: text columns of the data; `~` on int `id` is a view cast, skipped
+    h.keys("h ~ l g z *").await;
+    h.type_("[B2]/x").await;
+    assert!(
+        status(&h).starts_with("replaced in 1 columns"),
+        "{}",
+        status(&h)
+    );
+    assert_eq!(view_csv(&h), "id,name\n1,a\n2,x\n3,c\n");
     h.keys("F *").await;
     assert!(status(&h).starts_with("read-only"), "{}", status(&h));
 }
