@@ -625,6 +625,32 @@ pub enum Rows {
     Where(String),
 }
 
+/// `rows` + `cmd` as the ex text [`ranged`] reads back: what a macro or `.`
+/// replays.
+// ponytail: a `g/` pattern ending in `\` doesn't read back; such a line
+// can't be typed either.
+pub fn ranged_text(rows: &Rows, cmd: &str) -> String {
+    let addr = |a: &Addr| match a {
+        Addr::Line(n) => n.to_string(),
+        Addr::Cursor => ".".into(),
+        Addr::Offset(d) if *d < 0 => format!(".{d}"),
+        Addr::Offset(d) => format!(".+{d}"),
+        Addr::Last => "$".into(),
+        Addr::VisualStart => "'<".into(),
+        Addr::VisualEnd => "'>".into(),
+    };
+    let head = match rows {
+        Rows::Span(a, b) => format!("{},{} ", addr(a), addr(b)),
+        Rows::All => "% ".into(),
+        Rows::Match { pattern, invert } => {
+            let g = if *invert { 'v' } else { 'g' };
+            format!("{g}/{}/", pattern.replace('/', "\\/"))
+        }
+        Rows::Where(p) => format!("g{{{p}}} "),
+    };
+    (head + cmd).trim_end().to_string()
+}
+
 /// `:5,20 setcol 0`, `:% y`, `:g/^n/d`: rows, then the command (empty: just
 /// select them). `None`: not a ranged line (a bare `:12` goes to row 12).
 pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
@@ -700,6 +726,7 @@ pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
         }
     };
     let (a, n) = addr(s)?;
+    let comma = s[n..].starts_with(',');
     let (b, rest) = match s[n..].strip_prefix(',') {
         Some(t) => match addr(t) {
             Some((b, m)) => (b, &t[m..]),
@@ -711,8 +738,8 @@ pub fn ranged(input: &str) -> Option<Result<(Rows, String), ExError>> {
         },
         None => (a.clone(), &s[n..]),
     };
-    // `:12` alone goes to row 12; a ranged command needs a space or a name
-    if matches!(a, Addr::Line(_)) && a == b && rest.trim().is_empty() {
+    // `:12` alone goes to row 12; a ranged command needs a comma or a name
+    if matches!(a, Addr::Line(_)) && !comma && rest.trim().is_empty() {
         return None;
     }
     done(Rows::Span(a, b), rest)
@@ -887,6 +914,33 @@ fn history_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ranged_text_reads_back() {
+        use Addr::*;
+        for (rows, cmd) in [
+            (Rows::Span(Line(5), Line(5)), ""),
+            (Rows::Span(Cursor, Offset(2)), "cut-row"),
+            (Rows::Span(Offset(-1), Last), "setcol 0"),
+            (Rows::Span(VisualStart, VisualEnd), "y"),
+            (Rows::All, "d"),
+            (
+                Rows::Match {
+                    pattern: "a/b".into(),
+                    invert: true,
+                },
+                "d",
+            ),
+            (Rows::Where("x > 1".into()), ""),
+        ] {
+            let text = ranged_text(&rows, cmd);
+            assert_eq!(
+                ranged(&text).unwrap().unwrap(),
+                (rows, cmd.to_string()),
+                "{text}"
+            );
+        }
+    }
 
     #[test]
     fn ranges_parse() {

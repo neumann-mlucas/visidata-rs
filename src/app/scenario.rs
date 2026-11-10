@@ -3431,6 +3431,25 @@ async fn vim_marks_and_register_macros() {
     assert_eq!(row(&h), 3, "@@ replays the last macro");
     h.keys("@ c").await;
     assert_eq!(status(&h), "register c holds no macro");
+    // a ranged step replays on the cursor row, not on the selection
+    h.keys("g g q d d d q").await;
+    assert_eq!(h.app.macros[&'d'], [":.,.+0 cut-row"]);
+    h.keys("s j s").await;
+    h.keys("@ d").await;
+    let ids = csv_text(h.app.sheets.active(), b',').replace('\n', " ");
+    assert_eq!(ids, "id 2 4 5 6 ", "@d cuts the cursor row only");
+    assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+}
+
+/// S-26 B: a typed ranged command is what `.` (`:repeat-last`) repeats.
+#[tokio::test(flavor = "multi_thread")]
+async fn dot_repeats_a_typed_range() {
+    let mut h = csv(b"id\n1\n2\n3\n4\n").await;
+    h.keys(":").await;
+    h.type_(".,.+1 d").await;
+    h.keys(":").await;
+    h.type_("repeat-last").await;
+    assert_eq!(csv_text(h.app.sheets.active(), b','), "id\n");
 }
 
 /// S-26 D3: vim operators — `dd`, counts (`2dj` = 3 rows), `dG`, `.`

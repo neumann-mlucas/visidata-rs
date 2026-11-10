@@ -2066,9 +2066,8 @@ impl App {
         };
         self.goto_row(lo);
         let l = |r: u64| crate::exline::Addr::Line(r + 1);
-        self.run_ranged(crate::exline::Rows::Span(l(lo), l(hi)), cmd.into());
         let again = format!(".,.+{} {cmd}", hi - lo);
-        self.last_action = Some(vec![Action::ExCommand(again)]);
+        self.run_ranged_as(crate::exline::Rows::Span(l(lo), l(hi)), cmd.into(), again);
     }
 
     /// `c`: `:'<,'> setcol ` on the rows, waiting for the value.
@@ -2235,7 +2234,19 @@ impl App {
     /// `:5,20 cmd`, `:% cmd`, `:g/re/cmd` … (S-26 B): the rows' ids come from
     /// a job, then `cmd` runs as if they were selected (`run_on_rows`).
     pub(super) fn run_ranged(&mut self, rows: crate::exline::Rows, cmd: String) {
+        let ex = crate::exline::ranged_text(&rows, &cmd);
+        self.run_ranged_as(rows, cmd, ex);
+    }
+
+    /// [`run_ranged`](Self::run_ranged); a macro and `.` replay `:{ex}`.
+    pub(super) fn run_ranged_as(&mut self, rows: crate::exline::Rows, cmd: String, ex: String) {
         use crate::exline::{Addr, Rows};
+        if !self.replaying {
+            if let Some(rec) = self.recording.as_mut() {
+                rec.steps.push(format!(":{ex}"));
+            }
+            self.last_action = Some(vec![Action::ExCommand(ex)]);
+        }
         let s = self.sheets.active();
         let cursor = s.view.window_offset + s.view.row_cursor as u64;
         let total = s.row_count();
@@ -2328,10 +2339,10 @@ impl App {
             Action::SysCopyRow => Action::SysCopySelected,
             a => a,
         });
-        // `.` repeats the ranged command, not its selected-rows form
-        let repeat = self.last_action.clone();
+        // a macro and `.` hold the ranged command, not its selected-rows form
+        let replaying = std::mem::replace(&mut self.replaying, true);
         self.dispatch_sequence(actions.collect());
-        self.last_action = repeat;
+        self.replaying = replaying;
         if let Some(s) = self.sheets.find_by_id_mut(id) {
             let now = &s.view.selected;
             let mut back: std::collections::BTreeSet<u64> = saved
