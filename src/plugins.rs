@@ -545,7 +545,6 @@ b("H", "screen_top")                 -- default: slide column left
 b("M", "screen_middle")              -- default: melt
 b("L", "screen_bottom")              -- default: slide column right
 b({"z", "t"}, "scroll_top")
-b({"z", "z"}, "scroll_middle")
 b({"z", "b"}, "scroll_bottom")
 b("w", "next_cell")
 b("b", "prev_cell")                  -- default: sidebar (<C-g> cycles it)

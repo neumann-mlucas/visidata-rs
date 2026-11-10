@@ -599,8 +599,8 @@ impl Keymap {
             ch(vec![k("_")], vec![ZoomAll], "plot: zoom to fit"),
             ch(
                 vec![k("z"), k("z")],
-                vec![ZoomCursor],
-                "plot: zoom to the cursor box",
+                vec![ScrollTo { at: 1 }],
+                "scroll the cursor row to the middle; plot: zoom to the cursor box",
             ),
             ch(vec![k("<Tab>")], vec![FocusPane], "focus the other pane"),
             ch(vec![k("g"), k("<Tab>")], vec![SwapPanes], "swap the panes"),

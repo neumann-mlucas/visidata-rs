@@ -2451,6 +2451,16 @@ async fn source_runs_an_ex_script_step_by_step() {
     assert_eq!(h.current_column(), "name");
 }
 
+/// Default `zz` is VisiData's scroll-middle on a sheet (zoom on a plot).
+#[tokio::test(flavor = "multi_thread")]
+async fn zz_scrolls_the_cursor_row_to_the_middle() {
+    let mut h = Harness::new(100).await;
+    h.keys("4 0 j z z").await;
+    let v = &h.app.sheets.active().view;
+    assert!(v.row_offset > 0);
+    assert_eq!(v.row_cursor - v.row_offset, h.app.viewport_rows / 2);
+}
+
 /// A failed step stops the script: the steps after it would land on the
 /// wrong column or sheet.
 #[tokio::test(flavor = "multi_thread")]

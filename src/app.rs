@@ -946,7 +946,7 @@ impl App {
                 v.zoom(2.0);
                 range = Some(Some(v.x));
             }
-            // the vim profile has `zz` scroll; on a plot it still zooms
+            // `zz` scrolls a sheet; on a plot it zooms (VisiData Canvas)
             Action::ZoomCursor | Action::ScrollTo { at: 1 } => {
                 v.zoom_to_cursor();
                 range = Some(Some(v.x));
