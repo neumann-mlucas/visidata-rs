@@ -1,6 +1,9 @@
 # S-28 — `:s` substitute on a column, search-hit sheet
 
-Status: **drafted 2026-11-08**, not started.
+Status: **done 2026-11-10** (A, B). As built: `:s` without a selection covers the view's rows
+(every row when no filter, else the filtered rows' ids, scanned on the UI thread like `gs`); non-text
+columns are refused with a `:type string` hint instead of the confirm prompt; `*` `g*` `gz*` are
+case-insensitive (VisiData's `regex_flags` default `I`) and take a `search/replace` one-liner.
 Depends on: S-18 C (edits as steps; `SetCells`/`SetCol` patterns), S-26 B (ranges), S-15 §3.3 (search).
 
 ## 1. VisiData reference

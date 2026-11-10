@@ -355,6 +355,10 @@ pub enum Action {
         replacement: String,
         mode: SubstMode,
     },
+    /// `:hits <text>` (S-28 B): a sheet of the active sheet's search hits.
+    Hits {
+        needle: String,
+    },
     /// `:mksession [path]`: write the sheet stack as an ex script.
     MkSession {
         path: Option<String>,
@@ -505,7 +509,7 @@ impl Action {
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
             MkSession { .. } => false,
             HideNamed { .. } | Patch { .. } => true,
-            Substitute { .. } | SubstPrompted { .. } => true,
+            Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } => false,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
@@ -820,6 +824,7 @@ impl Action {
                 path,
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
+            Hits { needle } => format!("hits {needle}"),
             Substitute {
                 pattern,
                 replacement,
@@ -1022,6 +1027,9 @@ mod tests {
                 path: s("p.parquet"),
             },
             ExpandCol { depth: 3 },
+            Hits {
+                needle: s("foo bar"),
+            },
             Substitute {
                 pattern: s("a/b +$"),
                 replacement: s("${1}x"),

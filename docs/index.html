@@ -491,6 +491,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="join"><td><code>:join source [keys] [type]</code></td><td>Join with a file or sheet.</td></tr>
 <tr data-ex="diff"><td><code>:diff file [key1,key2]</code></td><td>Compare with a file.</td></tr>
 <tr data-ex="sql"><td><code>:sql query</code></td><td>SQL on <code>self</code> and <code>s&lt;id&gt;</code>.</td></tr>
+<tr data-ex="hits"><td><code>:hits regex</code></td><td>A sheet of every cell of the view that matches (as <kbd>g</kbd><kbd>/</kbd>): <code>row</code>, <code>column</code>, <code>value</code> and the key columns, at most 100,000. <kbd>Enter</kbd> on a hit goes to that cell; the hit sheet stays open (<kbd>S</kbd> to come back).</td></tr>
 <tr data-ex="s/"><td><code>:s/regex/replacement/[g][i]</code></td><td>Regex replace in the current column (see <a href="#change">Changing data</a>).</td></tr>
 <tr data-ex="derive"><td><code>:derive name = expr</code></td><td>Add a computed column.</td></tr>
 <tr data-ex="select"><td><code>:select cond</code>, <code>:unselect cond</code></td><td>Select / unselect rows where a SQL condition holds.</td></tr>

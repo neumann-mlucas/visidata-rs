@@ -325,6 +325,10 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             Err(_) if rest.is_empty() => Ok(vec![Action::ExpandCol { depth: 1 }]),
             Err(_) => Err(ExError::Usage(":expand [depth] (0 = all the way)")),
         },
+        "hits" if !rest.is_empty() => Ok(vec![Action::Hits {
+            needle: rest.to_string(),
+        }]),
+        "hits" => Err(ExError::Usage(":hits <regex> (every column)")),
         "mksession" => Ok(vec![Action::MkSession {
             path: (!rest.is_empty()).then(|| unquote(rest)),
         }]),
@@ -449,6 +453,7 @@ pub const COMMANDS: &[&str] = &[
     "aggregate",
     "cursor",
     "expand",
+    "hits",
     "mksession",
     "patch",
     "open",

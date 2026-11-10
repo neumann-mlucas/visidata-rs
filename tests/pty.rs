@@ -253,8 +253,17 @@ fn bracketed_paste_fills_the_register() {
 fn sessions_survive_a_restart() {
     let home = tempfile::tempdir().unwrap();
     let mut vd = Vdrs::spawn(&["sales.csv"], home.path());
-    vd.send(b"ll]j");
-    std::thread::sleep(Duration::from_millis(500));
+    vd.send(b"ll]");
+    let wait = |vd: &Vdrs, what: &str| {
+        let end = Instant::now() + Duration::from_secs(20);
+        while !vd.text().contains(what) {
+            assert!(Instant::now() < end, "{what}\n{}", vd.text());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    wait(&vd, "sort");
+    vd.send(b"j");
+    wait(&vd, "row 2/");
     let named = home.path().join("named.vdrs");
     vd.send(format!(":mksession {}\r", named.display()).as_bytes());
     let end = Instant::now() + Duration::from_secs(20);

@@ -294,6 +294,26 @@ impl App {
                     Err(e) => self.toast = Some(format!("patch {path}: {e}")),
                 }
             }
+            Action::Hits { needle } => {
+                if let Err(e) = regex::Regex::new(&needle) {
+                    self.toast = Some(format!("bad regex: {e}"));
+                    return;
+                }
+                let parent = self.sheets.active().clone();
+                let id = self.sheets.alloc_id();
+                self.spawn_job("hits", move || {
+                    // ponytail: fixed cap; raise when someone needs more
+                    const CAP: usize = 100_000;
+                    let (s, capped) = Sheet::hits_from(&parent, id, &needle, CAP)?;
+                    if capped {
+                        return Ok(JobDone::PushSheetToast(
+                            Box::new(s),
+                            format!("{CAP}+ hits (capped)"),
+                        ));
+                    }
+                    Ok(JobDone::PushSheet(Box::new(s)))
+                });
+            }
             Action::StartSubstInput { mode } => match self.sheets.active().editable() {
                 Ok(()) => self.start_input(Prompt::Subst { mode }),
                 Err(e) => self.toast = Some(e),
@@ -1273,6 +1293,29 @@ impl App {
                 }
             }
             Origin::Freq { .. } => self.dive_freq(false),
+            Origin::Hits { parent } => {
+                let parent = *parent;
+                let s = self.sheets.active();
+                let cell = s.window().and_then(|df| {
+                    let r = df
+                        .column("row")
+                        .ok()?
+                        .get(s.view.row_cursor)
+                        .ok()?
+                        .try_extract::<u64>()
+                        .ok()?;
+                    let c = df.column("column").ok()?.get(s.view.row_cursor).ok()?;
+                    Some((r, c.get_str()?.to_string()))
+                });
+                let Some((row, column)) = cell else { return };
+                if !self.sheets.switch_to(parent) {
+                    self.toast = Some("hits: that sheet was closed".into());
+                    return;
+                }
+                self.goto_column(&column);
+                self.goto_row(row - 1);
+                self.spawn_materialize();
+            }
             Origin::Parts { path, kind } => {
                 let (path, kind) = (path.clone(), *kind);
                 let s = self.sheets.active();

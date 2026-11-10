@@ -203,6 +203,8 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// A new sheet, and something to say about it.
+    PushSheetToast(Box<Sheet>, String),
     /// The job's source, read into memory.
     Loaded(DataFrame),
     /// A tail that can't append, reopened.
@@ -815,6 +817,11 @@ impl App {
             Ok(JobDone::PushSheet(sheet)) => {
                 self.sheets.push(*sheet);
                 self.spawn_materialize();
+            }
+            Ok(JobDone::PushSheetToast(sheet, toast)) => {
+                self.sheets.push(*sheet);
+                self.spawn_materialize();
+                self.toast = Some(toast);
             }
             Ok(JobDone::Jump { row, col }) => {
                 if self.sheets.active().id == sheet_id {

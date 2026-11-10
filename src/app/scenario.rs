@@ -2474,3 +2474,44 @@ async fn substitute_on_selection_new_column_and_read_only() {
     h.keys("F *").await;
     assert!(status(&h).starts_with("read-only"), "{}", status(&h));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hits_sheet_lists_hits_and_enter_jumps_back() {
+    let mut h = Harness::new(30).await;
+    h.keys("]").await; // sort by id descending: hit rows are view rows
+    h.keys(":").await;
+    h.type_("hits name_2").await; // name_2, name_20..29
+    assert!(
+        title(&h).contains("hits(name_2)") && title(&h).contains("row 1/11"),
+        "{}",
+        title(&h)
+    );
+    let df = h.app.sheets.active().window().unwrap().clone();
+    assert_eq!(
+        df.column("column").unwrap().str().unwrap().get(0),
+        Some("name")
+    );
+    assert_eq!(
+        df.column("value").unwrap().str().unwrap().get(0),
+        Some("name_29")
+    );
+    h.keys("j <CR>").await;
+    assert_eq!(h.current_column(), "name");
+    assert!(title(&h).contains("row 3/30"), "{}", title(&h)); // name_28: 3rd by id desc
+    assert_eq!(h.app.sheets.len(), 2, "the hit sheet stays");
+}
+
+#[test]
+fn hits_cap_says_so() {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    writeln!(tmp, "a").unwrap();
+    for _ in 0..50 {
+        writeln!(tmp, "x").unwrap();
+    }
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let s = Sheet::from_source(0, loaded);
+    let (hits, capped) = Sheet::hits_from(&s, 1, "x", 10).unwrap();
+    assert!(capped);
+    assert_eq!(hits.plan.collect().unwrap().height(), 10);
+}

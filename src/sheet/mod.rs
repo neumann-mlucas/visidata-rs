@@ -185,6 +185,10 @@ pub enum Origin {
         path: std::path::PathBuf,
         follow: bool,
     },
+    /// `:hits` (S-28 B): a row per search hit in `parent`; `<CR>` goes there.
+    Hits {
+        parent: SheetId,
+    },
     /// Rows selected in parent (VisiData `"`).
     Selected {
         parent: SheetId,
@@ -232,6 +236,7 @@ impl Origin {
             Origin::Diff { .. } => "diff",
             Origin::Tail { .. } => "tail",
             Origin::Selected { .. } => "selected",
+            Origin::Hits { .. } => "hits",
             Origin::Sql { .. } => "sql",
             Origin::Describe { .. } => "describe",
             Origin::Lua { .. } => "lua",
@@ -494,6 +499,78 @@ impl Sheet {
             },
             origin,
         }
+    }
+
+    /// `:hits needle` (S-28 B): `row` (from 1), `column`, `value` and the key
+    /// columns' values of each hit of `needle` in `parent`'s view, at most
+    /// `cap`. Also whether the cap cut it short.
+    pub fn hits_from(
+        parent: &Sheet,
+        id: SheetId,
+        needle: &str,
+        cap: usize,
+    ) -> Result<(Self, bool), String> {
+        let e = |e: PolarsError| e.to_string();
+        let mut hits = parent.search_hits(needle, None).map_err(e)?;
+        let capped = hits.len() > cap;
+        hits.truncate(cap);
+        let view = parent.view_plan().collect().map_err(e)?;
+        let names: Vec<String> = view
+            .get_column_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
+        let text = |name: &str| -> Result<Series, String> {
+            Ok(view
+                .column(name)
+                .map_err(e)?
+                .cast(&DataType::String)
+                .map_err(e)?
+                .as_materialized_series()
+                .clone())
+        };
+        let texts: Vec<Series> = names.iter().map(|n| text(n)).collect::<Result<_, _>>()?;
+        let at = |c: usize, r: u64| {
+            texts[c]
+                .str()
+                .ok()
+                .and_then(|s| s.get(r as usize))
+                .map(String::from)
+        };
+        let mut cols = vec![
+            Column::new(
+                "row".into(),
+                hits.iter().map(|(r, _)| r + 1).collect::<Vec<u64>>(),
+            ),
+            Column::new(
+                "column".into(),
+                hits.iter()
+                    .map(|(_, c)| names[*c].clone())
+                    .collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "value".into(),
+                hits.iter().map(|(r, c)| at(*c, *r)).collect::<Vec<_>>(),
+            ),
+        ];
+        for k in &parent.view.keys {
+            let Some(i) = names.iter().position(|n| n == k) else {
+                continue;
+            };
+            if matches!(k.as_str(), "row" | "column" | "value") {
+                continue;
+            }
+            cols.push(Column::new(
+                k.as_str().into(),
+                hits.iter().map(|(r, _)| at(i, *r)).collect::<Vec<_>>(),
+            ));
+        }
+        let df = DataFrame::new_infer_height(cols).map_err(e)?;
+        let name = format!("hits({needle}): {}", parent.name);
+        Ok((
+            Self::meta(id, name, df, Origin::Hits { parent: parent.id }),
+            capped,
+        ))
     }
 
     /// Table this sheet saves as in a database file, as VisiData names it:
