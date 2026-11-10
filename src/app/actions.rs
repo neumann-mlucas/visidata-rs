@@ -1328,7 +1328,9 @@ impl App {
         let sheet = s.clone();
         let visible: Vec<PlSmallStr> = schema.iter_names().cloned().collect();
         self.spawn_job("copy", move || {
-            let mut df = sheet.copy_rows(pos).map_err(|e| e.to_string())?;
+            let mut df = sheet
+                .copy_rows(pos, clip.is_none())
+                .map_err(|e| e.to_string())?;
             if let Some(clip) = clip {
                 let (text, n, what) = if cells {
                     let c = df.column(&column).map_err(|e| e.to_string())?;

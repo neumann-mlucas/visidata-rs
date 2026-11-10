@@ -1643,15 +1643,48 @@ impl Sheet {
 
     /// Rows for `y` (the view row at `pos`) or `gy` (`None`: the selected
     /// rows), in view order, every column incl. hidden ones, no row id (S-18 A).
-    pub fn copy_rows(&self, pos: Option<u64>) -> PolarsResult<DataFrame> {
+    /// `base`: values as stored, not as the view's casts (`#` `%` `@`) show
+    /// them, so `p` pastes the row itself (the system clipboard gets the shown text).
+    pub fn copy_rows(&self, pos: Option<u64>, base: bool) -> PolarsResult<DataFrame> {
         let lf = self.sorted_plan(true);
-        let lf = match pos {
+        let mut lf = match pos {
             Some(p) => lf.slice(p as i64, 1),
             None => {
                 let rids: Vec<u64> = self.view.selected.iter().copied().collect();
                 lf.filter(rid_in(&rids))
             }
         };
+        if base && !self.view.type_casts.is_empty() {
+            let order = lf
+                .collect_schema()?
+                .iter_names()
+                .cloned()
+                .collect::<Vec<_>>();
+            let cast: Vec<&str> = self
+                .view
+                .type_casts
+                .iter()
+                .map(|(c, _)| c.as_str())
+                .collect();
+            let mut raw = self.plan.clone();
+            if !self.has_rids() {
+                raw = raw.with_row_index(ROW_ID, None); // as `filtered_plan_with` numbers them
+            }
+            let raw = raw.select(
+                std::iter::once(col(ROW_ID).cast(DataType::UInt64))
+                    .chain(cast.iter().map(|c| col(*c)))
+                    .collect::<Vec<_>>(),
+            );
+            let args = JoinArgs {
+                maintain_order: MaintainOrderJoin::Left,
+                ..JoinArgs::new(JoinType::Left)
+            };
+            lf = lf
+                .with_column(col(ROW_ID).cast(DataType::UInt64))
+                .drop(cols(cast))
+                .join(raw, [col(ROW_ID)], [col(ROW_ID)], args)
+                .select(order.into_iter().map(col).collect::<Vec<_>>());
+        }
         lf.collect()?.drop(ROW_ID)
     }
 
