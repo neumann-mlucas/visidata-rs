@@ -49,6 +49,25 @@ impl App {
             self.toast = Some(e);
             return;
         }
+        if let Action::Color {
+            column,
+            pred,
+            style,
+        } = &action
+        {
+            let s = self.sheets.active();
+            let err = match column {
+                Some(c) if !s.has_column(c) => Some(format!("no column: {c}")),
+                _ => s
+                    .check_predicate(pred)
+                    .and_then(|()| crate::theme::parse_style(style, false).map(drop))
+                    .err(),
+            };
+            if let Some(e) = err {
+                self.toast = Some(format!("color: {e}"));
+                return;
+            }
+        }
         if matches!(self.sheets.active().origin, Origin::Columns { .. })
             && self.columns_dispatch(&action)
         {
@@ -628,6 +647,34 @@ impl App {
                     }
                     Err(e) => self.toast = Some(format!("setexpr: {e}")),
                 }
+            }
+            Action::Color {
+                column,
+                pred,
+                style,
+            } => self
+                .sheets
+                .active_mut()
+                .view
+                .formats
+                .push(crate::sheet::FormatRule {
+                    column,
+                    pred,
+                    style,
+                }),
+            Action::NoColor { column } => {
+                let s = self.sheets.active_mut();
+                let before = s.view.formats.len();
+                s.view.formats.retain(|r| match column.as_deref() {
+                    None => false,
+                    Some("*") => r.column.is_some(),
+                    Some(c) => r.column.as_deref() != Some(c),
+                });
+                let n = before - s.view.formats.len();
+                self.toast = Some(format!(
+                    "{n} color rule{} cleared",
+                    if n == 1 { "" } else { "s" }
+                ));
             }
             Action::SetFilterExpr { expr } => {
                 let s = self.sheets.active_mut();

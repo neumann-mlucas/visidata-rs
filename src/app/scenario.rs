@@ -2867,3 +2867,102 @@ async fn plot_zoom_bins_the_view_and_box_selects_parent_rows() {
     h.keys("q u").await;
     assert!(h.app.sheets.iter().next().unwrap().view.selected.is_empty());
 }
+
+/// Foreground of the first screen cell of `text` on the line that holds it.
+fn fg_of(h: &Harness, text: &str) -> ratatui::style::Color {
+    let screen = h.screen();
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .skip(1)
+        .find(|(_, l)| l.split_whitespace().any(|w| w == text))
+        .unwrap_or_else(|| panic!("{text} not on screen:\n{screen}"));
+    let x = line
+        .match_indices(text)
+        .map(|(i, _)| i)
+        .find(|&i| {
+            (i == 0 || line[..i].ends_with(' '))
+                && line[i + text.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| c == ' ')
+        })
+        .unwrap_or_default();
+    h.term.backend().buffer()[(x as u16, y as u16)].fg
+}
+
+/// S-27 A: `:color` paints cells where the predicate holds; the colors
+/// follow the rows through a sort, `U` drops the rule, a rename keeps it,
+/// and the rule's column never reaches `:save`.
+#[tokio::test(flavor = "multi_thread")]
+async fn color_rules_paint_matching_cells_and_follow_the_rows() {
+    use ratatui::style::Color;
+    let mut h = csv(b"id,amount\n1,50\n2,150\n3,300\n").await;
+    h.keys(":").await;
+    h.type_("color amount id >= 2 red").await;
+    assert_eq!(fg_of(&h, "150"), Color::Red, "{}", h.screen());
+    assert_eq!(fg_of(&h, "300"), Color::Red);
+    assert_ne!(fg_of(&h, "50"), Color::Red);
+    assert_ne!(
+        fg_of(&h, "2"),
+        Color::Red,
+        "cell rule: other columns untouched"
+    );
+    h.keys("l ] h").await; // amount desc: 300, 150, 50
+    assert_eq!(first_cell(&h), "3", "{}", h.screen());
+    assert_eq!(fg_of(&h, "150"), Color::Red);
+    assert_ne!(fg_of(&h, "50"), Color::Red);
+    // rename keeps the rule on its column
+    h.keys("l :").await;
+    h.type_("rename amt").await;
+    h.keys("h").await;
+    assert_eq!(
+        h.app.sheets.active().view.formats[0].column.as_deref(),
+        Some("amt")
+    );
+    assert_eq!(fg_of(&h, "150"), Color::Red);
+    h.keys(":").await;
+    h.type_("rename key").await;
+    assert_eq!(
+        status(&h),
+        "a :color rule reads id; clear it (:nocolor) first"
+    );
+    let out = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.path().display())).await;
+    let saved = std::fs::read_to_string(out.path()).unwrap();
+    assert!(!saved.contains("__vdrs"), "{saved}");
+    assert!(!csv_text(h.app.sheets.active(), b',').contains("__vdrs"));
+    h.keys("U U U").await; // rename, sort, color
+    assert!(h.app.sheets.active().view.formats.is_empty());
+    assert_ne!(fg_of(&h, "150"), Color::Red);
+}
+
+/// S-27 A: `*` paints the whole row; a bad style or predicate is refused
+/// with no undo step; `:nocolor` clears.
+#[tokio::test(flavor = "multi_thread")]
+async fn color_row_rules_bad_input_and_nocolor() {
+    use ratatui::style::Color;
+    let mut h = csv(b"id,amount\n1,50\n2,150\n").await;
+    h.keys(":").await;
+    h.type_("color * amount > 100 bg=yellow").await;
+    let screen = h.screen();
+    let y = screen.lines().position(|l| l.contains("150")).unwrap() as u16;
+    assert_eq!(h.term.backend().buffer()[(1, y)].bg, Color::Yellow);
+    h.keys(":").await;
+    h.type_("color amount amount > 1 rouge").await;
+    assert!(
+        status(&h).contains("color: unknown color: rouge"),
+        "{}",
+        status(&h)
+    );
+    h.keys(":").await;
+    h.type_("color amount nope > 1 red").await;
+    assert!(status(&h).starts_with("color:"), "{}", status(&h));
+    assert_eq!(h.app.sheets.active().view.formats.len(), 1);
+    h.keys(":").await;
+    h.type_("nocolor").await;
+    assert_eq!(status(&h), "1 color rule cleared");
+    h.keys("U").await; // the refused ones left no undo step: the rule is back
+    assert_eq!(h.app.sheets.active().view.formats.len(), 1);
+}

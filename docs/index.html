@@ -357,6 +357,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td><kbd>[</kbd>, <kbd>]</kbd>, <kbd>z</kbd><kbd>o</kbd></td><td>Sort ascending / descending by the current column. Pressing it on more columns sorts by several. Clear sorting.</td></tr>
 <tr><td><kbd>g</kbd><kbd>z</kbd><kbd>|</kbd> then a regex, <kbd>z</kbd><kbd>f</kbd></td><td>Keep only rows whose current column matches the regular expression (works on numbers and dates too, by their text); remove the filter.</td></tr>
 <tr><td><code>:filter-expr qty &gt; 2 AND region = 'east'</code></td><td>Keep only rows where a SQL condition holds, on the typed columns (as <code>:select</code>). It combines with the regex filter; <code>:filter-expr</code> alone, <kbd>z</kbd><kbd>f</kbd> or <code>:unfilter</code> removes it. A column it names can't be renamed until it's removed.</td></tr>
+<tr><td><code>:color amount amount &gt; 100 red</code></td><td>Paint the <code>amount</code> cells where a SQL condition holds. <code>*</code> instead of a column paints the whole row. Styles: a color (<code>red</code>, <code>#ff8800</code>), <code>fg=</code>, <code>bg=</code>, <code>bold</code>, <code>italic</code>, <code>underline</code>, <code>reverse</code>, joined by commas (<code>bg=yellow,bold</code>). Later rules win; the cursor and selection still show over them. <code>:nocolor amount</code> clears a column's rules, <code>:nocolor *</code> the row rules, <code>:nocolor</code> all. Rules are display only: never saved or exported, kept by <code>:mksession</code>; <kbd>U</kbd> undoes them. With <code>NO_COLOR</code> set, colors show as reverse video.</td></tr>
 </table></div>
 <p>The same from the command line: <code>:sort -price</code>, <code>:filter region ^n</code>, <code>:unsort</code>, <code>:unfilter</code>. Column names with spaces need quotes: <code>:filter "unit price" ^1\d+$</code>.</p>
 <p><kbd>g</kbd><kbd>z</kbd><kbd>|</kbd> <code>^n</code> on <code>region</code>, then <kbd>]</kbd> on <code>price</code>; the title bar lists both:</p>
@@ -490,6 +491,8 @@ print(t3.collect())</code></pre>
 <tr data-ex="qa!"><td><code>:qa!</code>, <code>:quit!</code></td><td>Quit without asking about unsaved edits.</td></tr>
 <tr data-ex="filter"><td><code>:filter col regex</code></td><td>Filter rows on a column.</td></tr>
 <tr data-ex="filter-expr"><td><code>:filter-expr pred</code></td><td>Filter rows on a SQL condition; no argument removes it.</td></tr>
+<tr data-ex="color"><td><code>:color col|* pred style</code></td><td>Paint cells (or rows, <code>*</code>) where a SQL condition holds.</td></tr>
+<tr data-ex="nocolor"><td><code>:nocolor [col|*]</code></td><td>Clear color rules: a column's, the row rules, or all.</td></tr>
 <tr data-ex="unfilter"><td><code>:unfilter</code></td><td>Remove the filter.</td></tr>
 <tr data-ex="sort"><td><code>:sort [+|-]col</code></td><td>Sort ascending (<code>+</code>, default) or descending (<code>-</code>).</td></tr>
 <tr data-ex="unsort"><td><code>:unsort</code></td><td>Clear sorting.</td></tr>

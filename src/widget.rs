@@ -209,6 +209,24 @@ impl SheetWidget<'_> {
             }
         }
 
+        // `:color` rules (S-27); a bad style was refused when the rule was made.
+        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+        let rules: Vec<(usize, Option<&str>, Style)> = view
+            .formats
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                let st = crate::theme::parse_style(&r.style, no_color).ok()?;
+                Some((i, r.column.as_deref(), st))
+            })
+            .collect();
+        let painted = |ri: usize, column: Option<&str>, base: Style| {
+            rules
+                .iter()
+                .filter(|(i, c, _)| *c == column && self.sheet.format_holds(*i, ri))
+                .fold(base, |s, (_, _, st)| s.patch(*st))
+        };
+
         // Data rows
         for (dy, ri) in (row_start..row_end).enumerate() {
             let y = area.y + 1 + dy as u16;
@@ -222,6 +240,12 @@ impl SheetWidget<'_> {
                 .get(ri)
                 .is_some_and(|rid| view.selected.contains(rid));
             let stripe = ri % 2 == 1;
+            // Precedence: cursor > selection > rules (last wins) > theme.
+            let ruled = !row_hi && !selected && !rules.is_empty();
+            let mut line = row_style(th, row_hi, selected, stripe);
+            if ruled {
+                line = painted(ri, None, line);
+            }
             // The whole line, so highlights don't break at column gaps.
             buf.set_style(
                 Rect {
@@ -229,7 +253,7 @@ impl SheetWidget<'_> {
                     height: 1,
                     ..area
                 },
-                row_style(th, row_hi, selected, stripe),
+                line,
             );
             for (slot, &ci) in visible.iter().enumerate() {
                 let x = col_x[slot];
@@ -243,7 +267,10 @@ impl SheetWidget<'_> {
                     text = printable(&custom);
                 }
                 let col_hi = ci == view.col_cursor;
-                let style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
+                let mut style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);
+                if ruled {
+                    style = painted(ri, Some(cols[ci].name()), painted(ri, None, style));
+                }
                 paint_cell(buf, x, y, w, &text, style, cols[ci].dtype().is_numeric());
                 if w > 0
                     && self.noted.is_some_and(|n| n(ri, cols[ci].name()))

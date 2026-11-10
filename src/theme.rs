@@ -155,3 +155,92 @@ impl Default for Theme {
         Self::dark()
     }
 }
+
+/// A `:color` style (S-27): comma-separated `red`, `fg=#ff8800`, `bg=yellow`,
+/// `bold`, `italic`, `underline`, `reverse`; a bare color is the foreground.
+/// `no_color` (`NO_COLOR` set): colors become reverse video.
+pub fn parse_style(s: &str, no_color: bool) -> Result<Style, String> {
+    let color = |c: &str| -> Result<Color, String> {
+        if let Some(hex) = c.strip_prefix('#')
+            && hex.len() == 6
+            && let Ok(v) = u32::from_str_radix(hex, 16)
+        {
+            return Ok(Color::Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8));
+        }
+        Ok(match c {
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "gray" | "grey" => Color::Gray,
+            "white" => Color::White,
+            _ => return Err(format!("unknown color: {c} (red, green, … or #rrggbb)")),
+        })
+    };
+    let mut st = Style::default();
+    let mut colored = false;
+    for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        st = match part.split_once('=') {
+            Some(("fg", c)) => st.fg(color(c)?),
+            Some(("bg", c)) => st.bg(color(c)?),
+            Some((k, _)) => return Err(format!("unknown style key: {k} (fg=, bg=)")),
+            None => match part {
+                "bold" => st.add_modifier(Modifier::BOLD),
+                "italic" => st.add_modifier(Modifier::ITALIC),
+                "underline" => st.add_modifier(Modifier::UNDERLINED),
+                "reverse" => st.add_modifier(Modifier::REVERSED),
+                c => st.fg(color(c)?),
+            },
+        };
+        colored |= part.contains('=') || color(part).is_ok();
+    }
+    if st == Style::default() {
+        return Err("empty style".into());
+    }
+    Ok(match no_color {
+        true if colored => Style::default().add_modifier(st.add_modifier | Modifier::REVERSED),
+        true => Style::default().add_modifier(st.add_modifier),
+        false => st,
+    })
+}
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+
+    #[test]
+    fn styles_parse_and_bad_names_are_refused() {
+        let s = parse_style("bg=yellow,bold", false).unwrap();
+        assert_eq!(
+            s,
+            Style::default()
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(
+            parse_style("red", false).unwrap(),
+            Style::default().fg(Color::Red)
+        );
+        assert_eq!(
+            parse_style("fg=#ff8800", false).unwrap(),
+            Style::default().fg(Color::Rgb(255, 136, 0))
+        );
+        assert_eq!(
+            parse_style("rouge", false).unwrap_err(),
+            "unknown color: rouge (red, green, … or #rrggbb)"
+        );
+        assert_eq!(
+            parse_style("size=3", false).unwrap_err(),
+            "unknown style key: size (fg=, bg=)"
+        );
+        assert!(parse_style("", false).is_err());
+        // NO_COLOR: colors read as reverse video
+        assert_eq!(
+            parse_style("red,bold", true).unwrap(),
+            Style::default().add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        );
+    }
+}

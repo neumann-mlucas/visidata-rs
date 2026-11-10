@@ -59,6 +59,8 @@ pub struct SheetState {
     count_gen: u64,
     /// [`ROW_ID`] of each row of `window`, split off when the window lands.
     window_rids: Vec<u64>,
+    /// Per `:color` rule, whether it holds on each window row (S-27).
+    window_fmt: Vec<Vec<bool>>,
     /// Edits baked into `plan`, in order — replayed by `:export`.
     pub steps: Vec<PlanStep>,
     /// Undo history of (plan, view, steps), a tree (S-20).
@@ -387,7 +389,22 @@ pub struct View {
     count_key: Option<String>,
     /// `G` pending: put the cursor on the last data row once window + count land.
     pub jump_bottom: bool,
+    /// `:color` rules (S-27), applied in order (the last one wins).
+    pub formats: Vec<FormatRule>,
 }
+
+/// `:color <col|*> <pred> <style>` (S-27 A): paint the cell of `column`
+/// (`None`: the whole row) where the SQL predicate holds. Display only.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormatRule {
+    pub column: Option<String>,
+    pub pred: String,
+    /// As typed (`red`, `bg=yellow,bold`); `theme::parse_style` reads it.
+    pub style: String,
+}
+
+/// Window columns carrying each `:color` rule's predicate; split off on landing.
+const FMT_PREFIX: &str = "__vdrs_fmt_";
 
 impl Default for View {
     fn default() -> Self {
@@ -411,6 +428,7 @@ impl Default for View {
             total_rows: None,
             count_key: None,
             jump_bottom: false,
+            formats: Vec::new(),
         }
     }
 }
@@ -852,10 +870,27 @@ impl Sheet {
             return false;
         }
         self.state.loaded_rev = rev;
-        let (rids, df) = match rid_values(&df) {
+        let (rids, mut df) = match rid_values(&df) {
             Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
             Err(_) => (Vec::new(), df), // pre-built windows carry no ids
         };
+        let fmt: Vec<String> = (0..self.view.formats.len())
+            .map(|i| format!("{FMT_PREFIX}{i}"))
+            .collect();
+        self.state.window_fmt = fmt
+            .iter()
+            .map(|n| {
+                df.column(n)
+                    .ok()
+                    .and_then(|c| {
+                        c.bool()
+                            .ok()
+                            .map(|b| b.iter().map(|v| v.unwrap_or(false)).collect())
+                    })
+                    .unwrap_or_default()
+            })
+            .collect();
+        df = df.drop_many(fmt.iter().map(String::as_str));
         // Polars 0.44 returns every scan column when only the row index
         // is selected, i.e. when all columns are hidden.
         self.window = Some(df.drop_many(self.view.hidden.iter().map(String::as_str)));
@@ -927,8 +962,18 @@ impl Sheet {
     /// `window_plan` plus a [`ROW_ID`] column (split off by the app
     /// into `state.window_rids` when the window lands).
     pub fn window_plan_with_rids(&self) -> LazyFrame {
-        self.view_plan_rid(true)
+        self.view_plan_fmt(true, true)
             .slice(self.view.window_offset as i64, self.view.window_rows)
+    }
+
+    /// Whether `:color` rule `i` holds on window row `r`.
+    pub fn format_holds(&self, i: usize, r: usize) -> bool {
+        self.state
+            .window_fmt
+            .get(i)
+            .and_then(|v| v.get(r))
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Full (unsliced) query for what the user sees. Applies, in order:
@@ -940,7 +985,21 @@ impl Sheet {
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
+        self.view_plan_fmt(with_rid, false)
+    }
+
+    /// `fmt`: plus a boolean column per `:color` rule (the window only).
+    fn view_plan_fmt(&self, with_rid: bool, fmt: bool) -> LazyFrame {
         let mut lf = self.sorted_plan(with_rid);
+        // the projection below keeps them: they're in the schema, not hidden
+        if fmt {
+            let base = lf.clone();
+            for (i, r) in self.view.formats.iter().enumerate() {
+                // a rule gone bad (its column dropped) paints nothing
+                let e = self.predicate(&base, &r.pred).unwrap_or(lit(false));
+                lf = lf.with_column(e.alias(format!("{FMT_PREFIX}{i}")));
+            }
+        }
         // Visible-column projection: keys first (in key-col order), then schema
         // order for the rest; drop hidden. Skipped when nothing to project.
         if (!self.view.hidden.is_empty() || !self.view.keys.is_empty())
@@ -1141,6 +1200,11 @@ impl Sheet {
                 ":filter-expr reads {old}; clear it (:unfilter) first"
             ));
         }
+        if new != old && self.view.formats.iter().any(|f| reads(&f.pred)) {
+            return Err(format!(
+                "a :color rule reads {old}; clear it (:nocolor) first"
+            ));
+        }
         let step = PlanStep::Rename {
             old: old.to_string(),
             new: new.to_string(),
@@ -1157,7 +1221,8 @@ impl Sheet {
             .chain(v.aggregators.iter_mut().map(|(c, _)| c));
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
-            .chain(v.sort.iter_mut().map(|k| &mut k.column));
+            .chain(v.sort.iter_mut().map(|k| &mut k.column))
+            .chain(v.formats.iter_mut().filter_map(|f| f.column.as_mut()));
         for c in names.filter(|c| *c == old) {
             *c = new.to_string();
         }

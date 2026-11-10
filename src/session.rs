@@ -399,6 +399,13 @@ impl Block {
                 expr: Some(e.clone()),
             });
         }
+        for f in &v.formats {
+            self.ex(Action::Color {
+                column: f.column.clone(),
+                pred: f.pred.clone(),
+                style: f.style.clone(),
+            });
+        }
         for k in &v.sort {
             self.ex(Action::SetSort {
                 column: k.column.clone(),

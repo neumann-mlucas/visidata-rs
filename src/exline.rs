@@ -256,6 +256,21 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "filter-expr" => Ok(vec![Action::SetFilterExpr {
             expr: (!rest.is_empty()).then(|| rest.to_string()),
         }]),
+        "color" => {
+            const USAGE: &str = ":color <column|*> <sql predicate> <style> (red, bg=yellow,bold …)";
+            let (column, rest) = first_arg(rest, USAGE)?;
+            let Some((pred, style)) = rest.rsplit_once(char::is_whitespace) else {
+                return Err(ExError::Usage(USAGE));
+            };
+            Ok(vec![Action::Color {
+                column: (column != "*").then_some(column),
+                pred: pred.trim().to_string(),
+                style: style.to_string(),
+            }])
+        }
+        "nocolor" => Ok(vec![Action::NoColor {
+            column: (!rest.is_empty()).then(|| unquote(rest)),
+        }]),
         "select" | "unselect" => {
             if rest.is_empty() {
                 return Err(ExError::Usage(
@@ -494,6 +509,8 @@ pub const COMMANDS: &[&str] = &[
     "export",
     "filter-expr",
     "filter",
+    "color",
+    "nocolor",
     "hide",
     "hide-uniform",
     "join",

@@ -259,6 +259,17 @@ pub enum Action {
     SetFilterExpr {
         expr: Option<String>,
     },
+    /// `:color <col|*> <pred> <style>` (S-27 A): paint cells (or rows, `None`)
+    /// where the predicate holds.
+    Color {
+        column: Option<String>,
+        pred: String,
+        style: String,
+    },
+    /// `:nocolor [col|*]`: drop the rules on a column (`*`: row rules); none: all.
+    NoColor {
+        column: Option<String>,
+    },
     SetCol {
         value: String,
     },
@@ -487,6 +498,8 @@ impl Action {
             self,
             Action::SetFilter { .. }
                 | Action::SetFilterExpr { .. }
+                | Action::Color { .. }
+                | Action::NoColor { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -516,6 +529,8 @@ impl Action {
                 | Action::UnfreezeAll
                 | Action::SetFilter { .. }
                 | Action::SetFilterExpr { .. }
+                | Action::Color { .. }
+                | Action::NoColor { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -565,7 +580,7 @@ impl Action {
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
-            SetNote { .. } => true,
+            SetNote { .. } | Color { .. } | NoColor { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
             | StartSearchExprInput { .. }
@@ -874,6 +889,16 @@ impl Action {
             SetExpr { expr } => format!("setexpr {expr}"),
             SetFilterExpr { expr: Some(e) } => format!("filter-expr {e}"),
             SetFilterExpr { expr: None } => "filter-expr".into(),
+            Color {
+                column,
+                pred,
+                style,
+            } => format!(
+                "color {} {pred} {style}",
+                column.as_deref().map_or("*".into(), q)
+            ),
+            NoColor { column: None } => "nocolor".into(),
+            NoColor { column: Some(c) } => format!("nocolor {}", q(c)),
             SetCol { value } => format!("setcol {}", q(value)),
             EditCell { value } => format!("edit {}", q(value)),
             ExCommand(s) => s.clone(),
@@ -1070,6 +1095,20 @@ mod tests {
                 expr: Some(s("amt > 1")),
             },
             SetFilterExpr { expr: None },
+            Color {
+                column: Some(s("a b")),
+                pred: s("amt > 100"),
+                style: s("bg=yellow,bold"),
+            },
+            Color {
+                column: None,
+                pred: s("x = 'a b'"),
+                style: s("red"),
+            },
+            NoColor { column: None },
+            NoColor {
+                column: Some(s("*")),
+            },
             SetCol { value: s("") },
             SetCol { value: s("a b") },
             EditCell { value: s("") },
