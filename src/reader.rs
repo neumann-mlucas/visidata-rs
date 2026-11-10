@@ -232,7 +232,7 @@ fn xlsx_column(name: PlSmallStr, cells: &[&calamine::Data]) -> Column {
         let v: Vec<Option<i64>> = cells
             .iter()
             .map(|c| match c {
-                Data::DateTime(d) => Some(excel_ms(d)),
+                Data::DateTime(d) => d.as_datetime().map(|t| t.and_utc().timestamp_millis()),
                 _ => None,
             })
             .collect();
@@ -245,18 +245,6 @@ fn xlsx_column(name: PlSmallStr, cells: &[&calamine::Data]) -> Column {
         name,
         cells.iter().map(|c| cell_string(c)).collect::<Vec<_>>(),
     )
-}
-
-/// Milliseconds since 1970 of an Excel date.
-fn excel_ms(d: &calamine::ExcelDateTime) -> i64 {
-    let (y, mo, da, h, mi, s, ms) = d.to_ymd_hms_milli();
-    // days from the civil date (H. Hinnant's algorithm)
-    let (y, mo) = (y as i64 - i64::from(mo <= 2), mo as i64);
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + da as i64 - 1;
-    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
-    ((days * 24 + h as i64) * 60 + mi as i64) * 60_000 + s as i64 * 1000 + ms as i64
 }
 
 /// An Excel date as text, as VisiData shows a datetime.
