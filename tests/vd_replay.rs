@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 51;
+const MIN_PASS: usize = 55;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -2061,9 +2061,74 @@ fn load_quarantine() -> HashSet<String> {
         .collect()
 }
 
-/// Why a file has no `<stem>.tsv` golden: VisiData runs `-nosave`, `-manual`,
+/// Golden formats the replay compares, first found wins. VisiData saves the
+/// final sheet in the golden's format; `golden_as_tsv` reads it back as TSV.
+const GOLDEN_EXTS: [&str; 4] = ["tsv", "csv", "json", "jsonl"];
+
+/// A golden as the TSV `Replay::to_tsv` writes. CSV cells stay text; JSON rows
+/// are objects whose keys, in first-seen order, are the columns (VisiData's
+/// saver leaves out null cells, so a missing key is an empty cell); nested
+/// values are their JSON text.
+fn golden_as_tsv(path: &Path, text: String) -> Option<String> {
+    let rows: Vec<Vec<String>> = match path.extension()?.to_str()? {
+        "tsv" => return Some(text),
+        "csv" => {
+            let df = CsvReadOptions::default()
+                .with_infer_schema_length(Some(0))
+                .into_reader_with_file_handle(std::io::Cursor::new(text.into_bytes()))
+                .finish()
+                .ok()?;
+            let head = df
+                .get_column_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect();
+            let body = (0..df.height()).map(|i| {
+                df.columns()
+                    .iter()
+                    .map(|c| {
+                        c.get(i)
+                            .ok()
+                            .and_then(|v| v.get_str().map(str::to_string))
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            });
+            std::iter::once(head).chain(body).collect()
+        }
+        ext => {
+            let objs: Vec<serde_json::Map<String, serde_json::Value>> = if ext == "json" {
+                serde_json::from_str(&text).ok()?
+            } else {
+                let lines = text.lines().filter(|l| !l.trim().is_empty());
+                lines
+                    .map(serde_json::from_str)
+                    .collect::<Result<_, _>>()
+                    .ok()?
+            };
+            let mut cols: Vec<String> = Vec::new();
+            for k in objs.iter().flat_map(|o| o.keys()) {
+                if !cols.contains(k) {
+                    cols.push(k.clone());
+                }
+            }
+            let cell = |v: Option<&serde_json::Value>| match v {
+                None | Some(serde_json::Value::Null) => String::new(),
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(v) => v.to_string(),
+            };
+            let body = objs
+                .iter()
+                .map(|o| cols.iter().map(|c| cell(o.get(c))).collect());
+            std::iter::once(cols.clone()).chain(body).collect()
+        }
+    };
+    Some(rows.iter().map(|r| r.join("\t") + "\n").collect())
+}
+
+/// Why a file has no golden in `GOLDEN_EXTS`: VisiData runs `-nosave`, `-manual`,
 /// `-broken` and `quit-perf` for their assertions only; the others save to
-/// another format (`golden/<stem>.csv`, `.json`, …) the replay doesn't compare yet.
+/// a format the replay doesn't compare (`.fixed`, `.html`, …).
 fn no_golden_reason(corpus: &Path, stem: &str) -> String {
     let mut exts: Vec<String> = fs::read_dir(corpus.join("golden"))
         .into_iter()
@@ -2100,6 +2165,20 @@ fn short_diff(want: &str, got: &str) -> String {
         }
     }
     out
+}
+
+#[test]
+fn json_and_csv_goldens_read_as_tsv() {
+    let json = r#"[
+{"a": "x", "n": 2.0, "l": [1]},
+{"a": "y"}
+]"#;
+    let got = golden_as_tsv(Path::new("g.json"), json.into()).unwrap();
+    assert_eq!(got, "a\tn\tl\nx\t2.0\t[1]\ny\t\t\n");
+    let got = golden_as_tsv(Path::new("g.jsonl"), "{\"a\": 1}\n{\"b\": null}\n".into()).unwrap();
+    assert_eq!(got, "a\tb\n1\t\n\t\n");
+    let got = golden_as_tsv(Path::new("g.csv"), "A,B\n\"x,y\",\n".into()).unwrap();
+    assert_eq!(got, "A\tB\nx,y\t\n");
 }
 
 #[test]
@@ -2148,15 +2227,18 @@ fn vd_replay_corpus() {
             quarantined += 1;
             continue;
         }
-        let golden = corpus.join("golden").join(format!("{stem}.tsv"));
-        if !golden.exists() {
+        let Some(golden) = GOLDEN_EXTS
+            .iter()
+            .map(|x| corpus.join("golden").join(format!("{stem}.{x}")))
+            .find(|p| p.exists())
+        else {
             no_golden += 1;
             outcomes.insert(
                 stem.clone(),
                 format!("NO_GOLDEN {}", no_golden_reason(corpus, &stem)),
             );
             continue;
-        }
+        };
 
         let ext = cmd_path.extension().and_then(|x| x.to_str());
         let rows = match ext {
@@ -2215,7 +2297,10 @@ fn vd_replay_corpus() {
         };
         // Lossy: `invalid_unicode_sqlite`'s golden holds invalid UTF-8, which the
         // sqlite reader decodes the same way.
-        let Ok(want_raw) = fs::read(&golden).map(|b| String::from_utf8_lossy(&b).into_owned())
+        let Some(want_raw) = fs::read(&golden)
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .and_then(|t| golden_as_tsv(&golden, t))
         else {
             no_golden += 1;
             outcomes.insert(stem, "NO_GOLDEN unreadable".into());

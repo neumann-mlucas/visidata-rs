@@ -14,9 +14,9 @@ avg-nulls	FAIL line 2: want="Food, Senior Wet Cat - 3 oz\t5\t12.00" got="Food, S
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	SKIP addcol-capture
 column-copy	SKIP freeze-col
-column-name-__name__	NO_GOLDEN golden is .csv
-column-name-_fields	NO_GOLDEN golden is .csv
-column-name-length	NO_GOLDEN golden is .csv
+column-name-__name__	PASS
+column-name-_fields	PASS
+column-name-length	PASS
 concat-origin	PASS
 curcol	UNTESTABLE addcol-expr
 date_add	UNTESTABLE addcol-expr
@@ -32,7 +32,7 @@ duckdb-exec-sql	PASS
 duckdb-index	PASS
 duckdb-open-alt-schema	PASS
 duckdb-save-sheet	PASS
-duckdb-types	NO_GOLDEN golden is .json
+duckdb-types	SKIP serialize: CSV format does not support nested data
 dup-rows-attrs	FAIL line 4: want="Rep\t10\t\t\tJones" got="Rep\t8\t\t\tJones"
 edit-fixed	NO_GOLDEN golden is .fixed
 edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
@@ -46,9 +46,9 @@ error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP setcol-incr
 extend	SKIP sheets-all
-fill	NO_GOLDEN golden is .jsonl
-fill-nested	NO_GOLDEN golden is .jsonl
-fill-zero	NO_GOLDEN golden is .json
+fill	SKIP setcol-fill
+fill-nested	SKIP runtime: InternalError(TapeError) at character 0 ('#')
+fill-zero	SKIP setcol-fill
 format-enum	SKIP runtime: cannot locate row 'OrderDate' (keys=[])
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
@@ -84,7 +84,7 @@ issue2227	SKIP runtime: open-file ../visidata/tests/issue2227.html: unknown form
 issue2309	SKIP save-all
 issue2316	SKIP runtime: open-file ../visidata/sample_data/issue2316.zip: unknown format for ../visidata/sample_data/issue2316.zip
 issue2396	SKIP type-decimal
-issue2476	NO_GOLDEN golden is .csv
+issue2476	UNTESTABLE addcol-expr
 issue2524-curcol	UNTESTABLE addcol-expr
 issue2890-parquet-addrow-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue2901-defer-edit-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -137,7 +137,7 @@ jump-sheet	PASS
 known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
 listofdictobj	SKIP open-cell
 load-2d-matrix	SKIP runtime: open-file ../visidata/sample_data/arrays.npz: unknown format for ../visidata/sample_data/arrays.npz
-load-conllu	NO_GOLDEN golden is .jsonl
+load-conllu	SKIP runtime: open-file ../visidata/sample_data/sample.conllu: unknown format for ../visidata/sample_data/sample.conllu
 load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expanded paths were empty (path expansion input: 'paths: [PlRefPath { inner: "../visidata/bin/*.
 load-duckdb	PASS
 load-duckdb-view	PASS
@@ -158,7 +158,7 @@ load-msgpackz	SKIP runtime: open-file ../visidata/sample_data/test.msgpackz: unk
 load-numpy	SKIP runtime: open-file ../visidata/sample_data/goog.npy: unknown format for ../visidata/sample_data/goog.npy
 load-ods	PASS
 load-pandas	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
-load-pandas-2	NO_GOLDEN golden is .csv
+load-pandas-2	SKIP select-cols-regex
 load-pandas-3	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
 load-parquet	PASS
 load-parquet-geo	SKIP serialize: datatype ext[geoarrow.wkb] cannot be written to CSV
@@ -195,14 +195,14 @@ postgres-quoted-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/we"ird
 postgres-readonly-pg	SKIP allow-error
 postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 pr2302	PASS
-pr2308	NO_GOLDEN golden is .json
+pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median mode min max stdev
 pr2372	SKIP addcol-new
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
 pr2614	SKIP addcol-incr
 pr2647	SKIP runtime: read-only: b+a is derived
 pr2688a	PASS
 pr2688b	PASS
-pr2815	NO_GOLDEN golden is .json
+pr2815	SKIP serialize: NDJSON line expected to contain JSON object: list[str]
 pr2855	SKIP addcol-incr
 prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
@@ -212,7 +212,7 @@ rank-sheetrank-sorted-cols	SKIP addcol-rank-sheet
 record-aggr	SKIP memo-aggregate
 remove-errors	UNTESTABLE setcol-expr
 rows-select-expr	UNTESTABLE select-expr
-save-benchmarks	NO_GOLDEN golden is .csv .html .json .jsonl .md .npy .rst .txt
+save-benchmarks	PASS
 save-geojson	NO_GOLDEN golden is .geojson
 save-json	SKIP serialize: ExpectedObjectColon at character 33 (',')
 save-jsonla	NO_GOLDEN golden is .jsonla
@@ -227,7 +227,7 @@ sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	PASS
-syspaste-crlf	NO_GOLDEN golden is .json
+syspaste-crlf	SKIP open-syspaste
 test_quartiles	SKIP runtime: no aggregator "q3": count distinct sum mean avg median mode min max stdev
 transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
