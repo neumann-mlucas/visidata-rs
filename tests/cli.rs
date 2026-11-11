@@ -106,6 +106,14 @@ fn session_flag_needs_a_session_with_a_file() {
         "{}",
         text(&out.stderr)
     );
+    std::fs::write(&s, ":tail /tmp/a.log\n:open /tmp/b.csv\n").unwrap();
+    let out = vdrs(&["-S", s.to_str().unwrap()], b"");
+    assert!(!out.status.success());
+    assert!(
+        text(&out.stderr).contains("the first sheet is a tail"),
+        "{}",
+        text(&out.stderr)
+    );
     let out = vdrs(&["-S", "/no/such.vdrs"], b"");
     assert!(!out.status.success());
     let out = vdrs(&[], b"");

@@ -3449,6 +3449,13 @@ async fn vim_prompt_normal_mode() {
     h.keys("<Esc> <Esc>").await;
     assert!(h.app.input.is_none());
     assert_eq!(text(&h), "id,v 1,bc d ", "Esc Esc cancels");
+    // the cell's value is the line: change its first word, drop the last
+    h.keys("i <C-u>").await;
+    h.type_("hello big world").await;
+    h.keys("i <Esc> 0 c w").await;
+    h.type_no_enter("bye").await;
+    h.keys("<Esc> $ b D u x <CR>").await;
+    assert_eq!(text(&h), "id,v 1,bye big orld ", "u undid D, x cut the w");
 }
 
 /// S-26 D4: vim marks (`ma` / `'a`, across sheets) and register macros
@@ -3484,6 +3491,26 @@ async fn vim_marks_and_register_macros() {
     let ids = csv_text(h.app.sheets.active(), b',').replace('\n', " ");
     assert_eq!(ids, "id 2 4 5 6 ", "@d cuts the cursor row only");
     assert_eq!(h.app.sheets.active().view.selected.len(), 1);
+}
+
+/// A macro over a visual range replays from the cursor, not on the rows it
+/// was recorded on (vim records the keys).
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_macro_over_a_visual_range_is_relative() {
+    let mut h = csv(b"id\n1\n2\n3\n4\n5\n6\n7\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let ids = |h: &Harness| csv_text(h.app.sheets.active(), b',').replace('\n', " ");
+    h.keys("j q a V j d q").await;
+    assert_eq!(ids(&h), "id 1 4 5 6 7 ", "rows 2 and 3 cut");
+    assert_eq!(h.app.macros[&'a'], ["cursor_down", ":.-1,.+0 cut-row"]);
+    h.keys("j @ a").await;
+    assert_eq!(
+        ids(&h),
+        "id 1 4 5 ",
+        "replayed from the cursor (row 6): 6 and 7"
+    );
 }
 
 /// S-26 B: a typed ranged command is what `.` (`:repeat-last`) repeats.
