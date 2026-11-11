@@ -44,7 +44,7 @@ target's path, so `R` retraces any jump. Eviction at 100 states: the oldest leaf
 path, else (one line of states) the root. Labels are derived, not recorded: the first differing
 step's `PlanStep::summary`, else the view change (sort, filter, hide, keys, type, selection,
 freeze). `:undotree` is a built-in meta-sheet (`Origin::UndoTree`), not the Lua-plugin idea: that
-needs `vd.exec` (S-29) to jump, so `vd.undo_tree()` waits for it. Not done: `begin_group`/
+needs `vd.exec` (S-29) to jump; S-29 shipped 2026-11-10, `vd.undo_tree()` not built yet. Not done: `begin_group`/
 `end_group` (S-19 macros will add them), vim's time arguments (`:earlier 10m`). S-18 G's region
 paste now makes its one undo step without truncating history (`insert_rows` = `add_rows` minus the
 undo step).

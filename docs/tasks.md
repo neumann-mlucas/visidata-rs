@@ -52,7 +52,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 11. - [x] S-24 R2 + S-18 E — window invariants behind `Sheet` methods; stable row ids (no-visible-change commit), then delete rows `d gd x gx` (3–5 d) — done 2026-11-08
 12. - [x] S-23 A + S-18 F — sidebar `b` / `Ctrl+G` (pages plan, column, cell, help; `:plan` = `:sidebar plan`, `P` freed), then add/paste rows `a ga p P`, `A` open-new (4–6 d) — done 2026-11-08
 13. - [x] S-18 G — system paste in: bracketed paste → register, `zP` `gzP`, `clipboard_paste_cmd` (1 d) — done 2026-11-09
-14. - [x] S-20 — undo tree: branches, `:earlier` / `:later`, `:undotree` (1–2 d) — done 2026-11-09; the Lua `vd.undo_tree()` example waits for S-29 `vd.exec`
+14. - [x] S-20 — undo tree: branches, `:earlier` / `:later`, `:undotree` (1–2 d) — done 2026-11-09; the Lua `vd.undo_tree()` example is unblocked (S-29 `vd.exec` shipped), not built
 15. - [x] S-24 R3 + S-25 P2 — typed xlsx/sqlite; correctness fixes from FAIL/runtime buckets, incl. S-24 R4 zero-padded ids (3–4 d) — done 2026-11-09; replay PASS=46; same-named columns and malformed JSON lines stay out (S-25 P2 notes)
 16. - [x] S-22 A/B/C — `(` `z(` `g(` expand, `)` contract; `zM` unfurl sheet; `:type json` (2.5–3 d) — done 2026-11-09; replay PASS=47
 17. - [x] S-25 P3 — columns sheet `C` (3–5 d); P4 — column aggregators `+` / `g+` / `z+` (1.5–2 d) — done 2026-11-09
@@ -119,7 +119,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-08, S-18 E): PASS=42, FAIL=0, SKIP=123, UNTESTABLE=20, QUARANTINED=16, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-10): PASS=51, FAIL=0, SKIP=113, UNTESTABLE=19, QUARANTINED=18, NO_GOLDEN=39.** At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 
