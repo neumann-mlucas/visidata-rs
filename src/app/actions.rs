@@ -2203,8 +2203,11 @@ impl App {
             return false;
         };
         let (r0, r1) = v.rows();
+        // from the cursor, so a macro (which records the motions) and `.`
+        // replay it where they run, as vim does
+        let cur = self.cursor_row() as i64;
         let span = || {
-            let l = |r: u64| crate::exline::Addr::Line(r + 1);
+            let l = |r: u64| crate::exline::Addr::Offset(r as i64 - cur);
             crate::exline::Rows::Span(l(r0), l(r1))
         };
         let ex = |me: &mut Self, prefill: &str| {
@@ -2227,6 +2230,10 @@ impl App {
             Action::CopyRow => self.run_ranged(span(), "y".into()),
             Action::DeleteRow => self.run_ranged(span(), "d".into()),
             Action::CutRow => self.run_ranged(span(), "cut-row".into()),
+            // vim profile: an operator on a visual range takes the range
+            Action::Operator { op: 'd', .. } => self.run_ranged(span(), "cut-row".into()),
+            Action::Operator { op: 'y', .. } => self.run_ranged(span(), "y".into()),
+            Action::Operator { op: 'c', .. } => ex(self, "'<,'> setcol "),
             Action::DupSelected => self.run_ranged(span(), "dup-selected".into()),
             Action::StartEditInput => ex(self, "'<,'> setcol "),
             Action::StartExInput => ex(self, "'<,'> "),
