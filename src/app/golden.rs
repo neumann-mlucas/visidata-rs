@@ -7,6 +7,8 @@
 //! - `expected.screen`: the final screen.
 //! - `no-export` (optional): why `:export` can't reproduce this case.
 //! - `ordered` (optional): the exports must keep the view's row order too.
+//! - `export-py` (optional, `docs-*`): the guide shows the case's `:export`
+//!   Python script instead of its screen.
 //! - `no-sql` (optional): why the DuckDB script can't run here (an extension
 //!   tests mustn't download).
 //!
@@ -443,7 +445,11 @@ async fn golden_cases() {
         let (mut h, frames) = play(dir).await;
         if is_docs(dir) {
             let name = dir.file_name().unwrap().to_string_lossy().into_owned();
-            let block = if frames.is_empty() {
+            let block = if dir.join("export-py").exists() {
+                let py = crate::export::to_python(h.app.sheets.active()).unwrap();
+                let py = py.replace(&format!("{FIXTURES}/"), ""); // as run in that folder
+                format!("<pre><code>{}</code></pre>", esc(py.trim_end()))
+            } else if frames.is_empty() {
                 screen_html(&h)
             } else {
                 recording_html(&frames)

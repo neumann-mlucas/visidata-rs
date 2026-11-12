@@ -1,0 +1,12 @@
+# Paint the refunded orders red.
+:
+> color * status = 'refunded' red
+# A bar behind each <code>amount</code>, as long as its share of the range.
+l l l
+:
+> databar amount
+# Select the orders over 2,000.
+z |
+> amount > 2000
+# Open them as a sheet: the copy keeps the colors.
+"

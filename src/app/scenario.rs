@@ -973,6 +973,34 @@ async fn tab_completes_ex_command_names() {
     h.keys("<Esc>").await;
 }
 
+/// The guide's `vd.command` and `<F3>` examples do what the guide says.
+#[tokio::test(flavor = "multi_thread")]
+async fn guide_lua_examples_run() {
+    let html = include_str!("../../docs/index.html");
+    let block = |start: &str| {
+        let b = html.split(&format!("<pre><code>{start}")).nth(1).unwrap();
+        let b = b.split("</code></pre>").next().unwrap();
+        format!("{start}{b}")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    };
+    let src = block("vd.command(\"hello\"") + "\n" + &block("vd.bind(\"sheet\", \"&lt;F3&gt;\"");
+    let mut h = Harness::new(3).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(&src).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys(":").await;
+    h.type_("hello world").await;
+    assert_eq!(status(&h), "hello world");
+    h.keys("<F3>").await;
+    assert!(h.screen().contains(" columns "), "{}", h.screen());
+    assert!(
+        view_csv(&h).starts_with("n,name,length\n1,id,2\n"),
+        "{}",
+        view_csv(&h)
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn lua_command_runs_with_its_arguments() {
     let mut h = Harness::new(5).await;

@@ -1719,6 +1719,29 @@ mod tests {
         let _ = std::fs::remove_file(&out_path);
     }
 
+    /// Every Lua block in docs/index.html loads.
+    #[test]
+    fn guide_lua_blocks_load() {
+        let html = include_str!("../docs/index.html");
+        let blocks: Vec<String> = html
+            .split("<pre><code>")
+            .skip(1)
+            .filter_map(|b| b.split("</code></pre>").next())
+            .filter(|b| b.starts_with("--") || b.starts_with("vd."))
+            .map(|b| {
+                b.replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+            })
+            .collect();
+        assert!(blocks.len() >= 5, "{}", blocks.len());
+        for b in blocks {
+            if let Err(e) = Plugins::load_from_source(&b) {
+                panic!("{e}\n{b}");
+            }
+        }
+    }
+
     /// The `init.lua` example in docs/index.html loads and does what it says.
     #[test]
     fn guide_example_runs() {

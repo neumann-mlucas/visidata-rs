@@ -44,7 +44,8 @@ Two things are new rather than fixes:
 - More vim, which is what VisiData users keep asking for
   ([#2500](https://github.com/saulpw/visidata/issues/2500),
   [#3008](https://github.com/saulpw/visidata/issues/3008)): ex commands with
-  live preview now, macros and an undo tree next.
+  live preview and ranges (`:5,20 setcol 0`, `:g/^n/d`), `:s/a/b/g`, macros,
+  an undo tree, sessions (`:mksession`, `vdrs -S`) and an opt-in vim keymap.
 
 What it won't fix: VisiData's 60-odd loaders shrink to a core set plus Lua,
 hundreds of commands are still hard to discover, and a Rust codebase doesn't
@@ -69,7 +70,7 @@ pivots run in the background.
 Basics (VisiData's keys): `hjkl` move, `gg`/`G` top/bottom, `/` search the column (`g/` all), `[`/`]` sort, `gz|` filter,
 `F` frequency table (`Enter` opens a value's rows), `I` describe, `W` pivot,
 `s`/`gs`/`|`/`,` select (`z|` by SQL condition), `=` new column, `"` sheet of selected rows, `-` hide, `!` key column,
-`#%~@` type casts, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `(`/`zM` expand structs / unfurl lists, `C` columns sheet (edits write back), `+` aggregators (`F` adds `Units_sum` …; `z+` in the status line), `b` sidebar, `S` sheet list, `:` ex
+`#%~@` type casts, `za` empty column, `i` row numbers, `f` fill down, `;` regex captures, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `(`/`zM` expand structs / unfurl lists, `C` columns sheet (edits write back), `+` aggregators (`F` adds `Units_sum` …; `z+` in the status line), `b` sidebar, `S` sheet list, `:` ex
 commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
 `:tail -f`, …), `q` back, `gq` quit, `Ctrl-c` cancels background work. `:pivot` previews its result while you type;
 `:export` writes a Polars or DuckDB script that rebuilds the view, including
@@ -79,8 +80,7 @@ derived sheets.
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
 - Punchlist: [`docs/tasks.md`](docs/tasks.md)
-- Planned: macros ([S-19](docs/specs/S-19-macros.md)). Edits
-  ([S-18](docs/specs/S-18-editing-clipboard.md)) never touch the file you opened until `:save`
+- Edits ([S-18](docs/specs/S-18-editing-clipboard.md)) never touch the file you opened until `:save`
 - Config: `$XDG_CONFIG_HOME/vdrs/init.lua`, hot-reloaded: `vd.bind` (to an action, ex
   command or Lua function), `vd.register_loader`, `vd.register_aggregator`,
   `vd.register_renderer`, `vd.set_theme` — see the guide's Lua section

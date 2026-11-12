@@ -1,0 +1,11 @@
+# A sheet pasted from a spreadsheet: <code>warehouse</code> is written once per group, and the quantities hide in a <code>note</code>.
+# Fill each empty <code>warehouse</code> from the row above.
+f
+# Pull the date and the quantity out of <code>note</code>, and split them into columns.
+l l ;
+> received (?P<date>\S+) qty (?P<qty>\d+)
+(
+# Show <code>unit_cost</code> with two decimals.
+g h l l l
+:
+> precision 2

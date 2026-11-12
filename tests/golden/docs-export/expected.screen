@@ -1,0 +1,10 @@
+ freq(qty): sales.csv  csv · sheets 2                                        qty 1/4  row 1/6 · 16%
+ qty i  count u  percent f histogram str
+     5       24      20.69 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+     1       15      12.93 ■■■■■■■■■■■■■■■■■■■■
+     2       22      18.97 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+     3       28      24.14 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+     4       20      17.24 ■■■■■■■■■■■■■■■■■■■■■■■■■■■
+     ·        7       6.03 ■■■■■■■■■
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

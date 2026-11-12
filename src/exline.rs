@@ -1202,6 +1202,59 @@ mod tests {
         }
     }
 
+    /// Every concrete `<code>:command</code>` example in docs/index.html
+    /// parses: no unknown command, no usage error. Syntax lines with
+    /// placeholders (`regex`, `[bins]`, `col|*`, `…`) are skipped.
+    #[test]
+    fn user_guide_examples_parse() {
+        let html = include_str!("../docs/index.html");
+        let placeholder = |e: &str| {
+            [
+                "…",
+                "[",
+                "|",
+                "regex",
+                "&lt;",
+                "replacement",
+                " path",
+                " pred",
+                " name",
+            ]
+            .iter()
+            .any(|p| e.contains(p))
+                || e == "name"
+        };
+        let examples: Vec<String> = html
+            .split("<code>:")
+            .skip(1)
+            .filter_map(|s| s.split("</code>").next())
+            .filter(|e| !placeholder(e))
+            .map(|e| e.replace("&gt;", ">").replace("&amp;", "&"))
+            .collect();
+        assert!(examples.len() >= 100, "{}", examples.len());
+        let mut bad = vec![];
+        for e in &examples {
+            let got = match ranged(e) {
+                // `:5,20 normal keys` is run by the app, not parsed
+                Some(Ok((_, cmd))) if cmd.is_empty() || cmd.starts_with("normal ") => Ok(vec![]),
+                Some(Ok((_, cmd))) => parse(&cmd),
+                Some(Err(err)) => Err(err),
+                None => parse(e),
+            };
+            // a bare name in prose (`:derive`) only has to exist
+            let bare = !e.trim().contains(' ');
+            let ok = match &got {
+                Err(ExError::Usage(_) | ExError::Empty) => bare,
+                Err(_) => false,
+                Ok(_) => true,
+            };
+            if !ok {
+                bad.push(format!(":{e} → {got:?}"));
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
     #[test]
     fn rejects_bad_usage() {
         assert!(matches!(parse("filter justone"), Err(ExError::Usage(_))));

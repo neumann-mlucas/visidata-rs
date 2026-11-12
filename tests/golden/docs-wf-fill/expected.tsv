@@ -1,0 +1,10 @@
+warehouse	sku	note	unit_cost	note_re.date	note_re.qty
+Berlin	W-100	received 2024-03-02 qty 40	2.3333333	2024-03-02	40
+Berlin	W-101	received 2024-03-05 qty 12	11.5	2024-03-05	12
+Berlin	B-220	damaged in transit	0.0833333		
+Berlin	B-221	Received 2024-03-09 qty 300	0.0912	2024-03-09	300
+Hamburg	W-100	received 2024-03-01 qty 25	2.3333333	2024-03-01	25
+Hamburg	G-310	received 2024-03-11 qty 8	48.7466667	2024-03-11	8
+Hamburg	B-220	received 2024-03-12 qty 500	0.0833333	2024-03-12	500
+Munich	G-310	received 2024-03-04 qty 3	49.1	2024-03-04	3
+Munich	W-101	returned	11.5		
