@@ -1197,6 +1197,20 @@ pub fn default_init_lua() -> String {
          -- .duckdb files: the DuckDB program vdrs runs. Default: duckdb on PATH.\n\
          -- vd.option(\"duckdb_cmd\", \"/usr/local/bin/duckdb\")\n\
          \n\
+         -- Keys: \"visidata\" (default) or \"vim\" (hjkl motions, counts, operators, visual).\n\
+         -- vd.option(\"keymap\", \"vim\")\n\
+         \n\
+         -- Decimals of every float column (\"%.Nf\" or \"{{:.Nf}}\"). Default: shortest\n\
+         -- exact text, up to 15 significant digits. Alt++ / Alt+- / :precision per column.\n\
+         -- vd.option(\"disp_float_fmt\", \"%.2f\")\n\
+         \n\
+         -- Mouse: wheel moves the cursor, a click picks a cell. Default off, so the\n\
+         -- terminal's own text selection keeps working.\n\
+         -- vd.option(\"mouse\", \"true\")\n\
+         \n\
+         -- Save the open sheets on quit, for vdrs -S. Default: true.\n\
+         -- vd.option(\"session_autosave\", \"false\")\n\
+         \n\
          -- Keys: vd.bind(layer, keys, action, description?)\n\
          --   keys: \"x\", or {{\"g\", \"g\"}} for a sequence; <C-d>, <CR>, <Esc>, <Tab>, …\n\
          --   action: a name below, \":ex command\", or a Lua function.\n\
@@ -1259,7 +1273,7 @@ pub fn default_init_lua() -> String {
     ));
     out += "-- vd.command(\"hello\", function(args) vd.toast(\"hello \" .. args) end)\n\n";
     out += &wrap(
-        "More (see the guide): vd.register_loader { name, extensions, open }, vd.register_aggregator(name, fn), vd.register_renderer { column, render }, vd.sheet(), vd.toast(msg), vd.push_sheet { name, columns, rows }."
+        "More (see the guide): vd.register_loader { name, extensions, open }, vd.register_aggregator(name, fn), vd.register_renderer { column, render }, vd.sheet(), vd.toast(msg), vd.push_sheet { name, columns, rows }, vd.on(event, fn), vd.exec(\":ex command\")."
             .into(),
     );
     out
@@ -1409,6 +1423,22 @@ mod tests {
                 assert_eq!(fired(&km), fired(&defaults), "{}", c.desc);
             }
         }
+    }
+
+    /// Every `vd.option` (as its unknown-option error lists them) has a
+    /// commented default in the first-run `init.lua`, which still loads.
+    #[test]
+    fn default_init_lua_lists_every_option() {
+        let Err(err) = Plugins::load_from_source(r#"vd.option("nope", "x")"#) else {
+            panic!("unknown option accepted");
+        };
+        let err = err.to_string();
+        let names = err.split_once('(').unwrap().1.split(')').next().unwrap();
+        let init = default_init_lua();
+        for name in names.split(", ") {
+            assert!(init.contains(&format!("-- vd.option(\"{name}\"")), "{name}");
+        }
+        Plugins::load_from_source(&init).unwrap();
     }
 
     #[test]
