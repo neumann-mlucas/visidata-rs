@@ -63,6 +63,8 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 22. - [x] S-27 ~~A~~/~~B~~/~~C~~ — ~~`:color` / `:nocolor`~~; ~~`:scale`, `:databar`~~; ~~Lua renderer styles~~ (3–4 d)
 23. - [x] S-23 B — split panes `Z` / `gZ` / `Tab` (2–3 d); ~~C1~~, ~~C2~~, ~~C3~~, ~~C4~~ — `:plot` (`.` / `g.`, repeat → vim profile), `:hist`, `:bar`, pan/zoom, region select (8–11 d)
 24. - [x] S-26 ~~A (rest)~~, ~~B~~, ~~C~~, ~~D~~, ~~E~~ — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
+25. - [ ] S-31 A/B/C — column builders `za` `i` `gi` `f` `;`; copies keep column attributes, `g'` (2–3 d)
+26. - [ ] S-32 A/B/C — float precision `Alt++` / `Alt+-`, `:precision`, `disp_float_fmt`; replay formats typed floats (1.5–2.5 d)
 
 Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before).
 
