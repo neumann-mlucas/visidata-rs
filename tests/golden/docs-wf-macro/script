@@ -1,0 +1,11 @@
+# Start recording on <code>status</code>: the status line shows <code>● rec</code>.
+g l m
+# Mark the order as checked and move down.
+e <C-u>
+> checked
+j
+# Stop, and bind the recording to F5.
+m
+> <F5>
+# Each F5 checks the next order.
+<F5> <F5> <F5>

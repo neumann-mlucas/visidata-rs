@@ -1,0 +1,11 @@
+# Mark three orders in visual mode, on <code>status</code>.
+g l j V j j
+# <kbd>:</kbd> starts with <code>'&lt;,'&gt;</code>, the range: the command runs on just those rows.
+:
+> setcol disputed
+# Delete every refunded order.
+:
+> g/refunded/d
+# Rename a status everywhere.
+:
+> s/paid/settled/

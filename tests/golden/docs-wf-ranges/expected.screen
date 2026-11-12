@@ -1,0 +1,43 @@
+ orders.csv  csv                                                          status 5/5  row 4/80 · 5%
+ order_id i  customer_id i order_date date   amount f status str
+       5001            101 2024-04-17         1350.59 paid
+       5002            102 2024-02-05         1763.84 paid
+       5003            113 2024-02-17         1080.15 paid
+       5004            102 2024-05-11          594.67 paid
+       5005            106 2024-06-13         2369.08 pending
+       5006            110 2024-03-30          1722.4 paid
+       5007            104 2024-01-02         2024.64 refunded
+ -- VISUAL -- rows 2–4 · s u select · y copy · d delete · e set · " sheet · : ex · Esc
+--- frame
+ orders.csv  csv                                                          status 5/5  row 4/80 · 5%
+ order_id i  customer_id i order_date date   amount f status str
+       5001            101 2024-04-17         1350.59 paid
+       5002            102 2024-02-05         1763.84 disputed
+       5003            113 2024-02-17         1080.15 disputed
+       5004            102 2024-05-11          594.67 disputed
+       5005            106 2024-06-13         2369.08 pending
+       5006            110 2024-03-30          1722.4 paid
+       5007            104 2024-01-02         2024.64 refunded
+set status on 3 rows
+--- frame
+ orders.csv  csv                                                          status 5/5  row 4/66 · 6%
+ order_id i  customer_id i order_date date   amount f status str
+       5001            101 2024-04-17         1350.59 paid
+       5002            102 2024-02-05         1763.84 disputed
+       5003            113 2024-02-17         1080.15 disputed
+       5004            102 2024-05-11          594.67 disputed
+       5005            106 2024-06-13         2369.08 pending
+       5006            110 2024-03-30          1722.4 paid
+       5008            103 2024-04-03          980.22 paid
+deleted 14 rows
+--- frame
+ orders.csv  csv                                                          status 5/5  row 4/66 · 6%
+ order_id i  customer_id i order_date date   amount f status str
+       5001            101 2024-04-17         1350.59 settled
+       5002            102 2024-02-05         1763.84 disputed
+       5003            113 2024-02-17         1080.15 disputed
+       5004            102 2024-05-11          594.67 disputed
+       5005            106 2024-06-13         2369.08 pending
+       5006            110 2024-03-30          1722.4 settled
+       5008            103 2024-04-03          980.22 settled
+replaced /paid/ in status on every row

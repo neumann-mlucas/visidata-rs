@@ -1,0 +1,5 @@
+state	parent	current	change
+0		""	opened
+1	0	""	  derive revenue = qty * price
+2	1	""	    sort -price
+3	1	*	    sort date

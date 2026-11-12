@@ -1,0 +1,13 @@
+# Make <code>date</code> the x axis: the key column.
+l !
+# Plot <code>price</code> against it.
+l l l l .
+# Back to the rows: how are prices spread?
+q
+:
+> hist
+# Sales per region.
+q h h F
+# The same counts as bars.
+:
+> bar

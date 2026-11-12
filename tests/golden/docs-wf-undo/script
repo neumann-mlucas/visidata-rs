@@ -1,0 +1,12 @@
+# Add a revenue column.
+:
+> derive revenue = qty * price
+# Most expensive first.
+g l h ]
+# Wrong turn: undo the sort, and sort by date instead.
+U g h l [
+# Every state of the sheet, as a tree: the undone sort is a branch (<code>ago</code> hidden).
+:
+> undotree
+:
+> hide ago
