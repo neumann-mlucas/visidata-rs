@@ -1,0 +1,12 @@
+ tests/golden/fill-down/input.csv  csv                                       amt 3/3  row 1/6 · 16%
+region str  month str   amt i
+north       jan            10
+north       feb            12
+north       mar             9
+south       jan             7
+south       feb             7
+south       mar            11
+
+
+
+filled 1 values

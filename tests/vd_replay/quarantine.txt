@@ -16,8 +16,7 @@ aggregators-set      # `[` on a columns sheet reorders the source's columns (vdr
 avg-nulls            # float aggregates shown with 2 decimals (12.00): display formatting, S-27
 petsdiet             # freq count ties: VisiData keeps first-seen order, vdrs breaks them by value
 pivot                # VisiData pivot names `sum_Pencil` per aggregator; vdrs :pivot takes one aggregator
-dup-rows-attrs       # derived sheets start with a fresh view: no inherited widths/types/aggregators
-freeze-sheet-attrs   # same: freeze-sheet bakes the cast, the copy has no declared type or aggregators
+dup-rows-attrs       # copies keep types and aggregators (S-31 C) but not widths: VisiData's Rep is 10 wide from the parent's rows, the copy measures 8
 
 # Permanent: VisiData semantics vdrs doesn't model
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)
@@ -30,3 +29,6 @@ edit-type            # VisiData saves floats with 2 decimals (403.00, 7.90): dis
 issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric stats appear (S-25 P2 typed reads)
 issue1377  # paste into a new sheet: VisiData list rows put the first pasted value in column A (positional); vdrs matches by name and adds the rest
 issue1377b  # same as issue1377
+pr2614               # VisiData names an unnamed new column by its letter (A, B, …); vdrs's i names it incr (S-31)
+pr2855               # same as pr2614
+capture-col-named    # VisiData puts new columns after the cursor; vdrs adds them last (S-31 S2)

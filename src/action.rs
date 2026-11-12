@@ -393,6 +393,24 @@ pub enum Action {
     },
     /// `:notes`: a sheet of this file's notes; `Enter` jumps to the cell.
     Notes,
+    /// `za` (S-31): prompt for an empty column's name.
+    StartAddColInput,
+    /// `:addcol <name>`: an empty text column.
+    AddCol {
+        name: String,
+    },
+    /// `i`: a new column numbering the view's rows 1…n.
+    AddColIncr,
+    /// `gi`: the current column of the selected rows := 1…k.
+    SetColIncr,
+    /// `f`: fill the current column's empty cells from above.
+    SetColFill,
+    /// `;`: prompt for a regex with capture groups.
+    StartCaptureInput,
+    /// `:capture <regex>`: a struct column `<col>_re` of the groups.
+    Capture {
+        pattern: String,
+    },
     /// `:plot <x> <y…>` (S-23 C1): a plot sheet of the view.
     Plot {
         x: String,
@@ -679,6 +697,8 @@ impl Action {
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
             SetNote { .. } | Color { .. } | NoColor { .. } => true,
+            StartAddColInput | StartCaptureInput => false,
+            AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             Scale { .. } | DataBar { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
@@ -934,6 +954,11 @@ impl Action {
         ("focus_pane", FocusPane),
         ("swap_panes", SwapPanes),
         ("start_note_input", StartNoteInput),
+        ("start_addcol_input", StartAddColInput),
+        ("addcol_incr", AddColIncr),
+        ("setcol_incr", SetColIncr),
+        ("setcol_fill", SetColFill),
+        ("start_capture_input", StartCaptureInput),
         ("notes", Notes),
         ("link", Link { on: true }),
         ("unlink", Link { on: false }),
@@ -1072,6 +1097,8 @@ impl Action {
                 .chain(ys)
                 .fold("plot".to_string(), |s, c| s + " " + &q(c)),
             SetNote { text } => format!("note {text}").trim_end().to_string(),
+            AddCol { name } => format!("addcol {}", q(name)),
+            Capture { pattern } => format!("capture {pattern}"),
             Substitute {
                 pattern,
                 replacement,
@@ -1291,6 +1318,10 @@ mod tests {
                 names: s("sum mean"),
             },
             HideNamed { column: s("a b") },
+            AddCol { name: s("new col") },
+            Capture {
+                pattern: s("(?P<y>\\d{4})-(\\d+)"),
+            },
             Patch {
                 column: None,
                 path: s("/x/s.vdrs.d/0-1.parquet"),

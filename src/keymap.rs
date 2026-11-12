@@ -267,6 +267,37 @@ impl Keymap {
                 "open rows of all selected values (freq)",
             ),
             ch(vec![k("g"), k("\"")], vec![DupSheet], "copy of this sheet"),
+            ch(
+                vec![k("g"), k("'")],
+                vec![DupSheet],
+                "frozen copy of this sheet",
+            ),
+            // column builders (S-31)
+            ch(
+                vec![k("z"), k("a")],
+                vec![StartAddColInput],
+                "add an empty column",
+            ),
+            ch(
+                vec![k("i")],
+                vec![AddColIncr],
+                "add a column numbering rows",
+            ),
+            ch(
+                vec![k("g"), k("i")],
+                vec![SetColIncr],
+                "number the selected rows",
+            ),
+            ch(
+                vec![k("f")],
+                vec![SetColFill],
+                "fill empty cells from above",
+            ),
+            ch(
+                vec![k(";")],
+                vec![StartCaptureInput],
+                "add a column of regex captures",
+            ),
             ch(vec![k("I")], vec![Describe], "describe columns"),
             ch(
                 vec![k(",")],

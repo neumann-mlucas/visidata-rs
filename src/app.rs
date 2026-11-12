@@ -350,6 +350,10 @@ enum Prompt {
     MacroKey,
     /// `zn` (S-30 B): the cursor cell's note.
     Note,
+    /// `za` (S-31).
+    AddCol,
+    /// `;` (S-31).
+    Capture,
     /// `*` `g*` `gz*` (S-28): `search/replace`.
     Subst {
         mode: crate::action::SubstMode,
@@ -445,6 +449,8 @@ impl Prompt {
             Prompt::MacroKey => "macro key (e.g. <F5> or g x; empty discards): ",
             Prompt::Subst { .. } => "search/replace: ",
             Prompt::Note => "note (empty deletes): ",
+            Prompt::AddCol => "column name: ",
+            Prompt::Capture => "capture regex: ",
         }
     }
 }
@@ -2066,6 +2072,11 @@ impl App {
             }
             Prompt::MacroKey => self.finish_macro(&text),
             Prompt::Note => self.dispatch_sequence(vec![Action::SetNote { text }]),
+            Prompt::AddCol => self.dispatch_sequence(vec![Action::AddCol { name: text }]),
+            // VisiData's `regex_flags` default `I`, as the `*` prompt
+            Prompt::Capture => self.dispatch_sequence(vec![Action::Capture {
+                pattern: format!("(?i){text}"),
+            }]),
             Prompt::Subst { mode } => {
                 // the first `/` not escaped splits, as VisiData's one-liner
                 let mut split = None;

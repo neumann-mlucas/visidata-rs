@@ -77,6 +77,14 @@ pub enum PlanStep {
         fields: Vec<(Vec<String>, String)>,
         after: Vec<String>,
     },
+    /// `;` (S-31): new struct column `name` holding `pattern`'s capture
+    /// groups in `column`'s text, one field per group (its name, else its
+    /// number); null where the pattern doesn't match.
+    Capture {
+        column: String,
+        pattern: String,
+        name: String,
+    },
 }
 
 /// First id of an added row; source rows' ids are positions, far below.
@@ -136,27 +144,23 @@ impl PlanStep {
                 rids,
                 polars::sql::sql_expr(expr)?.cast(dtype.clone()),
             ),
-            PlanStep::SetCells { column, patch } => plan
-                .join(
-                    (**patch)
-                        .clone()
-                        .lazy()
-                        .rename([ROW_ID], ["__vdrs_set"], true)
-                        .with_column(lit(true).alias("__vdrs_hit")),
-                    [col(ROW_ID)],
-                    [col("__vdrs_set")],
-                    JoinArgs {
-                        maintain_order: MaintainOrderJoin::Left,
-                        ..JoinArgs::new(JoinType::Left)
-                    },
-                )
-                .with_column(
-                    when(col("__vdrs_hit").is_not_null())
-                        .then(col("__vdrs_v"))
-                        .otherwise(col(column.as_str()))
+            // A value lookup, not a join: a join per pasted or numbered
+            // column nests the plan until collecting it overflows the stack.
+            PlanStep::SetCells { column, patch } => {
+                let rids = patch.column(ROW_ID)?.as_materialized_series().clone();
+                let vals = patch.column("__vdrs_v")?.as_materialized_series().clone();
+                let dtype = vals.dtype().clone();
+                plan.with_column(
+                    col(ROW_ID)
+                        .replace_strict(
+                            lit(rids),
+                            lit(vals),
+                            Some(col(column.as_str())),
+                            Some(dtype),
+                        )
                         .alias(column.as_str()),
                 )
-                .drop(cols(["__vdrs_v", "__vdrs_hit"])),
+            }
             PlanStep::Replace {
                 column,
                 pattern,
@@ -182,6 +186,26 @@ impl PlanStep {
                     .json_decode(dtype.clone())
                     .alias(column.as_str()),
             ),
+            PlanStep::Capture {
+                column,
+                pattern,
+                name,
+            } => {
+                let text = col(column.as_str()).cast(DataType::String);
+                let fields = capture_fields(pattern)?
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let p = lit(pattern.as_str());
+                        text.clone().str().extract(p, i + 1).alias(f)
+                    });
+                plan.with_column(
+                    when(text.clone().str().contains(lit(pattern.as_str()), true))
+                        .then(as_struct(fields.collect()))
+                        .otherwise(lit(NULL))
+                        .alias(name.as_str()),
+                )
+            }
             PlanStep::Expand {
                 column,
                 fields,
@@ -216,7 +240,7 @@ impl PlanStep {
             | PlanStep::SetExpr { column, .. }
             | PlanStep::Replace { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
-            PlanStep::Derive { name, .. } => Some(name),
+            PlanStep::Derive { name, .. } | PlanStep::Capture { name, .. } => Some(name),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } | PlanStep::Expand { .. } => {
                 None
             }
@@ -328,6 +352,9 @@ impl PlanStep {
             PlanStep::DeleteRows { rids } => format!("delete {}", rows(rids.len())),
             PlanStep::AddRows { rows: r } => format!("add {}", rows(r.height())),
             PlanStep::Expand { column, .. } => format!("expand {column}"),
+            PlanStep::Capture {
+                column, pattern, ..
+            } => format!("capture {column} {pattern}"),
         }
     }
 
@@ -346,6 +373,21 @@ impl PlanStep {
             _ => Vec::new(),
         }
     }
+}
+
+/// `;`'s struct fields: each group's name, else its index from 0 (VisiData
+/// expands a match tuple as `col[0]`, `col[1]`…). A pattern without a group is
+/// refused with VisiData's message.
+pub fn capture_fields(pattern: &str) -> PolarsResult<Vec<String>> {
+    let re = regex::Regex::new(pattern).map_err(|e| polars_err!(ComputeError: "bad regex: {e}"))?;
+    let names: Vec<String> = re
+        .capture_names()
+        .skip(1)
+        .enumerate()
+        .map(|(i, n)| n.map_or_else(|| i.to_string(), str::to_string))
+        .collect();
+    polars_ensure!(!names.is_empty(), ComputeError: "specify a capture group using parentheses");
+    Ok(names)
 }
 
 /// Where an edit of `column` goes: right after the last step that writes it,

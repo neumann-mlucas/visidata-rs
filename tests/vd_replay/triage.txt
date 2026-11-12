@@ -3,7 +3,7 @@
 1410a	PASS
 1410b	SKIP serialize: ExpectedObjectColon at character 33 (',')
 1410c	SKIP type-len
-add-col-dup-attrs	SKIP addcol-new
+add-col-dup-attrs	SKIP setcol-iter
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
 aggregators-cols	SKIP addcol-aggregate
@@ -12,7 +12,7 @@ aggregators-set	FAIL line 1: want="Item\tPaid_avg\tPaid_sum\tQuantity_sum\tcount
 append	PASS
 avg-nulls	FAIL line 2: want="Food, Senior Wet Cat - 3 oz\t5\t12.00" got="Food, Senior Wet Cat - 3 oz\t5\t12.0"
 bulk-rename-cols	UNTESTABLE setcol-expr
-capture-col-named	SKIP addcol-capture
+capture-col-named	FAIL line 1: want="Date\tDate_re.month\tDate_re.day\tDate_re.year\tDate_re.hour\tDate_re.min\tDate_re.meridiem\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid" got="
 column-copy	SKIP freeze-col
 column-name-__name__	PASS
 column-name-_fields	PASS
@@ -44,15 +44,15 @@ empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	SKIP runtime: option unfurl_empty
 error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
-exp-digits	SKIP setcol-incr
+exp-digits	SKIP exec-python
 extend	SKIP sheets-all
-fill	SKIP setcol-fill
+fill	PASS
 fill-nested	SKIP runtime: InternalError(TapeError) at character 0 ('#')
-fill-zero	SKIP setcol-fill
+fill-zero	PASS
 format-enum	SKIP runtime: cannot locate row 'OrderDate' (keys=[])
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
-freeze-sheet-attrs	FAIL line 6: want="Units\t7\tint\t\t95\tsum" got="Units\t7\t\t\t95"
+freeze-sheet-attrs	PASS
 freq-dive-except	SKIP dive-except
 freq-error	SKIP runtime: no column "qty"
 freq-fmtstr	SKIP runtime: cannot locate row 'Date' (keys=[])
@@ -77,7 +77,7 @@ issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknow
 issue1346	SKIP runtime: open-file ../visidata/tests/issue1346.html: unknown format for ../visidata/tests/issue1346.html
 issue1377	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
 issue1377b	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
-issue2015	SKIP addcol-new
+issue2015	SKIP runtime: columns sheet: no row キa,id
 issue2190	UNTESTABLE assert-expr
 issue2225-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue2227	SKIP runtime: open-file ../visidata/tests/issue2227.html: unknown format for ../visidata/tests/issue2227.html
@@ -92,7 +92,7 @@ issue2988	FAIL line 1: want="fill\tfill_cellPyObj\tfill_fontColor\tfill_fillColo
 issue3015-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3022-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3103	SKIP addcol-shell
-issue3146-paste	SKIP addcol-new
+issue3146-paste	SKIP runtime: read-only: ../visidata/tests/data1.tsv_columns is derived
 issue3146-vds	SKIP runtime: save: unknown extension '.vds'
 issue3163	SKIP search-keys
 issue3174-deepcopy-append	PASS
@@ -178,7 +178,7 @@ long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 melt-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
 messenger-nosave	NO_GOLDEN golden is .dot
-monthly-revenue	SKIP addcol-capture
+monthly-revenue	SKIP runtime: column already exists: Date
 numeric-cols	PASS
 numeric-names	PASS
 numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
@@ -196,14 +196,14 @@ postgres-readonly-pg	SKIP allow-error
 postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 pr2302	PASS
 pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median mode min max stdev
-pr2372	SKIP addcol-new
+pr2372	SKIP runtime: no column: 
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
-pr2614	SKIP addcol-incr
+pr2614	FAIL line 1: want="A" got="incr"
 pr2647	SKIP runtime: read-only: b+a is derived
 pr2688a	PASS
 pr2688b	PASS
 pr2815	SKIP serialize: NDJSON line expected to contain JSON object: list[str]
-pr2855	SKIP addcol-incr
+pr2855	FAIL line 1: want="A\tB\tC\tD\tE\tF\tG\tH\tI" got="A\tincr\tincr2\tincr3\tincr4\tincr5\tincr6\tincr7\tincr8"
 prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)

@@ -127,8 +127,13 @@ fn main() -> ExitCode {
     } else {
         Sheet::parts_list(0, loaded, parts)
     };
+    // Polars recurses once per plan node and every edit, column or type step
+    // is one: 2 MiB (the default) runs out after a few dozen of them.
+    // ponytail: a fixed 16 MiB; flatten consecutive column steps into one
+    // `with_columns` if sheets with hundreds of steps show up.
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_stack_size(16 << 20)
         .build()
     {
         Ok(r) => r,

@@ -6,6 +6,7 @@ use polars::prelude::*;
 
 use crate::reader::{LoadedSource, SourceKind};
 
+mod builders;
 pub(crate) mod columns;
 mod derive;
 mod diff;
@@ -22,7 +23,7 @@ pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
-pub use step::{ADDED_RID, POS, PlanStep};
+pub use step::{ADDED_RID, POS, PlanStep, capture_fields};
 pub use undo::{Snapshot, UndoTree};
 
 pub type SheetId = u32;

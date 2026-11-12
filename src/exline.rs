@@ -387,6 +387,14 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 _ => Err(ExError::Usage(USAGE)),
             }
         }
+        "addcol" => match split_args(rest, ":addcol <name>")?.as_slice() {
+            [name] => Ok(vec![Action::AddCol { name: name.clone() }]),
+            _ => Err(ExError::Usage(":addcol <name>")),
+        },
+        "capture" if rest.is_empty() => Err(ExError::Usage(":capture <regex with groups>")),
+        "capture" => Ok(vec![Action::Capture {
+            pattern: rest.to_string(),
+        }]),
         "note" => Ok(vec![Action::SetNote {
             text: rest.to_string(),
         }]),

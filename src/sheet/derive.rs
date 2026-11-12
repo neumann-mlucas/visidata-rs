@@ -181,6 +181,7 @@ impl Sheet {
             Origin::Selected { parent: parent.id },
         )
         .with_window(out)
+        .inherit_attrs(parent)
         .derived(parent, Derivation::Rids(keep.clone())))
     }
 
@@ -221,6 +222,7 @@ impl Sheet {
             parent.view_plan().filter(pred),
             origin,
         )
+        .inherit_attrs(parent)
         .derived(
             parent,
             Derivation::Values {
@@ -240,6 +242,7 @@ impl Sheet {
             parent.view_plan(),
             origin,
         )
+        .inherit_attrs(parent)
         .derived(parent, Derivation::Copy)
     }
 

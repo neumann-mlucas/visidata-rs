@@ -3575,3 +3575,92 @@ async fn vim_operators_motions_and_text_objects() {
     h.keys("d <Esc> j").await;
     assert!(h.app.operator.is_none());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn column_builders_fill_number_add_and_capture() {
+    let mut h = csv(b"id,name,grp\n3,c-1,x\n1,a-2,\n2,b-3,\n4,d-4,y\n").await;
+    // f: empty cells take the value above, in view order
+    h.keys("l l f").await;
+    assert_eq!(status(&h), "filled 2 values");
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp\n3,c-1,x\n1,a-2,x\n2,b-3,x\n4,d-4,y\n"
+    );
+    h.keys("U").await;
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp\n3,c-1,x\n1,a-2,\n2,b-3,\n4,d-4,y\n"
+    );
+    // i: numbers in view order (sorted), kept when the sort goes
+    h.keys("h h [ i").await;
+    assert_eq!(h.current_column(), "incr");
+    h.keys(":").await;
+    h.type_("unsort").await;
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp,incr\n3,c-1,x,3\n1,a-2,,1\n2,b-3,,2\n4,d-4,y,4\n"
+    );
+    h.keys("U U").await; // :unsort, then the column and its numbers in one step
+    assert!(!view_csv(&h).contains("incr"), "{}", view_csv(&h));
+    h.keys("U").await; // the sort
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp\n3,c-1,x\n1,a-2,\n2,b-3,\n4,d-4,y\n"
+    );
+    // gi: the selected rows of this column, in view order
+    h.keys("g g s G s g i").await;
+    assert_eq!(status(&h), "set id to 1…2");
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp\n1,c-1,x\n1,a-2,\n2,b-3,\n2,d-4,y\n"
+    );
+    h.keys("U g u").await;
+    // za: an empty text column, the cursor on it, editable
+    h.keys("z a").await;
+    h.type_("comment").await;
+    assert_eq!(h.current_column(), "comment");
+    h.keys("g g j e").await;
+    h.type_("check").await;
+    assert_eq!(
+        view_csv(&h),
+        "id,name,grp,comment\n3,c-1,x,\n1,a-2,,check\n2,b-3,,\n4,d-4,y,\n"
+    );
+    h.keys("z a").await;
+    h.type_("comment").await;
+    assert_eq!(status(&h), "addcol: column already exists: comment");
+    // ;: one struct column of the groups; ( expands it
+    h.keys("g h l ;").await;
+    h.type_("([a-z])-(?P<n>\\d)").await;
+    assert_eq!(status(&h), "added name_re; ( expands it");
+    h.keys("(").await;
+    let names = h.screen().lines().nth(1).unwrap().to_string();
+    assert!(
+        names.contains("name_re.0") && names.contains("name_re.n"),
+        "{names}"
+    );
+    h.keys(";").await;
+    h.type_("[a-z]").await;
+    assert_eq!(status(&h), "specify a capture group using parentheses");
+    // derived sheets are read-only
+    h.keys("F i").await;
+    assert!(status(&h).contains(": read-only:"), "{}", status(&h));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn copies_keep_column_attributes() {
+    let mut h = csv(b"id,amt\n1,2.5\n2,4\n3,8\n").await;
+    h.keys("l % :").await;
+    h.type_("aggregate sum").await;
+    h.keys(":").await;
+    h.type_("color amt amt > 3 red").await;
+    h.keys("s j s \"").await;
+    let v = &h.app.sheets.active().view;
+    assert_eq!(v.aggregators, [("amt".to_string(), "sum".to_string())]);
+    assert_eq!(v.type_casts, [("amt".to_string(), DataType::Float64)]);
+    assert_eq!(v.formats.len(), 1);
+    h.keys("q g '").await;
+    assert_eq!(h.app.sheets.active().view.aggregators.len(), 1);
+    // a freq sheet's columns mean something else: nothing carried over
+    h.keys("q F").await;
+    assert!(h.app.sheets.active().view.aggregators.is_empty());
+}

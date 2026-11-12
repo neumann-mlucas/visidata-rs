@@ -363,6 +363,14 @@ impl Block {
                     Ok(path) => self.ex(Action::Patch { column: None, path }),
                     Err(e) => self.note(&format!("{} added rows ({e})", rows.height())),
                 },
+                PlanStep::Capture {
+                    column, pattern, ..
+                } => {
+                    self.col(column);
+                    self.ex(Action::Capture {
+                        pattern: pattern.clone(),
+                    });
+                }
                 PlanStep::Expand { column, fields, .. } => {
                     self.col(column);
                     let depth = fields.iter().map(|(p, _)| p.len()).max().unwrap_or(1);

@@ -35,7 +35,7 @@ File naming: `S-NN-slug.md`.
 | S-28 | `:s` substitute on a column, search-hit sheet | — | **drafted 2026-11-08** → [`S-28-substitute-search-hits.md`](S-28-substitute-search-hits.md) |
 | S-29 | Sessions (ex-script `.vdrs`), Lua event hooks (`vd.on`, `vd.exec`) | — | **drafted 2026-11-08** → [`S-29-sessions-lua-hooks.md`](S-29-sessions-lua-hooks.md) |
 | S-30 | Live derived sheets (`:refresh`, `:link`), cell notes, selection stats | — | **drafted 2026-11-08** → [`S-30-linked-sheets-notes-selection-stats.md`](S-30-linked-sheets-notes-selection-stats.md) |
-| S-31 | Column builders (`za` `i` `gi` `f` `;`), inherited column attributes | — | **drafted 2026-11-12** → [`S-31-column-builders-inherited-attrs.md`](S-31-column-builders-inherited-attrs.md) |
+| S-31 | Column builders (`za` `i` `gi` `f` `;`), inherited column attributes | — | **shipped 2026-11-12** → [`S-31-column-builders-inherited-attrs.md`](S-31-column-builders-inherited-attrs.md) |
 | S-32 | Float precision (`Alt++` / `Alt+-`, `disp_float_fmt`) | — | **drafted 2026-11-12** → [`S-32-float-precision.md`](S-32-float-precision.md) |
 
 **Not drafted yet** (draft only when the work starts):

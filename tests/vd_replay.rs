@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 55;
+const MIN_PASS: usize = 58;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -789,6 +789,32 @@ impl Replay {
             "aggregate-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 s.add_aggregators(&r.col, &r.input).map_err(Runtime)
+            }
+            // S-31 column builders
+            "addcol-new" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.add_empty_col(&r.input).map_err(Runtime)
+            }
+            "addcol-incr" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.add_incr_col().map(|_| ()).map_err(Runtime)
+            }
+            "setcol-incr" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                if s.view.selected.is_empty() {
+                    return Ok(());
+                }
+                s.set_incr(&r.col).map(|_| ()).map_err(Runtime)
+            }
+            "setcol-fill" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.fill_down(&r.col).map(|_| ()).map_err(Runtime)
+            }
+            // VisiData's default `regex_flags` is `I`
+            "addcol-capture" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let p = format!("(?i){}", r.input);
+                s.capture(&r.col, &p).map(|_| ()).map_err(Runtime)
             }
             "rename-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
@@ -2183,6 +2209,17 @@ fn json_and_csv_goldens_read_as_tsv() {
 
 #[test]
 fn vd_replay_corpus() {
+    // Every step is a plan node; a file with ~20 added columns nests the
+    // plan past a test thread's 2 MiB when Polars collects it in debug.
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(replay_corpus)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn replay_corpus() {
     let corpus = Path::new(CORPUS);
     if !corpus.exists() {
         eprintln!(

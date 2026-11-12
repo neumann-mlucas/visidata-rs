@@ -1,6 +1,11 @@
 # S-31 — Column builders (`za` `i` `gi` `f` `;`), inherited column attributes
 
-Status: **drafted 2026-11-12**. Depends on: S-18 C/D (`SetCol`, `SetCells` steps), S-21 (`Derive`),
+Status: **drafted 2026-11-12; A, B, C shipped 2026-11-12**. As built: the scans of `i` `gi` `f` run on
+the UI thread, as `gzp` does (moving them to jobs is S-24 R6); unnamed groups are fields `0`, `1`…
+(VisiData's `Date_re[0]`); freq dives inherit too; `SetCells` became a `replace_strict` lookup instead of a
+join (a join per numbered column nested the plan until Polars overflowed the stack), and the runtime's
+threads get 16 MiB stacks. Replay PASS 55 → 58 (`fill`, `fill-zero`, `freeze-sheet-attrs`); quarantined
+`pr2614`/`pr2855` (VisiData names the column `A`, vdrs `incr`), `capture-col-named` (S2). Depends on: S-18 C/D (`SetCol`, `SetCells` steps), S-21 (`Derive`),
 S-22 (`(` expands structs), S-25 P3/P4 (columns sheet, aggregators).
 
 Corpus (first blocker today, `tests/vd_replay/triage.txt`): `addcol-new` 4, `addcol-incr` 2,

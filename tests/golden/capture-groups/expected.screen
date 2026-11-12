@@ -1,0 +1,12 @@
+ tests/golden/capture-groups/input.csv  csv · hidden 1                 code_re.0 3/4  row 1/4 · 25%
+ id i code str  code_re.0 str  code_re.num str
+    1 AB-12     AB             12
+    2 cd-7      cd             7
+    3 none      ·              ·
+    4 XY-305    XY             305
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

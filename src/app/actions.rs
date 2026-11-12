@@ -899,6 +899,59 @@ impl App {
             }
             Action::ShowSidebar { page } => (self.sidebar, self.sidebar_page) = (Some(page), page),
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
+            Action::StartAddColInput | Action::StartCaptureInput => {
+                match self.sheets.active().editable() {
+                    Err(e) => self.toast = Some(e),
+                    Ok(()) if matches!(action, Action::StartAddColInput) => {
+                        self.start_input(Prompt::AddCol)
+                    }
+                    Ok(()) => self.start_input(Prompt::Capture),
+                }
+            }
+            Action::AddCol { name } => match self.sheets.active_mut().add_empty_col(&name) {
+                Ok(()) => {
+                    self.goto_column(&name);
+                    self.spawn_materialize();
+                }
+                Err(e) => self.toast = Some(format!("addcol: {e}")),
+            },
+            Action::AddColIncr => match self.sheets.active_mut().add_incr_col() {
+                Ok(name) => {
+                    self.goto_column(&name);
+                    self.spawn_materialize();
+                }
+                Err(e) => self.toast = Some(format!("addcol-incr: {e}")),
+            },
+            Action::SetColIncr | Action::SetColFill | Action::Capture { .. } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let s = self.sheets.active_mut();
+                let done = match &action {
+                    Action::SetColIncr => s
+                        .set_incr(&column)
+                        .map(|n| format!("set {column} to 1…{n}")),
+                    Action::SetColFill => {
+                        s.fill_down(&column).map(|n| format!("filled {n} values"))
+                    }
+                    _ => {
+                        let Action::Capture { pattern } = &action else {
+                            return;
+                        };
+                        s.capture(&column, pattern).map(|name| {
+                            self.goto_column(&name);
+                            format!("added {name}; ( expands it")
+                        })
+                    }
+                };
+                match done {
+                    Ok(note) => {
+                        self.toast = Some(note);
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(e),
+                }
+            }
             Action::Derive { name, expr } => {
                 let s = self.sheets.active_mut();
                 match s.derive(&name, &expr) {

@@ -1450,6 +1450,25 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             };
             format!("{t} = {t}.with_columns({v}.alias({}))", py_str(column))
         }
+        PlanStep::Capture {
+            column,
+            pattern,
+            name,
+        } => {
+            let text = format!("pl.col({}).cast(pl.Utf8)", py_str(column));
+            let p = py_str(pattern);
+            let fields: Vec<String> = crate::sheet::capture_fields(pattern)
+                .unwrap_or_default()
+                .iter()
+                .enumerate()
+                .map(|(i, f)| format!("{text}.str.extract({p}, {}).alias({})", i + 1, py_str(f)))
+                .collect();
+            format!(
+                "{t} = {t}.with_columns(pl.when({text}.str.contains({p})).then(pl.struct([{}])).otherwise(None).alias({}))",
+                fields.join(", "),
+                py_str(name)
+            )
+        }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
         PlanStep::Json { column, dtype } => format!(
             "{t} = {t}.with_columns(pl.col({c}).str.json_decode({}))",
@@ -1587,6 +1606,24 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                 None => v,
             };
             format!("SELECT * REPLACE ({v} AS {c}) FROM ({q})")
+        }
+        PlanStep::Capture {
+            column,
+            pattern,
+            name,
+        } => {
+            let text = format!("CAST({} AS VARCHAR)", q_ident(column));
+            let p = q_str(pattern);
+            let names: Vec<String> = crate::sheet::capture_fields(pattern)
+                .unwrap_or_default()
+                .iter()
+                .map(|f| q_str(f))
+                .collect();
+            format!(
+                "SELECT *, CASE WHEN regexp_matches({text}, {p}) THEN regexp_extract({text}, {p}, [{}]) END AS {} FROM ({q})",
+                names.join(", "),
+                q_ident(name)
+            )
         }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
         PlanStep::Json { column, dtype } => format!(
