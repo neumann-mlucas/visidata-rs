@@ -108,7 +108,7 @@ impl App {
             |c: &str, d: &DataType, v: &AnyValue| lua_render.and_then(|p| p.render(c, d, v));
         let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
         let s = self.sheets.active_mut();
-        refresh_widths(s, render);
+        refresh_widths(s, render, &self.theme);
         // A stale window may be shorter than the view being loaded (rows
         // just added): clamping to it would lose the cursor.
         if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
@@ -118,7 +118,7 @@ impl App {
         if let Some(((title, table), id)) = other
             && let Some(s) = self.sheets.find_by_id_mut(id)
         {
-            refresh_widths(s, render);
+            refresh_widths(s, render, &self.theme);
             if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
                 clamp_view(&mut s.view, &df, table, &s.state.widths);
             }

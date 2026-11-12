@@ -49,8 +49,13 @@ impl<'a> SheetWidget<'a> {
     const CELL_PAD: u16 = 1;
     const WIDTH_ROWS: usize = 256;
 
-    /// Column widths from rows spread evenly through the window.
-    fn col_widths(df: &DataFrame, render: Option<CellRenderer>) -> Vec<u16> {
+    /// Column widths from rows spread evenly through the window; `digits`
+    /// gives each column's float decimals (S-32).
+    fn col_widths(
+        df: &DataFrame,
+        render: Option<CellRenderer>,
+        digits: &dyn Fn(&str) -> Option<u8>,
+    ) -> Vec<u16> {
         let step = (df.height() / Self::WIDTH_ROWS).max(1);
         let rows = (0..df.height()).step_by(step);
         df.columns()
@@ -66,7 +71,10 @@ impl<'a> SheetWidget<'a> {
                         let custom = render.and_then(|r| r(s.name(), s.dtype(), &av)?.text);
                         Some(
                             custom
-                                .map_or_else(|| display_av(&av), |t| printable(&t))
+                                .map_or_else(
+                                    || display_cell(&av, digits(s.name())).0,
+                                    |t| printable(&t),
+                                )
                                 .width() as u16,
                         )
                     })
@@ -113,7 +121,7 @@ impl SheetWidget<'_> {
         let widths: &[u16] = if self.sheet.state.widths.len() == cols.len() {
             &self.sheet.state.widths
         } else {
-            measured = Self::col_widths(df, self.render);
+            measured = Self::col_widths(df, self.render, &|c| float_digits(view, self.theme, c));
             &measured
         };
         if cols.is_empty() {
@@ -288,7 +296,8 @@ impl SheetWidget<'_> {
                 let x = col_x[slot];
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
-                let (mut text, dtype_hint) = display_av_with_hint(&av);
+                let (mut text, dtype_hint) =
+                    display_cell(&av, float_digits(view, self.theme, cols[ci].name()));
                 let custom = self
                     .render
                     .and_then(|r| r(cols[ci].name(), cols[ci].dtype(), &av))
@@ -518,6 +527,26 @@ fn display_av(av: &AnyValue) -> String {
     display_av_with_hint(av).0
 }
 
+/// Decimals float column `column` shows: its own (`Alt++`), else the
+/// `disp_float_fmt` option's, else `None` (15 significant digits).
+pub fn float_digits(view: &View, theme: &Theme, column: &str) -> Option<u8> {
+    view.precision
+        .iter()
+        .rev()
+        .find(|(c, _)| c == column)
+        .map(|(_, d)| *d)
+        .or(theme.float_digits)
+}
+
+/// A cell's text: floats at `digits` decimals when given (S-32).
+fn display_cell(av: &AnyValue, digits: Option<u8>) -> (String, DtypeHint) {
+    match (av, digits) {
+        (AnyValue::Float64(f), Some(d)) => (format!("{f:.*}", d as usize), DtypeHint::Numeric),
+        (AnyValue::Float32(f), Some(d)) => (format!("{f:.*}", d as usize), DtypeHint::Numeric),
+        _ => display_av_with_hint(av),
+    }
+}
+
 fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
     match av {
         AnyValue::Null => ("·".to_string(), DtypeHint::None),
@@ -621,7 +650,7 @@ pub fn dtype_badge(dt: &DataType) -> String {
 /// into `area` (header row included). Scrolls rows and non-frozen columns.
 /// Column widths of the loaded window, measured once per window. Scrolling
 /// through one view only widens them, so columns don't jump.
-pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
+pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>, theme: &Theme) {
     let Some(df) = s.window() else { return };
     let key = (
         s.loaded_revision(),
@@ -632,7 +661,8 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>) {
     if s.state.widths_key == Some(key) {
         return;
     }
-    let mut widths = SheetWidget::col_widths(df, render);
+    let view = &s.view;
+    let mut widths = SheetWidget::col_widths(df, render, &|c| float_digits(view, theme, c));
     let view = format!("{}|{:?}", s.view_key(), df.get_column_names());
     if view == s.state.widths_view {
         for (w, old) in widths.iter_mut().zip(&s.state.widths) {

@@ -2280,7 +2280,7 @@ async fn rejected_or_columns_sheet_edits_leave_no_empty_undo_state() {
     h.type_("sum").await;
     assert_eq!(depth(&h), 1);
     h.keys("g g C").await;
-    h.keys("l l l e <C-u>").await; // `value` of the cursor column, `id`
+    h.keys("l l l l e <C-u>").await; // `value` of the cursor column, `id`
     h.type_("9").await;
     assert_eq!(depth(&h), 2, "one state for one edit");
 }
@@ -3663,4 +3663,33 @@ async fn copies_keep_column_attributes() {
     // a freq sheet's columns mean something else: nothing carried over
     h.keys("q F").await;
     assert!(h.app.sheets.active().view.aggregators.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn float_precision_more_less_set_and_columns_sheet() {
+    let mut h = csv(b"id,amt\n1,3.14159\n2,2.5\n").await;
+    let rows = |h: &Harness| h.screen().lines().nth(2).unwrap_or_default().to_string();
+    h.keys("l <A-+>").await;
+    assert_eq!(status(&h), "amt: 3 decimals");
+    assert!(rows(&h).contains("3.142"), "{}", h.screen());
+    h.keys("<A--> <A--> <A--> <A--> <A-->").await;
+    assert_eq!(status(&h), "amt: 0 decimals");
+    assert!(rows(&h).ends_with(" 3"), "{}", rows(&h));
+    h.keys(":").await;
+    h.type_("precision 1").await;
+    assert!(
+        rows(&h).contains("3.1") && !rows(&h).contains("3.14"),
+        "{}",
+        rows(&h)
+    );
+    // display only: the data keeps every digit
+    assert_eq!(view_csv(&h), "id,amt\n1,3.14159\n2,2.5\n");
+    h.keys("C").await;
+    assert!(h.screen().contains("%.1f"), "{}", h.screen());
+    h.keys("q :").await;
+    h.type_("precision").await;
+    assert_eq!(status(&h), "amt: default precision");
+    assert!(rows(&h).contains("3.14159"), "{}", rows(&h));
+    h.keys("h <A-+>").await;
+    assert_eq!(status(&h), "precision: id is i (float columns only)");
 }

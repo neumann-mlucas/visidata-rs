@@ -952,6 +952,26 @@ impl App {
                     Err(e) => self.toast = Some(e),
                 }
             }
+            Action::PrecisionMore | Action::PrecisionLess | Action::SetPrecision { .. } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let (set, delta) = match action {
+                    Action::PrecisionMore => (None, 1),
+                    Action::PrecisionLess => (None, -1),
+                    Action::SetPrecision { digits } => (digits, 0),
+                    _ => return,
+                };
+                // VisiData starts from its default `{:.2f}`
+                let start = self.theme.float_digits.unwrap_or(2);
+                let s = self.sheets.active_mut();
+                self.toast = Some(match s.set_precision(&column, set, delta, start) {
+                    Ok(Some(1)) => format!("{column}: 1 decimal"),
+                    Ok(Some(d)) => format!("{column}: {d} decimals"),
+                    Ok(None) => format!("{column}: default precision"),
+                    Err(e) => e,
+                });
+            }
             Action::Derive { name, expr } => {
                 let s = self.sheets.active_mut();
                 match s.derive(&name, &expr) {

@@ -39,6 +39,8 @@ struct Registry {
     no_autosave: bool,
     /// `vd.option("mouse", "true")` (S-26 A9).
     mouse: bool,
+    /// `vd.option("disp_float_fmt", …)` (S-32).
+    float_digits: Option<u8>,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -119,7 +121,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 10; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers
+pub const API_VERSION: i64 = 11; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -465,6 +467,12 @@ impl Plugins {
             .is_some_and(|r| r.borrow().mouse)
     }
 
+    /// `vd.option("disp_float_fmt", …)`: decimals for float columns.
+    pub fn float_digits(&self) -> Option<u8> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        reg.borrow().float_digits
+    }
+
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         reg.borrow().duckdb_cmd.clone()
@@ -716,6 +724,14 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                         ));
                     }
                 },
+                "disp_float_fmt" => match float_fmt_digits(&value) {
+                    Some(d) => registry(lua)?.borrow_mut().float_digits = Some(d),
+                    None => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "vd.option: disp_float_fmt is \"%.Nf\" or \"{{:.Nf}}\", N up to 15 (got {value:?})"
+                        )));
+                    }
+                },
                 "mouse" => {
                     registry(lua)?.borrow_mut().mouse = match value.as_str() {
                         "true" => true,
@@ -729,7 +745,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, duckdb_cmd, keymap, mouse, session_autosave)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, duckdb_cmd, keymap, mouse, session_autosave)"
                     )));
                 }
             }
@@ -1340,6 +1356,15 @@ fn styled(t: &LuaTable) -> Rendered {
     }
 }
 
+/// VisiData's float format, `%.2f` or `{:.2f}` (S-32): its decimals, 0–15.
+pub fn float_fmt_digits(fmt: &str) -> Option<u8> {
+    let n = fmt
+        .strip_prefix("%.")
+        .and_then(|r| r.strip_suffix('f'))
+        .or_else(|| fmt.strip_prefix("{:.").and_then(|r| r.strip_suffix("f}")))?;
+    n.parse().ok().filter(|d| *d <= 15)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1559,6 +1584,21 @@ mod tests {
                 Action::ExCommand("edit \"a\\\"b\"\n".into()),
             ])]
         );
+    }
+
+    #[test]
+    fn float_fmt_takes_visidata_forms() {
+        assert_eq!(float_fmt_digits("%.2f"), Some(2));
+        assert_eq!(float_fmt_digits("{:.0f}"), Some(0));
+        assert_eq!(float_fmt_digits("%.16f"), None);
+        assert_eq!(float_fmt_digits("%d"), None);
+        assert!(
+            Plugins::load_from_source(r#"vd.option("disp_float_fmt", "%.3f")"#)
+                .unwrap()
+                .float_digits()
+                .is_some_and(|d| d == 3)
+        );
+        assert!(Plugins::load_from_source(r#"vd.option("disp_float_fmt", "2")"#).is_err());
     }
 
     #[test]

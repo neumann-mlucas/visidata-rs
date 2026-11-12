@@ -1,0 +1,12 @@
+ tests/golden/precision/input.csv  csv                                     price 2/3  row 1/3 · 33%
+item str   price f  qty i
+pen         1.5000      3
+ink        12.2500      1
+pad         0.3333      7
+
+
+
+
+
+
+price: 4 decimals

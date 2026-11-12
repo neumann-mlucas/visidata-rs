@@ -185,8 +185,9 @@ impl Sheet {
             .collect()
     }
 
-    /// `C`: a row per column of `of` — `name width type value aggregators
-    /// sortorder key` (VisiData's, less `fmtstr`; `key` added). `width` is
+    /// `C`: a row per column of `of` — `name width type fmtstr value
+    /// aggregators sortorder key` (VisiData's; `key` added; `fmtstr` is a
+    /// float column's precision as `%.Nf`, S-32). `width` is
     /// empty for a hidden column; `value` is the cursor row's.
     pub fn columns_of(of: &Sheet, id: SheetId) -> Self {
         Self::columns_sheet(&[of], id, format!("{}_columns", of.name))
@@ -202,6 +203,7 @@ impl Sheet {
         let mut cols = Vec::new();
         let (mut sheet, mut names, mut widths, mut types, mut values) =
             (vec![], vec![], vec![], vec![], vec![]);
+        let mut fmts: Vec<Option<String>> = vec![];
         let (mut aggs, mut order, mut keys) = (vec![], vec![], vec![]);
         for s in sheets {
             let shown: Vec<String> = s
@@ -224,6 +226,13 @@ impl Sheet {
                     }
                 });
                 types.push(type_name(&dt));
+                fmts.push(
+                    v.precision
+                        .iter()
+                        .rev()
+                        .find(|(c, _)| *c == n)
+                        .map(|(_, d)| format!("%.{d}f")),
+                );
                 values.push(at.and_then(|i| {
                     let c = &s.window()?.columns()[i];
                     let av = c.get(v.row_cursor).ok()?;
@@ -255,6 +264,7 @@ impl Sheet {
             Column::new("name".into(), names),
             Column::new("width".into(), widths),
             Column::new("type".into(), types),
+            Column::new("fmtstr".into(), fmts),
             Column::new("value".into(), values),
             Column::new("aggregators".into(), aggs),
             Column::new("sortorder".into(), order),

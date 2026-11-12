@@ -391,6 +391,13 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             [name] => Ok(vec![Action::AddCol { name: name.clone() }]),
             _ => Err(ExError::Usage(":addcol <name>")),
         },
+        "precision" => match rest {
+            "" => Ok(vec![Action::SetPrecision { digits: None }]),
+            n => match n.parse::<u8>() {
+                Ok(d) if d <= 15 => Ok(vec![Action::SetPrecision { digits: Some(d) }]),
+                _ => Err(ExError::Usage(":precision [0-15]")),
+            },
+        },
         "capture" if rest.is_empty() => Err(ExError::Usage(":capture <regex with groups>")),
         "capture" => Ok(vec![Action::Capture {
             pattern: rest.to_string(),

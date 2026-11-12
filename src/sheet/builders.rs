@@ -155,6 +155,12 @@ impl Sheet {
             .filter(|(c, _)| has(c))
             .cloned()
             .collect();
+        v.precision = p
+            .precision
+            .iter()
+            .filter(|(c, _)| has(c))
+            .cloned()
+            .collect();
         v.scales = p
             .scales
             .iter()
@@ -168,6 +174,47 @@ impl Sheet {
             .cloned()
             .collect();
         self
+    }
+
+    /// `Alt++` / `Alt+-` (`delta` ±1) and `:precision` (`set`): the decimals
+    /// float `column` shows, from `start` when it has none (S-32). `set`
+    /// `None` with `delta` 0 clears it. The decimals, or `None` when cleared.
+    pub fn set_precision(
+        &mut self,
+        column: &str,
+        set: Option<u8>,
+        delta: i8,
+        start: u8,
+    ) -> Result<Option<u8>, String> {
+        let dtype = self
+            .view_plan()
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("no column {column}"))?;
+        if !matches!(dtype, DataType::Float32 | DataType::Float64) {
+            return Err(format!(
+                "precision: {column} is {} (float columns only)",
+                crate::widget::dtype_badge(&dtype)
+            ));
+        }
+        let v = &mut self.view;
+        let old = v.precision.iter().position(|(c, _)| c == column);
+        let cur = old.map_or(start, |i| v.precision[i].1);
+        let new = match (set, delta) {
+            (Some(d), _) => Some(d.min(15)),
+            (None, 0) => None,
+            (None, d) => Some(cur.saturating_add_signed(d).min(15)),
+        };
+        if let Some(i) = old {
+            v.precision.remove(i);
+        }
+        if let Some(d) = new {
+            v.precision.push((column.to_string(), d));
+        }
+        self.state.widths_key = None;
+        Ok(new)
     }
 
     /// Row ids of the filtered, sorted view, in order.

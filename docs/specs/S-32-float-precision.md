@@ -1,6 +1,9 @@
 # S-32 — Float precision: `Alt++` / `Alt+-`, `disp_float_fmt`
 
-Status: **drafted 2026-11-12**. Depends on: S-18 B (`vd.option`), S-25 P3 (columns sheet `fmtstr`).
+Status: **drafted 2026-11-12; A, B, C shipped 2026-11-12**. As built: the global default lives on `Theme`
+(`float_digits`), Lua API 11; the aggregator footer has no float text of its own to follow. Replay PASS
+58 → 62 (`setcol-precision`, `setcol_precision_more`/`_less`, `edit-type`: the driver writes describe's
+`sum` `mean` `stdev` at `%.2f`, as VisiData types them float); `avg-nulls` still fails on freq tie order. Depends on: S-18 B (`vd.option`), S-25 P3 (columns sheet `fmtstr`).
 
 Corpus: `setcol_precision_more`, `setcol_precision_less`, `setcol-precision` (first blocker), and the
 2-decimal FAILs `avg-nulls`, `edit-type` (+ part of `describe`, `numeric_binning`).

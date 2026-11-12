@@ -25,7 +25,6 @@ issue3219-freq       # per-cell mixed types
 xlsx-color-cells     # xlsx_meta_columns option: per-cell font/fill metadata columns
 issue2988            # xlsx_meta_columns: per-cell xlsx metadata columns (same as xlsx-color-cells)
 describe             # VisiData keeps Date's time (47 distinct, vdrs 32) and shows #ERR for date sum/mean/stdev; typed columns hold no #ERR
-edit-type            # VisiData saves floats with 2 decimals (403.00, 7.90): display formatting, S-27
 issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric stats appear (S-25 P2 typed reads)
 issue1377  # paste into a new sheet: VisiData list rows put the first pasted value in column A (positional); vdrs matches by name and adds the rest
 issue1377b  # same as issue1377

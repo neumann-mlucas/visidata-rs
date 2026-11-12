@@ -407,6 +407,13 @@ pub enum Action {
     SetColFill,
     /// `;`: prompt for a regex with capture groups.
     StartCaptureInput,
+    /// `Alt++` / `Alt+-` (S-32): one more / fewer decimal in this float column.
+    PrecisionMore,
+    PrecisionLess,
+    /// `:precision [N]`: N decimals in this float column; none clears.
+    SetPrecision {
+        digits: Option<u8>,
+    },
     /// `:capture <regex>`: a struct column `<col>_re` of the groups.
     Capture {
         pattern: String,
@@ -699,6 +706,7 @@ impl Action {
             SetNote { .. } | Color { .. } | NoColor { .. } => true,
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
+            PrecisionMore | PrecisionLess | SetPrecision { .. } => false,
             Scale { .. } | DataBar { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
@@ -959,6 +967,8 @@ impl Action {
         ("setcol_incr", SetColIncr),
         ("setcol_fill", SetColFill),
         ("start_capture_input", StartCaptureInput),
+        ("precision_more", PrecisionMore),
+        ("precision_less", PrecisionLess),
         ("notes", Notes),
         ("link", Link { on: true }),
         ("unlink", Link { on: false }),
@@ -1099,6 +1109,8 @@ impl Action {
             SetNote { text } => format!("note {text}").trim_end().to_string(),
             AddCol { name } => format!("addcol {}", q(name)),
             Capture { pattern } => format!("capture {pattern}"),
+            SetPrecision { digits: Some(d) } => format!("precision {d}"),
+            SetPrecision { digits: None } => "precision".into(),
             Substitute {
                 pattern,
                 replacement,
@@ -1319,6 +1331,8 @@ mod tests {
             },
             HideNamed { column: s("a b") },
             AddCol { name: s("new col") },
+            SetPrecision { digits: Some(3) },
+            SetPrecision { digits: None },
             Capture {
                 pattern: s("(?P<y>\\d{4})-(\\d+)"),
             },

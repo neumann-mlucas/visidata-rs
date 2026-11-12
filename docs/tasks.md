@@ -64,7 +64,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 23. - [x] S-23 B — split panes `Z` / `gZ` / `Tab` (2–3 d); ~~C1~~, ~~C2~~, ~~C3~~, ~~C4~~ — `:plot` (`.` / `g.`, repeat → vim profile), `:hist`, `:bar`, pan/zoom, region select (8–11 d)
 24. - [x] S-26 ~~A (rest)~~, ~~B~~, ~~C~~, ~~D~~, ~~E~~ — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
 25. - [x] S-31 A/B/C — column builders `za` `i` `gi` `f` `;`; copies keep column attributes, `g'` (2–3 d) — done 2026-11-12; replay PASS=58
-26. - [ ] S-32 A/B/C — float precision `Alt++` / `Alt+-`, `:precision`, `disp_float_fmt`; replay formats typed floats (1.5–2.5 d)
+26. - [x] S-32 A/B/C — float precision `Alt++` / `Alt+-`, `:precision`, `disp_float_fmt`; replay formats typed floats (1.5–2.5 d) — done 2026-11-12; replay PASS=62
 
 Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before).
 
@@ -121,7 +121,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-12): PASS=58, FAIL=0, SKIP=117, UNTESTABLE=20, QUARANTINED=20, NO_GOLDEN=25.** `.csv`/`.json`/`.jsonl` goldens compared since 2026-11-11. At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-12): PASS=62, FAIL=0, SKIP=114, UNTESTABLE=20, QUARANTINED=19, NO_GOLDEN=25.** `.csv`/`.json`/`.jsonl` goldens compared since 2026-11-11. At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 

@@ -400,6 +400,10 @@ impl Block {
             self.col(column);
             self.ex(Action::AggregateCol { names: agg.clone() });
         }
+        for (column, d) in &v.precision {
+            self.col(column);
+            self.ex(Action::SetPrecision { digits: Some(*d) });
+        }
         if let Some(f) = &v.filter {
             self.ex(Action::SetFilter {
                 column: f.column.clone(),

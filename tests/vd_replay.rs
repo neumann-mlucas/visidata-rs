@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 58;
+const MIN_PASS: usize = 62;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -789,6 +789,14 @@ impl Replay {
             "aggregate-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 s.add_aggregators(&r.col, &r.input).map_err(Runtime)
+            }
+            // S-32: VisiData starts from its `{:.2f}`
+            "setcol-precision-more" | "setcol-precision-less" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let delta = if r.longname.ends_with("more") { 1 } else { -1 };
+                s.set_precision(&r.col, None, delta, 2)
+                    .map(|_| ())
+                    .map_err(Runtime)
             }
             // S-31 column builders
             "addcol-new" => {
@@ -1839,6 +1847,43 @@ impl Replay {
         }
         if order != shown {
             df = df.select(order).map_err(|e| e.to_string())?;
+        }
+        // VisiData's describe types sum, mean and stdev as float: `{:.2f}`.
+        if matches!(slot.sheet.origin, Origin::Describe { .. }) {
+            for c in ["sum", "mean", "stdev"] {
+                let Ok(s) = df.column(c).map(|s| s.as_materialized_series().clone()) else {
+                    continue;
+                };
+                let Ok(s) = s.cast(&DataType::String) else {
+                    continue;
+                };
+                let text: StringChunked = s
+                    .str()
+                    .map_err(|e| e.to_string())?
+                    .iter()
+                    .map(|v| {
+                        v.map(|v| match v.parse::<f64>() {
+                            Ok(f) => format!("{f:.2}"),
+                            Err(_) => v.to_string(),
+                        })
+                    })
+                    .collect();
+                df.with_column(text.with_name(c.into()).into_column())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        // VisiData saves display values: a column's fmtstr (S-32) rounds it.
+        for (c, d) in &slot.sheet.view.precision {
+            let Ok(s) = df.column(c).map(|s| s.as_materialized_series().clone()) else {
+                continue;
+            };
+            let Ok(f) = s.f64() else { continue };
+            let text: StringChunked = f
+                .iter()
+                .map(|v| v.map(|v| format!("{v:.*}", *d as usize)))
+                .collect();
+            df.with_column(text.with_name(c.as_str().into()).into_column())
+                .map_err(|e| e.to_string())?;
         }
 
         let mut buf = Vec::new();

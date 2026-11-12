@@ -47,6 +47,9 @@ pub struct Theme {
     pub overlay_border_fg: Color,
     pub which_key_fg: Color,
     pub plan_border_fg: Color,
+    /// `vd.option("disp_float_fmt", "%.2f")` (S-32): decimals for float
+    /// columns without their own precision; `None`: 15 significant digits.
+    pub float_digits: Option<u8>,
 }
 
 impl Theme {
@@ -84,6 +87,7 @@ impl Theme {
             overlay_border_fg: Color::Rgb(65, 72, 104),
             which_key_fg: Color::Rgb(224, 175, 104),
             plan_border_fg: Color::Rgb(158, 206, 106),
+            float_digits: None,
         }
     }
 
@@ -122,6 +126,7 @@ impl Theme {
             overlay_border_fg: Color::Rgb(170, 175, 195),
             which_key_fg: Color::Rgb(46, 91, 190),
             plan_border_fg: Color::Rgb(40, 120, 60),
+            float_digits: None,
         }
     }
 

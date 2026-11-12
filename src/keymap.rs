@@ -298,6 +298,16 @@ impl Keymap {
                 vec![StartCaptureInput],
                 "add a column of regex captures",
             ),
+            ch(
+                vec![k("<A-+>")],
+                vec![PrecisionMore],
+                "one more decimal in this float column",
+            ),
+            ch(
+                vec![k("<A-->")],
+                vec![PrecisionLess],
+                "one fewer decimal in this float column",
+            ),
             ch(vec![k("I")], vec![Describe], "describe columns"),
             ch(
                 vec![k(",")],

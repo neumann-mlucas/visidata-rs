@@ -2368,6 +2368,7 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
     if let Some(p) = plugins {
         p.apply_keymap(&mut keymap);
         theme = p.theme().unwrap_or(theme);
+        theme.float_digits = p.float_digits();
     }
     (keymap, theme)
 }

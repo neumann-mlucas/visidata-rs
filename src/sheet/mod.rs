@@ -386,6 +386,8 @@ pub struct View {
     pub type_casts: Vec<(String, DataType)>,
     /// `+` (S-25 P4): (column, aggregator name), in the order added.
     pub aggregators: Vec<(String, String)>,
+    /// `Alt++` / `Alt+-`, `:precision` (S-32): decimals a float column shows.
+    pub precision: Vec<(String, u8)>,
     /// Row count of the filtered view; `None` while counting or after a failed count.
     total_rows: Option<u64>,
     /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
@@ -441,6 +443,7 @@ impl Default for View {
             keys: Vec::new(),
             type_casts: Vec::new(),
             aggregators: Vec::new(),
+            precision: Vec::new(),
             total_rows: None,
             count_key: None,
             jump_bottom: false,
@@ -1290,7 +1293,8 @@ impl Sheet {
             .keys
             .iter_mut()
             .chain(v.type_casts.iter_mut().map(|(c, _)| c))
-            .chain(v.aggregators.iter_mut().map(|(c, _)| c));
+            .chain(v.aggregators.iter_mut().map(|(c, _)| c))
+            .chain(v.precision.iter_mut().map(|(c, _)| c));
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
             .chain(v.sort.iter_mut().map(|k| &mut k.column))

@@ -39,7 +39,7 @@ edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
 edit-joinkey-2	SKIP runtime: read-only: data2+data1 is derived
 edit-joinregular-1	SKIP runtime: read-only: data2+data1 is derived
 edit-joinregular-2	SKIP runtime: read-only: data2+data1 is derived
-edit-type	FAIL line 6: want="Quantity\t0\t0\t10\t1\t144\t403.00\t2\t7.90\t21.57" got="Quantity\t0\t0\t10\t1\t144\t403.0\t2\t7.901960784313726\t21.57244066114058"
+edit-type	PASS
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	SKIP runtime: option unfurl_empty
 error-passthru	UNTESTABLE addcol-expr
@@ -119,7 +119,7 @@ issue3219-dedupe	FAIL line 3: want="1.0" got="abc"
 issue3219-dedupe-int	FAIL line 3: want="abc" got="<EOF>"
 issue3219-freq	FAIL line 2: want="1\t2\t28.57\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■" got="1\t3\t42.86\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
 issue3223	SKIP select-cell
-issue3223-distinct	FAIL line 2: want="n\t0\t0\t4\t1" got="n\t0\t0\t4\t1\t1\t4\t10\t2.5\t2.5\t1.2909944487358056"
+issue3223-distinct	FAIL line 2: want="n\t0\t0\t4\t1" got="n\t0\t0\t4\t1\t1\t4\t10.00\t2.5\t2.50\t1.29"
 issue3223-dive	SKIP dive-cell
 issue3223-median	SKIP select-cell
 issue3223-nostat	SKIP allow-error
@@ -218,10 +218,10 @@ save-json	SKIP serialize: ExpectedObjectColon at character 33 (',')
 save-jsonla	NO_GOLDEN golden is .jsonla
 save-usv	NO_GOLDEN golden is .usv
 select-to-selected	SKIP select-to-next-selected
-setcol-precision	SKIP setcol-precision-more
+setcol-precision	PASS
 setcol_fake	UNTESTABLE setcol-fake
-setcol_precision_less	SKIP setcol-precision-less
-setcol_precision_more	SKIP setcol-precision-more
+setcol_precision_less	PASS
+setcol_precision_more	PASS
 sort-levels	PASS
 sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
