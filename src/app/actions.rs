@@ -190,8 +190,15 @@ impl App {
                 Some(_) => self.start_input(Prompt::MacroKey),
             },
             Action::Macro(steps) => {
-                for a in steps.into_iter().rev() {
-                    self.macro_queue.push_front((a, false));
+                // a macro a replayed step calls runs next; a key pressed while
+                // a replay still waits on a job queues behind it
+                if self.replaying {
+                    for a in steps.into_iter().rev() {
+                        self.macro_queue.push_front((a, false));
+                    }
+                } else {
+                    self.macro_queue
+                        .extend(steps.into_iter().map(|a| (a, false)));
                 }
                 self.pump_macro();
             }
