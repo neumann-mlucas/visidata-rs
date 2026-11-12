@@ -2343,6 +2343,19 @@ async fn macro_playback_waits_for_jobs_between_steps() {
     assert_eq!(title(&h), dived);
 }
 
+/// Keys pressed while a replay waits on a job queue behind it: three
+/// quick F5s of "edit, move down" check three different rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_pressed_again_mid_replay_queues_behind_it() {
+    let mut h = csv(b"s\na\nb\nc\nd\ne\n").await;
+    h.keys("m e <C-u>").await;
+    h.type_("x").await;
+    h.keys("j m").await;
+    h.type_("<F5>").await;
+    h.keys("<F5> <F5> <F5>").await;
+    assert_eq!(view_csv(&h), "s\nx\nx\nx\nx\ne\n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn macro_with_derive_and_edit_matches_typing_it() {
     let mut h = csv(b"id,qty\n1,2\n2,3\n").await;
