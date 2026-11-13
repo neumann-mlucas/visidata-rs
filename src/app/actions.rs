@@ -896,6 +896,45 @@ impl App {
                     Ok(()) => self.start_input(Prompt::Capture),
                 }
             }
+            Action::StartSlideInput { left } => self.start_input(Prompt::Slide { left }),
+            Action::SlideCol { by } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let s = self.sheets.active_mut();
+                let snap = s.snapshot();
+                match s.slide_col(&column, by) {
+                    Ok(Some(at)) => {
+                        s.push_undo(snap);
+                        s.view.col_cursor = at;
+                        self.spawn_materialize();
+                    }
+                    Ok(None) => {}
+                    Err(e) => self.toast = Some(e),
+                }
+            }
+            Action::Order { columns } => {
+                let s = self.sheets.active_mut();
+                if let Some(c) = columns.iter().find(|c| !s.has_column(c)) {
+                    self.toast = Some(format!("no column: {c}"));
+                    return;
+                }
+                let snap = s.snapshot();
+                let mut order = columns.clone();
+                order.extend(
+                    s.view
+                        .order
+                        .iter()
+                        .filter(|c| !columns.contains(c))
+                        .cloned(),
+                );
+                if order != s.view.order {
+                    s.view.order = order;
+                    s.state.widths_key = None;
+                    s.push_undo(snap);
+                    self.spawn_materialize();
+                }
+            }
             Action::AddCol { name } => match self.sheets.active_mut().add_empty_col(&name) {
                 Ok(()) => {
                     self.goto_column(&name);
@@ -1327,7 +1366,7 @@ impl App {
         self.spawn_materialize();
     }
 
-    fn sort_current_column(&mut self, order: SortOrder) {
+    pub(super) fn sort_current_column(&mut self, order: SortOrder) {
         let Some(name) = self.current_column_name() else {
             self.toast = Some("no column to sort".into());
             return;

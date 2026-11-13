@@ -1,6 +1,6 @@
 # S-34 — Column order: `H` `L` `gH` `gL`, sorting the columns sheet
 
-Status: **drafted 2026-11-12**, design to agree before building. Depends on: S-25 P3 (columns
+Status: **shipped 2026-11-12** (branch `feature/column-order`); replay `aggregators-set` passes. Depends on: S-25 P3 (columns
 sheet), S-31 C (copies keep column attributes), S-29 (sessions).
 
 Today a sheet shows its columns in plan order, with the key columns first. Nothing moves a column,

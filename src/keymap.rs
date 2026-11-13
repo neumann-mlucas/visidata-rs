@@ -607,19 +607,33 @@ impl Keymap {
             ch(vec![k("g"), k("Z")], vec![ClosePane], "close the split"),
             ch(
                 vec![k("H")],
-                vec![PlotResize {
-                    wider: -1,
-                    taller: 0,
-                }],
-                "plot: thinner cursor box",
+                vec![SlideCol { by: -1 }],
+                "slide the column left (plot: thinner cursor box)",
             ),
             ch(
                 vec![k("L")],
-                vec![PlotResize {
-                    wider: 1,
-                    taller: 0,
-                }],
-                "plot: wider cursor box",
+                vec![SlideCol { by: 1 }],
+                "slide the column right (plot: wider cursor box)",
+            ),
+            ch(
+                vec![k("g"), k("H")],
+                vec![SlideCol { by: i64::MIN }],
+                "slide the column to the left end of its section",
+            ),
+            ch(
+                vec![k("g"), k("L")],
+                vec![SlideCol { by: i64::MAX }],
+                "slide the column to the right end of its section",
+            ),
+            ch(
+                vec![k("z"), k("H")],
+                vec![StartSlideInput { left: true }],
+                "slide the column left N places",
+            ),
+            ch(
+                vec![k("z"), k("L")],
+                vec![StartSlideInput { left: false }],
+                "slide the column right N places",
             ),
             ch(
                 vec![k("J")],

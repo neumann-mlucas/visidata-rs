@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 64;
+const MIN_PASS: usize = 65;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -450,6 +450,30 @@ impl Replay {
                 }
                 return Some(Ok(()));
             }
+            "sort-asc" | "sort-desc" => {
+                // VisiData: the source's columns take the sorted row order
+                let order = if r.longname == "sort-asc" {
+                    SortOrder::Asc
+                } else {
+                    SortOrder::Desc
+                };
+                if let Err(e) = self.push_sort(&r.col, order, false) {
+                    return Some(Err(e));
+                }
+                let rids = match self.loaded[slot].sheet.view_order_rids() {
+                    Ok(rids) => rids,
+                    Err(e) => return Some(Err(rt(e))),
+                };
+                for (id, c) in rids.iter().filter_map(|&i| cols.get(i as usize).cloned()) {
+                    if let Some(t) = self.loaded.iter_mut().find(|l| l.sheet.id == id)
+                        && !t.sheet.view.keys.contains(&c)
+                    {
+                        t.sheet.view.order.retain(|o| *o != c);
+                        t.sheet.view.order.push(c);
+                    }
+                }
+                return Some(Ok(()));
+            }
             "select-rows" => {
                 self.loaded[slot].sheet.view.selected = Arc::new((0..cols.len() as u64).collect());
                 return Some(Ok(()));
@@ -791,6 +815,16 @@ impl Replay {
                 s.add_aggregators(&r.col, &r.input).map_err(Runtime)
             }
             // S-32: VisiData starts from its `{:.2f}`
+            "slide-left" | "slide-right" | "slide-leftmost" | "slide-rightmost" => {
+                let by = match r.longname.as_str() {
+                    "slide-left" => -1,
+                    "slide-right" => 1,
+                    "slide-leftmost" => i64::MIN,
+                    _ => i64::MAX,
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.slide_col(&r.col, by).map(|_| ()).map_err(Runtime)
+            }
             "setcol-precision-more" | "setcol-precision-less" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 let delta = if r.longname.ends_with("more") { 1 } else { -1 };
@@ -1117,10 +1151,9 @@ impl Replay {
                 }
                 Ok(())
             }
-            // Slide operations are column/row reorder cosmetic to the data model;
-            // our serializer uses key-col ordering + schema order, not slide pos.
-            "slide-left" | "slide-right" | "slide-up" | "slide-down" => Ok(()),
-            "slide-leftmost" | "slide-rightmost" | "slide-top" | "slide-bottom" => Ok(()),
+            // Row slides only move rows in VisiData's in-memory list; the
+            // serializer writes sort order, so they don't change the output.
+            "slide-up" | "slide-down" | "slide-top" | "slide-bottom" => Ok(()),
             // reload-sheet / reload-selected: data on disk is unchanged in replay.
             "reload-sheet" | "reload-selected" => Ok(()),
             other => Err(MissingLongname(other.to_string())),

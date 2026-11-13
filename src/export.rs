@@ -2036,7 +2036,7 @@ fn py_dtype(dt: &DataType) -> &'static str {
 /// The projection `view_plan` applies, or None when it's "all columns, as is".
 fn visible_columns(sheet: &Sheet) -> Result<Option<Vec<String>>, String> {
     let v = &sheet.view;
-    if v.hidden.is_empty() && v.keys.is_empty() {
+    if v.hidden.is_empty() && v.keys.is_empty() && v.order.is_empty() {
         return Ok(None);
     }
     let schema = sheet

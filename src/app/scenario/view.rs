@@ -501,3 +501,52 @@ async fn mouse_clicks_and_wheel_move_the_cursor() {
     assert!(p.mouse());
     assert!(crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "yes")"#).is_err());
 }
+
+/// `H` `L` `gH` `gL` `zH` slide columns within their section (S-34); `U`
+/// undoes a slide; `:order` and a session keep the order.
+#[tokio::test(flavor = "multi_thread")]
+async fn slides_reorder_columns_within_their_section() {
+    let header = |h: &Harness| view_csv(h).lines().next().unwrap().to_string();
+    let mut h = csv(b"a,b,c,d\n1,2,3,4\n").await;
+    h.keys("l H").await;
+    assert_eq!(header(&h), "b,a,c,d");
+    assert_eq!(h.current_column(), "b");
+    h.keys("g L").await;
+    assert_eq!(header(&h), "a,c,d,b");
+    assert_eq!(h.current_column(), "b");
+    h.keys("L").await; // at the end: no move, no undo step
+    h.keys("U").await;
+    assert_eq!(header(&h), "b,a,c,d");
+    // a key column stays among the keys; others can't pass them
+    h.keys("g h l l !").await; // key `c`
+    assert_eq!(header(&h), "c,b,a,d");
+    h.keys("g l g H").await;
+    assert_eq!(header(&h), "c,d,b,a");
+    assert_eq!(h.current_column(), "d");
+    h.keys("g l z H").await;
+    h.type_("2").await;
+    assert_eq!(header(&h), "c,a,d,b");
+    h.keys(":").await;
+    h.type_("order d a").await;
+    assert_eq!(header(&h), "c,d,a,b");
+    let s = h.app.sheets.active();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(script.contains("\norder d a b\n"), "{script}");
+    assert_eq!(s.view.order, ["d", "a", "b"]);
+}
+
+/// `[` on a columns sheet reorders its sheet's columns, as VisiData; `U` on
+/// the sheet undoes it (S-34 A4).
+#[tokio::test(flavor = "multi_thread")]
+async fn sorting_the_columns_sheet_reorders_the_sheet() {
+    let header = |h: &Harness| view_csv(h).lines().next().unwrap().to_string();
+    let mut h = csv(b"zeta,alpha,mid\n1,2,3\n").await;
+    h.keys("C [").await;
+    h.keys("q").await;
+    assert_eq!(header(&h), "alpha,mid,zeta");
+    h.keys("U").await;
+    assert_eq!(header(&h), "zeta,alpha,mid");
+}

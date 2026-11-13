@@ -129,7 +129,7 @@ impl Sheet {
 
     /// A copy of `parent`'s rows (`"`, `g"`, `g'`, dedupe, freq dive) keeps
     /// its column attributes: types, aggregators, `:color` and `:scale`
-    /// rules, for the columns it still has (S-31 C).
+    /// rules, column order (S-34), for the columns it still has (S-31 C).
     pub(super) fn inherit_attrs(mut self, parent: &Sheet) -> Self {
         let have: std::collections::HashSet<String> = self
             .plan
@@ -161,6 +161,7 @@ impl Sheet {
             .filter(|(c, _)| has(c))
             .cloned()
             .collect();
+        v.order = p.order.iter().filter(|c| has(c)).cloned().collect();
         v.scales = p
             .scales
             .iter()
@@ -218,7 +219,7 @@ impl Sheet {
     }
 
     /// Row ids of the filtered, sorted view, in order.
-    fn view_order_rids(&self) -> Result<Vec<u64>, String> {
+    pub fn view_order_rids(&self) -> Result<Vec<u64>, String> {
         let df = self.sorted_plan(true).select([col(ROW_ID)]).collect();
         rid_values(&df.map_err(|e| e.to_string())?).map_err(|e| e.to_string())
     }

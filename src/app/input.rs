@@ -394,6 +394,13 @@ impl App {
             Prompt::MacroKey => self.finish_macro(&text),
             Prompt::Note => self.dispatch_sequence(vec![Action::SetNote { text }]),
             Prompt::AddCol => self.dispatch_sequence(vec![Action::AddCol { name: text }]),
+            Prompt::Slide { left } => match text.trim().parse::<i64>() {
+                Ok(n) if n > 0 => {
+                    let by = if left { -n } else { n };
+                    self.dispatch_sequence(vec![Action::SlideCol { by }]);
+                }
+                _ => self.toast = Some(format!("slide: not a count: {text}")),
+            },
             // VisiData's `regex_flags` default `I`, as the `*` prompt
             Prompt::Capture => self.dispatch_sequence(vec![Action::Capture {
                 pattern: format!("(?i){text}"),

@@ -67,6 +67,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `HideCol` / `UnhideAll` | `-` / `gv` | `:hide` / `:unhide` | View.hidden set |
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
+| `SlideCol { by }` / `StartSlideInput { left }` / `Order { columns }` | `H` `L` / `gH` `gL` / `zH` `zL` | `:order a b c` | `View.order`: non-key columns placed first in that order (keys stay first; slides stay inside their section); `[` `]` on the columns sheet writes its row order back; sessions save `order` (S-34) |
 | `StartRenameColInput` → `RenameCol { new_name }` | `^` | `:rename NEW` | plan.rename() + updates hidden/keys/casts/filter/sort refs; refuses an existing name |
 | `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
 | `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |

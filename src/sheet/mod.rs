@@ -393,6 +393,9 @@ pub struct View {
     pub aggregators: Vec<(String, String)>,
     /// `Alt++` / `Alt+-`, `:precision` (S-32): decimals a float column shows.
     pub precision: Vec<(String, u8)>,
+    /// `H` `L` `gH` `gL`, `:order` (S-34): non-key columns in display order;
+    /// columns not named here follow in plan order.
+    pub order: Vec<String>,
     /// Row count of the filtered view; `None` while counting or after a failed count.
     total_rows: Option<u64>,
     /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
@@ -449,6 +452,7 @@ impl Default for View {
             type_casts: Vec::new(),
             aggregators: Vec::new(),
             precision: Vec::new(),
+            order: Vec::new(),
             total_rows: None,
             count_key: None,
             jump_bottom: false,
@@ -779,16 +783,20 @@ impl Sheet {
                 lf = lf.with_column(e.alias(format!("{FMT_PREFIX}{i}")));
             }
         }
-        // Visible-column projection: keys first (in key-col order), then schema
-        // order for the rest; drop hidden. Skipped when nothing to project.
-        if (!self.view.hidden.is_empty() || !self.view.keys.is_empty())
+        // Visible-column projection: keys first (in key-col order), then
+        // `order` (S-34), then schema order for the rest; drop hidden.
+        // Skipped when nothing to project.
+        if (!self.view.hidden.is_empty()
+            || !self.view.keys.is_empty()
+            || !self.view.order.is_empty())
             && let Ok(schema) = lf.clone().collect_schema()
         {
             let mut all: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
             all.retain(|n| n != ROW_ID);
             let mut order: Vec<String> = Vec::with_capacity(all.len());
-            for k in &self.view.keys {
-                if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) {
+            for k in self.view.keys.iter().chain(&self.view.order) {
+                if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) && !order.contains(k)
+                {
                     order.push(k.clone());
                 }
             }
@@ -967,6 +975,58 @@ impl Sheet {
 
     /// `^` / `:rename`: a `Rename` step, and the view follows the column
     /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
+    /// `H` `L` `gH` `gL` (S-34): move `column` `by` places among the shown
+    /// columns of its section (keys, or the rest), clamped at the ends. Its
+    /// new index among the shown columns; `None`: it didn't move.
+    pub fn slide_col(&mut self, column: &str, by: i64) -> Result<Option<usize>, String> {
+        let names: Vec<String> = self
+            .sorted_plan(false)
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect();
+        let v = &mut self.view;
+        let shown = |c: &String| !v.hidden.contains(c) && names.contains(c);
+        let keys: Vec<String> = v.keys.iter().filter(|c| shown(c)).cloned().collect();
+        let is_key = keys.iter().any(|k| k == column);
+        // the section in display order, hidden columns kept in place
+        let mut all: Vec<String> = if is_key {
+            v.keys.clone()
+        } else {
+            let mut all: Vec<String> = Vec::new();
+            for c in v.order.iter().chain(&names) {
+                if names.contains(c) && !v.keys.contains(c) && !all.contains(c) {
+                    all.push(c.clone());
+                }
+            }
+            all
+        };
+        let vis: Vec<String> = all.iter().filter(|c| shown(c)).cloned().collect();
+        let Some(from) = vis.iter().position(|c| c == column) else {
+            return Err(format!("no column: {column}"));
+        };
+        let to = (from as i64)
+            .saturating_add(by)
+            .clamp(0, vis.len() as i64 - 1) as usize;
+        if to == from {
+            return Ok(None);
+        }
+        let target = vis[to].clone();
+        all.retain(|c| c != column);
+        let at = all.iter().position(|c| *c == target).unwrap_or(0) + usize::from(to > from);
+        all.insert(at, column.to_string());
+        let base = if is_key {
+            v.keys = all;
+            0
+        } else {
+            v.order = all;
+            keys.len()
+        };
+        self.state.widths_key = None;
+        Ok(Some(base + to))
+    }
+
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
         if new == ROW_ID {
             return Err(format!("{ROW_ID} is reserved"));
@@ -1001,7 +1061,8 @@ impl Sheet {
             .iter_mut()
             .chain(v.type_casts.iter_mut().map(|(c, _)| c))
             .chain(v.aggregators.iter_mut().map(|(c, _)| c))
-            .chain(v.precision.iter_mut().map(|(c, _)| c));
+            .chain(v.precision.iter_mut().map(|(c, _)| c))
+            .chain(v.order.iter_mut());
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
             .chain(v.sort.iter_mut().map(|k| &mut k.column))

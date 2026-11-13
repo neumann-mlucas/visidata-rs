@@ -3,7 +3,7 @@
 //! One block per sheet, bottom first. A file sheet starts with `open`; a sheet
 //! derived from the one below it starts with the command that derived it, run
 //! on that sheet. Then its edits (plan steps), then its view: casts,
-//! aggregators, filters, sort, hidden and key columns, frozen columns,
+//! aggregators, filters, sort, hidden and key columns, column order, frozen columns,
 //! selection, cursor. What has no ex form is a `#` comment saying so.
 
 use std::path::{Path, PathBuf};
@@ -118,6 +118,7 @@ fn same_state(then: &Sheet, now: &Sheet) -> bool {
         && a.type_casts == b.type_casts
         && a.hidden == b.hidden
         && a.keys == b.keys
+        && a.order == b.order
 }
 
 /// A freq dive (`<CR>` on a frequency row) whose freq sheet is `below`.
@@ -442,6 +443,11 @@ impl Block {
         for k in &v.keys {
             self.col(k);
             self.ex(Action::KeyCol);
+        }
+        if !v.order.is_empty() {
+            self.ex(Action::Order {
+                columns: v.order.clone(),
+            });
         }
         for h in &v.hidden {
             self.ex(Action::HideNamed { column: h.clone() });

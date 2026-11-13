@@ -47,6 +47,17 @@ impl App {
                 self.columns_start_edit();
                 return true;
             }
+            // VisiData: the columns sheet's rows are its sheet's columns, so
+            // sorting them reorders the sheet (S-34 A4)
+            Action::SortAsc | Action::SortDesc => {
+                let order = match action {
+                    Action::SortAsc => SortOrder::Asc,
+                    _ => SortOrder::Desc,
+                };
+                self.sort_current_column(order);
+                self.columns_reorder();
+                return true;
+            }
             Action::EditCell { value } => {
                 let value = value.clone();
                 self.columns_edit(&value, false);
@@ -165,6 +176,33 @@ impl App {
             s.state.stale = true;
         }
         self.rebuild_columns(renamed);
+    }
+
+    /// The columns sheet's rows in view order become its sheets' column order,
+    /// one undo step per sheet; key columns keep their place.
+    fn columns_reorder(&mut self) {
+        let s = self.sheets.active();
+        let Origin::Columns { cols } = &s.origin else {
+            return;
+        };
+        let targets: Vec<(SheetId, String)> = match s.view_order_rids() {
+            Ok(rids) => rids
+                .iter()
+                .filter_map(|r| cols.get(*r as usize).cloned())
+                .collect(),
+            Err(e) => {
+                self.toast = Some(e);
+                return;
+            }
+        };
+        self.columns_write(targets, None, |s, c| {
+            if !s.view.keys.iter().any(|k| k == c) {
+                s.view.order.retain(|o| o != c);
+                s.view.order.push(c.to_string());
+                s.state.widths_key = None;
+            }
+            Ok(())
+        });
     }
 
     /// `U` / `R` on a columns sheet: on the sheet of the cursor row (`gC`

@@ -414,6 +414,20 @@ pub enum Action {
     SetPrecision {
         digits: Option<u8>,
     },
+    /// `H` `L` `gH` `gL` (S-34): move the current column `by` places in its
+    /// section; `i64::MIN` / `MAX`: to its first / last place.
+    SlideCol {
+        by: i64,
+    },
+    /// `zH` / `zL`: prompt for how many places to slide.
+    StartSlideInput {
+        left: bool,
+    },
+    /// `:order col…` (S-34): these columns first, in this order; the rest
+    /// follow as they are.
+    Order {
+        columns: Vec<String>,
+    },
     /// `:capture <regex>`: a struct column `<col>_re` of the groups.
     Capture {
         pattern: String,
@@ -707,6 +721,8 @@ impl Action {
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } => false,
+            SlideCol { .. } | Order { .. } => true,
+            StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
@@ -969,6 +985,12 @@ impl Action {
         ("start_capture_input", StartCaptureInput),
         ("precision_more", PrecisionMore),
         ("precision_less", PrecisionLess),
+        ("slide_left", SlideCol { by: -1 }),
+        ("slide_right", SlideCol { by: 1 }),
+        ("slide_leftmost", SlideCol { by: i64::MIN }),
+        ("slide_rightmost", SlideCol { by: i64::MAX }),
+        ("start_slide_left_input", StartSlideInput { left: true }),
+        ("start_slide_right_input", StartSlideInput { left: false }),
         ("notes", Notes),
         ("link", Link { on: true }),
         ("unlink", Link { on: false }),
@@ -995,6 +1017,9 @@ impl Action {
             Action::CursorLeft { .. } => Action::CursorLeft { count },
             Action::CursorRight { .. } => Action::CursorRight { count },
             Action::Operator { op, .. } => Action::Operator { op, count },
+            Action::SlideCol { by: b @ (-1 | 1) } => Action::SlideCol {
+                by: b * count.map_or(1, |n| n as i64),
+            },
             other => other,
         }
     }
@@ -1111,6 +1136,11 @@ impl Action {
             Capture { pattern } => format!("capture {pattern}"),
             SetPrecision { digits: Some(d) } => format!("precision {d}"),
             SetPrecision { digits: None } => "precision".into(),
+            SlideCol { by } if *by < 0 => format!("slide_left {}", by.unsigned_abs()),
+            SlideCol { by } => format!("slide_right {by}"),
+            Order { columns } => columns
+                .iter()
+                .fold("order".to_string(), |s, c| s + " " + &q(c)),
             Substitute {
                 pattern,
                 replacement,

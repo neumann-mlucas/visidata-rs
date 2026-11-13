@@ -355,6 +355,10 @@ enum Prompt {
     Note,
     /// `za` (S-31).
     AddCol,
+    /// `zH` / `zL` (S-34): how many places to slide.
+    Slide {
+        left: bool,
+    },
     /// `;` (S-31).
     Capture,
     /// `*` `g*` `gz*` (S-28): `search/replace`.
@@ -453,6 +457,8 @@ impl Prompt {
             Prompt::Subst { .. } => "search/replace: ",
             Prompt::Note => "note (empty deletes): ",
             Prompt::AddCol => "column name: ",
+            Prompt::Slide { left: true } => "slide col left n=",
+            Prompt::Slide { left: false } => "slide col right n=",
             Prompt::Capture => "capture regex: ",
         }
     }
@@ -941,11 +947,16 @@ impl App {
             Action::CursorRight { count } => v.step(n(count), 0.0),
             Action::CursorUp { count } => v.step(0.0, n(count)),
             Action::CursorDown { count } => v.step(0.0, -n(count)),
-            Action::PlotResize { wider, taller } => {
+            Action::PlotResize { .. } | Action::SlideCol { by: -1 | 1 } => {
+                let (wider, taller) = match a {
+                    Action::PlotResize { wider, taller } => (*wider, *taller),
+                    Action::SlideCol { by } => (*by as i8, 0), // H L, as VisiData's canvas
+                    _ => return false,
+                };
                 let (cw, ch) = ((v.x[1] - v.x[0]) / cols, (v.y[1] - v.y[0]) / rows);
                 let c = &mut v.cursor;
-                c[2] = (c[2] + f64::from(*wider) * cw).max(cw);
-                c[3] = (c[3] + f64::from(*taller) * ch).max(ch);
+                c[2] = (c[2] + f64::from(wider) * cw).max(cw);
+                c[3] = (c[3] + f64::from(taller) * ch).max(ch);
             }
             Action::StartAggregateInput { .. } => {
                 v.zoom(0.5);
