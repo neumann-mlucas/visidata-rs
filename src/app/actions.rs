@@ -1023,6 +1023,13 @@ impl App {
                     Err(e) => e,
                 });
             }
+            Action::SetFmtstr { fmt } => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let s = self.sheets.active_mut();
+                self.toast = Some(s.set_fmtstr(&column, &fmt).unwrap_or_else(|e| e));
+            }
             Action::Derive { name, expr } => {
                 let at = self.current_column_name();
                 let s = self.sheets.active_mut();
@@ -1776,15 +1783,16 @@ impl App {
                 .iter()
                 .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
                 .collect();
-            let child = match ranges {
-                Some(r) => {
-                    let labels: Vec<Option<String>> = picked
-                        .iter()
-                        .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(v)))
-                        .collect();
-                    Sheet::rows_in_bins(&parent, id, &column, r, &labels)?
-                }
-                None => Sheet::rows_with_values(&parent, id, &column, &picked),
+            let texts = || -> Vec<Option<String>> {
+                picked
+                    .iter()
+                    .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(v)))
+                    .collect()
+            };
+            let child = match (ranges, parent.date_fmt(&column)) {
+                (Some(r), _) => Sheet::rows_in_bins(&parent, id, &column, r, &texts())?,
+                (None, Some(f)) => Sheet::rows_formatted(&parent, id, &column, f, &texts())?,
+                (None, None) => Sheet::rows_with_values(&parent, id, &column, &picked),
             };
             Ok(JobDone::PushSheet(Box::new(child)))
         });

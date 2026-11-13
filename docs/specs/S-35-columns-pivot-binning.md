@@ -1,6 +1,6 @@
 # S-35 — New columns at the cursor, `W` with aggregators, numeric binning and `fmtstr`
 
-Status: **A, B, C1 shipped 2026-11-13**. C2 (`fmtstr`) needs agreement first.
+Status: **shipped 2026-11-13** (A, B, C1, C2; C2 agreed 2026-11-13).
 Depends on: S-34 (`View.order`), S-25 P4 (aggregators), S-31 (column builders).
 
 Replay cases: A `capture-col-named`, `pr2855` (`pr2614` stays quarantined, see A3); B `pivot`;
@@ -65,7 +65,7 @@ As built:
 - Tests: golden `pivot-aggregators`, `pivot-aggregators-cols` (both export round trips), unit
   `pivot_with_aggregators_names_and_fills`, replay `pivot`.
 
-## C. Freq groups (C1 shipped, C2 planned)
+## C. Freq groups (shipped)
 
 - C1. **`numeric_binning`** (VisiData option, default off) with **`histogram_bins`** (default 0):
   - Bins: `F` on a numeric column bins it into `nbins = histogram_bins or ⌊√rows⌋` equal ranges
@@ -88,10 +88,24 @@ As built:
   - Tests: golden `freq-binned`, `freq-binned-dive` (a case `init.lua`, export round trips), unit
     `numeric_bins_pick_ranges_or_values`, scenario `binned_freq_counts_ranges_and_dives`, replay
     `numeric_binning`.
-- C2. **`fmtstr` (to agree):** a column format string, VisiData's `fmtstr` attribute.
+- C2. **`fmtstr`** (agreed 2026-11-13): a column format string, VisiData's `fmtstr` attribute.
   - Where to set it: the columns sheet's `fmtstr` column, plus `:fmtstr <fmt>` so sessions can
     write it back.
   - Proposed scope: date and datetime columns (strftime codes: `%Y-%m`, `%b %d`, …) and C-style
     float precision (`%.2f`, `{:.2f}` → S-32 precision).
   - Effects: it changes the display and freq's grouping. Freq groups by the formatted text, so
     `%Y-%m` counts months. Export: `dt.strftime` / DuckDB `strftime` in the group-by.
+- C2 as built:
+  - `View.date_fmts` (column, format) beside `View.precision`. `Sheet::set_fmtstr` routes a float
+    column's `%.Nf` to precision and a date or datetime column's format to `date_fmts`; empty
+    clears either; other types refuse. A format is checked by formatting one value, so `%Q` is
+    refused when set, not at draw time.
+  - Display: `widget::cell_fmt` → `sheet::strftime_text`, Polars' own `strftime`, so the cell
+    text, the freq groups and the Python export agree. Data, `:save` and copies keep the dates.
+  - `F` groups by `dt.strftime(fmt)`; the freq column is text. The dive matches rows by the
+    same expression (`Sheet::rows_formatted`, by rid, as the binned dive).
+  - `:fmtstr [fmt]` on the cursor column; sessions write it after the type casts.
+  - DuckDB's `strftime` codes are C's, chrono's mostly the same (`%Y %m %d %b %H %M %S`); a
+    chrono-only code (`%.3f`, `%:z`) can differ in the SQL export.
+  - Tests: golden `freq-fmtstr`, `freq-fmtstr-dive`, `fmtstr-date`; scenario
+    `date_fmtstr_shows_groups_and_dives`; replay `freq-fmtstr`.

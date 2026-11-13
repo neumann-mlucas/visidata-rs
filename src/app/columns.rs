@@ -331,11 +331,7 @@ impl App {
                 s.edit_cell(c, rid, &text)
             }
             "aggregators" => s.set_aggregators(c, &text),
-            "fmtstr" => match (text.as_str(), crate::plugins::float_fmt_digits(&text)) {
-                ("", _) => s.set_precision(c, None, 0, 2).map(|_| ()),
-                (_, Some(d)) => s.set_precision(c, Some(d), 0, 2).map(|_| ()),
-                _ => Err(format!("fmtstr: {text:?} isn't %.Nf or {{:.Nf}}")),
-            },
+            "fmtstr" => s.set_fmtstr(c, &text).map(|_| ()),
             other => Err(format!("{other}: not editable here")),
         });
     }

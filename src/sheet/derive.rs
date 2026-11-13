@@ -22,8 +22,13 @@ impl Sheet {
             .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
             .collect();
         let base = parent.view_plan();
+        // a date `fmtstr` groups by the text it shows (S-35 C2)
+        let key = match parent.date_fmt(col_name) {
+            Some(f) => col(col_name).dt().strftime(f).alias(col_name),
+            None => col(col_name),
+        };
         let grouped = match &bins {
-            None => base.group_by_stable([col(col_name)]).agg(exprs),
+            None => base.group_by_stable([key]).agg(exprs),
             Some(Binning::Values) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
                 [col_name],
                 SortMultipleOptions::default()
@@ -299,34 +304,63 @@ impl Sheet {
         (min, width, n): (f64, f64, usize),
         labels: &[Option<String>],
     ) -> Result<Self, String> {
-        const B: &str = "__vdrs_bin";
         let all = Binning::labels(min, width, n);
-        let picked: Vec<Option<i64>> = labels
+        let picked: Vec<Option<String>> = labels
             .iter()
             .map(|l| {
                 l.as_ref()
                     .and_then(|l| all.iter().position(|a| a == l))
-                    .map(|i| i as i64)
+                    .map(|i| i.to_string())
             })
-            .collect();
-        let mut df = parent
-            .view_plan_rid(true)
-            .with_column(Binning::index(min, width, n, column).alias(B))
-            .collect()
-            .map_err(|e| e.to_string())?;
-        let bins = df.drop_in_place(B).map_err(|e| e.to_string())?;
-        let bins = bins.i64().map_err(|e| e.to_string())?;
-        let rids = rid_values(&df).map_err(|e| e.to_string())?;
-        let keep = rids
-            .iter()
-            .zip(bins.iter())
-            .filter(|(_, b)| picked.contains(b))
-            .map(|(r, _)| *r)
             .collect();
         let name = match labels {
             [Some(one)] => format!("{column} in {one}: {}", parent.name),
             many => format!("{column} in {} bins: {}", many.len(), parent.name),
         };
+        let key = Binning::index(min, width, n, column);
+        Self::rows_keyed(parent, id, key, &picked, name)
+    }
+
+    /// Freq dive on a date `fmtstr` freq row (S-35 C2): `parent`'s rows whose
+    /// `column` reads one of `texts` in `fmt`.
+    pub fn rows_formatted(
+        parent: &Sheet,
+        id: SheetId,
+        column: &str,
+        fmt: &str,
+        texts: &[Option<String>],
+    ) -> Result<Self, String> {
+        let name = match texts {
+            [Some(one)] => format!("{column}={one}: {}", parent.name),
+            many => format!("{column} in {} values: {}", many.len(), parent.name),
+        };
+        let key = col(column).dt().strftime(fmt);
+        Self::rows_keyed(parent, id, key, texts, name)
+    }
+
+    /// `parent`'s rows whose `key` (as text) is one of `picked`, kept by rid.
+    fn rows_keyed(
+        parent: &Sheet,
+        id: SheetId,
+        key: Expr,
+        picked: &[Option<String>],
+        name: String,
+    ) -> Result<Self, String> {
+        const K: &str = "__vdrs_key";
+        let mut df = parent
+            .view_plan_rid(true)
+            .with_column(key.cast(DataType::String).alias(K))
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let keys = df.drop_in_place(K).map_err(|e| e.to_string())?;
+        let keys = keys.str().map_err(|e| e.to_string())?;
+        let rids = rid_values(&df).map_err(|e| e.to_string())?;
+        let keep = rids
+            .iter()
+            .zip(keys.iter())
+            .filter(|(_, k)| picked.iter().any(|p| p.as_deref() == *k))
+            .map(|(r, _)| *r)
+            .collect();
         Self::rows_from(parent, id, df, &keep, name)
     }
 

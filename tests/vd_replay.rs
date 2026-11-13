@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 69;
+const MIN_PASS: usize = 70;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -503,7 +503,12 @@ impl Replay {
                 }
                 (rows, "aggregate")
             }
-            "edit-cell" if matches!(r.col.as_str(), "name" | "width" | "type" | "aggregators") => {
+            "edit-cell"
+                if matches!(
+                    r.col.as_str(),
+                    "name" | "width" | "type" | "aggregators" | "fmtstr"
+                ) =>
+            {
                 (vec![row(&r.row).ok()?], "edit")
             }
             "setcol-input" if matches!(r.col.as_str(), "width" | "type") => (selected(), "edit"),
@@ -531,6 +536,7 @@ impl Replay {
                 }
                 ("aggregate", _) => s.add_aggregators(&c, &r.input),
                 ("edit", "aggregators") => s.set_aggregators(&c, &r.input),
+                ("edit", "fmtstr") => s.set_fmtstr(&c, &r.input).map(|_| ()),
                 ("edit", "name") => s.rename_col(&c, &r.input),
                 ("edit", "width") if r.input.trim() == "0" => {
                     s.view.hidden.insert(c);

@@ -406,6 +406,10 @@ impl Block {
             self.col(column);
             self.ex(Action::SetPrecision { digits: Some(*d) });
         }
+        for (column, fmt) in &v.date_fmts {
+            self.col(column);
+            self.ex(Action::SetFmtstr { fmt: fmt.clone() });
+        }
         if let Some(f) = &v.filter {
             self.ex(Action::SetFilter {
                 column: f.column.clone(),

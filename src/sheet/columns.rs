@@ -237,7 +237,8 @@ impl Sheet {
                         .iter()
                         .rev()
                         .find(|(c, _)| *c == n)
-                        .map(|(_, d)| format!("%.{d}f")),
+                        .map(|(_, d)| format!("%.{d}f"))
+                        .or_else(|| s.date_fmt(&n).map(String::from)),
                 );
                 values.push(at.and_then(|i| {
                     let c = &s.window()?.columns()[i];

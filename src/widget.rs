@@ -50,11 +50,11 @@ impl<'a> SheetWidget<'a> {
     const WIDTH_ROWS: usize = 256;
 
     /// Column widths from rows spread evenly through the window; `digits`
-    /// gives each column's float decimals (S-32).
-    fn col_widths(
+    /// gives each column's format ([`cell_fmt`]).
+    fn col_widths<'f>(
         df: &DataFrame,
         render: Option<CellRenderer>,
-        digits: &dyn Fn(&str) -> Option<u8>,
+        digits: &dyn Fn(&str) -> CellFmt<'f>,
     ) -> Vec<u16> {
         let step = (df.height() / Self::WIDTH_ROWS).max(1);
         let rows = (0..df.height()).step_by(step);
@@ -121,7 +121,7 @@ impl SheetWidget<'_> {
         let widths: &[u16] = if self.sheet.state.widths.len() == cols.len() {
             &self.sheet.state.widths
         } else {
-            measured = Self::col_widths(df, self.render, &|c| float_digits(view, self.theme, c));
+            measured = Self::col_widths(df, self.render, &|c| cell_fmt(view, self.theme, c));
             &measured
         };
         if cols.is_empty() {
@@ -297,7 +297,7 @@ impl SheetWidget<'_> {
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
                 let (mut text, dtype_hint) =
-                    display_cell(&av, float_digits(view, self.theme, cols[ci].name()));
+                    display_cell(&av, cell_fmt(view, self.theme, cols[ci].name()));
                 let custom = self
                     .render
                     .and_then(|r| r(cols[ci].name(), cols[ci].dtype(), &av))
@@ -538,11 +538,40 @@ pub fn float_digits(view: &View, theme: &Theme, column: &str) -> Option<u8> {
         .or(theme.float_digits)
 }
 
-/// A cell's text: floats at `digits` decimals when given (S-32).
-fn display_cell(av: &AnyValue, digits: Option<u8>) -> (String, DtypeHint) {
-    match (av, digits) {
-        (AnyValue::Float64(f), Some(d)) => (format!("{f:.*}", d as usize), DtypeHint::Numeric),
-        (AnyValue::Float32(f), Some(d)) => (format!("{f:.*}", d as usize), DtypeHint::Numeric),
+/// How a column's cells read: as typed, floats at N decimals (S-32), or
+/// dates in a strftime format (S-35 C2).
+#[derive(Clone, Copy)]
+pub enum CellFmt<'a> {
+    Plain,
+    Digits(u8),
+    Strftime(&'a str),
+}
+
+/// [`float_digits`], else the column's date `fmtstr`.
+pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &str) -> CellFmt<'a> {
+    let date = view.date_fmts.iter().rev().find(|(c, _)| c == column);
+    match (float_digits(view, theme, column), date) {
+        (_, Some((_, f))) => CellFmt::Strftime(f),
+        (Some(d), None) => CellFmt::Digits(d),
+        (None, None) => CellFmt::Plain,
+    }
+}
+
+/// A cell's text in `fmt`.
+fn display_cell(av: &AnyValue, fmt: CellFmt) -> (String, DtypeHint) {
+    match (av, fmt) {
+        (AnyValue::Float64(f), CellFmt::Digits(d)) => {
+            (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+        }
+        (AnyValue::Float32(f), CellFmt::Digits(d)) => {
+            (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+        }
+        (AnyValue::Date(_) | AnyValue::Datetime(..), CellFmt::Strftime(f)) => {
+            match crate::sheet::strftime_text(av, f) {
+                Some(t) => (printable(&t), DtypeHint::Date),
+                None => display_av_with_hint(av),
+            }
+        }
         _ => display_av_with_hint(av),
     }
 }
@@ -662,7 +691,7 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>, theme: &Theme
         return;
     }
     let view = &s.view;
-    let mut widths = SheetWidget::col_widths(df, render, &|c| float_digits(view, theme, c));
+    let mut widths = SheetWidget::col_widths(df, render, &|c| cell_fmt(view, theme, c));
     let view = format!("{}|{:?}", s.view_key(), df.get_column_names());
     if view == s.state.widths_view {
         for (w, old) in widths.iter_mut().zip(&s.state.widths) {

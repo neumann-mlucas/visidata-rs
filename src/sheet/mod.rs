@@ -430,6 +430,9 @@ pub struct View {
     pub aggregators: Vec<(String, String)>,
     /// `Alt++` / `Alt+-`, `:precision` (S-32): decimals a float column shows.
     pub precision: Vec<(String, u8)>,
+    /// `fmtstr` on a date or datetime column (S-35 C2): its strftime format,
+    /// for display and `F` groups.
+    pub date_fmts: Vec<(String, String)>,
     /// `H` `L` `gH` `gL`, `:order` (S-34): non-key columns in display order;
     /// columns not named here follow in plan order.
     pub order: Vec<String>,
@@ -492,6 +495,7 @@ impl Default for View {
             type_casts: Vec::new(),
             aggregators: Vec::new(),
             precision: Vec::new(),
+            date_fmts: Vec::new(),
             order: Vec::new(),
             colname_ctr: 0,
             total_rows: None,
@@ -1181,6 +1185,7 @@ impl Sheet {
             .chain(v.type_casts.iter_mut().map(|(c, _)| c))
             .chain(v.aggregators.iter_mut().map(|(c, _)| c))
             .chain(v.precision.iter_mut().map(|(c, _)| c))
+            .chain(v.date_fmts.iter_mut().map(|(c, _)| c))
             .chain(v.order.iter_mut());
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
@@ -1322,6 +1327,14 @@ pub fn err_col(column: &str) -> String {
 
 /// VisiData leaves a numeric (or date) freq table in first-seen order and
 /// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
+impl Sheet {
+    /// `column`'s strftime `fmtstr`, if set (S-35 C2).
+    pub fn date_fmt(&self, column: &str) -> Option<&str> {
+        let f = self.view.date_fmts.iter().rev().find(|(c, _)| c == column);
+        f.map(|(_, f)| f.as_str())
+    }
+}
+
 pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
     parent
         .view_plan()
@@ -1349,6 +1362,18 @@ pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
 
 /// A value as `cast(String)` prints it: the text `values_predicate` compares.
 /// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
+/// A date or datetime value in strftime `fmt`, as Polars' `dt.strftime`
+/// writes it (S-35 C2). `None` for other values or a format that fails.
+pub fn strftime_text(av: &AnyValue, fmt: &str) -> Option<String> {
+    let s = Series::from_any_values("".into(), std::slice::from_ref(av), true).ok()?;
+    let out = match s.dtype() {
+        DataType::Date => s.date().ok()?.strftime(fmt),
+        DataType::Datetime(..) => s.datetime().ok()?.strftime(fmt),
+        _ => return None,
+    };
+    out.ok()?.get(0).map(str::to_string)
+}
+
 pub fn any_text(v: &AnyValue) -> String {
     let cast = Series::from_any_values("v".into(), std::slice::from_ref(v), true)
         .and_then(|s| s.cast(&DataType::String));

@@ -1,0 +1,12 @@
+ freq(d): tests/golden/freq-fmtstr/input.csv  csv · sheets 2                   d 1/4  row 1/4 · 25%
+d str    count u  percent f histogram str
+2024-01        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+2024-02        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+·              1      16.67 ■■■■■■■■■■■■■■■■■■■
+2024-03        1      16.67 ■■■■■■■■■■■■■■■■■■■
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

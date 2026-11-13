@@ -408,6 +408,24 @@ impl Script {
         let errs = matches!(l.how, Derivation::Describe);
         let p = self.view_with(&l.parent, rid, errs)?;
         let py = self.lang == Lang::Py;
+        // a date `fmtstr` groups freq by the text it shows (S-35 C2)
+        let fmt = match &l.how {
+            Derivation::Freq { column, .. } => l.parent.date_fmt(column).map(|f| (column, f)),
+            _ => None,
+        };
+        let p = match fmt {
+            Some((c, f)) if py => format!(
+                "{p}.with_columns(pl.col({c}).dt.strftime({f}))",
+                c = py_str(c),
+                f = py_str(f)
+            ),
+            Some((c, f)) => format!(
+                "(SELECT * REPLACE (strftime({c}, {f}) AS {c}) FROM {p})",
+                c = q_ident(c),
+                f = q_str(f)
+            ),
+            None => p,
+        };
         Ok(match &l.how {
             Derivation::Copy if py => p,
             Derivation::Copy => format!("SELECT * FROM {p}"),

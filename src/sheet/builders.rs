@@ -181,6 +181,12 @@ impl Sheet {
             .filter(|(c, _)| has(c))
             .cloned()
             .collect();
+        v.date_fmts = p
+            .date_fmts
+            .iter()
+            .filter(|(c, _)| has(c))
+            .cloned()
+            .collect();
         v.order = p.order.iter().filter(|c| has(c)).cloned().collect();
         v.scales = p
             .scales
@@ -195,6 +201,58 @@ impl Sheet {
             .cloned()
             .collect();
         self
+    }
+
+    /// `fmtstr` (columns sheet, `:fmtstr`; S-35 C2): `%.Nf` / `{:.Nf}` sets a
+    /// float column's decimals, a strftime format a date or datetime
+    /// column's text; empty clears either. The toast.
+    pub fn set_fmtstr(&mut self, column: &str, fmt: &str) -> Result<String, String> {
+        let dtype = self
+            .view_plan()
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .get(column)
+            .cloned()
+            .ok_or_else(|| format!("no column {column}"))?;
+        let fmt = fmt.trim();
+        let dated = matches!(dtype, DataType::Date | DataType::Datetime(..));
+        if fmt.is_empty() || dated {
+            self.view.date_fmts.retain(|(c, _)| c != column);
+            self.state.widths_key = None;
+        }
+        if fmt.is_empty() {
+            if dtype.is_float() {
+                self.set_precision(column, None, 0, 2)?;
+            }
+            return Ok(format!("{column}: default format"));
+        }
+        if dtype.is_float() {
+            let d = crate::plugins::float_fmt_digits(fmt)
+                .ok_or_else(|| format!("fmtstr: {fmt:?} isn't %.Nf or {{:.Nf}}"))?;
+            self.set_precision(column, Some(d), 0, 2)?;
+            return Ok(format!("{column}: {d} decimals"));
+        }
+        if !dated {
+            return Err(format!(
+                "fmtstr: {column} is {} (float, date or datetime columns only)",
+                crate::widget::dtype_badge(&dtype)
+            ));
+        }
+        // a format chrono can't write fails on any value: try one
+        let probe = Series::new("".into(), [0i64])
+            .cast(&dtype)
+            .map_err(|e| e.to_string())?;
+        let ok = match &dtype {
+            DataType::Date => probe.date().map(|d| d.strftime(fmt).is_ok()),
+            _ => probe.datetime().map(|d| d.strftime(fmt).is_ok()),
+        };
+        if !ok.unwrap_or(false) {
+            return Err(format!("fmtstr: {fmt:?} isn't a strftime format"));
+        }
+        self.view
+            .date_fmts
+            .push((column.to_string(), fmt.to_string()));
+        Ok(format!("{column}: {fmt}"))
     }
 
     /// `Alt++` / `Alt+-` (`delta` ±1) and `:precision` (`set`): the decimals

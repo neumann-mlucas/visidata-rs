@@ -401,6 +401,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 _ => Err(ExError::Usage(":precision [0-15]")),
             },
         },
+        "fmtstr" => Ok(vec![Action::SetFmtstr {
+            fmt: rest.to_string(),
+        }]),
         "capture" if rest.is_empty() => Err(ExError::Usage(":capture <regex with groups>")),
         "capture" => Ok(vec![Action::Capture {
             pattern: rest.to_string(),
@@ -554,6 +557,7 @@ pub const COMMANDS: &[&str] = &[
     "addcol",
     "capture",
     "precision",
+    "fmtstr",
     "patch",
     "open",
     "select-ids",

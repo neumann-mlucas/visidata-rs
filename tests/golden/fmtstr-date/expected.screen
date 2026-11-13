@@ -1,0 +1,12 @@
+ tests/golden/fmtstr-date/input.csv  csv                                       d 1/2  row 1/6 · 16%
+d date        v i
+Jan 05, 2024    1
+Jan 20, 2024    2
+Feb 03, 2024    3
+·               4
+Mar 09, 2024    5
+Feb 28, 2024    6
+
+
+
+d: %b %d, %Y

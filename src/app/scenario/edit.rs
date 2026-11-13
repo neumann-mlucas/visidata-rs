@@ -1102,3 +1102,36 @@ async fn float_precision_more_less_set_and_columns_sheet() {
     h.keys("h <A-+>").await;
     assert_eq!(status(&h), "precision: id is i (float columns only)");
 }
+
+/// S-35 C2: `fmtstr` on a date column (columns sheet `e`, `:fmtstr`) changes
+/// its text, `F` groups by that text, and `<CR>` opens the rows that read it.
+#[tokio::test(flavor = "multi_thread")]
+async fn date_fmtstr_shows_groups_and_dives() {
+    let mut h = csv(b"d,v\n2024-01-05,1\n2024-01-20,2\n2024-02-03,3\n").await;
+    let rows = |h: &Harness| h.screen().lines().nth(2).unwrap_or_default().to_string();
+    h.keys("@ C l l l e").await;
+    h.type_("%Y-%m").await;
+    h.keys("q").await;
+    assert!(rows(&h).starts_with("2024-01 "), "{}", h.screen());
+    assert_eq!(
+        view_csv(&h),
+        "d,v\n2024-01-05,1\n2024-01-20,2\n2024-02-03,3\n"
+    );
+    h.keys("F").await;
+    assert!(h.screen().contains("2024-01        2"), "{}", h.screen());
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    h.keys("q q :").await;
+    h.type_("fmtstr %Q").await;
+    assert_eq!(status(&h), "fmtstr: \"%Q\" isn't a strftime format");
+    h.keys(":").await;
+    h.type_("fmtstr").await;
+    assert_eq!(status(&h), "d: default format");
+    assert!(rows(&h).starts_with("2024-01-05 "), "{}", h.screen());
+    h.keys("l :").await;
+    h.type_("fmtstr %Y").await;
+    assert_eq!(
+        status(&h),
+        "fmtstr: v is i (float, date or datetime columns only)"
+    );
+}

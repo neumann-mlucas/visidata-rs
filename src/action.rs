@@ -414,6 +414,11 @@ pub enum Action {
     SetPrecision {
         digits: Option<u8>,
     },
+    /// `:fmtstr [fmt]` (S-35 C2): the current column's `fmtstr`, as the
+    /// columns sheet sets it; none clears.
+    SetFmtstr {
+        fmt: String,
+    },
     /// `H` `L` `gH` `gL` (S-34): move the current column `by` places in its
     /// section; `i64::MIN` / `MAX`: to its first / last place.
     SlideCol {
@@ -720,7 +725,7 @@ impl Action {
             SetNote { .. } | Color { .. } | NoColor { .. } => true,
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
-            PrecisionMore | PrecisionLess | SetPrecision { .. } => false,
+            PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
@@ -1136,6 +1141,7 @@ impl Action {
             Capture { pattern } => format!("capture {pattern}"),
             SetPrecision { digits: Some(d) } => format!("precision {d}"),
             SetPrecision { digits: None } => "precision".into(),
+            SetFmtstr { fmt } => format!("fmtstr {fmt}").trim_end().to_string(),
             SlideCol { by } if *by < 0 => format!("slide_left {}", by.unsigned_abs()),
             SlideCol { by } => format!("slide_right {by}"),
             Order { columns } => columns
@@ -1363,6 +1369,8 @@ mod tests {
             AddCol { name: s("new col") },
             SetPrecision { digits: Some(3) },
             SetPrecision { digits: None },
+            SetFmtstr { fmt: s("%Y-%m %d") },
+            SetFmtstr { fmt: s("") },
             Capture {
                 pattern: s("(?P<y>\\d{4})-(\\d+)"),
             },
