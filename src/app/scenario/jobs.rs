@@ -150,8 +150,31 @@ async fn stale_or_cancelled_scans_change_nothing() {
 /// whose every collect naps. A new action that scans on the UI thread fails here.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_action_blocks_the_ui() {
-    // Instant by nature, or not about the view: kept short and explained.
-    const EXEMPT: &[&str] = &[];
+    // Commands taking a path get one in a temp dir; the rest get column `id`.
+    const PATHS: &[&str] = &[
+        "mksession",
+        "export",
+        "save",
+        "w",
+        "write",
+        "open",
+        "source",
+        "tail",
+        "diff",
+        "join",
+        "patch",
+    ];
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("out.csv");
+    let cwd = || {
+        let mut ls: Vec<_> = std::fs::read_dir(".")
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        ls.sort();
+        ls
+    };
+    let files_before = cwd();
     let mut h = slow().await;
     let base = h.app.sheets.active().clone();
     let t = Instant::now();
@@ -162,16 +185,18 @@ async fn no_action_blocks_the_ui() {
     );
     let mut slow_ones = Vec::new();
     let ex = crate::exline::COMMANDS.iter().filter_map(|c| {
-        let acts = crate::exline::parse(c).or_else(|_| crate::exline::parse(&format!("{c} id")));
+        let arg = if PATHS.contains(c) {
+            path.to_str().unwrap()
+        } else {
+            "id"
+        };
+        let acts = crate::exline::parse(c).or_else(|_| crate::exline::parse(&format!("{c} {arg}")));
         acts.ok().map(|a| (c.to_string(), a))
     });
     let named = Action::NAMED
         .iter()
         .map(|(n, a)| (n.to_string(), vec![a.clone()]));
     for (name, actions) in named.chain(ex) {
-        if EXEMPT.contains(&name.as_str()) {
-            continue;
-        }
         h.app.cancel_jobs(true);
         h.app.sheets = Sheets::new(base.clone());
         h.app.input = None;
@@ -185,4 +210,9 @@ async fn no_action_blocks_the_ui() {
         }
     }
     assert!(slow_ones.is_empty(), "block the UI: {slow_ones:#?}");
+    assert_eq!(
+        cwd(),
+        files_before,
+        "a command wrote into the working directory"
+    );
 }
