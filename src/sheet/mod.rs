@@ -23,6 +23,7 @@ mod tests;
 mod undo;
 mod write;
 
+pub use columns::freq_aggregators;
 pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
@@ -134,10 +135,12 @@ pub enum Derivation {
         values: String,
         agg: String,
     },
-    /// `W`: row counts of `keys` × `on`.
+    /// `W`: row counts of `keys` × `on`, or the `aggs` (column, aggregator)
+    /// per value (S-35 B).
     PivotCount {
         keys: Vec<String>,
         on: String,
+        aggs: Vec<(String, String)>,
     },
     Describe,
     /// `zM`: a row per item of `column` (S-22).

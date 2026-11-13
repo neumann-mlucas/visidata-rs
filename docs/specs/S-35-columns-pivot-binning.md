@@ -1,6 +1,6 @@
 # S-35 — New columns at the cursor, `W` with aggregators, numeric binning and `fmtstr`
 
-Status: **A shipped 2026-11-13**. B and C are planned; C2 (`fmtstr`) needs agreement first.
+Status: **A, B shipped 2026-11-13**. C is planned; C2 (`fmtstr`) needs agreement first.
 Depends on: S-34 (`View.order`), S-25 P4 (aggregators), S-31 (column builders).
 
 Replay cases: A `capture-col-named`, `pr2855` (`pr2614` stays quarantined, see A3); B `pivot`;
@@ -26,7 +26,7 @@ key column (or no column) it goes first of the non-key columns, and the cursor m
 - A4. **Sessions:** replaying `derive` places the column at the replay's cursor. So a sheet with
   steps always writes its `order` line, and a bare `:order` (empty `order`) means plan order.
 
-## B. `W` uses the `+` aggregators (planned)
+## B. `W` uses the `+` aggregators (shipped)
 
 VisiData `W` (`pivot.py`):
 
@@ -52,6 +52,18 @@ Column names:
 `pivot_current_from(parent, id, keys, on, aggs)`, where `aggs` is the parent's
 `View.aggregators` for visible columns. `Derivation::PivotCount` gains `aggs`, and the
 Python/SQL export emits one aggregate per pair. `:pivot index on values agg` is unchanged.
+
+As built:
+
+- The aggregators on key columns and on the pivot column itself are left out, since those columns
+  are what the rows and columns are grouped by.
+- `Sheet::pivot_aggs` groups once, then pivots once per aggregate.
+- The Python export does the same. The SQL export cross-joins keys × values so empty pairs get 0,
+  then PIVOT. It renames `<value>_<alias>` to `<alias>_<value>` with
+  `COLUMNS('^(.*)_(alias|…)$') AS '\2_\1'`. A key column whose name ends in `_<alias>` would match
+  that rename too.
+- Tests: golden `pivot-aggregators`, `pivot-aggregators-cols` (both export round trips), unit
+  `pivot_with_aggregators_names_and_fills`, replay `pivot`.
 
 ## C. Freq groups (planned)
 

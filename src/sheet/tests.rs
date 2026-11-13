@@ -472,7 +472,7 @@ fn w_ignores_hidden_key_columns() {
     let (mut s, _t) = sheet_of("a,b\nx,1\ny,2\n");
     s.view.hidden.insert("a".into());
     let keys = vec!["a".to_string()];
-    let w = Sheet::pivot_current_from(&s, 1, &keys, "b").unwrap();
+    let w = Sheet::pivot_current_from(&s, 1, &keys, "b", &[]).unwrap();
     assert_eq!(w.plan.clone().collect().unwrap().height(), 1);
 }
 
@@ -1271,4 +1271,39 @@ fn unnamed_columns_take_the_next_free_letter() {
     s.view.colname_ctr = 25;
     assert_eq!(s.next_colname(), "Z");
     assert_eq!(s.next_colname(), "AA");
+}
+
+/// S-35 B: `W` with aggregators names columns as VisiData does and gives
+/// empty pairs 0 for count/sum.
+#[test]
+fn pivot_with_aggregators_names_and_fills() {
+    let (s, _f) = sheet_of("k,v,a,b\nx,p,1,2\nx,q,3,4\ny,p,5,6\n");
+    let names = |aggs: &[(&str, &str)]| -> (Vec<String>, DataFrame) {
+        let aggs: Vec<(String, String)> = aggs
+            .iter()
+            .map(|(c, a)| (c.to_string(), a.to_string()))
+            .collect();
+        let w = Sheet::pivot_current_from(&s, 1, &["k".into()], "v", &aggs).unwrap();
+        let df = w.plan.clone().collect().unwrap();
+        (
+            df.get_column_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect(),
+            df,
+        )
+    };
+    assert_eq!(names(&[("a", "sum")]).0, ["k", "p", "q"]);
+    let (n, df) = names(&[("a", "sum"), ("a", "max")]);
+    assert_eq!(n, ["k", "sum_p", "max_p", "sum_q", "max_q"]);
+    // y has no q: its sum is 0, its max empty
+    assert_eq!(
+        df.column("sum_q").unwrap().get(1).unwrap(),
+        AnyValue::Int64(0)
+    );
+    assert!(df.column("max_q").unwrap().get(1).unwrap().is_null());
+    assert_eq!(
+        names(&[("a", "sum"), ("b", "sum")]).0,
+        ["k", "a_sum_p", "b_sum_p", "a_sum_q", "b_sum_q"]
+    );
 }

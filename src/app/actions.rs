@@ -1230,8 +1230,9 @@ impl App {
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active().clone();
                 let keys = parent.view.keys.clone();
+                let aggs = crate::sheet::columns::freq_aggregators(&parent);
                 self.spawn_job("pivot", move || {
-                    let child = Sheet::pivot_current_from(&parent, id, &keys, &on)?;
+                    let child = Sheet::pivot_current_from(&parent, id, &keys, &on, &aggs)?;
                     Ok(JobDone::PushSheet(Box::new(child)))
                 });
             }

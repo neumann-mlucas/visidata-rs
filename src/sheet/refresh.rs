@@ -66,7 +66,9 @@ impl Sheet {
                 values,
                 agg,
             } => Sheet::pivot_from(parent, id, index, on, values, agg)?,
-            Derivation::PivotCount { keys, on } => Sheet::pivot_current_from(parent, id, keys, on)?,
+            Derivation::PivotCount { keys, on, aggs } => {
+                Sheet::pivot_current_from(parent, id, keys, on, aggs)?
+            }
             Derivation::Describe => Sheet::describe_from(parent, id)?,
             Derivation::Unfurl { column } => Sheet::unfurl_from(parent, id, column)?,
             Derivation::Diff { other, keys } => {

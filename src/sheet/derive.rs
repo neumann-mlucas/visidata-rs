@@ -396,13 +396,16 @@ impl Sheet {
         Ok(sheet)
     }
 
-    /// `W`: count pivot of the current column `on`, rows keyed by `keys`.
-    /// No keys → one row of counts, one column per distinct value (first-seen order).
+    /// `W`: pivot of the current column `on`, rows keyed by `keys`: counts,
+    /// or with `aggs` (the `+` aggregators, [`columns::freq_aggregators`])
+    /// one column per aggregator and value, VisiData's names (S-35 B).
+    /// No keys → one row, one column per distinct value (first-seen order).
     pub fn pivot_current_from(
         parent: &Sheet,
         id: SheetId,
         keys: &[String],
         on: &str,
+        aggs: &[(String, String)],
     ) -> Result<Self, String> {
         let name = format!("pivot({on}): {}", parent.name);
         let origin = Origin::Pivot { parent: parent.id };
@@ -420,6 +423,21 @@ impl Sheet {
             .collect();
         let keys = &keys[..];
         let value_text = col(on).cast(DataType::String).fill_null(lit("null"));
+        let aggs: Vec<(String, String)> = aggs
+            .iter()
+            .filter(|(c, _)| c != on && !keys.contains(c))
+            .cloned()
+            .collect();
+        if !aggs.is_empty() {
+            let out = pivot_aggs(parent.view_plan().with_column(value_text), keys, on, &aggs)
+                .map_err(|e| e.to_string())?;
+            let how = Derivation::PivotCount {
+                keys: keys.to_vec(),
+                on: on.to_string(),
+                aggs,
+            };
+            return Ok(Self::child(parent, id, name, out.lazy(), origin).derived(parent, how));
+        }
         let counted = parent
             .view_plan()
             .with_column(value_text)
@@ -458,6 +476,7 @@ impl Sheet {
         let how = Derivation::PivotCount {
             keys: keys.to_vec(),
             on: on.to_string(),
+            aggs: Vec::new(),
         };
         Ok(Self::child(parent, id, name, out.lazy(), origin).derived(parent, how))
     }
@@ -672,3 +691,71 @@ pub(crate) const JR: &str = "__vdrs_r";
 pub(crate) const JRK: &str = "__vdrs_rk";
 /// Right-only keys sort after every left key.
 pub(crate) const JOIN_RIGHT_KEYS: i64 = 1 << 40;
+
+/// [`Sheet::pivot_current_from`] with aggregators: group by `keys` and `on`,
+/// aggregate, then a pivot per aggregate. Columns per `on` value, its
+/// aggregates in `aggs` order; a pair with no rows counts and sums to 0.
+fn pivot_aggs(
+    plan: LazyFrame,
+    keys: &[String],
+    on: &str,
+    aggs: &[(String, String)],
+) -> PolarsResult<DataFrame> {
+    const K: &str = "__vdrs_k";
+    let index: Vec<String> = match keys {
+        [] => vec![K.to_string()],
+        k => k.to_vec(),
+    };
+    let plan = if keys.is_empty() {
+        plan.with_column(lit(0).alias(K))
+    } else {
+        plan
+    };
+    let by: Vec<Expr> = index
+        .iter()
+        .chain([&on.to_string()])
+        .map(|k| col(k.as_str()))
+        .collect();
+    let grouped = plan
+        .group_by_stable(by)
+        .agg(
+            aggs.iter()
+                .map(|(c, a)| columns::agg_expr(c, a))
+                .collect::<Vec<_>>(),
+        )
+        .collect()?;
+    let pivots: Vec<DataFrame> = aggs
+        .iter()
+        .map(|(c, a)| pivot_df(&grouped, on, &index, &format!("{c}_{a}"), element().first()))
+        .collect::<PolarsResult<_>>()?;
+    let several_cols = aggs.iter().any(|(c, _)| *c != aggs[0].0);
+    let name = |c: &str, a: &str, v: &str| match (several_cols, aggs.len()) {
+        (true, _) => format!("{c}_{a}_{v}"),
+        (false, 1) => v.to_string(),
+        _ => format!("{a}_{v}"),
+    };
+    let mut out: Vec<Column> = if keys.is_empty() {
+        Vec::new()
+    } else {
+        index
+            .iter()
+            .map(|k| pivots[0].column(k).cloned())
+            .collect::<PolarsResult<_>>()?
+    };
+    let values: Vec<String> = pivots[0]
+        .get_column_names()
+        .iter()
+        .map(|n| n.to_string())
+        .filter(|n| !index.contains(n))
+        .collect();
+    for v in &values {
+        for ((c, a), p) in aggs.iter().zip(&pivots) {
+            let mut s = p.column(v)?.clone();
+            if matches!(a.as_str(), "count" | "distinct" | "sum") {
+                s = s.fill_null(FillNullStrategy::Zero)?;
+            }
+            out.push(s.with_name(name(c, a, v).into()));
+        }
+    }
+    DataFrame::new_infer_height(out)
+}

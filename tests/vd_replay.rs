@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 67;
+const MIN_PASS: usize = 68;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -749,11 +749,8 @@ impl Replay {
                 self.push_sheet(name, new);
                 Ok(())
             }
-            // VisiData `W` pivot with no keys = 1-row transposed count: distinct
-            // values of current col become headers, cell = count of that value.
-            // First-seen order (not sorted). With keys we'd use real pivot but
-            // the one upstream test using `pivot` has no keys.
-            "pivot" => self.pivot_no_keys_count(&r.col),
+            // VisiData `W`: key columns × the current column's values
+            "pivot" => self.pivot(&r.col),
             // VisiData `M` melt: unpivot all non-key columns.
             "melt" => {
                 let id = self.next_id;
@@ -1477,47 +1474,18 @@ impl Replay {
 
     /// VisiData `W` with no key columns: distinct values of `col_name` as headers,
     /// counts as the single data row. First-seen order preserved.
-    fn pivot_no_keys_count(&mut self, col_name: &str) -> Result<(), StepErr> {
-        use polars::prelude::NamedFrom;
-        let (name, new_sheet) = {
-            let parent_slot = self.current_slot()?;
-            let df = parent_slot
-                .sheet
-                .data_plan()
-                .collect()
-                .map_err(|e| StepErr::Runtime(e.to_string()))?;
-            let col = df
-                .column(col_name)
-                .map_err(|e| StepErr::Runtime(e.to_string()))?;
-            let mut order: Vec<String> = Vec::new();
-            let mut counts: std::collections::HashMap<String, i64> =
-                std::collections::HashMap::new();
-            for i in 0..col.len() {
-                let v = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
-                counts
-                    .entry(v.clone())
-                    .and_modify(|c| *c += 1)
-                    .or_insert_with(|| {
-                        order.push(v.clone());
-                        1
-                    });
-            }
-            let series: Vec<Column> = order
-                .iter()
-                .map(|val| Series::new(val.as_str().into(), &[counts[val]]).into_column())
-                .collect();
-            let out_df =
-                DataFrame::new_infer_height(series).map_err(|e| StepErr::Runtime(e.to_string()))?;
-            let id = self.next_id;
-            let name = format!("pivot({col_name})-{}", parent_slot.name);
-            let origin = Origin::Pivot {
-                parent: parent_slot.sheet.id,
-            };
-            let sheet = Sheet::child(&parent_slot.sheet, id, name.clone(), out_df.lazy(), origin);
-            (name, sheet)
-        };
-        self.next_id += 1;
-        self.push_sheet(name, new_sheet);
+    /// `W`: the app's pivot (key columns × `on`, the `+` aggregators).
+    fn pivot(&mut self, on: &str) -> Result<(), StepErr> {
+        let id = self.alloc();
+        let parent = self.current_slot()?;
+        let (keys, aggs) = (
+            parent.sheet.view.keys.clone(),
+            visidata_rs::sheet::freq_aggregators(&parent.sheet),
+        );
+        let sheet = Sheet::pivot_current_from(&parent.sheet, id, &keys, on, &aggs)
+            .map_err(StepErr::Runtime)?;
+        let name = format!("pivot({on})-{}", parent.name);
+        self.push_sheet(name, sheet);
         Ok(())
     }
 
@@ -1900,6 +1868,26 @@ impl Replay {
                     })
                     .collect();
                 df.with_column(text.with_name(c.into()).into_column())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        // A pivot's float aggregates (`mean`, …) are VisiData floats: `{:.2f}`.
+        if matches!(slot.sheet.origin, Origin::Pivot { .. }) {
+            let floats: Vec<String> = df
+                .columns()
+                .iter()
+                .filter(|c| c.dtype().is_float())
+                .map(|c| c.name().to_string())
+                .collect();
+            for c in floats {
+                let f = df
+                    .column(&c)
+                    .map_err(|e| e.to_string())?
+                    .f64()
+                    .map_err(|e| e.to_string())?
+                    .clone();
+                let text: StringChunked = f.iter().map(|v| v.map(|v| format!("{v:.2}"))).collect();
+                df.with_column(text.with_name(c.as_str().into()).into_column())
                     .map_err(|e| e.to_string())?;
             }
         }

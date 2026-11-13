@@ -567,7 +567,14 @@ impl Script {
             }
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
             Derivation::Unfurl { column } => unfurl_code(py, &p, &l.parent, column)?,
-            Derivation::PivotCount { keys, on } => {
+            Derivation::PivotCount { keys, on, aggs } if !aggs.is_empty() => {
+                if py {
+                    py_pivot_aggs(&p, keys, on, aggs)
+                } else {
+                    sql_pivot_aggs(&p, keys, on, aggs)
+                }
+            }
+            Derivation::PivotCount { keys, on, .. } => {
                 let on_py = py_str(on);
                 match (py, keys.is_empty()) {
                     (true, false) => format!(
@@ -1737,6 +1744,127 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
     )
 }
 
+/// `W` with aggregators (S-35 B): what [`crate::sheet`]'s `pivot_aggs`
+/// does, VisiData's column names (`prefix` + value).
+fn pivot_prefixes(aggs: &[(String, String)]) -> Vec<String> {
+    let several_cols = aggs.iter().any(|(c, _)| *c != aggs[0].0);
+    aggs.iter()
+        .map(|(c, a)| match (several_cols, aggs.len()) {
+            (true, _) => format!("{c}_{a}_"),
+            (false, 1) => String::new(),
+            _ => format!("{a}_"),
+        })
+        .collect()
+}
+
+/// Aggregates that are 0, not null, over no rows.
+fn zero_on_empty(agg: &str) -> bool {
+    matches!(agg, "count" | "distinct" | "sum")
+}
+
+fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) -> String {
+    let list = |v: Vec<String>| format!("[{}]", v.join(", "));
+    let o = py_str(on);
+    let (idx, add_k) = match keys {
+        [] => (
+            vec![py_str("__k")],
+            ".with_columns(pl.lit(0).alias(\"__k\"))",
+        ),
+        k => (k.iter().map(|k| py_str(k)).collect(), ""),
+    };
+    let by = list(idx.iter().cloned().chain([o.clone()]).collect());
+    let ks = list(keys.iter().map(|k| py_str(k)).collect());
+    let idx = list(idx);
+    let agg_exprs = list(aggs.iter().map(|(c, a)| py_agg(c, a)).collect());
+    let alias = list(
+        aggs.iter()
+            .map(|(c, a)| py_str(&format!("{c}_{a}")))
+            .collect(),
+    );
+    let pre = list(pivot_prefixes(aggs).iter().map(|s| py_str(s)).collect());
+    let zero = list(
+        aggs.iter()
+            .map(|(_, a)| if zero_on_empty(a) { "True" } else { "False" }.to_string())
+            .collect(),
+    );
+    format!(
+        "{p}.with_columns(pl.col({o}).cast(pl.Utf8).fill_null(\"null\")){add_k}\
+         .group_by({by}, maintain_order=True).agg({agg_exprs}).collect()\
+         .pipe(lambda g: (lambda ps: pl.DataFrame([*[ps[0][k] for k in {ks}], \
+         *[(ps[i][v].fill_null(0) if {zero}[i] else ps[i][v]).alias({pre}[i] + v) \
+         for v in ps[0].columns if v not in {idx} for i in range(len(ps))]]))\
+         ([g.pivot(on={o}, index={idx}, values=a, aggregate_function=\"first\") for a in {alias}])).lazy()"
+    )
+}
+
+fn sql_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) -> String {
+    let k: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
+    let o = q_ident(on);
+    let lead = k.iter().map(|c| format!("{c}, ")).collect::<String>();
+    let text = format!("coalesce(CAST({o} AS VARCHAR), 'null')");
+    let alias: Vec<String> = aggs
+        .iter()
+        .map(|(c, a)| q_ident(&format!("{c}_{a}")))
+        .collect();
+    // no CTEs: a PIVOT reading its columns from the data can't see them
+    let g = format!(
+        "(SELECT {lead}{text} AS {o}, {} FROM {p} GROUP BY ALL)",
+        aggs.iter()
+            .map(|(c, a)| sql_agg(c, a))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let combos = match keys {
+        [] => format!("(SELECT DISTINCT {o} FROM {g})"),
+        _ => format!(
+            "(SELECT * FROM (SELECT DISTINCT {} FROM {g}) CROSS JOIN (SELECT DISTINCT {o} FROM {g}))",
+            k.join(", ")
+        ),
+    };
+    let filled: Vec<String> = aggs
+        .iter()
+        .zip(&alias)
+        .map(|((_, a), q)| match zero_on_empty(a) {
+            true => format!("coalesce(g.{q}, 0) AS {q}"),
+            false => format!("g.{q}"),
+        })
+        .collect();
+    let using_join: Vec<String> = k.iter().cloned().chain([o.clone()]).collect();
+    let prefixes = pivot_prefixes(aggs);
+    let using: Vec<String> = alias
+        .iter()
+        .zip(&prefixes)
+        .map(|(q, pre)| match pre.strip_suffix('_') {
+            Some(name) => format!("first({q}) AS {}", q_ident(name)),
+            None => format!("first({q})"),
+        })
+        .collect();
+    let group = match keys {
+        [] => String::new(),
+        _ => format!(" GROUP BY {}", k.join(", ")),
+    };
+    // PIVOT names `<value>_<alias>`; VisiData's is `<alias>_<value>`.
+    // ponytail: a key column whose name ends in `_<alias>` matches the
+    // rename too; name the value columns one by one if that bites.
+    let select = if prefixes[0].is_empty() {
+        "*".to_string()
+    } else {
+        let alts: Vec<String> = prefixes
+            .iter()
+            .map(|s| regex::escape(s.trim_end_matches('_')).replace('\'', "''"))
+            .collect();
+        format!("{lead}COLUMNS('^(.*)_({})$') AS '\\2_\\1'", alts.join("|"))
+    };
+    format!(
+        "SELECT {select} FROM (PIVOT (SELECT c.*, {filled} FROM {combos} c LEFT JOIN {g} g \
+         USING ({using_join})) ON {o} IN (SELECT {o} FROM (SELECT {text} AS {o}, \
+         row_number() OVER () AS __r FROM {p}) GROUP BY {o} ORDER BY min(__r)) USING {using}{group})",
+        filled = filled.join(", "),
+        using_join = using_join.join(", "),
+        using = using.join(", "),
+    )
+}
+
 /// Base column `c` holds text, so `@` parses it leniently (see `Sheet::view_plan`).
 /// [`crate::sheet::columns::agg_expr`] in Polars Python.
 fn py_agg(c: &str, agg: &str) -> String {
@@ -2183,7 +2311,7 @@ mod tests {
                 "ORDER BY __i",
             ),
             (
-                Sheet::pivot_current_from(&s, 9, &["name".into()], "qty").unwrap(),
+                Sheet::pivot_current_from(&s, 9, &["name".into()], "qty", &[]).unwrap(),
                 "index=[\"name\"], values=\"len\"",
                 "USING first(__v) GROUP BY \"name\"",
             ),
