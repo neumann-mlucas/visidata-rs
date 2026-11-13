@@ -291,10 +291,15 @@ impl App {
                 let Some(c) = self.current_column_name() else {
                     return;
                 };
-                match self.sheets.active_mut().json_decode(&c) {
-                    Ok(()) => self.spawn_materialize(),
-                    Err(e) => self.toast = Some(e),
-                }
+                let c2 = c.clone();
+                self.scan_edit(
+                    "json",
+                    move |s| s.json_dtype(&c2),
+                    move |app, dt| match app.sheets.active_mut().json_decode_as(&c, dt) {
+                        Ok(()) => app.spawn_materialize(),
+                        Err(e) => app.toast = Some(e),
+                    },
+                );
             }
             Action::StartSearchInput {
                 all_columns,
@@ -942,41 +947,59 @@ impl App {
                 }
                 Err(e) => self.toast = Some(format!("addcol: {e}")),
             },
-            Action::AddColIncr => match self.sheets.active_mut().add_incr_col() {
-                Ok(name) => {
-                    self.goto_column(&name);
-                    self.spawn_materialize();
-                }
-                Err(e) => self.toast = Some(format!("addcol-incr: {e}")),
-            },
+            Action::AddColIncr => self.scan_edit(
+                "addcol-incr",
+                |s| s.view_order_rids(),
+                |app, rids| match app.sheets.active_mut().add_incr_col_with(rids) {
+                    Ok(name) => {
+                        app.goto_column(&name);
+                        app.spawn_materialize();
+                    }
+                    Err(e) => app.toast = Some(format!("addcol-incr: {e}")),
+                },
+            ),
             Action::SetColIncr | Action::SetColFill | Action::Capture { .. } => {
                 let Some(column) = self.current_column_name() else {
                     return;
                 };
-                let s = self.sheets.active_mut();
-                let done = match &action {
-                    Action::SetColIncr => s
-                        .set_incr(&column)
-                        .map(|n| format!("set {column} to 1…{n}")),
-                    Action::SetColFill => {
-                        s.fill_down(&column).map(|n| format!("filled {n} values"))
+                match &action {
+                    Action::SetColIncr if self.sheets.active().view.selected.is_empty() => {
+                        self.toast = Some("no rows selected".into());
                     }
-                    _ => {
-                        let Action::Capture { pattern } = &action else {
-                            return;
-                        };
-                        s.capture(&column, pattern).map(|name| {
+                    Action::SetColIncr => self.scan_edit(
+                        "setcol-incr",
+                        |s| s.selected_in_view_order().map_err(|e| e.to_string()),
+                        move |app, rids| {
+                            let s = app.sheets.active_mut();
+                            let done = s
+                                .set_incr_with(&column, rids)
+                                .map(|n| format!("set {column} to 1…{n}"));
+                            app.edit_done(done, "");
+                        },
+                    ),
+                    Action::SetColFill => {
+                        let c = column.clone();
+                        self.scan_edit(
+                            "fill",
+                            move |s| s.fill_scan(&c),
+                            move |app, (ids, vals)| {
+                                let s = app.sheets.active_mut();
+                                let done = s
+                                    .fill_apply(&column, ids, vals)
+                                    .map(|n| format!("filled {n} values"));
+                                app.edit_done(done, "");
+                            },
+                        );
+                    }
+                    Action::Capture { pattern } => {
+                        let s = self.sheets.active_mut();
+                        let done = s.capture(&column, pattern).map(|name| {
                             self.goto_column(&name);
                             format!("added {name}; ( expands it")
-                        })
+                        });
+                        self.edit_done(done, "");
                     }
-                };
-                match done {
-                    Ok(note) => {
-                        self.toast = Some(note);
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(e),
+                    _ => {}
                 }
             }
             Action::PrecisionMore | Action::PrecisionLess | Action::SetPrecision { .. } => {
@@ -1458,6 +1481,20 @@ impl App {
         });
     }
 
+    /// An edit's result: its note (if any) as the toast and a fresh window,
+    /// or the error after `prefix`.
+    pub(super) fn edit_done(&mut self, done: Result<String, String>, prefix: &str) {
+        match done {
+            Ok(note) => {
+                if !note.is_empty() {
+                    self.toast = Some(note);
+                }
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(format!("{prefix}{e}")),
+        }
+    }
+
     /// `:s`: the current column of the selected rows; none selected: of the
     /// view's rows (every row when nothing filters it).
     fn substitute(&mut self, pattern: &str, replacement: &str, all: bool) {
@@ -1470,22 +1507,34 @@ impl App {
             let n = format!("{} selected rows", r.len());
             (Some(r), n)
         } else if s.view.filter.is_some() || s.view.filter_expr.is_some() {
-            // ponytail: a full scan on the UI thread (S-24 R6), like `gs`
-            match s.view_rids() {
-                Ok(r) => {
-                    let n = format!("{} rows in view", r.len());
-                    (Some(r.into()), n)
-                }
-                Err(e) => {
-                    self.toast = Some(format!("s: {e}"));
-                    return;
-                }
-            }
+            let (p, r) = (pattern.to_string(), replacement.to_string());
+            self.scan_edit(
+                "s",
+                |s| s.view_rids().map_err(|e| e.to_string()),
+                move |app, rids| {
+                    let n = format!("{} rows in view", rids.len());
+                    app.replace_on(&c, &p, &r, all, Some(rids.into()), n);
+                },
+            );
+            return;
         } else {
             (None, "every row".into())
         };
+        self.replace_on(&c, pattern, replacement, all, rids, rows);
+    }
+
+    /// `:s` on `rids` (`None`: every row); `rows` names them in the toast.
+    fn replace_on(
+        &mut self,
+        c: &str,
+        pattern: &str,
+        replacement: &str,
+        all: bool,
+        rids: Option<std::sync::Arc<[u64]>>,
+        rows: String,
+    ) {
         let s = self.sheets.active_mut();
-        match s.replace(&c, pattern, replacement, all, rids, true) {
+        match s.replace(c, pattern, replacement, all, rids, true) {
             Ok(()) => {
                 self.toast = Some(format!("replaced /{pattern}/ in {c} on {rows}"));
                 self.spawn_materialize();
@@ -1733,7 +1782,7 @@ impl App {
     }
 
     /// Cursor onto visible column `name`, if it is one.
-    fn goto_column(&mut self, name: &str) {
+    pub(super) fn goto_column(&mut self, name: &str) {
         let s = self.sheets.active_mut();
         if let Some(i) = s
             .view_plan()

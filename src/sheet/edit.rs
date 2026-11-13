@@ -436,11 +436,21 @@ impl Sheet {
     /// selected rows in view order, repeating them to fill. All of them must
     /// fit, or nothing changes.
     pub fn paste_cells(&mut self, column: &str, values: &Column) -> Result<usize, String> {
+        let rids = self.selected_in_view_order().map_err(|e| e.to_string())?;
+        self.paste_cells_with(column, values, rids)
+    }
+
+    /// [`Self::paste_cells`] with the selected rows in view order (S-33).
+    pub fn paste_cells_with(
+        &mut self,
+        column: &str,
+        values: &Column,
+        rids: Vec<u64>,
+    ) -> Result<usize, String> {
         self.editable()?;
         if values.is_empty() {
             return Err("nothing to paste".into());
         }
-        let rids = self.selected_in_view_order().map_err(|e| e.to_string())?;
         if rids.is_empty() {
             return Err("no rows selected".into());
         }

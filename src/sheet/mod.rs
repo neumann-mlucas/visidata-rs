@@ -578,6 +578,16 @@ impl Sheet {
         self.revision
     }
 
+    /// What a scan of the view read (S-33 D1): its result still fits while
+    /// the stamp compares equal. Edits, undo, filters, casts, sort and the
+    /// selection change it; scrolling doesn't.
+    pub fn scan_stamp(&self) -> ScanStamp {
+        ScanStamp {
+            key: format!("{}|{:?}", self.count_key(), self.view.sort),
+            selected: self.view.selected.clone(),
+        }
+    }
+
     /// The revision `window` was made for.
     pub fn loaded_revision(&self) -> u64 {
         self.state.loaded_rev
@@ -1297,4 +1307,18 @@ pub enum Reason {
     Rows,
     /// The plan was replaced from outside: the count and the window.
     Plan,
+}
+
+/// [`Sheet::scan_stamp`]. The selection compares by pointer: any change to
+/// it while a job holds a copy makes a new set (`Arc::make_mut`).
+#[derive(Clone)]
+pub struct ScanStamp {
+    key: String,
+    selected: Arc<std::collections::BTreeSet<u64>>,
+}
+
+impl PartialEq for ScanStamp {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && Arc::ptr_eq(&self.selected, &other.selected)
+    }
 }

@@ -267,10 +267,23 @@ impl App {
                 return;
             }
         };
-        let s = self.sheets.active_mut();
         let done = if selected {
-            s.paste_cells(&column, &values)
-                .map(|n| format!("pasted into {column} on {} rows", grouped(n as u64)))
+            if self.sheets.active().view.selected.is_empty() {
+                self.toast = Some("paste: no rows selected".into());
+                return;
+            }
+            self.scan_edit(
+                "paste",
+                |s| s.selected_in_view_order().map_err(|e| e.to_string()),
+                move |app, rids| {
+                    let s = app.sheets.active_mut();
+                    let done = s
+                        .paste_cells_with(&column, &values, rids)
+                        .map(|n| format!("pasted into {column} on {} rows", grouped(n as u64)));
+                    app.edit_done(done, "paste: ");
+                },
+            );
+            return;
         } else {
             let Some(rid) = self.rid_at_cursor() else {
                 return;
@@ -284,15 +297,7 @@ impl App {
                 .edit_cell(&column, rid, &text)
                 .map(|()| String::new())
         };
-        match done {
-            Ok(note) => {
-                if !note.is_empty() {
-                    self.toast = Some(note);
-                }
-                self.spawn_materialize();
-            }
-            Err(e) => self.toast = Some(format!("paste: {e}")),
-        }
+        self.edit_done(done, "paste: ");
     }
 
     /// `zx` / `gzx` (`copy`): copy the cell(s) to the register, then null
@@ -386,12 +391,21 @@ impl App {
             let s = if k == 1 { "" } else { "s" };
             self.toast = Some(format!("pasted {} row{s}", grouped(k as u64)));
         }
-        if let Ok(Some(at)) = s.view_index_of(ids[0]) {
-            let half = s.view.window_rows as u64 / 2;
-            s.view.window_offset = at.saturating_sub(half);
-            s.view.row_cursor = (at - s.view.window_offset) as usize;
-        }
         self.spawn_materialize();
+        let first = ids[0];
+        self.scan_edit(
+            "cursor to new row",
+            move |s| s.view_index_of(first).map_err(|e| e.to_string()),
+            |app, at| {
+                if let Some(at) = at {
+                    let s = app.sheets.active_mut();
+                    let half = s.view.window_rows as u64 / 2;
+                    s.view.window_offset = at.saturating_sub(half);
+                    s.view.row_cursor = (at - s.view.window_offset) as usize;
+                    app.spawn_materialize();
+                }
+            },
+        );
     }
 
     pub(super) fn open_dup_selected(&mut self) {

@@ -20,6 +20,12 @@ impl Sheet {
     /// `i` / `:addcol-incr`: a new int column numbering the view's rows
     /// 1…n in view order; rows the filter hides stay null. Its name.
     pub fn add_incr_col(&mut self) -> Result<String, String> {
+        let rids = self.view_order_rids()?;
+        self.add_incr_col_with(rids)
+    }
+
+    /// [`Self::add_incr_col`] with the view's row ids already read (S-33).
+    pub fn add_incr_col_with(&mut self, rids: Vec<u64>) -> Result<String, String> {
         self.editable()?;
         let name = (1..)
             .map(|i| match i {
@@ -28,7 +34,6 @@ impl Sheet {
             })
             .find(|n| !self.has_column(n))
             .unwrap_or_default();
-        let rids = self.view_order_rids()?;
         let before = self.snapshot();
         let made = self
             .apply_step(PlanStep::Derive {
@@ -53,8 +58,13 @@ impl Sheet {
     /// `gi` / `:setcol-incr`: the selected rows of `column` get 1…k in view
     /// order. The count.
     pub fn set_incr(&mut self, column: &str) -> Result<usize, String> {
-        self.editable()?;
         let rids = self.selected_in_view_order().map_err(|e| e.to_string())?;
+        self.set_incr_with(column, rids)
+    }
+
+    /// [`Self::set_incr`] with the selected rows in view order (S-33).
+    pub fn set_incr_with(&mut self, column: &str, rids: Vec<u64>) -> Result<usize, String> {
+        self.editable()?;
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
@@ -69,7 +79,12 @@ impl Sheet {
     /// value above them, in view order; only selected rows change, or every
     /// row with no selection. The count filled (no step when 0).
     pub fn fill_down(&mut self, column: &str) -> Result<usize, String> {
-        self.editable()?;
+        let (ids, filled) = self.fill_scan(column)?;
+        self.fill_apply(column, ids, filled)
+    }
+
+    /// [`Self::fill_down`]'s read (S-33): the rows to fill and their values.
+    pub fn fill_scan(&self, column: &str) -> Result<(Vec<u64>, Series), String> {
         let df = self
             .sorted_plan(true)
             .select([col(ROW_ID), col(column)])
@@ -94,12 +109,23 @@ impl Sheet {
                 from.push(l);
             }
         }
+        let idx = IdxCa::from_vec("i".into(), from);
+        let filled = vals.take(&idx).map_err(|e| e.to_string())?;
+        Ok((ids, filled))
+    }
+
+    /// [`Self::fill_down`]'s write: `filled` into rows `ids`. The count.
+    pub fn fill_apply(
+        &mut self,
+        column: &str,
+        ids: Vec<u64>,
+        filled: Series,
+    ) -> Result<usize, String> {
+        self.editable()?;
         let n = ids.len();
         if n == 0 {
             return Ok(0);
         }
-        let idx = IdxCa::from_vec("i".into(), from);
-        let filled = vals.take(&idx).map_err(|e| e.to_string())?;
         let before = self.snapshot();
         self.set_cells(column, ids, filled)?;
         self.push_undo(before);

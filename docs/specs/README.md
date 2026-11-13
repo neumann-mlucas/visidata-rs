@@ -37,7 +37,7 @@ File naming: `S-NN-slug.md`.
 | S-30 | Live derived sheets (`:refresh`, `:link`), cell notes, selection stats | — | **drafted 2026-11-08** → [`S-30-linked-sheets-notes-selection-stats.md`](S-30-linked-sheets-notes-selection-stats.md) |
 | S-31 | Column builders (`za` `i` `gi` `f` `;`), inherited column attributes | — | **shipped 2026-11-12** → [`S-31-column-builders-inherited-attrs.md`](S-31-column-builders-inherited-attrs.md) |
 | S-32 | Float precision (`Alt++` / `Alt+-`, `disp_float_fmt`) | — | **shipped 2026-11-12** → [`S-32-float-precision.md`](S-32-float-precision.md) |
-| S-33 | Edits that scan run in the background (was S-24 R6) | — | **drafted 2026-11-12** → [`S-33-background-edits.md`](S-33-background-edits.md) |
+| S-33 | Edits that scan run in the background (was S-24 R6) | — | **shipped 2026-11-13** → [`S-33-background-edits.md`](S-33-background-edits.md) |
 | S-34 | Column order: `H` `L` `gH` `gL`, sorting the columns sheet | S-25 P3, S-31 | **shipped 2026-11-12** → [`S-34-column-order.md`](S-34-column-order.md) |
 
 **Not drafted yet** (draft only when the work starts):

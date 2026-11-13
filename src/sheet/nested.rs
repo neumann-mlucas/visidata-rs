@@ -119,6 +119,12 @@ impl Sheet {
     /// `:type json`: decode `column`'s JSON text into lists / structs, typed
     /// by every value. One undo step; unchanged on error.
     pub fn json_decode(&mut self, column: &str) -> Result<(), String> {
+        let dtype = self.json_dtype(column)?;
+        self.json_decode_as(column, dtype)
+    }
+
+    /// [`Self::json_decode`]'s read (S-33): the type every value fits.
+    pub fn json_dtype(&self, column: &str) -> Result<DataType, String> {
         let err = |e: PolarsError| format!("json: {e}");
         let text = self
             .plan
@@ -130,7 +136,12 @@ impl Sheet {
         let ca = text
             .str()
             .map_err(|_| format!("json: {column} is not text"))?;
-        let dtype = ca.json_decode(None, None).map_err(err)?.dtype().clone();
+        Ok(ca.json_decode(None, None).map_err(err)?.dtype().clone())
+    }
+
+    /// [`Self::json_decode`]'s write: `column` decoded as `dtype`.
+    pub fn json_decode_as(&mut self, column: &str, dtype: DataType) -> Result<(), String> {
+        let err = |e: PolarsError| format!("json: {e}");
         let step = PlanStep::Json {
             column: column.into(),
             dtype,

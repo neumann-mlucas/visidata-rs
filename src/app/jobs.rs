@@ -38,6 +38,38 @@ impl App {
         });
     }
 
+    /// An edit that reads the view (S-33): `scan` runs in a job on a copy of
+    /// the active sheet, `apply` on the UI thread with what it found. A
+    /// result for a sheet that changed meanwhile is refused (D1). A view
+    /// that's all loaded scans inline, with no job (D5).
+    pub(super) fn scan_edit<T: Send + 'static>(
+        &mut self,
+        label: &'static str,
+        scan: impl FnOnce(&Sheet) -> Result<T, String> + Send + 'static,
+        apply: impl FnOnce(&mut App, T) + Send + 'static,
+    ) {
+        let s = self.sheets.active();
+        let all_loaded = s.is_loaded()
+            && s.row_count()
+                .is_some_and(|n| s.window().is_some_and(|w| n <= w.height() as u64));
+        if all_loaded {
+            match scan(s) {
+                Ok(t) => apply(self, t),
+                Err(e) => self.fail(format!("{label}: {e}")),
+            }
+            return;
+        }
+        let sheet = s.clone();
+        let stamp = s.scan_stamp();
+        self.spawn_job(label, move || {
+            let t = scan(&sheet)?;
+            Ok(JobDone::Edit {
+                stamp,
+                apply: Box::new(move |app| apply(app, t)),
+            })
+        });
+    }
+
     /// `<C-c>` / `g<C-c>`: drop the active sheet's (or every) background job.
     pub(super) fn cancel_jobs(&mut self, all: bool) {
         let active = self.sheets.active().id;
@@ -189,6 +221,16 @@ impl App {
                 if self.sheets.active().id == sheet_id {
                     self.goto_row(row);
                     self.sheets.active_mut().view.col_cursor = col;
+                }
+            }
+            Ok(JobDone::Edit { stamp, apply }) => {
+                let s = self.sheets.active();
+                if s.id == sheet_id && s.scan_stamp() == stamp {
+                    apply(self);
+                } else {
+                    self.fail(format!(
+                        "{label}: the sheet changed while it ran; not applied"
+                    ));
                 }
             }
             Ok(JobDone::Ranged { rids, cmd }) => {

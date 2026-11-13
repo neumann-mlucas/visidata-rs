@@ -231,6 +231,9 @@ struct Job {
     abort: tokio::task::AbortHandle,
 }
 
+/// The UI-thread half of an edit whose scan ran in a job (S-33).
+type EditApply = Box<dyn FnOnce(&mut App) + Send>;
+
 /// What a background job hands back to the UI thread.
 enum JobDone {
     /// Push a derived sheet (pivot, dup, describe, sql, join, …).
@@ -310,6 +313,11 @@ enum JobDone {
     SidebarStats {
         key: String,
         stats: Result<DataFrame, String>,
+    },
+    /// A scan for an edit (S-33): `apply` runs if the sheet still matches `stamp`.
+    Edit {
+        stamp: crate::sheet::ScanStamp,
+        apply: EditApply,
     },
     /// `:pivot` preview for the ex-line text it was computed from.
     PivotPreview {

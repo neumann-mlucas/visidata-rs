@@ -1,6 +1,6 @@
 # S-33 — Edits that scan run in the background
 
-Status: **drafted 2026-11-12**, design to agree before building. Supersedes S-24 §6 (R6), which
+Status: **shipped 2026-11-13**. As built (§8) differs from the draft in three places. Supersedes S-24 §6 (R6), which
 listed three paths; the S-28 `:s` and S-31 builders added four more.
 
 ## 1. Problem
@@ -99,3 +99,25 @@ About 2 days:
 
 - Search `n`/`N` rescans per press (already a job; caching hits is a separate speed-up).
 - Long plans overflowing the stack (deferred 2026-11-12: merging consecutive column steps).
+
+## 8. As built
+
+- **One closure, no `Scanned`/`Then` enums.** `App::scan_edit(label, scan, apply)`: `scan(&Sheet)`
+  runs in the job on a copy of the sheet, and `apply(&mut App, T)` on the UI thread.
+  `JobDone::Edit { stamp, apply }` carries the boxed apply. Same shape as B, with one apply arm
+  and no enum per path. Each `Sheet` method splits into a read (`view_order_rids`,
+  `selected_in_view_order`, `fill_scan`, `json_dtype`, `view_rids`) and a `*_with` / `*_apply`
+  write; the old method stays as read + write for inline callers (replay, unit tests).
+- **D1 uses a stamp, not `revision()`.** `revision` moves on every materialize, so scrolling would
+  refuse results. `Sheet::scan_stamp()` is the count key (edits, undo, filter, casts), the sort, and
+  the selection's `Arc` by pointer. The refusal reads
+  `<label>: the sheet changed while it ran; not applied` (`a`'s cursor move uses the same path,
+  where "run it again" would be wrong).
+- **`a` `ga` `p` `P`**: rows are added at once; the cursor move to the new row is the scanned part
+  (`cursor to new row`), with no pending-row marker on `View`.
+- **D5**: inline when the window holds the whole counted view (`row_count <= window height`).
+- **Not moved:** `json` typed in the columns sheet (`columns_write` over several sheets) still scans
+  inline.
+- **Tests:** `src/app/scenario/jobs.rs`. A 3000-row sheet whose every collect naps 1.5 s. Every
+  `Action::NAMED` and every ex command that parses bare or with `id` must return from `dispatch`
+  in under 500 ms (no exemptions needed). Plus per-path checks, the stale refusal, and `<C-c>`.

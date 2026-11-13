@@ -4,6 +4,7 @@ use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 mod edit;
+mod jobs;
 mod lua;
 mod sheets;
 mod tail;
