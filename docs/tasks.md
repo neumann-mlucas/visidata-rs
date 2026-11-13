@@ -34,6 +34,7 @@ Found 2026-11-12, fixed: sort put nulls first in both directions (Polars' defaul
 Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
 
 - [ ] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan the whole view on the UI thread; move them to jobs (spec drafted 2026-11-12, to agree)
+- [x] 2026-11-12: split the biggest files, moves only: `app/actions.rs` → `actions/{files,vim,edit}.rs`, `app.rs` → `app/{jobs,input,hooks}.rs`, `sheet/mod.rs` → `sheet/{edit,meta,rows,write}.rs`, `app/scenario.rs` tests → `scenario/{view,sheets,edit,lua,tail,vim}.rs`; `export.rs` stays whole
 - [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 
 ## Roadmap (ordered, 2026-11-08)
@@ -73,7 +74,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 ## Test layout
 
-- `src/app/scenario.rs`: hand-written end-to-end tests.
+- `src/app/scenario.rs` (the `Harness`) and `src/app/scenario/*.rs` (tests by topic): hand-written end-to-end tests.
 - `src/app/golden.rs` + `tests/golden/<case>/`: key script → expected TSV + screen; exported `.sql`/`.py` run through DuckDB and Polars (`VDRS_PYTHON`, `VDRS_REQUIRE_ROUNDTRIP` in CI). `UPDATE_GOLDEN=1` rewrites expectations.
 - `src/app/monkey.rs`: seeded random keys, undo/redo round trip.
 - `tests/cli.rs`: the binary (arguments, stdin, exit codes).
