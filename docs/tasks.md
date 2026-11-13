@@ -26,8 +26,10 @@ Found 2026-11-09 (S-25 P3/P4), open:
 
 - [ ] Freq count ties: VisiData keeps first-seen order, vdrs breaks ties by value (blocks `petsdiet`; changing it moves other freq goldens)
 - [ ] Export date→float cast: app gives epoch days, DuckDB `TRY_CAST` gives null
-- [ ] Derived sheets start with a fresh view: no inherited types/aggregators (`dup-rows-attrs`, `freeze-sheet-attrs`)
+- [x] Derived sheets start with a fresh view: S-31 copies types, aggregators, colors, precision (`freeze-sheet-attrs` passes); column widths still aren't inherited (`dup-rows-attrs` stays quarantined)
 - [ ] `[` on a columns sheet sorts only it; VisiData reorders the source's columns (`aggregators-set`)
+
+Found 2026-11-12, fixed: sort put nulls first in both directions (Polars' default); VisiData's null is the smallest value, so `]` now puts them last, in the app and both exports.
 
 Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
 

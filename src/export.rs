@@ -727,9 +727,9 @@ impl Script {
                 })
                 .collect();
             ops.push(format!(
-                ".sort([{}], descending=[{}], maintain_order=True)",
+                ".sort([{}], descending=[{d}], nulls_last=[{d}], maintain_order=True)",
                 by.join(", "),
-                desc.join(", ")
+                d = desc.join(", ")
             ));
         }
         if let Some(mut cols) = visible_columns(s)? {
@@ -833,12 +833,13 @@ impl Script {
                 .sort
                 .iter()
                 .map(|k| {
+                    // nulls are the smallest value, as in the app
                     let dir = if k.order == SortOrder::Desc {
-                        "DESC"
+                        "DESC NULLS LAST"
                     } else {
-                        "ASC"
+                        "ASC NULLS FIRST"
                     };
-                    format!("{} {dir} NULLS FIRST", q_ident(&k.column)) // Polars default
+                    format!("{} {dir}", q_ident(&k.column))
                 })
                 .collect();
             sql += &format!("\nORDER BY {}", by.join(", "));

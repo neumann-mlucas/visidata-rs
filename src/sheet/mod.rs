@@ -1126,8 +1126,11 @@ impl Sheet {
                 .iter()
                 .map(|k| k.order == SortOrder::Desc)
                 .collect();
+            // VisiData: a null is the smallest value, so it leads an
+            // ascending sort and trails a descending one
             let opts = SortMultipleOptions::default()
-                .with_order_descending_multi(desc)
+                .with_order_descending_multi(desc.clone())
+                .with_nulls_last_multi(desc)
                 .with_maintain_order(true);
             lf = lf.sort(by, opts);
         }

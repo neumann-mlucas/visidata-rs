@@ -201,6 +201,16 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
     assert!(!title(&h).contains(|c| SPINNER.contains(&c)));
 }
 
+/// Nulls sort as VisiData's smallest value: first with `[`, last with `]`.
+#[tokio::test(flavor = "multi_thread")]
+async fn nulls_lead_ascending_and_trail_descending_sorts() {
+    let mut h = csv(b"n\n2\n\n1\n3\n").await;
+    h.keys("[").await;
+    assert_eq!(view_csv(&h), "n\n\n1\n2\n3\n");
+    h.keys("]").await;
+    assert_eq!(view_csv(&h), "n\n3\n2\n1\n\n");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn csv_moves_into_memory_after_opening() {
     let mut h = Harness::new(5000).await;
