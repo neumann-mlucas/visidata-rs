@@ -396,6 +396,9 @@ pub struct View {
     /// `H` `L` `gH` `gL`, `:order` (S-34): non-key columns in display order;
     /// columns not named here follow in plan order.
     pub order: Vec<String>,
+    /// Letters handed to unnamed new columns so far (VisiData `colname_ctr`):
+    /// the next is `A` + this. In the view so undo puts it back.
+    pub colname_ctr: u32,
     /// Row count of the filtered view; `None` while counting or after a failed count.
     total_rows: Option<u64>,
     /// `Sheet::count_key` that `total_rows` belongs to (or is being counted for).
@@ -453,6 +456,7 @@ impl Default for View {
             aggregators: Vec::new(),
             precision: Vec::new(),
             order: Vec::new(),
+            colname_ctr: 0,
             total_rows: None,
             count_key: None,
             jump_bottom: false,
@@ -989,29 +993,14 @@ impl Sheet {
     /// columns of its section (keys, or the rest), clamped at the ends. Its
     /// new index among the shown columns; `None`: it didn't move.
     pub fn slide_col(&mut self, column: &str, by: i64) -> Result<Option<usize>, String> {
-        let names: Vec<String> = self
-            .sorted_plan(false)
-            .collect_schema()
-            .map_err(|e| e.to_string())?
-            .iter_names()
-            .map(|n| n.to_string())
-            .collect();
+        let names = self.plan_names()?;
+        let rest = self.non_keys_in_order(&names);
         let v = &mut self.view;
         let shown = |c: &String| !v.hidden.contains(c) && names.contains(c);
         let keys: Vec<String> = v.keys.iter().filter(|c| shown(c)).cloned().collect();
         let is_key = keys.iter().any(|k| k == column);
         // the section in display order, hidden columns kept in place
-        let mut all: Vec<String> = if is_key {
-            v.keys.clone()
-        } else {
-            let mut all: Vec<String> = Vec::new();
-            for c in v.order.iter().chain(&names) {
-                if names.contains(c) && !v.keys.contains(c) && !all.contains(c) {
-                    all.push(c.clone());
-                }
-            }
-            all
-        };
+        let mut all: Vec<String> = if is_key { v.keys.clone() } else { rest };
         let vis: Vec<String> = all.iter().filter(|c| shown(c)).cloned().collect();
         let Some(from) = vis.iter().position(|c| c == column) else {
             return Err(format!("no column: {column}"));
@@ -1035,6 +1024,89 @@ impl Sheet {
         };
         self.state.widths_key = None;
         Ok(Some(base + to))
+    }
+
+    /// `A` (VisiData `open-new`): an empty in-memory sheet with text column `A`.
+    pub fn open_new(id: SheetId) -> Sheet {
+        let schema = Schema::from_iter([Field::new("A".into(), DataType::String)]);
+        let df = DataFrame::empty_with_schema(&schema);
+        let src = crate::reader::LoadedSource::from_df(
+            crate::reader::SourceKind::Csv,
+            "unnamed".into(),
+            None,
+            df,
+        );
+        let mut s = Sheet::from_source(id, src);
+        s.view.colname_ctr = 1; // its `A`
+        s
+    }
+
+    /// The plan's column names (before the view's casts and projection).
+    fn plan_names(&self) -> Result<Vec<String>, String> {
+        Ok(self
+            .sorted_plan(false)
+            .collect_schema()
+            .map_err(|e| e.to_string())?
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect())
+    }
+
+    /// The non-key columns of `names` in display order, hidden ones in place.
+    fn non_keys_in_order(&self, names: &[String]) -> Vec<String> {
+        let v = &self.view;
+        let mut all: Vec<String> = Vec::new();
+        for c in v.order.iter().chain(names) {
+            if names.contains(c) && !v.keys.contains(c) && !all.contains(c) {
+                all.push(c.clone());
+            }
+        }
+        all
+    }
+
+    /// New column `name` goes right after `after` (VisiData
+    /// `addColumnAtCursor`); first of the non-key columns when `after` is a
+    /// key column or none.
+    pub fn place_col(&mut self, name: &str, after: Option<&str>) -> Result<(), String> {
+        self.place_cols(&[name.to_string()], after)
+    }
+
+    /// [`Self::place_col`] for several new columns, kept in this order.
+    pub fn place_cols(&mut self, new: &[String], after: Option<&str>) -> Result<(), String> {
+        let names = self.plan_names()?;
+        let mut all = self.non_keys_in_order(&names);
+        all.retain(|c| !new.contains(c));
+        let at = match after.filter(|a| !self.view.keys.iter().any(|k| k == a)) {
+            Some(a) => all.iter().position(|c| c == a).map_or(all.len(), |i| i + 1),
+            None => 0,
+        };
+        all.splice(at..at, new.iter().cloned());
+        // name only the shortest prefix after which the rest is plan order
+        let keep = (0..=all.len())
+            .find(|&k| {
+                let rest = names
+                    .iter()
+                    .filter(|c| all.contains(c) && !all[..k].contains(c));
+                rest.eq(&all[k..])
+            })
+            .unwrap_or(all.len());
+        all.truncate(keep);
+        self.view.order = all;
+        self.state.widths_key = None;
+        Ok(())
+    }
+
+    /// VisiData's name for an unnamed new column: the sheet's next letter
+    /// (`A`, `B`, … `Z`, `AA`), skipping names already taken (Polars columns
+    /// can't share one).
+    pub fn next_colname(&mut self) -> String {
+        loop {
+            self.view.colname_ctr += 1;
+            let name = colname_letters(self.view.colname_ctr);
+            if !self.has_column(&name) {
+                return name;
+            }
+        }
     }
 
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
@@ -1321,4 +1393,16 @@ impl PartialEq for ScanStamp {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key && Arc::ptr_eq(&self.selected, &other.selected)
     }
+}
+
+/// 1 → `A`, 26 → `Z`, 27 → `AA` (VisiData `colname_letters`).
+fn colname_letters(mut n: u32) -> String {
+    let mut out = Vec::new();
+    while n > 0 {
+        n -= 1;
+        out.push(b'A' + (n % 26) as u8);
+        n /= 26;
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap_or_default()
 }

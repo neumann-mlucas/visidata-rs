@@ -283,9 +283,9 @@ async fn edit_cell_prompt_undo_redo_and_types() {
 #[tokio::test(flavor = "multi_thread")]
 async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
     let mut h = csv(b"id,qty,price\n1,2,1.5\n2,3,2.0\n3,1,4.0\n").await;
-    h.keys(":").await;
+    h.keys("g l :").await; // total goes after the cursor column
     h.type_("derive total = qty * price").await;
-    h.keys("l e <C-u>").await; // qty of id 1
+    h.keys("g h l e <C-u>").await; // qty of id 1
     h.type_("10").await;
     let v = view_csv(&h);
     assert!(v.contains("1,10,1.5,15.0"), "{v}");
@@ -998,15 +998,19 @@ async fn column_builders_fill_number_add_and_capture() {
     );
     // i: numbers in view order (sorted), kept when the sort goes
     h.keys("h h [ i").await;
-    assert_eq!(h.current_column(), "incr");
+    assert_eq!(h.current_column(), "A"); // VisiData's name, right after the cursor
     h.keys(":").await;
     h.type_("unsort").await;
     assert_eq!(
         view_csv(&h),
-        "id,name,grp,incr\n3,c-1,x,3\n1,a-2,,1\n2,b-3,,2\n4,d-4,y,4\n"
+        "id,A,name,grp\n3,3,c-1,x\n1,1,a-2,\n2,2,b-3,\n4,4,d-4,y\n"
     );
     h.keys("U U").await; // :unsort, then the column and its numbers in one step
-    assert!(!view_csv(&h).contains("incr"), "{}", view_csv(&h));
+    assert!(
+        view_csv(&h).starts_with("id,name,grp\n"),
+        "{}",
+        view_csv(&h)
+    );
     h.keys("U").await; // the sort
     assert_eq!(
         view_csv(&h),
@@ -1028,13 +1032,13 @@ async fn column_builders_fill_number_add_and_capture() {
     h.type_("check").await;
     assert_eq!(
         view_csv(&h),
-        "id,name,grp,comment\n3,c-1,x,\n1,a-2,,check\n2,b-3,,\n4,d-4,y,\n"
+        "id,comment,name,grp\n3,,c-1,x\n1,check,a-2,\n2,,b-3,\n4,,d-4,y\n"
     );
     h.keys("z a").await;
     h.type_("comment").await;
     assert_eq!(status(&h), "addcol: column already exists: comment");
     // ;: one struct column of the groups; ( expands it
-    h.keys("g h l ;").await;
+    h.keys("g h l l ;").await; // name, past comment
     h.type_("([a-z])-(?P<n>\\d)").await;
     assert_eq!(status(&h), "added name_re; ( expands it");
     h.keys("(").await;

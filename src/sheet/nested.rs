@@ -78,6 +78,7 @@ impl Sheet {
             .filter(|n| n.as_str() != ROW_ID)
             .map(|n| n.to_string())
             .collect();
+        let kids: Vec<String> = fields.iter().map(|(_, n)| n.clone()).collect();
         let step = PlanStep::Expand {
             column: column.into(),
             fields,
@@ -87,7 +88,8 @@ impl Sheet {
         self.state.steps.push(step);
         self.view.hidden.insert(column.into());
         self.invalidate(Reason::Rows);
-        Ok(())
+        // VisiData puts them right after the struct
+        self.place_cols(&kids, Some(column))
     }
 
     /// `)`: on `column` or a column expanded from the same struct, hide

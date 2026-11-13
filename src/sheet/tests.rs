@@ -1232,3 +1232,43 @@ fn replace_edits_only_its_rows_and_keeps_nulls() {
     assert!(s.time_travel(true));
     assert_eq!(names(&s), [Some("xa a".into()), None, Some("baa".into())]);
 }
+
+/// S-35: new columns go right after the cursor column; `order` names only
+/// what's out of plan order.
+#[test]
+fn new_columns_go_after_the_cursor() {
+    let (mut s, _f) = sheet_of("k,a,b,c\n1,2,3,4\n");
+    let names = |s: &Sheet| -> Vec<String> {
+        s.window_plan()
+            .collect_schema()
+            .unwrap()
+            .iter_names()
+            .map(|n| n.to_string())
+            .collect()
+    };
+    s.derive("x", "a + 1").unwrap();
+    s.place_col("x", Some("c")).unwrap(); // last already
+    assert!(s.view.order.is_empty());
+    s.place_col("x", Some("a")).unwrap();
+    assert_eq!(s.view.order, ["k", "a", "x"]);
+    assert_eq!(names(&s), ["k", "a", "x", "b", "c"]);
+    s.view.keys = vec!["k".into()];
+    s.derive("y", "b + 1").unwrap();
+    s.place_col("y", Some("k")).unwrap(); // on a key: first non-key
+    assert_eq!(names(&s), ["k", "y", "a", "x", "b", "c"]);
+    s.derive("p", "1").unwrap();
+    s.derive("q", "2").unwrap();
+    s.place_cols(&["p".into(), "q".into()], Some("b")).unwrap();
+    assert_eq!(names(&s), ["k", "y", "a", "x", "b", "p", "q", "c"]);
+}
+
+#[test]
+fn unnamed_columns_take_the_next_free_letter() {
+    let (mut s, _f) = sheet_of("A,C\n1,2\n");
+    assert_eq!(s.next_colname(), "B"); // A is taken
+    s.derive("B", "1").unwrap();
+    assert_eq!(s.next_colname(), "D"); // C is taken
+    s.view.colname_ctr = 25;
+    assert_eq!(s.next_colname(), "Z");
+    assert_eq!(s.next_colname(), "AA");
+}

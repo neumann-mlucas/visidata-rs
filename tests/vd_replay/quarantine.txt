@@ -25,6 +25,4 @@ describe             # VisiData keeps Date's time (47 distinct, vdrs 32) and sho
 issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric stats appear (S-25 P2 typed reads)
 issue1377  # paste into a new sheet: VisiData list rows put the first pasted value in column A (positional); vdrs matches by name and adds the rest
 issue1377b  # same as issue1377
-pr2614               # VisiData names an unnamed new column by its letter (A, B, …); vdrs's i names it incr (S-31)
-pr2855               # same as pr2614
-capture-col-named    # VisiData puts new columns after the cursor; vdrs adds them last (S-31 S2)
+pr2614               # VisiData's `i` names its column `A` though data1 has an `A`; Polars columns can't share a name

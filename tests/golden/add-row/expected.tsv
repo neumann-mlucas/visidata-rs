@@ -1,6 +1,6 @@
-id	qty	ok	when	note	twice
-1	2	true	2024-01-01	a	4
-10	7				14
+id	qty	ok	when	twice	note
+1	2	true	2024-01-01	4	a
+10	7			14	
 					
 			2025-05-05		
-2	3	false	2024-02-29	b	6
+2	3	false	2024-02-29	6	b

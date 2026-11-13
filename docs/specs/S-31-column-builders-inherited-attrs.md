@@ -36,6 +36,7 @@ Every builder is made of existing steps, so undo, `:save`, `:export`, sessions a
   `rid → 1..n` in **view order** (sort applies, rows hidden by a filter stay null). The rids in view
   order come from a background job (the view can be 10M rows), as `|` and `,` do. Name: `incr`,
   then `incr2`, … when taken (VisiData leaves it unnamed; vdrs columns need a name).
+  _Superseded by S-35 (2026-11-13): VisiData's letters `A`, `B`, …_
 - **`gi`** = `SetCells` on the current column: selected rows in view order → 1..k, cast to the
   column's type (text columns get `"1"`, `"2"`…). No selection: refused (`no rows selected`).
 - **`f`** = `SetCells` with only the null cells it fills: scan the current column in view order,
@@ -47,7 +48,8 @@ Every builder is made of existing steps, so undo, `:save`, `:export`, sessions a
   parentheses`, VisiData's text). Non-text columns read as their text (cast first). Export: Polars
   `str.extract_groups`; DuckDB `regexp_extract(col, pat, [names])` (struct). `(` then gives
   `Date_re.month` or `Date_re.1`.
-- **Placement**: new columns go last, as `=` does today (S2).
+- **Placement**: new columns go last, as `=` does today (S2). _Superseded by S-35: right after the
+  cursor column, as VisiData does._
 - **Inherited attributes**: sheets that copy the parent's rows with its columns — `"` (`Selected`),
   `g"`/`:dup` (`Copy`), dedupe, and new `g'` (= `g"`, VisiData's `freeze-sheet`) — start with the
   parent's `type_casts` labels, `aggregators`, `formats`, `scales` and S-32 `precision`, for the

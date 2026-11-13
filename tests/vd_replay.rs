@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 65;
+const MIN_PASS: usize = 67;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -835,11 +835,13 @@ impl Replay {
             // S-31 column builders
             "addcol-new" => {
                 let s = &mut self.current_slot_mut()?.sheet;
-                s.add_empty_col(&r.input).map_err(Runtime)
+                s.add_empty_col(&r.input).map_err(Runtime)?;
+                s.place_col(&r.input, Some(&r.col)).map_err(Runtime)
             }
             "addcol-incr" => {
                 let s = &mut self.current_slot_mut()?.sheet;
-                s.add_incr_col().map(|_| ()).map_err(Runtime)
+                let name = s.add_incr_col().map_err(Runtime)?;
+                s.place_col(&name, Some(&r.col)).map_err(Runtime)
             }
             "setcol-incr" => {
                 let s = &mut self.current_slot_mut()?.sheet;
@@ -856,7 +858,8 @@ impl Replay {
             "addcol-capture" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 let p = format!("(?i){}", r.input);
-                s.capture(&r.col, &p).map(|_| ()).map_err(Runtime)
+                let name = s.capture(&r.col, &p).map_err(Runtime)?;
+                s.place_col(&name, Some(&r.col)).map_err(Runtime)
             }
             "rename-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
@@ -1065,14 +1068,8 @@ impl Replay {
             }
             // `A`: VisiData's new sheet has one column, `A`.
             "open-new" => {
-                let df = DataFrame::new_infer_height(vec![Column::new_empty(
-                    "A".into(),
-                    &DataType::String,
-                )])
-                .map_err(|e| StepErr::Runtime(e.to_string()))?;
-                let src = LoadedSource::from_df(SourceKind::Csv, "unnamed".into(), None, df);
                 let id = self.alloc();
-                self.push_sheet("unnamed".into(), Sheet::from_source(id, src));
+                self.push_sheet("unnamed".into(), Sheet::open_new(id));
                 Ok(())
             }
             "copy-cell" => self.clip_copy(&r.col, Some(&r.row)),
@@ -1420,6 +1417,7 @@ impl Replay {
                 let name = format!("{col_name}_re");
                 s.derive(&name, &format!("CAST(\"{col_name}\" AS VARCHAR)"))
                     .and_then(|()| s.replace(&name, &before, &after, true, None, true))
+                    .and_then(|()| s.place_col(&name, Some(col_name)))
                     .map_err(rt)
             }
             _ if selected.is_empty() => Ok(()),

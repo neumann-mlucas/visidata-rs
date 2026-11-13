@@ -1,42 +1,42 @@
- sales.csv  csv                                                              id 1/6  row 1/300 · 0%
- id i date date  region str   qty i  price f  revenue f
-33352 2024-10-05 south            3  1176.47    3529.41
-38834 2024-12-28 south            4   405.75     1623.0
-23982 2024-06-06 east             5   882.27    4411.35
-24036 2024-04-22 north            5   198.31     991.55
-26692 2024-06-24 north            1   137.04     137.04
-33137 2024-12-29 south            2  1149.49    2298.98
- 3146 2024-02-17 north            2  1239.61    2479.22
+ sales.csv  csv                                                         revenue 2/6  row 1/300 · 0%
+ id i  revenue f date date  region str   qty i  price f
+33352    3529.41 2024-10-05 south            3  1176.47
+38834     1623.0 2024-12-28 south            4   405.75
+23982    4411.35 2024-06-06 east             5   882.27
+24036     991.55 2024-04-22 north            5   198.31
+26692     137.04 2024-06-24 north            1   137.04
+33137    2298.98 2024-12-29 south            2  1149.49
+ 3146    2479.22 2024-02-17 north            2  1239.61
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
 --- frame
- sales.csv  csv · sort price▼                                             price 5/6  row 1/300 · 0%
- id i date date  region str   qty i  price ▼  revenue f
- 3477 2024-01-16 south            1  1299.72    1299.72
- 5119 2024-12-25 north            4   1296.7     5186.8
- 9373 2024-02-08 north            1  1294.58    1294.58
-15814 2024-06-23 west             4  1293.02    5172.08
- 6440 2024-06-18 north            1  1285.12    1285.12
-33826 2024-04-05 east             2  1284.71    2569.42
-19436 2024-07-19 south            5  1273.52     6367.6
+ sales.csv  csv · sort qty▼                                                 qty 5/6  row 1/300 · 0%
+ id i  revenue f date date  region str   qty ▼  price f
+23982    4411.35 2024-06-06 east             5   882.27
+24036     991.55 2024-04-22 north            5   198.31
+16569    5394.65 2024-06-24 south            5  1078.93
+35147     274.85 2024-06-30 south            5    54.97
+18666    6301.85 2024-09-04 north            5  1260.37
+18772     3106.8 2024-08-20 north            5   621.36
+20587     5876.9 2024-12-08 north            5  1175.38
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
 --- frame
- sales.csv  csv · sort date▲                                               date 2/6  row 1/300 · 0%
- id i date ▲     region str   qty i  price f  revenue f
-17727 2024-01-02 south            4   569.05     2276.2
- 1171 2024-01-02 west             4  1068.17    4272.68
- 4127 2024-01-03 east             2   1204.7     2409.4
-15774 2024-01-04 north            2   228.28     456.56
-49471 2024-01-06 south            4   609.57    2438.28
-37420 2024-01-07 south            4   620.35     2481.4
-22331 2024-01-07 north            4   1262.9     5051.6
+ sales.csv  csv · sort revenue▲                                         revenue 2/6  row 1/300 · 0%
+ id i  revenue ▲ date date  region str   qty i  price f
+43148          · 2024-04-08 east             ·  1012.82
+21384          · 2024-07-10 north            ·  1121.14
+44559          · 2024-09-08 east             ·   791.23
+23501          · 2024-05-18 north            ·    116.3
+ 3059          · 2024-12-31 south            ·   345.41
+11321          · 2024-05-09 south            ·  1079.43
+ 3298          · 2024-03-12 south            ·  1015.94
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
 --- frame
  sales.csv_undo  csv · sheets 2 · hidden 1                                state 1/4  row 4/4 · 100%
  state u  parent u current str  change str
        0         ·              opened
        1         0                derive revenue = qty * price
-       2         1                  sort -price
-       3         1 *                sort date
+       2         1                  sort -qty
+       3         1 *                sort revenue
 
 
 

@@ -1,9 +1,9 @@
- tests/golden/subst-new-col/input.csv  csv · sel 2                          city 3/4  row 2/4 · 50%
- id i name str  city str  name_re str
-    1 ann lee   OslO      a. l.
-    2 bob  ray  rOme      b.  r.
-    3 ·         kyiv      ·
-    4 cid ox    oslo      c. o.
+ tests/golden/subst-new-col/input.csv  csv · sel 2                          city 4/4  row 2/4 · 50%
+ id i name str  name_re str  city str
+    1 ann lee   a. l.        OslO
+    2 bob  ray  b.  r.       rOme
+    3 ·         ·            kyiv
+    4 cid ox    c. o.        oslo
 
 
 

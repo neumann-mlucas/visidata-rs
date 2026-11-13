@@ -837,15 +837,7 @@ impl App {
             }
             Action::OpenNew => {
                 let id = self.sheets.alloc_id();
-                let schema = Schema::from_iter([Field::new("A".into(), DataType::String)]);
-                let df = DataFrame::empty_with_schema(&schema);
-                let src = crate::reader::LoadedSource::from_df(
-                    crate::reader::SourceKind::Csv,
-                    "unnamed".into(),
-                    None,
-                    df,
-                );
-                self.sheets.push(Sheet::from_source(id, src));
+                self.sheets.push(Sheet::open_new(id));
                 self.spawn_materialize();
             }
             Action::DeleteSelected | Action::CutSelected => {
@@ -925,14 +917,17 @@ impl App {
                     return;
                 }
                 let snap = s.snapshot();
+                // bare `:order`: back to plan order
                 let mut order = columns.clone();
-                order.extend(
-                    s.view
-                        .order
-                        .iter()
-                        .filter(|c| !columns.contains(c))
-                        .cloned(),
-                );
+                if !columns.is_empty() {
+                    order.extend(
+                        s.view
+                            .order
+                            .iter()
+                            .filter(|c| !columns.contains(c))
+                            .cloned(),
+                    );
+                }
                 if order != s.view.order {
                     s.view.order = order;
                     s.state.widths_key = None;
@@ -940,24 +935,30 @@ impl App {
                     self.spawn_materialize();
                 }
             }
-            Action::AddCol { name } => match self.sheets.active_mut().add_empty_col(&name) {
-                Ok(()) => {
-                    self.goto_column(&name);
-                    self.spawn_materialize();
-                }
-                Err(e) => self.toast = Some(format!("addcol: {e}")),
-            },
-            Action::AddColIncr => self.scan_edit(
-                "addcol-incr",
-                |s| s.view_order_rids(),
-                |app, rids| match app.sheets.active_mut().add_incr_col_with(rids) {
-                    Ok(name) => {
-                        app.goto_column(&name);
-                        app.spawn_materialize();
+            Action::AddCol { name } => {
+                let at = self.current_column_name();
+                match self.sheets.active_mut().add_empty_col(&name) {
+                    Ok(()) => {
+                        self.place_new_column(&name, at.as_deref());
+                        self.spawn_materialize();
                     }
-                    Err(e) => app.toast = Some(format!("addcol-incr: {e}")),
-                },
-            ),
+                    Err(e) => self.toast = Some(format!("addcol: {e}")),
+                }
+            }
+            Action::AddColIncr => {
+                let at = self.current_column_name();
+                self.scan_edit(
+                    "addcol-incr",
+                    |s| s.view_order_rids(),
+                    move |app, rids| match app.sheets.active_mut().add_incr_col_with(rids) {
+                        Ok(name) => {
+                            app.place_new_column(&name, at.as_deref());
+                            app.spawn_materialize();
+                        }
+                        Err(e) => app.toast = Some(format!("addcol-incr: {e}")),
+                    },
+                );
+            }
             Action::SetColIncr | Action::SetColFill | Action::Capture { .. } => {
                 let Some(column) = self.current_column_name() else {
                     return;
@@ -992,9 +993,9 @@ impl App {
                         );
                     }
                     Action::Capture { pattern } => {
-                        let s = self.sheets.active_mut();
-                        let done = s.capture(&column, pattern).map(|name| {
-                            self.goto_column(&name);
+                        let done = self.sheets.active_mut().capture(&column, pattern);
+                        let done = done.map(|name| {
+                            self.place_new_column(&name, Some(&column));
                             format!("added {name}; ( expands it")
                         });
                         self.edit_done(done, "");
@@ -1023,9 +1024,16 @@ impl App {
                 });
             }
             Action::Derive { name, expr } => {
+                let at = self.current_column_name();
                 let s = self.sheets.active_mut();
+                let new = !s.has_column(&name);
                 match s.derive(&name, &expr) {
-                    Ok(()) => self.spawn_materialize(),
+                    Ok(()) => {
+                        if new {
+                            self.place_new_column(&name, at.as_deref());
+                        }
+                        self.spawn_materialize();
+                    }
                     Err(e) => self.toast = Some(format!("derive: {e}")),
                 }
             }
@@ -1613,6 +1621,9 @@ impl App {
                 })
             }
         };
+        if done.is_ok() && matches!(mode, SubstMode::NewColumn) {
+            self.place_new_column(&format!("{c}_re"), Some(&c));
+        }
         match done {
             Ok(msg) => {
                 self.toast = Some(msg);
@@ -1620,6 +1631,15 @@ impl App {
             }
             Err(e) => self.toast = Some(format!("subst: {e}")),
         }
+    }
+
+    /// New column `name` right after column `at` (VisiData
+    /// `addColumnAtCursor`), with the cursor on it.
+    pub(super) fn place_new_column(&mut self, name: &str, at: Option<&str>) {
+        if let Err(e) = self.sheets.active_mut().place_col(name, at) {
+            self.toast = Some(e);
+        }
+        self.goto_column(name);
     }
 
     fn submit_row(&mut self) {

@@ -391,12 +391,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             [name] => Ok(vec![Action::AddCol { name: name.clone() }]),
             _ => Err(ExError::Usage(":addcol <name>")),
         },
-        "order" => match split_args(rest, ":order <column…>")?.as_slice() {
-            [] => Err(ExError::Usage(":order <column…>")),
-            cols => Ok(vec![Action::Order {
-                columns: cols.to_vec(),
-            }]),
-        },
+        "order" => Ok(vec![Action::Order {
+            columns: split_args(rest, ":order [column…]")?,
+        }]),
         "precision" => match rest {
             "" => Ok(vec![Action::SetPrecision { digits: None }]),
             n => match n.parse::<u8>() {

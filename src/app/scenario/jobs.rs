@@ -60,23 +60,11 @@ async fn edits_scan_in_the_background() {
     // i: a numbered column, one undo step
     press_quick(&mut h, "i");
     h.pump().await;
-    assert!(
-        columns(&h).contains(&"incr".to_string()),
-        "{:?}",
-        columns(&h)
-    );
+    assert!(columns(&h).contains(&"A".to_string()), "{:?}", columns(&h));
     h.keys("U").await;
-    assert!(
-        !columns(&h).contains(&"incr".to_string()),
-        "{:?}",
-        columns(&h)
-    );
+    assert!(!columns(&h).contains(&"A".to_string()), "{:?}", columns(&h));
     h.keys("R").await;
-    assert!(
-        columns(&h).contains(&"incr".to_string()),
-        "{:?}",
-        columns(&h)
-    );
+    assert!(columns(&h).contains(&"A".to_string()), "{:?}", columns(&h));
 
     // gi on the selected rows; f fills t; gzp pastes
     h.keys("g g s j s").await;
@@ -135,7 +123,7 @@ async fn stale_or_cancelled_scans_change_nothing() {
     let mut h = slow().await;
     press_quick(&mut h, "i");
     h.keys("[").await; // a sort: the rows' order changed
-    assert!(!columns(&h).contains(&"incr".to_string()));
+    assert!(!columns(&h).contains(&"A".to_string()));
     assert_eq!(
         h.app.toast.as_deref(),
         Some("addcol-incr: the sheet changed while it ran; not applied")
@@ -143,7 +131,7 @@ async fn stale_or_cancelled_scans_change_nothing() {
 
     press_quick(&mut h, "i");
     h.keys("<C-c>").await;
-    assert!(!columns(&h).contains(&"incr".to_string()));
+    assert!(!columns(&h).contains(&"A".to_string()));
 }
 
 /// D6, as a guard for every action: `dispatch` returns at once on a sheet

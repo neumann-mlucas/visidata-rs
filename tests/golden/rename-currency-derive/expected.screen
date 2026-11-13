@@ -1,4 +1,4 @@
- tests/golden/rename-currency-derive/input.csv  csv                         cost 2/3  row 1/3 · 33%
+ tests/golden/rename-currency-derive/input.csv  csv                          tax 3/3  row 1/3 · 33%
 name str   cost f  tax f
 a             3.0    0.3
 b            40.0    4.0

@@ -1,10 +1,10 @@
- sales.csv  csv                                                              id 1/6  row 1/300 · 0%
- id i date date  region str   qty i  price f  total f
-33352 2024-10-05 south            3  1176.47  3529.41
-38834 2024-12-28 south            4   405.75   1623.0
-23982 2024-06-06 east             5   882.27  4411.35
-24036 2024-04-22 north            5   198.31   991.55
-26692 2024-06-24 north            1   137.04   137.04
-33137 2024-12-29 south            2  1149.49  2298.98
- 3146 2024-02-17 north            2  1239.61  2479.22
+ sales.csv  csv                                                           total 2/6  row 1/300 · 0%
+ id i  total f date date  region str   qty i  price f
+33352  3529.41 2024-10-05 south            3  1176.47
+38834   1623.0 2024-12-28 south            4   405.75
+23982  4411.35 2024-06-06 east             5   882.27
+24036   991.55 2024-04-22 north            5   198.31
+26692   137.04 2024-06-24 north            1   137.04
+33137  2298.98 2024-12-29 south            2  1149.49
+ 3146  2479.22 2024-02-17 north            2  1239.61
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

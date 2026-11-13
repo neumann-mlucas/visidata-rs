@@ -1,5 +1,5 @@
-id	name	city	name_re
-1	ann lee	OslO	a. l.
-2	bob  ray	rOme	b.  r.
-3		kyiv	
-4	cid ox	oslo	c. o.
+id	name	name_re	city
+1	ann lee	a. l.	OslO
+2	bob  ray	b.  r.	rOme
+3			kyiv
+4	cid ox	c. o.	oslo

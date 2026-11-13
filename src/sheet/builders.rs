@@ -27,14 +27,8 @@ impl Sheet {
     /// [`Self::add_incr_col`] with the view's row ids already read (S-33).
     pub fn add_incr_col_with(&mut self, rids: Vec<u64>) -> Result<String, String> {
         self.editable()?;
-        let name = (1..)
-            .map(|i| match i {
-                1 => "incr".to_string(),
-                i => format!("incr{i}"),
-            })
-            .find(|n| !self.has_column(n))
-            .unwrap_or_default();
         let before = self.snapshot();
+        let name = self.next_colname();
         let made = self
             .apply_step(PlanStep::Derive {
                 name: name.clone(),

@@ -444,7 +444,8 @@ impl Block {
             self.col(k);
             self.ex(Action::KeyCol);
         }
-        if !v.order.is_empty() {
+        // replayed steps place new columns at the replay's cursor: say where they go
+        if !v.order.is_empty() || !s.state.steps.is_empty() {
             self.ex(Action::Order {
                 columns: v.order.clone(),
             });

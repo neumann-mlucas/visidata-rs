@@ -20,24 +20,24 @@ Hamburg        G-310    received 2024-03-11 qty 8     48.7466667
 Hamburg        B-220    received 2024-03-12 qty 500    0.0833333
 filled 6 values
 --- frame
- stock.csv  csv · hidden 1                                          note_re.date 5/6  row 1/9 · 11%
-warehouse str  sku str  note str                     unit_cost f note_re.date str  note_re.qty str
-Berlin         W-100    received 2024-03-02 qty 40     2.3333333 2024-03-02        40
-Berlin         W-101    received 2024-03-05 qty 12          11.5 2024-03-05        12
-Berlin         B-220    damaged in transit             0.0833333 ·                 ·
-Berlin         B-221    Received 2024-03-09 qty 300       0.0912 2024-03-09        300
-Hamburg        W-100    received 2024-03-01 qty 25     2.3333333 2024-03-01        25
-Hamburg        G-310    received 2024-03-11 qty 8     48.7466667 2024-03-11        8
-Hamburg        B-220    received 2024-03-12 qty 500    0.0833333 2024-03-12        500
+ stock.csv  csv · hidden 1                                          note_re.date 4/6  row 1/9 · 11%
+warehouse str  sku str  note str                    note_re.date str  note_re.qty str   unit_cost f
+Berlin         W-100    received 2024-03-02 qty 40  2024-03-02        40                  2.3333333
+Berlin         W-101    received 2024-03-05 qty 12  2024-03-05        12                       11.5
+Berlin         B-220    damaged in transit          ·                 ·                   0.0833333
+Berlin         B-221    Received 2024-03-09 qty 300 2024-03-09        300                    0.0912
+Hamburg        W-100    received 2024-03-01 qty 25  2024-03-01        25                  2.3333333
+Hamburg        G-310    received 2024-03-11 qty 8   2024-03-11        8                  48.7466667
+Hamburg        B-220    received 2024-03-12 qty 500 2024-03-12        500                 0.0833333
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
 --- frame
- stock.csv  csv · hidden 1                                             unit_cost 4/6  row 1/9 · 11%
-warehouse str  sku str  note str                     unit_cost f note_re.date str  note_re.qty str
-Berlin         W-100    received 2024-03-02 qty 40          2.33 2024-03-02        40
-Berlin         W-101    received 2024-03-05 qty 12         11.50 2024-03-05        12
-Berlin         B-220    damaged in transit                  0.08 ·                 ·
-Berlin         B-221    Received 2024-03-09 qty 300         0.09 2024-03-09        300
-Hamburg        W-100    received 2024-03-01 qty 25          2.33 2024-03-01        25
-Hamburg        G-310    received 2024-03-11 qty 8          48.75 2024-03-11        8
-Hamburg        B-220    received 2024-03-12 qty 500         0.08 2024-03-12        500
-unit_cost: 2 decimals
+ stock.csv  csv · hidden 1                                          note_re.date 4/6  row 1/9 · 11%
+warehouse str  sku str  note str                    note_re.date str  note_re.qty str   unit_cost f
+Berlin         W-100    received 2024-03-02 qty 40  2024-03-02        40                  2.3333333
+Berlin         W-101    received 2024-03-05 qty 12  2024-03-05        12                       11.5
+Berlin         B-220    damaged in transit          ·                 ·                   0.0833333
+Berlin         B-221    Received 2024-03-09 qty 300 2024-03-09        300                    0.0912
+Hamburg        W-100    received 2024-03-01 qty 25  2024-03-01        25                  2.3333333
+Hamburg        G-310    received 2024-03-11 qty 8   2024-03-11        8                  48.7466667
+Hamburg        B-220    received 2024-03-12 qty 500 2024-03-12        500                 0.0833333
+precision: note_re.date is str (float columns only)

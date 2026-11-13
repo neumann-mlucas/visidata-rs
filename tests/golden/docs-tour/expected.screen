@@ -42,7 +42,7 @@ west              46      15.33 ■■■■■■■■■■■■■■■
 19436 2024-07-19 south            5  1273.52
  hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
 --- frame
- sales.csv  csv · sort price▼                                             price 5/6  row 1/300 · 0%
+ sales.csv  csv · sort price▼                                             total 6/6  row 1/300 · 0%
  id i date date  region str   qty i  price ▼  total f
  3477 2024-01-16 south            1  1299.72  1299.72
  5119 2024-12-25 north            4   1296.7   5186.8
