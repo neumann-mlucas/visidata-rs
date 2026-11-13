@@ -771,6 +771,9 @@ impl Script {
                     let cast = if *dt == DataType::Date && is_text(s, c) {
                         self.need(&sql_lenient_date());
                         format!("lenient_date({i})")
+                    } else if dt.is_numeric() && is_date(s, c) {
+                        // Polars casts a date to its days since 1970
+                        format!("TRY_CAST(({i} - DATE '1970-01-01') AS {})", sql_dtype(dt))
                     } else if dt.is_integer() && is_float(s, c) {
                         // Polars truncates a float to an int; DuckDB would round
                         format!("TRY_CAST(trunc({i}) AS {})", sql_dtype(dt))
@@ -1768,6 +1771,11 @@ fn sql_agg(c: &str, agg: &str) -> String {
 fn is_float(s: &Sheet, c: &str) -> bool {
     let schema = s.plan.clone().collect_schema();
     schema.is_ok_and(|sc| sc.get(c).is_some_and(DataType::is_float))
+}
+
+fn is_date(s: &Sheet, c: &str) -> bool {
+    let schema = s.plan.clone().collect_schema();
+    schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::Date))
 }
 
 fn is_text(s: &Sheet, c: &str) -> bool {

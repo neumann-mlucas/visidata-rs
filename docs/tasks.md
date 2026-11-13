@@ -25,7 +25,7 @@ Done in the same pass (2026-11-05): live `:pivot` preview; Lua function bindings
 Found 2026-11-09 (S-25 P3/P4), open:
 
 - [x] Freq count ties: VisiData keeps first-seen order, vdrs broke ties by value — fixed 2026-11-12 (stable group-by + stable count sort, exports too); `petsdiet`, `avg-nulls` pass, PASS=64
-- [ ] Export date→float cast: app gives epoch days, DuckDB `TRY_CAST` gives null
+- [x] Export date→float cast: app gives epoch days, DuckDB `TRY_CAST` gave null — fixed 2026-11-12 (`day - DATE '1970-01-01'`, golden `date-to-float`)
 - [x] Derived sheets start with a fresh view: S-31 copies types, aggregators, colors, precision (`freeze-sheet-attrs` passes); column widths still aren't inherited (`dup-rows-attrs` stays quarantined)
 - [ ] `[` on a columns sheet sorts only it; VisiData reorders the source's columns (`aggregators-set`)
 
