@@ -84,6 +84,8 @@ navigation writes it, and every write is followed by a materialize; a setter wou
 
 ## 6. R6 — No full scans on the UI thread (1–2 d; deferred 2026-11-10, design to agree first)
 
+**Superseded by [S-33](S-33-background-edits.md) (2026-11-12)**, which adds the `:s` and S-31 builder paths. Kept for history.
+
 Found by the 2026-11-10 review: three edit paths run a whole-plan Polars collect inside `dispatch`,
 so on a large scanned file the TUI freezes with no spinner and `<C-c>` can't stop it.
 

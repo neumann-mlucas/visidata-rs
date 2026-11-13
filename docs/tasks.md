@@ -33,7 +33,8 @@ Found 2026-11-12, fixed: sort put nulls first in both directions (Polars' defaul
 
 Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
 
-- [ ] S-24 R6 — `a` `p` `gzp` `:type json` run full scans on the UI thread; move them to jobs (design first)
+- [ ] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan the whole view on the UI thread; move them to jobs (spec drafted 2026-11-12, to agree)
+- [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 
 ## Roadmap (ordered, 2026-11-08)
 
