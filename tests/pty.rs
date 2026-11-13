@@ -1,6 +1,6 @@
-#![expect(
+#![allow(
     clippy::unwrap_used,
-    reason = "test helpers fail the test by panicking"
+    reason = "test helpers fail the test by panicking; allow, not expect: clippy 1.100 treats tests/ as test code and no longer fires here"
 )]
 //! The real binary on a pseudo-terminal must draw what the in-process golden
 //! harness draws: each `tests/golden/docs-*` script is typed into `vdrs

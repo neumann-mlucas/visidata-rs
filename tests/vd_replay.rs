@@ -1,7 +1,7 @@
-#![expect(
+#![allow(
     clippy::unwrap_used,
     clippy::expect_used,
-    reason = "test helpers fail the test by panicking"
+    reason = "test helpers fail the test by panicking; allow, not expect: clippy 1.100 treats tests/ as test code and no longer fires here"
 )]
 //! S-14 — Golden corpus replay harness.
 //!
