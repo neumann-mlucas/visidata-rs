@@ -1,0 +1,16 @@
+# Make <code>order_id</code> the key column, so notes stick to the order, not to the row's position.
+!
+# Note why order 5003 is still open: its cell gets a <code>•</code>.
+j j g l z n
+> customer disputes the charge; call back Friday
+# Count the orders per status.
+F
+# Keep the counts in step with the orders.
+:
+> link
+# Back to the orders: 5003 was refunded after all.
+<C-^>
+e <C-u>
+> refunded
+# Back to the counts: they refreshed by themselves (<code>⟳</code> in the title).
+<C-^>

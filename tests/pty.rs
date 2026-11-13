@@ -140,7 +140,7 @@ impl Drop for Vdrs {
 /// A golden script as typed bytes, one chunk per recorded frame (the whole
 /// script when it has no `# caption`): `>> text` as is, `> text` plus Enter,
 /// other lines space-separated keys (one character, `<CR>`, `<Esc>`,
-/// `<C-u>` or `<F5>`).
+/// `<C-u>`, `<C-^>` or `<F5>`).
 fn steps(script: &str) -> Vec<Vec<u8>> {
     let mut steps = vec![String::new()];
     let mut captions = 0;
@@ -166,6 +166,7 @@ fn steps(script: &str) -> Vec<Vec<u8>> {
                     "<Esc>" => out.push('\x1b'),
                     "<C-u>" => out.push('\x15'),
                     "<F5>" => out.push_str("\x1b[15~"),
+                    "<C-^>" => out.push('\x1e'),
                     k if k.chars().count() == 1 => out.push_str(k),
                     k => panic!("pty test can't type {k}"),
                 }
