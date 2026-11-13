@@ -13,8 +13,8 @@ use polars::prelude::{DataFrame, DataType};
 
 use crate::reader::SourceKind;
 use crate::sheet::{
-    DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH, Lineage,
-    Origin, PlanStep, Sheet, SortOrder, err_col, freq_keeps_order, freq_stat_names,
+    Binning, DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH,
+    Lineage, Origin, PlanStep, Sheet, SortOrder, err_col, freq_keeps_order, freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -411,7 +411,7 @@ impl Script {
         Ok(match &l.how {
             Derivation::Copy if py => p,
             Derivation::Copy => format!("SELECT * FROM {p}"),
-            Derivation::Freq { column } if py => {
+            Derivation::Freq { column, bins } if py => {
                 let (n, pct, hist) = freq_stat_names(column);
                 let order = if freq_keeps_order(&l.parent, column) {
                     String::new()
@@ -421,15 +421,60 @@ impl Script {
                         n = py_str(n)
                     )
                 };
-                let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
+                let pairs = crate::sheet::columns::freq_aggregators(&l.parent);
+                let aggs: String = pairs
                     .iter()
                     .map(|(c, a)| format!(", {}", py_agg(c, a)))
                     .collect();
+                let c = py_str(column);
+                let grouped = match bins {
+                    None => format!(
+                        "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
+                        n = py_str(n)
+                    ),
+                    Some(Binning::Values) => format!(
+                        "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})\
+                         .sort({c}, nulls_last=True, maintain_order=True)",
+                        n = py_str(n)
+                    ),
+                    Some(Binning::Ranges {
+                        min,
+                        width,
+                        n: bins,
+                    }) => {
+                        let labels: Vec<String> = Binning::labels(*min, *width, *bins)
+                            .iter()
+                            .map(|l| py_str(l))
+                            .collect();
+                        let zero: String = pairs
+                            .iter()
+                            .filter(|(_, a)| crate::sheet::columns::zero_on_empty(a))
+                            .map(|(c, a)| format!(", {}", py_str(&format!("{c}_{a}"))))
+                            .collect();
+                        let names: String = pairs
+                            .iter()
+                            .map(|(c, a)| format!(", {}", py_str(&format!("{c}_{a}"))))
+                            .collect();
+                        format!(
+                            "{p}.with_columns(((pl.col({c}).cast(pl.Float64) - {min:?}) / {width:?}).floor()\
+                             .clip(upper_bound={last}).cast(pl.Int64).alias(\"__vdrs_bin\"))\
+                             .group_by(\"__vdrs_bin\", maintain_order=True).agg(pl.len().alias({n}){aggs})\
+                             .pipe(lambda g: pl.concat([pl.LazyFrame({{\"__vdrs_bin\": list(range({bins})), {c}: [{labels}]}}, \
+                             schema={{\"__vdrs_bin\": pl.Int64, {c}: pl.Utf8}})\
+                             .join(g, on=\"__vdrs_bin\", how=\"left\", maintain_order=\"left\")\
+                             .with_columns(pl.col([{n}{zero}]).fill_null(0)), \
+                             g.filter(pl.col(\"__vdrs_bin\").is_null()).with_columns(pl.lit(None, pl.Utf8).alias({c}))], \
+                             how=\"diagonal\")).select([{c}, {n}{names}])",
+                            last = bins - 1,
+                            labels = labels.join(", "),
+                            n = py_str(n),
+                        )
+                    }
+                };
                 format!(
-                    "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})\
+                    "{grouped}\
                      .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
                      .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist})){order}",
-                    c = py_str(column),
                     n = py_str(n),
                     pct = py_str(pct),
                     hist = py_str(hist),
@@ -437,15 +482,80 @@ impl Script {
                     w = HISTOGRAM_WIDTH,
                 )
             }
-            Derivation::Freq { column } => {
+            Derivation::Freq {
+                column,
+                bins:
+                    Some(Binning::Ranges {
+                        min,
+                        width,
+                        n: bins,
+                    }),
+            } => {
+                let (n, pct, hist) = freq_stat_names(column);
+                let pairs = crate::sheet::columns::freq_aggregators(&l.parent);
+                let (c, nq) = (q_ident(column), q_ident(n));
+                let aggs: String = pairs
+                    .iter()
+                    .map(|(c, a)| format!(", {}", sql_agg(c, a)))
+                    .collect();
+                let names: Vec<String> = pairs
+                    .iter()
+                    .map(|(c, a)| q_ident(&format!("{c}_{a}")))
+                    .collect();
+                let filled: String = pairs
+                    .iter()
+                    .zip(&names)
+                    .map(
+                        |((_, a), q)| match crate::sheet::columns::zero_on_empty(a) {
+                            true => format!(", coalesce(g.{q}, 0) AS {q}"),
+                            false => format!(", g.{q}"),
+                        },
+                    )
+                    .collect();
+                let names: String = names.iter().map(|q| format!(", {q}")).collect();
+                // DuckDB's least() skips nulls: a null value has no bin
+                let g = format!(
+                    "(SELECT CASE WHEN {c} IS NULL THEN NULL ELSE least(floor((CAST({c} AS DOUBLE) - {min:?}) / {width:?}), {last})::BIGINT END AS __vdrs_bin, \
+                     count(*) AS {nq}{aggs} FROM {p} GROUP BY 1)",
+                    last = bins - 1,
+                );
+                let labels: Vec<String> = Binning::labels(*min, *width, *bins)
+                    .iter()
+                    .map(|l| q_str(l))
+                    .collect();
+                let order = if freq_keeps_order(&l.parent, column) {
+                    "__vdrs_bin NULLS LAST".to_string()
+                } else {
+                    format!("{nq} DESC, __vdrs_bin NULLS LAST")
+                };
+                format!(
+                    "SELECT {c}, {nq}{names}, round({nq} * 100.0 / sum({nq}) OVER (), 2) AS {pct},\n\
+                     repeat('■', ({nq} * {w} // max({nq}) OVER ())::INTEGER) AS {hist}\n\
+                     FROM (SELECT b.{c}, coalesce(g.{nq}, 0) AS {nq}{filled}, b.__vdrs_bin \
+                     FROM (SELECT unnest(range({bins})) AS __vdrs_bin, unnest([{labels}]) AS {c}) b \
+                     LEFT JOIN {g} g ON b.__vdrs_bin = g.__vdrs_bin \
+                     UNION ALL BY NAME SELECT NULL::VARCHAR AS {c}, * FROM {g} WHERE __vdrs_bin IS NULL) \
+                     ORDER BY {order}",
+                    labels = labels.join(", "),
+                    pct = q_ident(pct),
+                    hist = q_ident(hist),
+                    w = HISTOGRAM_WIDTH,
+                )
+            }
+            Derivation::Freq { column, bins } => {
                 let (n, pct, hist) = freq_stat_names(column);
                 // first-seen order: DuckDB keeps the scan's order
                 // (preserve_insertion_order)
                 let from = format!("(SELECT *, row_number() OVER () AS __pos FROM {p})");
+                // `numeric_binning` on few ints: one bin per value, ascending
+                let first = match bins {
+                    Some(_) => format!("{} NULLS LAST", q_ident(column)),
+                    None => "min(__pos)".to_string(),
+                };
                 let order = if freq_keeps_order(&l.parent, column) {
-                    "min(__pos)".to_string()
+                    first
                 } else {
-                    format!("{n} DESC, min(__pos)", n = q_ident(n))
+                    format!("{n} DESC, {first}", n = q_ident(n))
                 };
                 let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
                     .iter()
@@ -1757,11 +1867,6 @@ fn pivot_prefixes(aggs: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
-/// Aggregates that are 0, not null, over no rows.
-fn zero_on_empty(agg: &str) -> bool {
-    matches!(agg, "count" | "distinct" | "sum")
-}
-
 fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) -> String {
     let list = |v: Vec<String>| format!("[{}]", v.join(", "));
     let o = py_str(on);
@@ -1784,7 +1889,14 @@ fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) 
     let pre = list(pivot_prefixes(aggs).iter().map(|s| py_str(s)).collect());
     let zero = list(
         aggs.iter()
-            .map(|(_, a)| if zero_on_empty(a) { "True" } else { "False" }.to_string())
+            .map(|(_, a)| {
+                if crate::sheet::columns::zero_on_empty(a) {
+                    "True"
+                } else {
+                    "False"
+                }
+                .to_string()
+            })
             .collect(),
     );
     format!(
@@ -1824,10 +1936,12 @@ fn sql_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)])
     let filled: Vec<String> = aggs
         .iter()
         .zip(&alias)
-        .map(|((_, a), q)| match zero_on_empty(a) {
-            true => format!("coalesce(g.{q}, 0) AS {q}"),
-            false => format!("g.{q}"),
-        })
+        .map(
+            |((_, a), q)| match crate::sheet::columns::zero_on_empty(a) {
+                true => format!("coalesce(g.{q}, 0) AS {q}"),
+                false => format!("g.{q}"),
+            },
+        )
         .collect();
     let using_join: Vec<String> = k.iter().cloned().chain([o.clone()]).collect();
     let prefixes = pivot_prefixes(aggs);

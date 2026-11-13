@@ -105,8 +105,10 @@ pub struct Lineage {
 #[derive(Clone)]
 pub enum Derivation {
     Copy,
+    /// `bins`: `numeric_binning` (S-35 C1), fixed when `F` ran.
     Freq {
         column: String,
+        bins: Option<Binning>,
     },
     /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
     Rids(std::collections::BTreeSet<u64>),
@@ -152,6 +154,38 @@ pub enum Derivation {
         other: Box<Sheet>,
         keys: Vec<String>,
     },
+}
+
+/// How `F` groups a numeric column under `numeric_binning` (S-35 C1,
+/// VisiData `PivotSheet.groupRows`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Binning {
+    /// `n` equal ranges from `min`, `width` wide: a value's bin is
+    /// `⌊(v − min) / width⌋`, capped at the last. Every bin is a row.
+    Ranges { min: f64, width: f64, n: usize },
+    /// One bin per distinct value, ascending: ints with fewer values than
+    /// bins, or a single value.
+    Values,
+}
+
+impl Binning {
+    /// Bin index of `c` (Int64; null for null), for [`Binning::Ranges`].
+    pub fn index(min: f64, width: f64, n: usize, c: &str) -> Expr {
+        ((col(c).cast(DataType::Float64) - lit(min)) / lit(width))
+            .floor()
+            .clip_max(lit((n - 1) as f64))
+            .cast(DataType::Int64)
+    }
+
+    /// VisiData's labels for [`Binning::Ranges`]: `lo - hi`, two decimals.
+    pub fn labels(min: f64, width: f64, n: usize) -> Vec<String> {
+        (0..n)
+            .map(|i| {
+                let lo = min + width * i as f64;
+                format!("{lo:.2} - {:.2}", lo + width)
+            })
+            .collect()
+    }
 }
 
 /// Row-diff flags: set on each side before the join, so a null here means the

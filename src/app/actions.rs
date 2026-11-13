@@ -1751,6 +1751,13 @@ impl App {
             return;
         }
         let plan = s.plan.clone();
+        let ranges = match s.state.lineage.as_deref().map(|l| &l.how) {
+            Some(crate::sheet::Derivation::Freq {
+                bins: Some(crate::sheet::Binning::Ranges { min, width, n }),
+                ..
+            }) => Some((*min, *width, *n)),
+            _ => None,
+        };
         let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
@@ -1769,7 +1776,16 @@ impl App {
                 .iter()
                 .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
                 .collect();
-            let child = Sheet::rows_with_values(&parent, id, &column, &picked);
+            let child = match ranges {
+                Some(r) => {
+                    let labels: Vec<Option<String>> = picked
+                        .iter()
+                        .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(v)))
+                        .collect();
+                    Sheet::rows_in_bins(&parent, id, &column, r, &labels)?
+                }
+                None => Sheet::rows_with_values(&parent, id, &column, &picked),
+            };
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
@@ -1951,6 +1967,16 @@ impl App {
             return;
         };
         let id = self.sheets.alloc_id();
+        if let Some(hist_bins) = self.theme.numeric_binning {
+            // the bins need the column's min and max
+            let parent = self.sheets.active().clone();
+            self.spawn_job("freq", move || {
+                let bins = Sheet::numeric_bins(&parent, &col_name, hist_bins)?;
+                let child = Sheet::freq_binned(&parent, id, &col_name, bins);
+                Ok(JobDone::PushSheet(Box::new(child)))
+            });
+            return;
+        }
         let child = {
             let parent = self.sheets.active();
             Sheet::freq_from(parent, id, &col_name)

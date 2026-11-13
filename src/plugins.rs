@@ -41,6 +41,9 @@ struct Registry {
     mouse: bool,
     /// `vd.option("disp_float_fmt", …)` (S-32).
     float_digits: Option<u8>,
+    /// `vd.option("numeric_binning", true)` / `("histogram_bins", N)` (S-35 C1).
+    numeric_binning: bool,
+    histogram_bins: usize,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -473,6 +476,14 @@ impl Plugins {
         reg.borrow().float_digits
     }
 
+    /// `numeric_binning` on: `F` bins numbers into `Some(histogram_bins)`
+    /// (0: ⌊√rows⌋) ranges (S-35 C1).
+    pub fn numeric_binning(&self) -> Option<usize> {
+        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let reg = reg.borrow();
+        reg.numeric_binning.then_some(reg.histogram_bins)
+    }
+
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         reg.borrow().duckdb_cmd.clone()
@@ -732,6 +743,24 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                         )));
                     }
                 },
+                "numeric_binning" => {
+                    registry(lua)?.borrow_mut().numeric_binning = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => {
+                            return Err(mlua::Error::RuntimeError(
+                                "vd.option: numeric_binning is \"true\" or \"false\"".into(),
+                            ));
+                        }
+                    }
+                }
+                "histogram_bins" => {
+                    registry(lua)?.borrow_mut().histogram_bins = value.parse().map_err(|_| {
+                        mlua::Error::RuntimeError(format!(
+                            "vd.option: histogram_bins is a count, 0 for √rows (got {value:?})"
+                        ))
+                    })?
+                }
                 "mouse" => {
                     registry(lua)?.borrow_mut().mouse = match value.as_str() {
                         "true" => true,
@@ -745,7 +774,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, duckdb_cmd, keymap, mouse, session_autosave)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, duckdb_cmd, histogram_bins, keymap, mouse, numeric_binning, session_autosave)"
                     )));
                 }
             }
@@ -1203,6 +1232,11 @@ pub fn default_init_lua() -> String {
          -- Decimals of every float column (\"%.Nf\" or \"{{:.Nf}}\"). Default: shortest\n\
          -- exact text, up to 15 significant digits. Alt++ / Alt+- / :precision per column.\n\
          -- vd.option(\"disp_float_fmt\", \"%.2f\")\n\
+         \n\
+         -- F on a number column: ranges instead of values. Default off. histogram_bins:\n\
+         -- how many (0: the square root of the row count).\n\
+         -- vd.option(\"numeric_binning\", \"true\")\n\
+         -- vd.option(\"histogram_bins\", \"0\")\n\
          \n\
          -- Mouse: wheel moves the cursor, a click picks a cell. Default off, so the\n\
          -- terminal's own text selection keeps working.\n\

@@ -35,7 +35,9 @@ impl Sheet {
         let id = self.id;
         Ok(match &l.how {
             Derivation::Copy => Sheet::copy_from(parent, id),
-            Derivation::Freq { column } => Sheet::freq_from(parent, id, column),
+            Derivation::Freq { column, bins } => {
+                Sheet::freq_binned(parent, id, column, bins.clone())
+            }
             Derivation::Rids(rids) => {
                 let df = parent
                     .view_plan_rid(true)

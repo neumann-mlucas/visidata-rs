@@ -134,6 +134,26 @@ async fn freq_dive_opens_matching_rows() {
     assert_eq!(status(&h), "<CR>: nothing to open here");
 }
 
+/// S-35 C1: with `numeric_binning`, `F` on a number counts ranges in a job,
+/// and `<CR>` on a range opens the rows in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn binned_freq_counts_ranges_and_dives() {
+    let mut h = Harness::new(5000).await;
+    h.app.theme.numeric_binning = Some(4);
+    h.keys("F").await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 4, "{}", h.screen());
+    assert!(
+        h.screen().contains("1.00 - 1250.75        1250"),
+        "{}",
+        h.screen()
+    );
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/1250"), "{}", title(&h));
+    h.keys("q s j s g <CR>").await; // two ranges → union
+    assert!(title(&h).contains("row 1/2500"), "{}", title(&h));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn freq_rows_picked_from_a_freq_sheet_still_dive() {
     let mut h = Harness::new(5000).await; // grp 1, 2: 715 rows; 0, 3..=6: 714

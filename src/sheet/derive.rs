@@ -8,14 +8,72 @@ impl Sheet {
     /// `percent` (count / total * 100, 2 decimals) and `histogram` (a `■` bar)
     /// follow `count`, as in VisiData's freq output.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
+        Self::freq_binned(parent, id, col_name, None)
+    }
+
+    /// [`Self::freq_from`], numeric values grouped by `bins` (S-35 C1;
+    /// [`Self::numeric_bins`]).
+    pub fn freq_binned(parent: &Sheet, id: SheetId, col_name: &str, bins: Option<Binning>) -> Self {
         let (count, percent, histogram) = freq_stat_names(col_name);
         let keep_order = freq_keeps_order(parent, col_name);
-        let grouped = parent.view_plan().group_by_stable([col(col_name)]);
         let aggs = columns::freq_aggregators(parent);
         let exprs = std::iter::once(len().alias(count));
-        let exprs = exprs.chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)));
+        let exprs: Vec<Expr> = exprs
+            .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
+            .collect();
+        let base = parent.view_plan();
+        let grouped = match &bins {
+            None => base.group_by_stable([col(col_name)]).agg(exprs),
+            Some(Binning::Values) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
+                [col_name],
+                SortMultipleOptions::default()
+                    .with_nulls_last(true)
+                    .with_maintain_order(true),
+            ),
+            Some(Binning::Ranges { min, width, n }) => {
+                const B: &str = "__vdrs_bin";
+                let by_bin = base
+                    .with_column(Binning::index(*min, *width, *n, col_name).alias(B))
+                    .group_by_stable([col(B)])
+                    .agg(exprs);
+                // every bin is a row, then the null bin (dropped when empty)
+                let ids: Vec<Option<i64>> = (0..*n as i64).map(Some).chain([None]).collect();
+                let labels: Vec<Option<String>> = Binning::labels(*min, *width, *n)
+                    .into_iter()
+                    .map(Some)
+                    .chain([None])
+                    .collect();
+                let all = Series::new(B.into(), ids)
+                    .into_frame()
+                    .lazy()
+                    .with_column(lit(Series::new(col_name.into(), labels)));
+                let args = JoinArgs {
+                    maintain_order: MaintainOrderJoin::Left,
+                    nulls_equal: true,
+                    ..JoinArgs::new(JoinType::Left)
+                };
+                // a bin with no values counts (and sums) 0
+                let zero = aggs
+                    .iter()
+                    .filter(|(_, a)| columns::zero_on_empty(a))
+                    .map(|(c, a)| format!("{c}_{a}"));
+                let fill: Vec<Expr> = std::iter::once(count.to_string())
+                    .chain(zero)
+                    .map(|c| col(c.as_str()).fill_null(lit(0)))
+                    .collect();
+                let names: Vec<Expr> = [col_name, count]
+                    .into_iter()
+                    .map(String::from)
+                    .chain(aggs.iter().map(|(c, a)| format!("{c}_{a}")))
+                    .map(|c| col(c.as_str()))
+                    .collect();
+                all.join(by_bin, [col(B)], [col(B)], args)
+                    .with_columns(fill)
+                    .filter(col(B).is_not_null().or(col(count).gt(lit(0))))
+                    .select(names)
+            }
+        };
         let plan = grouped
-            .agg(exprs.collect::<Vec<_>>())
             .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
                 / col(count).cast(DataType::Float64).sum())
             .round(2, RoundMode::HalfAwayFromZero)
@@ -50,6 +108,7 @@ impl Sheet {
             parent,
             Derivation::Freq {
                 column: col_name.to_string(),
+                bins,
             },
         );
         // VisiData hides percent and histogram once aggregators add columns.
@@ -59,6 +118,54 @@ impl Sheet {
                 .extend([percent.to_string(), histogram.to_string()]);
         }
         freq
+    }
+
+    /// `numeric_binning` (S-35 C1): how `F` bins `column` of `parent`'s view,
+    /// `None` when it isn't numeric. `hist_bins` 0: ⌊√rows⌋ bins (VisiData
+    /// `histogram_bins`). Reads the column's min and max.
+    pub fn numeric_bins(
+        parent: &Sheet,
+        column: &str,
+        hist_bins: usize,
+    ) -> Result<Option<Binning>, String> {
+        let e = |e: PolarsError| e.to_string();
+        let mut plan = parent.view_plan();
+        let dt = plan.collect_schema().map_err(e)?.get(column).cloned();
+        let Some(dt) = dt.filter(DataType::is_primitive_numeric) else {
+            return Ok(None);
+        };
+        let c = col(column).cast(DataType::Float64);
+        let row = plan
+            .select([
+                len().alias("n"),
+                c.clone().min().alias("lo"),
+                c.max().alias("hi"),
+            ])
+            .collect()
+            .map_err(e)?;
+        let get = |n: &str| {
+            row.column(n)
+                .ok()
+                .and_then(|c| c.get(0).ok()?.extract::<f64>())
+        };
+        let rows = get("n").unwrap_or(0.0);
+        let (Some(min), Some(max)) = (get("lo"), get("hi")) else {
+            return Ok(Some(Binning::Values));
+        };
+        let n = if hist_bins > 0 {
+            hist_bins
+        } else {
+            rows.sqrt() as usize
+        }
+        .max(1);
+        let width = (max - min) / n as f64;
+        Ok(Some(
+            if width == 0.0 || (dt.is_integer() && n as f64 > max - min) || width == 1.0 {
+                Binning::Values
+            } else {
+                Binning::Ranges { min, width, n }
+            },
+        ))
     }
 
     /// Build a pivot sheet. Eager: collects parent, then pivots.
@@ -181,6 +288,46 @@ impl Sheet {
         .with_window(out)
         .inherit_attrs(parent)
         .derived(parent, Derivation::Rids(keep.clone())))
+    }
+
+    /// Freq dive on a binned freq row (S-35 C1): `parent`'s rows in the
+    /// bins labelled `labels` ([`Binning::labels`]; null: null values).
+    pub fn rows_in_bins(
+        parent: &Sheet,
+        id: SheetId,
+        column: &str,
+        (min, width, n): (f64, f64, usize),
+        labels: &[Option<String>],
+    ) -> Result<Self, String> {
+        const B: &str = "__vdrs_bin";
+        let all = Binning::labels(min, width, n);
+        let picked: Vec<Option<i64>> = labels
+            .iter()
+            .map(|l| {
+                l.as_ref()
+                    .and_then(|l| all.iter().position(|a| a == l))
+                    .map(|i| i as i64)
+            })
+            .collect();
+        let mut df = parent
+            .view_plan_rid(true)
+            .with_column(Binning::index(min, width, n, column).alias(B))
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let bins = df.drop_in_place(B).map_err(|e| e.to_string())?;
+        let bins = bins.i64().map_err(|e| e.to_string())?;
+        let rids = rid_values(&df).map_err(|e| e.to_string())?;
+        let keep = rids
+            .iter()
+            .zip(bins.iter())
+            .filter(|(_, b)| picked.contains(b))
+            .map(|(r, _)| *r)
+            .collect();
+        let name = match labels {
+            [Some(one)] => format!("{column} in {one}: {}", parent.name),
+            many => format!("{column} in {} bins: {}", many.len(), parent.name),
+        };
+        Self::rows_from(parent, id, df, &keep, name)
     }
 
     /// Freq dive: `parent`'s rows whose `column` equals one of `values`
@@ -751,7 +898,7 @@ fn pivot_aggs(
     for v in &values {
         for ((c, a), p) in aggs.iter().zip(&pivots) {
             let mut s = p.column(v)?.clone();
-            if matches!(a.as_str(), "count" | "distinct" | "sum") {
+            if columns::zero_on_empty(a) {
                 s = s.fill_null(FillNullStrategy::Zero)?;
             }
             out.push(s.with_name(name(c, a, v).into()));

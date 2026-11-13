@@ -23,6 +23,12 @@ pub const AGGREGATORS: &[&str] = &[
     "count", "distinct", "sum", "mean", "avg", "median", "mode", "min", "max", "stdev",
 ];
 
+/// Aggregators that are 0, not null, over no rows (VisiData's on an
+/// empty list).
+pub fn zero_on_empty(agg: &str) -> bool {
+    matches!(agg, "count" | "distinct" | "sum")
+}
+
 /// Aggregators that need numbers.
 const NUMERIC: &[&str] = &["sum", "mean", "avg", "median", "stdev"];
 

@@ -1,6 +1,6 @@
 # S-35 — New columns at the cursor, `W` with aggregators, numeric binning and `fmtstr`
 
-Status: **A, B shipped 2026-11-13**. C is planned; C2 (`fmtstr`) needs agreement first.
+Status: **A, B, C1 shipped 2026-11-13**. C2 (`fmtstr`) needs agreement first.
 Depends on: S-34 (`View.order`), S-25 P4 (aggregators), S-31 (column builders).
 
 Replay cases: A `capture-col-named`, `pr2855` (`pr2614` stays quarantined, see A3); B `pivot`;
@@ -65,7 +65,7 @@ As built:
 - Tests: golden `pivot-aggregators`, `pivot-aggregators-cols` (both export round trips), unit
   `pivot_with_aggregators_names_and_fills`, replay `pivot`.
 
-## C. Freq groups (planned)
+## C. Freq groups (C1 shipped, C2 planned)
 
 - C1. **`numeric_binning`** (VisiData option, default off) with **`histogram_bins`** (default 0):
   - Bins: `F` on a numeric column bins it into `nbins = histogram_bins or ⌊√rows⌋` equal ranges
@@ -75,6 +75,19 @@ As built:
   - Diving into a bin filters `lo <= v < hi` (`<=` on the last bin).
   - `vd.option("numeric_binning", true)` and `set-option` in the replay. The export bins with the
     same arithmetic.
+- C1 as built:
+  - `Derivation::Freq { column, bins: Option<Binning> }`; `Binning::Ranges { min, width, n }` or
+    `Values` (one row per value, in value order). `Sheet::numeric_bins` picks it, in the `F` job.
+    Bins are listed in range order, the null row last.
+  - The dive computes each row's bin index with the same expression (`Sheet::rows_in_bins`), so a
+    float on an edge lands where the count put it.
+  - Options: `vd.option("numeric_binning", "true")`, `vd.option("histogram_bins", "N")`.
+  - Sessions write `F` only: the restore bins under the `init.lua` it runs in (no `:set` command).
+  - Export: Python `floor` + `clip` + a left join on every bin; SQL `least(floor(…))`, a
+    `range(n)` bin table, `UNION ALL BY NAME` for the null row.
+  - Tests: golden `freq-binned`, `freq-binned-dive` (a case `init.lua`, export round trips), unit
+    `numeric_bins_pick_ranges_or_values`, scenario `binned_freq_counts_ranges_and_dives`, replay
+    `numeric_binning`.
 - C2. **`fmtstr` (to agree):** a column format string, VisiData's `fmtstr` attribute.
   - Where to set it: the columns sheet's `fmtstr` column, plus `:fmtstr <fmt>` so sessions can
     write it back.

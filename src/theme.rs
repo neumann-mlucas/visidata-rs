@@ -50,6 +50,9 @@ pub struct Theme {
     /// `vd.option("disp_float_fmt", "%.2f")` (S-32): decimals for float
     /// columns without their own precision; `None`: 15 significant digits.
     pub float_digits: Option<u8>,
+    /// `vd.option("numeric_binning", true)` (S-35 C1): `F` bins numbers into
+    /// this many ranges (0: ⌊√rows⌋); `None`: off.
+    pub numeric_binning: Option<usize>,
 }
 
 impl Theme {
@@ -88,6 +91,7 @@ impl Theme {
             which_key_fg: Color::Rgb(224, 175, 104),
             plan_border_fg: Color::Rgb(158, 206, 106),
             float_digits: None,
+            numeric_binning: None,
         }
     }
 
@@ -127,6 +131,7 @@ impl Theme {
             which_key_fg: Color::Rgb(46, 91, 190),
             plan_border_fg: Color::Rgb(40, 120, 60),
             float_digits: None,
+            numeric_binning: None,
         }
     }
 

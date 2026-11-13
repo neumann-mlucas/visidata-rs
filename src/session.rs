@@ -126,7 +126,8 @@ fn dived_from(l: &crate::sheet::Lineage, below: &Sheet) -> bool {
     let (Derivation::Values { column, .. }, Some(fl)) = (&l.how, &below.state.lineage) else {
         return false;
     };
-    matches!(&fl.how, Derivation::Freq { column: c } if c == column) && fl.parent.id == l.parent.id
+    matches!(&fl.how, Derivation::Freq { column: c, .. } if c == column)
+        && fl.parent.id == l.parent.id
 }
 
 struct Block {
@@ -234,7 +235,7 @@ impl Block {
         };
         match how {
             Derivation::Copy => self.ex(Action::DupSheet),
-            Derivation::Freq { column } => {
+            Derivation::Freq { column, .. } => {
                 self.col(column);
                 self.ex(Action::OpenFreqTable);
             }

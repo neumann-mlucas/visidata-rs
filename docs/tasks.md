@@ -34,7 +34,7 @@ Found 2026-11-12, fixed: sort put nulls first in both directions (Polars' defaul
 Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
 
 - [x] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan in a job (shipped 2026-11-13); `json` typed in the columns sheet still scans inline
-- [x] S-35 A — new columns after the cursor, `i` names `A` `B` … ; B `W` with `+` aggregators (2026-11-13); C numeric binning / `fmtstr` planned
+- [x] S-35 A — new columns after the cursor, `i` names `A` `B` … ; B `W` with `+` aggregators; C1 `numeric_binning` (2026-11-13); C2 `fmtstr` planned
 - [x] 2026-11-12: split the biggest files, moves only: `app/actions.rs` → `actions/{files,vim,edit}.rs`, `app.rs` → `app/{jobs,input,hooks}.rs`, `sheet/mod.rs` → `sheet/{edit,meta,rows,write}.rs`, `app/scenario.rs` tests → `scenario/{view,sheets,edit,lua,tail,vim}.rs`; `export.rs` stays whole
 - [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 

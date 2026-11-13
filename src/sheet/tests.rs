@@ -1307,3 +1307,34 @@ fn pivot_with_aggregators_names_and_fills() {
         ["k", "a_sum_p", "b_sum_p", "a_sum_q", "b_sum_q"]
     );
 }
+
+/// S-35 C1: VisiData's bin choice: ranges of `(max-min)/n`, or plain values
+/// when the column is narrow; labels `lo - hi` to 2 places.
+#[test]
+fn numeric_bins_pick_ranges_or_values() {
+    let (s, _f) = sheet_of("x,i,t\n0.5,1,a\n10.5,2,b\n4,3,c\n,9,d\n");
+    let Some(Binning::Ranges { min, width, n }) = Sheet::numeric_bins(&s, "x", 2).unwrap() else {
+        panic!("x bins ranges");
+    };
+    assert_eq!((min, width, n), (0.5, 5.0, 2));
+    assert_eq!(
+        Binning::labels(min, width, n),
+        ["0.50 - 5.50", "5.50 - 10.50"]
+    );
+    // 1..=9 in more bins than values: one row per value
+    assert!(matches!(
+        Sheet::numeric_bins(&s, "i", 20).unwrap(),
+        Some(Binning::Values)
+    ));
+    assert!(Sheet::numeric_bins(&s, "t", 2).unwrap().is_none());
+    let f = Sheet::freq_binned(&s, 1, "x", Some(Binning::Ranges { min, width, n }));
+    let df = f.plan.clone().collect().unwrap();
+    let counts: Vec<_> = df
+        .column("count")
+        .unwrap()
+        .as_materialized_series()
+        .iter()
+        .map(|v| v.to_string())
+        .collect();
+    assert_eq!(counts, ["2", "1", "1"]); // two ranges, then the null row
+}

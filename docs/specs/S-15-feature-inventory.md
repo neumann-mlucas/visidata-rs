@@ -96,7 +96,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
-| `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col with `count` + `percent` cols (2-decimal, round_series feature) |
+| `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col with `count` + `percent` cols (2-decimal, round_series feature); `numeric_binning`: `freq_binned` ranges in a job, dive by bin index (S-35 C1) |
 | `Pivot { index, on, values, agg }` | — | `:pivot <index> <on> <values> [agg]` | polars-ops `pivot_stable`; eager |
 | `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot` |
 | `Diff { path, keys }` | — | `:diff <path> [key1,key2,...]` | schema diff or full outer join flagging only_a/only_b/changed |

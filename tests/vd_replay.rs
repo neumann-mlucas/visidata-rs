@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 68;
+const MIN_PASS: usize = 69;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -185,6 +185,8 @@ struct Replay {
     /// root, so inputs like `tests/sort-levels.tsv` resolve relative to there.
     root: PathBuf,
     next_id: SheetId,
+    /// `set-option numeric_binning True`: `F` on a number bins ranges.
+    numeric_binning: bool,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
@@ -248,6 +250,7 @@ impl Replay {
             meta_mode: None,
             root,
             next_id: 0,
+            numeric_binning: false,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
@@ -745,7 +748,14 @@ impl Replay {
                 self.next_id += 1;
                 let parent_slot = self.current_slot()?;
                 let name = format!("freq({})-{}", r.col, parent_slot.name);
-                let new = Sheet::freq_from(&parent_slot.sheet, id, &r.col);
+                let new = match self.numeric_binning {
+                    true => {
+                        let bins =
+                            Sheet::numeric_bins(&parent_slot.sheet, &r.col, 0).map_err(Runtime)?;
+                        Sheet::freq_binned(&parent_slot.sheet, id, &r.col, bins)
+                    }
+                    false => Sheet::freq_from(&parent_slot.sheet, id, &r.col),
+                };
                 self.push_sheet(name, new);
                 Ok(())
             }
@@ -1022,6 +1032,10 @@ impl Replay {
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" if r.row == "unfurl_empty" && r.input == "True" => {
                 Err(Runtime("option unfurl_empty".into()))
+            }
+            "set-option" if r.row == "numeric_binning" => {
+                self.numeric_binning = r.input == "True";
+                Ok(())
             }
             "set-option" => Ok(()),
             "copy-row" | "copy-selected" => {

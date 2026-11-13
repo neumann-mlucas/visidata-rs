@@ -9,6 +9,8 @@
 //! - `ordered` (optional): the exports must keep the view's row order too.
 //! - `export-py` (optional, `docs-*`): the guide shows the case's `:export`
 //!   Python script instead of its screen.
+//! - `init.lua` (optional, not `docs-*`): options and bindings for the case, as
+//!   `~/.config/vdrs/init.lua`; a session restore runs under it too.
 //! - `no-sql` (optional): why the DuckDB script can't run here (an extension
 //!   tests mustn't download).
 //!
@@ -60,6 +62,15 @@ struct Frame {
     text: String,
 }
 
+/// The case's `init.lua`, applied as the app applies the user's.
+fn apply_init(dir: &Path, h: &mut Harness) {
+    let Ok(src) = std::fs::read_to_string(dir.join("init.lua")) else {
+        return;
+    };
+    let p = crate::plugins::Plugins::load_from_source(&src).expect("case init.lua loads");
+    (h.app.keymap, h.app.theme) = keymap_and_theme(Some(&p));
+}
+
 async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
     let docs = is_docs(dir);
     let input = if docs {
@@ -79,6 +90,7 @@ async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
     }
     let tmp = tempfile::NamedTempFile::new().unwrap();
     let mut h = Harness::with_source(loaded, tmp).await;
+    apply_init(dir, &mut h);
     if docs {
         h.term.backend_mut().resize(DOCS_SIZE.0, DOCS_SIZE.1);
         h.pump().await;
@@ -516,6 +528,7 @@ async fn golden_cases_round_trip_through_sessions() {
         let root = crate::session::first_root(&script).expect("session opens a file");
         let loaded = crate::reader::open(root.as_ref(), None).unwrap();
         let mut r = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
+        apply_init(dir, &mut r);
         r.app.source(&path.display().to_string(), true);
         r.pump().await;
         let (want, got) = (h.app.sheets.active(), r.app.sheets.active());

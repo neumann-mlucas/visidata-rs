@@ -6,7 +6,6 @@
 
 
 # Options (S-25 P6)
-numeric_binning      # set-option numeric_binning: freq bins numeric ranges
 freq-fmtstr          # column fmtstr (`%Y-%m`) changes freq keys
 
 # Correctness fixes (S-25 P2)
