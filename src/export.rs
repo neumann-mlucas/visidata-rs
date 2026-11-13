@@ -413,16 +413,12 @@ impl Script {
             Derivation::Copy => format!("SELECT * FROM {p}"),
             Derivation::Freq { column } if py => {
                 let (n, pct, hist) = freq_stat_names(column);
-                let (stable, order) = if freq_keeps_order(&l.parent, column) {
-                    (", maintain_order=True", String::new())
+                let order = if freq_keeps_order(&l.parent, column) {
+                    String::new()
                 } else {
-                    (
-                        "",
-                        format!(
-                            ".sort([{n}, {c}], descending=[True, False], nulls_last=True)",
-                            c = py_str(column),
-                            n = py_str(n)
-                        ),
+                    format!(
+                        ".sort({n}, descending=True, maintain_order=True)",
+                        n = py_str(n)
                     )
                 };
                 let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
@@ -430,7 +426,7 @@ impl Script {
                     .map(|(c, a)| format!(", {}", py_agg(c, a)))
                     .collect();
                 format!(
-                    "{p}.group_by({c}{stable}).agg(pl.len().alias({n}){aggs})\
+                    "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})\
                      .with_columns((pl.col({n}).cast(pl.Float64) * 100 / pl.col({n}).cast(pl.Float64).sum()).round(2).alias({pct}))\
                      .with_columns(pl.lit({bar}).str.head(pl.col({n}) * {w} // pl.col({n}).max()).alias({hist})){order}",
                     c = py_str(column),
@@ -443,21 +439,13 @@ impl Script {
             }
             Derivation::Freq { column } => {
                 let (n, pct, hist) = freq_stat_names(column);
-                let (from, order) = if freq_keeps_order(&l.parent, column) {
-                    // DuckDB keeps the scan's order (preserve_insertion_order).
-                    (
-                        format!("(SELECT *, row_number() OVER () AS __pos FROM {p})"),
-                        "min(__pos)".to_string(),
-                    )
+                // first-seen order: DuckDB keeps the scan's order
+                // (preserve_insertion_order)
+                let from = format!("(SELECT *, row_number() OVER () AS __pos FROM {p})");
+                let order = if freq_keeps_order(&l.parent, column) {
+                    "min(__pos)".to_string()
                 } else {
-                    (
-                        p,
-                        format!(
-                            "{n} DESC, {c} ASC NULLS LAST",
-                            c = q_ident(column),
-                            n = q_ident(n)
-                        ),
-                    )
+                    format!("{n} DESC, min(__pos)", n = q_ident(n))
                 };
                 let aggs: String = crate::sheet::columns::freq_aggregators(&l.parent)
                     .iter()
@@ -2161,7 +2149,11 @@ mod tests {
         sel.view.selected = std::sync::Arc::new([0u64].into());
         let freq_of_copy = Sheet::freq_from(&Sheet::copy_from(&s, 1), 2, "name");
         let cases = [
-            (freq_of_copy, "group_by(\"name\")", "GROUP BY \"name\""),
+            (
+                freq_of_copy,
+                "group_by(\"name\", maintain_order=True)",
+                "GROUP BY \"name\"",
+            ),
             (
                 Sheet::dup_selected_from(&sel, 3).unwrap(),
                 "is_in([0])",

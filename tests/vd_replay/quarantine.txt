@@ -13,8 +13,6 @@ freq-fmtstr          # column fmtstr (`%Y-%m`) changes freq keys
 
 # Aggregators (S-25 P4)
 aggregators-set      # `[` on a columns sheet reorders the source's columns (vdrs: sorts the columns sheet only)
-avg-nulls            # float aggregates shown with 2 decimals (12.00): display formatting, S-27
-petsdiet             # freq count ties: VisiData keeps first-seen order, vdrs breaks them by value
 pivot                # VisiData pivot names `sum_Pencil` per aggregator; vdrs :pivot takes one aggregator
 dup-rows-attrs       # copies keep types and aggregators (S-31 C) but not widths: VisiData's Rep is 10 wide from the parent's rows, the copy measures 8
 

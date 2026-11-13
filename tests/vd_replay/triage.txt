@@ -10,7 +10,7 @@ aggregators-cols	SKIP addcol-aggregate
 aggregators-errors	SKIP runtime: no column "qty"
 aggregators-set	FAIL line 1: want="Item\tPaid_avg\tPaid_sum\tQuantity_sum\tcount" got="Item\tcount\tQuantity_sum\tPaid_sum\tPaid_avg"
 append	PASS
-avg-nulls	FAIL line 2: want="Food, Senior Wet Cat - 3 oz\t5\t12.00" got="Food, Senior Wet Cat - 3 oz\t5\t12.0"
+avg-nulls	PASS
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	FAIL line 1: want="Date\tDate_re.month\tDate_re.day\tDate_re.year\tDate_re.hour\tDate_re.min\tDate_re.meridiem\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid" got="
 column-copy	SKIP freeze-col
@@ -185,7 +185,7 @@ numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
 outer-join-1	SKIP join-sheets-cols
 outer-join-2	PASS
 pandas_loader_dup_selected	PASS
-petsdiet	FAIL line 5: want="FOOD213\t1\t4" got="FOOD211\t1\t4"
+petsdiet	PASS
 pivot	FAIL line 1: want="Rep\tsum_Pencil\tmean_Pencil\tsum_Binder\tmean_Binder\tsum_Pen\tmean_Pen\tsum_Desk\tmean_Desk\tsum_Pen Set\tmean_Pen Set" got="Pencil\tBinder
 pivot-error	SKIP runtime: no column "qty"
 pivot-noaggr	PASS

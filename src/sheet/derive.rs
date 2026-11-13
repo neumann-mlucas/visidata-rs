@@ -1,18 +1,16 @@
 use super::*;
 
 impl Sheet {
-    /// Build a frequency-table sheet grouping by `col_name` with counts, desc
-    /// (numeric and date keys: first-seen order, see `freq_keeps_order`).
+    /// Build a frequency-table sheet grouping by `col_name`, values in
+    /// first-seen order, then by count, desc, ties keeping that order (as
+    /// VisiData's stable sort); numeric and date keys stay in first-seen
+    /// order (`freq_keeps_order`).
     /// `percent` (count / total * 100, 2 decimals) and `histogram` (a `■` bar)
     /// follow `count`, as in VisiData's freq output.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
         let (count, percent, histogram) = freq_stat_names(col_name);
         let keep_order = freq_keeps_order(parent, col_name);
-        let grouped = if keep_order {
-            parent.view_plan().group_by_stable([col(col_name)])
-        } else {
-            parent.view_plan().group_by([col(col_name)])
-        };
+        let grouped = parent.view_plan().group_by_stable([col(col_name)]);
         let aggs = columns::freq_aggregators(parent);
         let exprs = std::iter::once(len().alias(count));
         let exprs = exprs.chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)));
@@ -26,16 +24,16 @@ impl Sheet {
                 .str()
                 .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
                 .alias(histogram)]);
-        // Value breaks count ties: row order must repeat across collects,
+        // Stable on a stable group-by: row order repeats across collects,
         // since row ids (selection, freq dive) are positions in this plan.
         let plan = if keep_order {
             plan
         } else {
             plan.sort(
-                [count, col_name],
+                [count],
                 SortMultipleOptions::default()
-                    .with_order_descending_multi([true, false])
-                    .with_nulls_last(true),
+                    .with_order_descending(true)
+                    .with_maintain_order(true),
             )
         };
         let mut freq = Sheet::child(

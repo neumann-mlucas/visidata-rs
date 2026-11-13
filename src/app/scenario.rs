@@ -201,6 +201,20 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
     assert!(!title(&h).contains(|c| SPINNER.contains(&c)));
 }
 
+/// `F` ties keep first-seen order, as VisiData's stable sort by count.
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_ties_keep_first_seen_order() {
+    let mut h = csv(b"k\nz\nb\nz\nm\nb\na\n").await;
+    h.keys("F").await;
+    assert_eq!(
+        view_csv(&h)
+            .lines()
+            .map(|l| l.split(',').next().unwrap())
+            .collect::<Vec<_>>(),
+        ["k", "z", "b", "m", "a"]
+    );
+}
+
 /// Nulls sort as VisiData's smallest value: first with `[`, last with `]`.
 #[tokio::test(flavor = "multi_thread")]
 async fn nulls_lead_ascending_and_trail_descending_sorts() {
