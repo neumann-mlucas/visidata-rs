@@ -192,10 +192,18 @@ impl App {
                     }
                 }
             }
-            Action::CursorDown { count } => self.move_cursor_rows(count.unwrap_or(1) as isize),
-            Action::CursorUp { count } => self.move_cursor_rows(-(count.unwrap_or(1) as isize)),
-            Action::CursorLeft { count } => self.move_cursor_cols(-(count.unwrap_or(1) as isize)),
-            Action::CursorRight { count } => self.move_cursor_cols(count.unwrap_or(1) as isize),
+            Action::CursorDown { count } => {
+                self.move_cursor_rows(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
+            }
+            Action::CursorUp { count } => {
+                self.move_cursor_rows(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
+            }
+            Action::CursorLeft { count } => {
+                self.move_cursor_cols(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
+            }
+            Action::CursorRight { count } => {
+                self.move_cursor_cols(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
+            }
             Action::PageDown => self.page(1),
             Action::PageUp => self.page(-1),
             Action::GotoTop => {
@@ -1372,7 +1380,9 @@ impl App {
         if cols == 0 {
             return;
         }
-        let new = (s.view.col_cursor as isize + delta).clamp(0, cols as isize - 1) as usize;
+        let new = (s.view.col_cursor as isize)
+            .saturating_add(delta)
+            .clamp(0, cols as isize - 1) as usize;
         s.view.col_cursor = new;
     }
 

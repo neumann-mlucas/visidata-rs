@@ -578,3 +578,29 @@ async fn sorting_the_columns_sheet_reorders_the_sheet() {
     h.keys("U").await;
     assert_eq!(header(&h), "zeta,alpha,mid");
 }
+/// A count past `isize` moves as far as it can, the way it was going.
+#[tokio::test(flavor = "multi_thread")]
+async fn huge_counts_saturate_instead_of_reversing() {
+    let mut h = Harness::new(50).await;
+    let huge = vec!["9"; 20].join(" ");
+    h.keys(&format!("{huge} j")).await;
+    assert_eq!(
+        {
+            let v = &h.app.sheets.active().view;
+            v.window_offset + v.row_cursor as u64
+        },
+        49
+    );
+    h.keys(&format!("{huge} k")).await;
+    assert_eq!(
+        {
+            let v = &h.app.sheets.active().view;
+            v.window_offset + v.row_cursor as u64
+        },
+        0
+    );
+    h.keys(&format!("{huge} l")).await;
+    assert!(h.app.sheets.active().view.col_cursor > 0);
+    h.keys(&format!("{huge} h")).await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 0);
+}
