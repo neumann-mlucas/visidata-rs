@@ -142,28 +142,16 @@ impl SheetWidget<'_> {
 
         // Column layout: frozen + scrolled
         let frozen = view.frozen_left.min(cols.len());
-        let mut col_x: Vec<u16> = Vec::with_capacity(cols.len());
-        let mut cur = area.x;
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..frozen {
-            col_x.push(cur);
-            cur = cur.saturating_add(widths[i] + Self::CELL_PAD);
-        }
+        // (column, x): every frozen one, then scrolled ones up to the edge.
         let scroll_start = (frozen + view.col_offset).min(cols.len());
-        #[allow(clippy::needless_range_loop)]
-        for i in scroll_start..cols.len() {
-            col_x.push(cur);
+        let mut visible: Vec<(usize, u16)> = Vec::with_capacity(cols.len());
+        let mut cur = area.x;
+        for i in (0..frozen).chain(scroll_start..cols.len()) {
+            visible.push((i, cur));
             cur = cur.saturating_add(widths[i] + Self::CELL_PAD);
-            if cur >= area.x + area.width {
+            if i >= frozen && cur >= area.x + area.width {
                 break;
             }
-        }
-        let mut visible: Vec<usize> = (0..frozen).collect();
-        for i in scroll_start..cols.len() {
-            if visible.len() >= col_x.len() {
-                break;
-            }
-            visible.push(i);
         }
 
         // Header: name + dim dtype badge, or the sort arrow while sorted by it
@@ -171,9 +159,8 @@ impl SheetWidget<'_> {
             Rect { height: 1, ..area },
             Style::default().bg(th.header_bg),
         );
-        for (slot, &ci) in visible.iter().enumerate() {
+        for &(ci, x) in &visible {
             let name = cols[ci].name();
-            let x = col_x[slot];
             let w = widths[ci];
             let hi = ci == view.col_cursor;
             let name_style = if hi {
@@ -297,8 +284,7 @@ impl SheetWidget<'_> {
                 },
                 line,
             );
-            for (slot, &ci) in visible.iter().enumerate() {
-                let x = col_x[slot];
+            for &(ci, x) in &visible {
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
                 let (mut text, dtype_hint) = texts[slot].cell(&av, ri - row_start);
@@ -398,7 +384,7 @@ impl SheetWidget<'_> {
 
         // Divider between pinned and scrolled columns.
         if frozen > 0 && frozen < visible.len() {
-            let x = col_x[frozen] - Self::CELL_PAD;
+            let x = visible[frozen].1 - Self::CELL_PAD;
             for y in area.y..(area.y + 1 + (row_end - row_start) as u16).min(area.y + area.height) {
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_symbol("│").set_fg(th.overlay_border_fg);
@@ -491,17 +477,23 @@ enum DtypeHint {
     Date,
 }
 
+/// The leading `chars` that fit in `max` display cells; a char that would
+/// overflow ends the run.
+pub(crate) fn take_width(
+    chars: impl Iterator<Item = char>,
+    max: usize,
+) -> impl Iterator<Item = char> {
+    let mut used = 0;
+    chars.take_while(move |c| {
+        used += c.width().unwrap_or(0);
+        used <= max
+    })
+}
+
 fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style, right: bool) {
     let truncated: String = if text.width() > w as usize {
         // Keep whole characters that fit in w-1 cells, then the ellipsis.
-        let mut used = 0;
-        let mut s: String = text
-            .chars()
-            .take_while(|c| {
-                used += c.width().unwrap_or(0);
-                used < w as usize
-            })
-            .collect();
+        let mut s: String = take_width(text.chars(), (w as usize).saturating_sub(1)).collect();
         s.push('…');
         s
     } else {

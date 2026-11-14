@@ -1218,15 +1218,7 @@ use crate::sheet::grouped;
 
 /// Exactly `width` display cells of `s`: cut at the end, or padded.
 fn fit(s: &str, width: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    let mut used = 0;
-    let mut out: String = s
-        .chars()
-        .take_while(|c| {
-            used += c.width().unwrap_or(0);
-            used <= width
-        })
-        .collect();
+    let mut out: String = crate::widget::take_width(s.chars(), width).collect();
     let pad = width.saturating_sub(out.width());
     out.extend(std::iter::repeat_n(' ', pad));
     out
@@ -1234,19 +1226,12 @@ fn fit(s: &str, width: usize) -> String {
 
 /// Keep the tail of `s` within `max` display cells, marking the cut with `…`.
 fn truncate_head(s: &str, max: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
     if s.width() <= max {
         return s.to_string();
     }
-    let mut used = 1; // the ellipsis
-    let tail: Vec<char> = s
-        .chars()
-        .rev()
-        .take_while(|c| {
-            used += c.width().unwrap_or(0);
-            used <= max
-        })
-        .collect();
+    // One cell goes to the ellipsis.
+    let tail: Vec<char> =
+        crate::widget::take_width(s.chars().rev(), max.saturating_sub(1)).collect();
     std::iter::once('…').chain(tail.into_iter().rev()).collect()
 }
 
