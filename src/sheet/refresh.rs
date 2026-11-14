@@ -80,6 +80,17 @@ impl Sheet {
     // after `U` describes the refreshed derivation.
     pub fn adopt(&mut self, mut fresh: Sheet) {
         self.checkpoint();
+        // replay the edits; one the new rows can't take (its column gone) drops
+        self.state.steps.retain(|step| {
+            let Ok(mut p) = step.apply(fresh.plan.clone()) else {
+                return false;
+            };
+            let ok = p.collect_schema().is_ok();
+            if ok {
+                fresh.plan = p;
+            }
+            ok
+        });
         let names: std::collections::BTreeSet<String> = fresh
             .plan
             .collect_schema()

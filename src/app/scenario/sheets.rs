@@ -590,6 +590,20 @@ async fn refresh_walks_the_lineage_parents_first() {
     assert!(title(&h).contains("/1 "), "{}", title(&h));
 }
 
+/// Edits made on a derived sheet are replayed onto the refreshed rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn refresh_keeps_the_edits() {
+    let mut h = csv(b"id,region\n1,a\n2,b\n3,a\n").await;
+    h.keys("g s").await;
+    h.keys("\"").await;
+    h.keys(":").await;
+    h.type_("derive dbl = id * 2").await;
+    h.keys("<C-r>").await;
+    assert!(title(&h).contains("selected"), "{}", title(&h));
+    let v = view_csv(&h);
+    assert!(v.starts_with("id,dbl,region") && v.contains("3,6,a"), "{v}");
+}
+
 /// S-30 B: `zn` notes a cell (marker, sidebar), survives a restart, `zn`
 /// again edits it, `:notes` lists them and `Enter` jumps; empty deletes.
 #[tokio::test(flavor = "multi_thread")]
