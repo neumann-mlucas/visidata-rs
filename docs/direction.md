@@ -176,11 +176,11 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 10. **Expressions**: Polars SQL behind VisiData's expression keys (`=`, `g=`, `z/`, `z|`). A Python-flavoured subset only if the corpus or users justify it ([S-21](specs/S-21-expressions.md)). §9.5 (no Python runtime) stands.
 11. **Back in scope** (were cut, or "product decisions" in §2/§7): nested-data expand/unfurl ([S-22](specs/S-22-nested-data.md)), plots ([S-23](specs/S-23-layout-sidebar-splits-plots.md)), sessions in vdrs's own ex-script format ([S-29](specs/S-29-sessions-lua-hooks.md)) — still no `.vdj` compat.
 12. **Release**: no prebuilt binaries or crates.io until the alpha is finished; `cargo install --path .` until then. **Alpha** = every feature planned in `docs/` (tasks.md roadmap + specs) implemented, and the tests robust (no unexplained quarantine, S-25 coverage targets met).
-13. **Roadmap**: S-18 … S-30, in the order listed in [`tasks.md`](tasks.md).
+13. **Roadmap**: S-18 … S-30 (all shipped), then S-31 onward, in the order listed in [`tasks.md`](tasks.md).
 
 ### Deltas these cause in earlier sections
 
 - §1 keymap row: not just "modal, g/z prefixes" — the specific VisiData default bindings become the baseline that S-04 (keybindings) must respect. Deviations need an explicit justification, not the other way around.
 - §5 bet #4 (ex-line) bumped in priority. A daily VisiData user doesn't leave the keyboard; ex-line + `.` repeat is leverage that compounds.
-- §1 and §5 DuckDB-related rows drop. Simpler Phase 2.
+- §1 and §5 DuckDB-related rows drop. Simpler Phase 2. As built: `:sql` runs Polars SQL, not DuckDB (§7); DuckDB appears only as the external `duckdb` program for `.duckdb` files (`src/duckdb.rs`) and as an `:export` target (`.sql`).
 - §8 Polars OOC risk no longer mitigated by "ship DuckDB" — mitigation now is "when a user hits it, add DuckDB then." Deferred, not pre-paid.

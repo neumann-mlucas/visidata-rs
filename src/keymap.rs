@@ -127,7 +127,7 @@ impl Keymap {
             ch("0", GotoLeftmost, "leftmost column"),
             ch("g l", GotoRightmost, "rightmost column"),
             // freeze
-            ch("z s", FreezeColumn, "freeze current column"),
+            ch("z s", FreezeColumn, "freeze columns up to the cursor"),
             ch("z c", UnfreezeAll, "unfreeze all"),
             // column meta
             ch("-", HideCol, "hide current column"),

@@ -1,6 +1,6 @@
 # S-03 — Reader interface
 
-Status: **draft** (unapproved)
+Status: **shipped** (Phase 0). The text below is the pre-build draft; what ships today is in S-15.
 Phase: 0
 Depends on: S-01 (`Source` enum slot), S-02 (`tokio` runtime)
 Research: [`../research/tui-patterns.md`](../research/tui-patterns.md) Q2

@@ -1,6 +1,6 @@
 # S-01 — Core data model
 
-Status: **draft** (unapproved)
+Status: **shipped** (Phase 0). The text below is the pre-build draft; what ships today is in S-15.
 Phase: 0
 Depends on: direction.md §4A (Polars-primary), §9.3 (Polars-only)
 Blocks: S-02 (app loop), S-03 (readers), S-04 (keybindings)
