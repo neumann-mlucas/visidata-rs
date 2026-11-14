@@ -526,6 +526,10 @@ b("'", "go_mark")
 b("q", "record_macro")               -- default: pop sheet (ZZ, :q here)
 b("@", "play_macro")                 -- default: date cast (z@ here)
 b({"z", "@"}, "type_cast_date")
+b({"z", "s"}, "freeze_column")      -- default: select rows above the cursor
+b({"z", "c"}, "unfreeze_all")       -- default: go to column number
+b({"z", "o"}, "clear_sort")         -- default: open the cell's file
+b("<C-v>", "visual_block")           -- default: show version
 vd.bind("input", "<Esc>", "input_normal", "vim: normal mode")  -- Esc again cancels
 "##;
 

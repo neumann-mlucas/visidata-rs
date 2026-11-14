@@ -1,6 +1,7 @@
 # S-04 — Keybinding model
 
 Status: **shipped** (keymap config is Lua `vd.bind`, not the TOML planned here). Default-key policy since 2026-11-08: S-26 §0 (default = VisiData, opt-in vim profile).
+Like vi vs vim: the default keymap is VisiData's (a key VisiData binds means what it means there, or stays on its old vdrs meaning only until vdrs has the command, R-d); vdrs's own or vim/TUI meanings for those keys move to `vd.option("keymap", "vim")`. Clash sweep 2026-11-14 (VisiData `addCommand`/`bindkey`/`globalCommand` on Sheet/BaseSheet/TableSheet): `zs` `zc` `zo` `_` `<C-v>` switched to VisiData; `:` (`addcol-split`) waits under R-d; `D` / `<C-d>` (cmdlog, cut) stay under R-e. Table: S-26 §0.
 Phase: 0
 Depends on: S-02 (`Action` enum, `App` state)
 Research: [`../research/tui-patterns.md`](../research/tui-patterns.md) Q3

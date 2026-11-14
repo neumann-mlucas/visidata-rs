@@ -333,7 +333,8 @@ async fn add_and_paste_rows() {
         "{}",
         view_csv(&h)
     );
-    h.keys("z o").await;
+    h.keys(":").await;
+    h.type_("unsort").await;
     assert_eq!(view_csv(&h), "id,v\n1,a\n7,\n2,b\n3,c\n");
 
     // p / P paste copied rows by column name

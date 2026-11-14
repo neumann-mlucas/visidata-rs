@@ -1317,6 +1317,55 @@ impl App {
                 });
             }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
+            Action::SelectBefore => {
+                let s = self.sheets.active();
+                let n = s.view.window_offset as usize + s.view.row_cursor;
+                let sheet = s.clone();
+                self.spawn_job("select", move || {
+                    let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
+                    let note = format!("selected {} rows above the cursor", rids.len());
+                    Ok(JobDone::Select { rids, note })
+                });
+            }
+            Action::StartGoColInput => self.start_input(Prompt::GoCol),
+            Action::OpenCellFile => {
+                let s = self.sheets.active();
+                let path = self
+                    .current_column_name()
+                    .and_then(|c| s.window()?.column(&c).ok()?.get(s.view.row_cursor).ok())
+                    .filter(|v| !v.is_null())
+                    .map(|v| crate::sheet::any_text(&v))
+                    .unwrap_or_default();
+                if path.is_empty() {
+                    self.toast = Some("no path given".into());
+                } else {
+                    self.dispatch(Action::Open { path });
+                }
+            }
+            Action::ResizeColMax => {
+                use unicode_width::UnicodeWidthStr;
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                let s = self.sheets.active_mut();
+                if s.state.width_floor.remove(&c).is_none() {
+                    let full = s.window().and_then(|df| df.column(&c).ok()).map(|col| {
+                        (0..col.len())
+                            .filter_map(|i| col.get(i).ok())
+                            .map(|v| crate::sheet::any_text(&v).width())
+                            .fold(c.width() + 2, usize::max)
+                    });
+                    s.state
+                        .width_floor
+                        .insert(c, u16::try_from(full.unwrap_or(0)).unwrap_or(u16::MAX));
+                }
+                // re-measure from scratch: widths only widen within one view
+                s.state.widths_key = None;
+                s.state.widths_view.clear();
+            }
+            Action::ShowVersion => {
+                self.toast = Some(format!("vdrs {}", env!("CARGO_PKG_VERSION")));
+            }
             Action::SubmitInput
             | Action::CancelInput
             | Action::InputBackspace

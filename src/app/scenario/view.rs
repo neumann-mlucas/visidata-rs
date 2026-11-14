@@ -128,7 +128,9 @@ async fn navigate_search_filter_save_across_windows() {
 
     h.keys("]").await; // sort desc on id
     assert_eq!(first_cell(&h), "5000");
-    h.keys("z o g g g /").await;
+    h.keys(":").await;
+    h.type_("unsort").await;
+    h.keys("g g g /").await;
     h.type_("name_4999").await;
     assert!(title(&h).contains("row 4999/5000"), "{}", title(&h));
 
@@ -603,4 +605,70 @@ async fn huge_counts_saturate_instead_of_reversing() {
     assert!(h.app.sheets.active().view.col_cursor > 0);
     h.keys(&format!("{huge} h")).await;
     assert_eq!(h.app.sheets.active().view.col_cursor, 0);
+}
+
+/// VisiData's `zs` `zc` `zo` `_` `^V` on a sheet; the vdrs actions they
+/// replaced (freeze, unfreeze, clear sort, visual block) live in the
+/// vim profile.
+#[tokio::test(flavor = "multi_thread")]
+async fn visidata_z_keys_select_before_go_col_open_cell_resize() {
+    let mut other = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::io::Write::write_all(&mut other, b"k\nopened\n").unwrap();
+    let long = "x".repeat(60);
+    let path = other.path().to_string_lossy().into_owned();
+    let mut h = csv(format!("a,b,p\n1,{long},{path}\n2,y,\n3,z,\n4,w,\n").as_bytes()).await;
+
+    h.keys("j j z s").await; // rows above the cursor, not the cursor's
+    let sel = h.app.sheets.active().view.selected.len();
+    assert_eq!(sel, 2, "{}", status(&h));
+
+    h.keys("z c").await;
+    h.type_("-1").await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 2);
+    h.keys("z c").await;
+    h.type_("9").await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 2);
+    assert!(status(&h).contains("out of range"), "{}", status(&h));
+    h.keys("z c").await;
+    h.type_("1").await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 1);
+
+    let width = |h: &Harness| h.app.sheets.active().state.widths[1];
+    let default = width(&h);
+    assert!(default < 60, "{default}");
+    h.keys("_").await;
+    assert!(width(&h) >= 60, "{}", width(&h));
+    h.keys("_").await;
+    assert_eq!(width(&h), default);
+
+    h.keys("<C-v>").await;
+    assert!(
+        status(&h).contains(env!("CARGO_PKG_VERSION")),
+        "{}",
+        status(&h)
+    );
+
+    h.keys("z c").await;
+    h.type_("2").await;
+    h.keys("j z o").await; // empty cell
+    assert_eq!(status(&h), "no path given");
+    h.keys("g g z o").await;
+    h.pump().await;
+    assert_eq!(first_cell(&h), "opened");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_profile_keeps_freeze_unfreeze_unsort() {
+    let mut h = csv(b"a,b\n2,x\n1,y\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("l z s").await;
+    assert_eq!(h.app.sheets.active().view.frozen_left, 2);
+    h.keys("z c").await;
+    assert_eq!(h.app.sheets.active().view.frozen_left, 0);
+    h.keys("0 [").await;
+    assert_eq!(first_cell(&h), "1");
+    h.keys("z o").await;
+    assert_eq!(first_cell(&h), "2");
 }
