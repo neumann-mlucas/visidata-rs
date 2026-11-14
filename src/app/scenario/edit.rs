@@ -1185,3 +1185,13 @@ async fn date_fmtstr_the_type_cant_show_is_ignored() {
     h.keys("F").await;
     assert!(title(&h).contains("freq(d)"), "{}", h.screen());
 }
+
+/// A rebuild of a sorted columns sheet keeps the cursor on its column.
+#[tokio::test(flavor = "multi_thread")]
+async fn sorted_columns_sheet_rebuild_keeps_cursor() {
+    let mut h = csv(b"a,b,c\n1,2,3\n").await;
+    h.keys("C ]").await; // name desc: c b a
+    h.keys("e <C-u>").await;
+    h.type_("z").await; // rename c, the cursor row
+    assert_eq!(h.app.rid_at_cursor(), Some(2), "{}", h.screen());
+}
