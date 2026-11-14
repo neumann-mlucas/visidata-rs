@@ -1,6 +1,6 @@
 # S-02 — App loop & Model/Update/View
 
-Status: **draft** (unapproved)
+Status: **shipped** (Phase 0). The text below is the pre-build draft; what ships today is in S-15.
 Phase: 0
 Depends on: S-01 (`Sheet` shape), direction §9.2 (heavy VisiData user), §9.3 (Polars only)
 Research: [`../research/tui-patterns.md`](../research/tui-patterns.md) Q1 synthesis
