@@ -70,8 +70,15 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 24. - [x] S-26 ~~A (rest)~~, ~~B~~, ~~C~~, ~~D~~, ~~E~~ — TUI conventions, ex ranges + `:g`/`:v`/`:normal`, visual `V`/`<C-v>`, vim profile, line-editor normal mode (11–14 d)
 25. - [x] S-31 A/B/C — column builders `za` `i` `gi` `f` `;`; copies keep column attributes, `g'` (2–3 d) — done 2026-11-12; replay PASS=58
 26. - [x] S-32 A/B/C — float precision `Alt++` / `Alt+-`, `:precision`, `disp_float_fmt`; replay formats typed floats (1.5–2.5 d) — done 2026-11-12; replay PASS=62
+27. - [ ] S-37 P0a/P0b — own `Key` code and `Style` types; crossterm/ratatui only at the edges (2 d)
+28. - [ ] S-37 P0c/P0d — options registry + `O` options sheet (`options.lua`, `z<C-s>`); command catalog with VisiData's menu paths (3–5 d)
+29. - [ ] S-36 B — number formats: `{:,.2f}`, `{:.1%}`, `%d`, literal text; ints take `fmtstr`; `F` groups by a set format (1.5–2 d)
+30. - [ ] S-36 E — macros sheet `gm` / `:macros`: list, delete, rebind, edit steps (1.5–2 d)
+31. - [ ] S-36 C — totals footer `:footer` / `disp_footer` from `+` aggregators (1.5 d)
+32. - [ ] S-36 A — `:lookup` columns from another sheet, live as `:link` (2.5–3 d)
+33. - [ ] S-36 D — `:validate` predicates checked on edits (1.5–2 d)
 
-Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before).
+Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before). S-36 F named views when someone asks to switch views of one sheet. S-37 P1–P3 (GUI) once a GUI is decided.
 
 ## Test layout
 

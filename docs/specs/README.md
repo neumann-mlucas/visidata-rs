@@ -40,6 +40,8 @@ File naming: `S-NN-slug.md`.
 | S-33 | Edits that scan run in the background (was S-24 R6) | — | **shipped 2026-11-13** → [`S-33-background-edits.md`](S-33-background-edits.md) |
 | S-34 | Column order: `H` `L` `gH` `gL`, sorting the columns sheet | S-25 P3, S-31 | **shipped 2026-11-12** → [`S-34-column-order.md`](S-34-column-order.md) |
 | S-35 | New columns at the cursor, `W` with aggregators, numeric binning, `fmtstr` | S-34 | **A, B shipped 2026-11-13**, C planned → [`S-35-columns-pivot-binning.md`](S-35-columns-pivot-binning.md) |
+| S-36 | Excel gaps: number formats, macros sheet `gm`, totals footer, `:lookup`, `:validate`, named views | S-35 C2, S-19, S-25 P4 | **drafted 2026-11-14** → [`S-36-excel-gaps.md`](S-36-excel-gaps.md) |
+| S-37 | Native GUI (egui): options registry + `O`, command catalog, core/frontend split, toolbar, settings, plots | S-36 B | **drafted 2026-11-14**, P0 before S-36, P1+ gated → [`S-37-native-gui.md`](S-37-native-gui.md) |
 
 **Not drafted yet** (draft only when the work starts):
 
