@@ -126,7 +126,7 @@ Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap f
 
 Target: ~160/189 upstream golden tests runnable. Order by test-leverage (counts from `../visidata/tests/*.vd{,j}` longname frequency scan). Each chunk is independent and ships separately.
 
-**Current state (2026-11-12): PASS=64, FAIL=0, SKIP=114, UNTESTABLE=20, QUARANTINED=17, NO_GOLDEN=25.** `.csv`/`.json`/`.jsonl` goldens compared since 2026-11-11. At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
+**Current state (2026-11-13): PASS=70, FAIL=0, SKIP=114, UNTESTABLE=20, QUARANTINED=11, NO_GOLDEN=25.** `.csv`/`.json`/`.jsonl` goldens compared since 2026-11-11. At Phase 1.5 close (2026-10-16): PASS=21 of 164 files.
 
 **Addressable ceiling (2026-11-08, S-25 P0 triage): 182** — the iteration-14 figure "21/21 addressable" counted editing, options, nested data and expressions as out of scope; decisions 7–11 in direction §9 bring them back. Plan to ~80–95 PASS: [`specs/S-25-corpus-coverage.md`](specs/S-25-corpus-coverage.md). Iteration notes below are history.
 
