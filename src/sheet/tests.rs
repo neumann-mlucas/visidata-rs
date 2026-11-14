@@ -1263,6 +1263,20 @@ fn new_columns_go_after_the_cursor() {
 }
 
 #[test]
+fn placing_among_hundreds_of_columns_names_only_the_moved_prefix() {
+    let n = 400;
+    let head: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
+    let (mut s, _f) = sheet_of(&format!("{}\n{}\n", head.join(","), vec!["1"; n].join(",")));
+    s.derive("x", "c0 + 1").unwrap();
+    s.place_col("x", Some("c399")).unwrap(); // last already
+    assert!(s.view.order.is_empty());
+    s.place_col("x", Some("c199")).unwrap();
+    let mut want = head[..200].to_vec();
+    want.push("x".into());
+    assert_eq!(s.view.order, want);
+}
+
+#[test]
 fn unnamed_columns_take_the_next_free_letter() {
     let (mut s, _f) = sheet_of("A,C\n1,2\n");
     assert_eq!(s.next_colname(), "B"); // A is taken

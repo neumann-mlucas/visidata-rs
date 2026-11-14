@@ -1,5 +1,6 @@
 //! Sheet = Source + LazyFrame plan + View + materialized `window`. See S-01.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use polars::prelude::*;
@@ -84,7 +85,7 @@ pub struct SheetState {
     pub widths_view: String,
     /// A copy's columns are at least as wide as its parent's were, as
     /// VisiData's copies share the column objects (S-38 B).
-    pub width_floor: Vec<(String, u16)>,
+    pub width_floor: HashMap<String, u16>,
     /// `memory_plan` has had its one chance.
     pub load_tried: bool,
     /// The source read into memory by `memory_plan`: the base edits rebuild on.
@@ -1130,13 +1131,15 @@ impl Sheet {
     /// The non-key columns of `names` in display order, hidden ones in place.
     fn non_keys_in_order(&self, names: &[String]) -> Vec<String> {
         let v = &self.view;
-        let mut all: Vec<String> = Vec::new();
-        for c in v.order.iter().chain(names) {
-            if names.contains(c) && !v.keys.contains(c) && !all.contains(c) {
-                all.push(c.clone());
-            }
-        }
-        all
+        let known: HashSet<&String> = names.iter().collect();
+        let keys: HashSet<&String> = v.keys.iter().collect();
+        let mut seen: HashSet<&String> = HashSet::new();
+        v.order
+            .iter()
+            .chain(names)
+            .filter(|c| known.contains(c) && !keys.contains(c) && seen.insert(c))
+            .cloned()
+            .collect()
     }
 
     /// New column `name` goes right after `after` (VisiData
@@ -1157,14 +1160,16 @@ impl Sheet {
         };
         all.splice(at..at, new.iter().cloned());
         // name only the shortest prefix after which the rest is plan order
-        let keep = (0..=all.len())
-            .find(|&k| {
-                let rest = names
-                    .iter()
-                    .filter(|c| all.contains(c) && !all[..k].contains(c));
-                rest.eq(&all[k..])
-            })
-            .unwrap_or(all.len());
+        // (`all` is a permutation of plan names: walk back while plan order holds)
+        let at_plan: HashMap<&String, usize> =
+            names.iter().enumerate().map(|(i, c)| (c, i)).collect();
+        let mut keep = all.len();
+        let mut next = usize::MAX;
+        while let Some(&i) = keep.checked_sub(1).and_then(|k| at_plan.get(&all[k]))
+            && i < next
+        {
+            (keep, next) = (keep - 1, i);
+        }
         all.truncate(keep);
         self.view.order = all;
         self.state.widths_key = None;
@@ -1469,18 +1474,6 @@ pub fn date_fmt_of<'a>(view: &'a View, column: &str) -> Option<&'a str> {
         (None, Some((_, DataType::Datetime(..)))) => Some("%Y-%m-%d"),
         _ => None,
     }
-}
-
-/// A date or datetime value in strftime `fmt`, as Polars' `dt.strftime`
-/// writes it (S-35 C2). `None` for other values or a format that fails.
-pub fn strftime_text(av: &AnyValue, fmt: &str) -> Option<String> {
-    let s = Series::from_any_values("".into(), std::slice::from_ref(av), true).ok()?;
-    let out = match s.dtype() {
-        DataType::Date => s.date().ok()?.strftime(fmt),
-        DataType::Datetime(..) => s.datetime().ok()?.strftime(fmt),
-        _ => return None,
-    };
-    out.ok()?.get(0).map(str::to_string)
 }
 
 /// A value as `cast(String)` prints it: the text `values_predicate` compares.

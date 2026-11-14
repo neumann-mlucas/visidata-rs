@@ -154,10 +154,12 @@ impl Sheet {
     pub(super) fn inherit_attrs(mut self, parent: &Sheet) -> Self {
         let shown = parent.window().map(|df| df.get_column_names_owned());
         let measured = shown.iter().flatten().zip(&parent.state.widths);
-        self.state.width_floor = measured
-            .map(|(c, w)| (c.to_string(), *w))
-            .chain(parent.state.width_floor.iter().cloned())
-            .collect();
+        let mut floor = parent.state.width_floor.clone();
+        for (c, w) in measured {
+            let f = floor.entry(c.to_string()).or_default();
+            *f = (*f).max(*w);
+        }
+        self.state.width_floor = floor;
         let have: std::collections::HashSet<String> = self
             .plan
             .collect_schema()

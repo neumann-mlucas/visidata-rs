@@ -61,6 +61,7 @@ impl<'a> SheetWidget<'a> {
         df.columns()
             .iter()
             .map(|s| {
+                let text = ColText::new(s, digits(s.name()));
                 // Header width = name + " [dtype-badge]" so we don't truncate the badge.
                 let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
                 let data = rows
@@ -71,10 +72,7 @@ impl<'a> SheetWidget<'a> {
                         let custom = render.and_then(|r| r(s.name(), s.dtype(), &av)?.text);
                         Some(
                             custom
-                                .map_or_else(
-                                    || display_cell(&av, digits(s.name())).0,
-                                    |t| printable(&t),
-                                )
+                                .map_or_else(|| text.cell(&av, i).0, |t| printable(&t))
                                 .width() as u16,
                         )
                     })
@@ -264,7 +262,14 @@ impl SheetWidget<'_> {
                 .fold(base, |s, (_, _, st)| s.patch(*st))
         };
 
-        // Data rows
+        // Data rows; date columns formatted once for the rows on screen
+        let texts: Vec<ColText> = visible
+            .iter()
+            .map(|&ci| {
+                let c = cols[ci].slice(row_start as i64, row_end.saturating_sub(row_start));
+                ColText::new(&c, cell_fmt(view, self.theme, cols[ci].name()))
+            })
+            .collect();
         for (dy, ri) in (row_start..row_end).enumerate() {
             let y = area.y + 1 + dy as u16;
             if y >= area.y + area.height {
@@ -296,8 +301,7 @@ impl SheetWidget<'_> {
                 let x = col_x[slot];
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
-                let (mut text, dtype_hint) =
-                    display_cell(&av, cell_fmt(view, self.theme, cols[ci].name()));
+                let (mut text, dtype_hint) = texts[slot].cell(&av, ri - row_start);
                 let custom = self
                     .render
                     .and_then(|r| r(cols[ci].name(), cols[ci].dtype(), &av))
@@ -559,22 +563,46 @@ pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &str) -> CellFmt<'a> 
     }
 }
 
-/// A cell's text in `fmt`.
-fn display_cell(av: &AnyValue, fmt: CellFmt) -> (String, DtypeHint) {
-    match (av, fmt) {
-        (AnyValue::Float64(f), CellFmt::Digits(d)) => {
-            (format!("{f:.*}", d as usize), DtypeHint::Numeric)
-        }
-        (AnyValue::Float32(f), CellFmt::Digits(d)) => {
-            (format!("{f:.*}", d as usize), DtypeHint::Numeric)
-        }
-        (AnyValue::Date(_) | AnyValue::Datetime(..), CellFmt::Strftime(f)) => {
-            match crate::sheet::strftime_text(av, f) {
-                Some(t) => (printable(&t), DtypeHint::Date),
-                None => display_av_with_hint(av),
+/// A column's cell texts in its [`CellFmt`]: a date column in strftime
+/// format is formatted once, as Polars' `dt.strftime` writes it (S-35 C2).
+struct ColText<'a> {
+    fmt: CellFmt<'a>,
+    dated: Option<StringChunked>,
+}
+
+impl<'a> ColText<'a> {
+    fn new(c: &Column, fmt: CellFmt<'a>) -> Self {
+        let dated = match fmt {
+            CellFmt::Strftime(f) => {
+                let s = c.as_materialized_series();
+                match s.dtype() {
+                    DataType::Date => s.date().ok().and_then(|d| d.strftime(f).ok()),
+                    DataType::Datetime(..) => s.datetime().ok().and_then(|d| d.strftime(f).ok()),
+                    _ => None,
+                }
             }
+            _ => None,
+        };
+        Self { fmt, dated }
+    }
+
+    /// Row `i`'s text, `av` its value.
+    fn cell(&self, av: &AnyValue, i: usize) -> (String, DtypeHint) {
+        match (av, self.fmt) {
+            (AnyValue::Float64(f), CellFmt::Digits(d)) => {
+                (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+            }
+            (AnyValue::Float32(f), CellFmt::Digits(d)) => {
+                (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+            }
+            (AnyValue::Date(_) | AnyValue::Datetime(..), CellFmt::Strftime(_)) => {
+                match self.dated.as_ref().and_then(|t| t.get(i)) {
+                    Some(t) => (printable(t), DtypeHint::Date),
+                    None => display_av_with_hint(av),
+                }
+            }
+            _ => display_av_with_hint(av),
         }
-        _ => display_av_with_hint(av),
     }
 }
 
@@ -701,8 +729,9 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>, theme: &Theme
         }
     }
     for (w, c) in widths.iter_mut().zip(df.get_column_names()) {
-        let floor = s.state.width_floor.iter().filter(|(f, _)| f == c.as_str());
-        *w = floor.fold(*w, |w, (_, f)| w.max(*f));
+        if let Some(f) = s.state.width_floor.get(c.as_str()) {
+            *w = (*w).max(*f);
+        }
     }
     s.state.widths = widths;
     s.state.widths_key = Some(key);
