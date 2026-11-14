@@ -41,6 +41,18 @@ impl PlotView {
         self.y = [a, b];
     }
 
+    /// The box `wider` / `taller` by that many of `cols` x `rows` screen
+    /// cells, at least one.
+    pub fn resize_cursor(&mut self, wider: i8, taller: i8, cols: f64, rows: f64) {
+        let (cw, ch) = (
+            (self.x[1] - self.x[0]) / cols,
+            (self.y[1] - self.y[0]) / rows,
+        );
+        let c = &mut self.cursor;
+        c[2] = (c[2] + f64::from(wider) * cw).max(cw);
+        c[3] = (c[3] + f64::from(taller) * ch).max(ch);
+    }
+
     /// Zoom by `f` (< 1 in) around the cursor box's center.
     pub fn zoom(&mut self, f: f64) {
         let [x0, y0, w, h] = self.cursor;

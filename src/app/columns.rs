@@ -197,9 +197,11 @@ impl App {
         };
         self.columns_write(targets, None, |s, c| {
             if !s.view.keys.iter().any(|k| k == c) {
-                s.view.order.retain(|o| o != c);
-                s.view.order.push(c.to_string());
-                s.state.widths_key = None;
+                // `c` last
+                let mut first: Vec<String> =
+                    s.view.order.iter().filter(|o| *o != c).cloned().collect();
+                first.push(c.to_string());
+                s.set_order(&first);
             }
             Ok(())
         });

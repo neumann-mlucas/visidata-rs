@@ -72,7 +72,7 @@ fn open_sqlite_table(path: &Path, table: Option<&str>) -> Result<DataFrame, Open
             .ok_or_else(|| OpenError::Sqlite("no tables".into()))?,
     };
     let mut stmt = conn
-        .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))
+        .prepare(&format!("SELECT * FROM {}", crate::duckdb::ident(&table)))
         .map_err(|e| OpenError::Sqlite(e.to_string()))?;
     let headers: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let width = headers.len();

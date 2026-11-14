@@ -928,19 +928,7 @@ impl App {
                 }
                 let snap = s.snapshot();
                 // bare `:order`: back to plan order
-                let mut order = columns.clone();
-                if !columns.is_empty() {
-                    order.extend(
-                        s.view
-                            .order
-                            .iter()
-                            .filter(|c| !columns.contains(c))
-                            .cloned(),
-                    );
-                }
-                if order != s.view.order {
-                    s.view.order = order;
-                    s.state.widths_key = None;
+                if s.set_order(&columns) {
                     s.push_undo(snap);
                     self.spawn_materialize();
                 }

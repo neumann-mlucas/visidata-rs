@@ -48,7 +48,12 @@ pub fn agg_expr(column: &str, agg: &str) -> Expr {
         "max" => c.max(),
         _ => c.std(1),
     };
-    e.alias(format!("{column}_{agg}"))
+    e.alias(agg_name(column, agg))
+}
+
+/// VisiData's `aggname`: `{column}_{agg}`.
+pub fn agg_name(column: &str, agg: &str) -> String {
+    format!("{column}_{agg}")
 }
 
 /// The aggregators `F` on `parent` adds: (column, aggregator), in the

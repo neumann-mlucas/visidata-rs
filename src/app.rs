@@ -955,17 +955,9 @@ impl App {
             Action::CursorRight { count } => v.step(n(count), 0.0),
             Action::CursorUp { count } => v.step(0.0, n(count)),
             Action::CursorDown { count } => v.step(0.0, -n(count)),
-            Action::PlotResize { .. } | Action::SlideCol { by: -1 | 1 } => {
-                let (wider, taller) = match a {
-                    Action::PlotResize { wider, taller } => (*wider, *taller),
-                    Action::SlideCol { by } => (*by as i8, 0), // H L, as VisiData's canvas
-                    _ => return false,
-                };
-                let (cw, ch) = ((v.x[1] - v.x[0]) / cols, (v.y[1] - v.y[0]) / rows);
-                let c = &mut v.cursor;
-                c[2] = (c[2] + f64::from(wider) * cw).max(cw);
-                c[3] = (c[3] + f64::from(taller) * ch).max(ch);
-            }
+            Action::PlotResize { wider, taller } => v.resize_cursor(*wider, *taller, cols, rows),
+            // H L, as VisiData's canvas
+            Action::SlideCol { by: by @ (-1 | 1) } => v.resize_cursor(*by as i8, 0, cols, rows),
             Action::StartAggregateInput { .. } => {
                 v.zoom(0.5);
                 range = Some(Some(v.x));

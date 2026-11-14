@@ -61,7 +61,7 @@ impl Sheet {
                 let zero = aggs
                     .iter()
                     .filter(|(_, a)| columns::zero_on_empty(a))
-                    .map(|(c, a)| format!("{c}_{a}"));
+                    .map(|(c, a)| columns::agg_name(c, a));
                 let fill: Vec<Expr> = std::iter::once(count.to_string())
                     .chain(zero)
                     .map(|c| col(c.as_str()).fill_null(lit(0)))
@@ -69,7 +69,7 @@ impl Sheet {
                 let names: Vec<Expr> = [col_name, count]
                     .into_iter()
                     .map(String::from)
-                    .chain(aggs.iter().map(|(c, a)| format!("{c}_{a}")))
+                    .chain(aggs.iter().map(|(c, a)| columns::agg_name(c, a)))
                     .map(|c| col(c.as_str()))
                     .collect();
                 all.join(by_bin, [col(B)], [col(B)], args)
@@ -134,8 +134,8 @@ impl Sheet {
         hist_bins: usize,
     ) -> Result<Option<Binning>, String> {
         let e = |e: PolarsError| e.to_string();
-        let mut plan = parent.view_plan();
-        let dt = plan.collect_schema().map_err(e)?.get(column).cloned();
+        let plan = parent.view_plan();
+        let dt = parent.view_dtype(column);
         let Some(dt) = dt.filter(DataType::is_primitive_numeric) else {
             return Ok(None);
         };
@@ -818,6 +818,19 @@ pub(crate) const JRK: &str = "__vdrs_rk";
 /// Right-only keys sort after every left key.
 pub(crate) const JOIN_RIGHT_KEYS: i64 = 1 << 40;
 
+/// `W` with aggregators (S-35 B): each aggregate's column name prefix
+/// (VisiData's: `prefix` + `on` value).
+pub(crate) fn pivot_prefixes(aggs: &[(String, String)]) -> Vec<String> {
+    let several_cols = aggs.iter().any(|(c, _)| *c != aggs[0].0);
+    aggs.iter()
+        .map(|(c, a)| match (several_cols, aggs.len()) {
+            (true, _) => format!("{}_", columns::agg_name(c, a)),
+            (false, 1) => String::new(),
+            _ => format!("{a}_"),
+        })
+        .collect()
+}
+
 /// [`Sheet::pivot_current_from`] with aggregators: group by `keys` and `on`,
 /// aggregate, then a pivot per aggregate. Columns per `on` value, its
 /// aggregates in `aggs` order; a pair with no rows counts and sums to 0.
@@ -852,14 +865,17 @@ fn pivot_aggs(
         .collect()?;
     let pivots: Vec<DataFrame> = aggs
         .iter()
-        .map(|(c, a)| pivot_df(&grouped, on, &index, &format!("{c}_{a}"), element().first()))
+        .map(|(c, a)| {
+            pivot_df(
+                &grouped,
+                on,
+                &index,
+                &columns::agg_name(c, a),
+                element().first(),
+            )
+        })
         .collect::<PolarsResult<_>>()?;
-    let several_cols = aggs.iter().any(|(c, _)| *c != aggs[0].0);
-    let name = |c: &str, a: &str, v: &str| match (several_cols, aggs.len()) {
-        (true, _) => format!("{c}_{a}_{v}"),
-        (false, 1) => v.to_string(),
-        _ => format!("{a}_{v}"),
-    };
+    let prefixes = pivot_prefixes(aggs);
     let mut out: Vec<Column> = if keys.is_empty() {
         Vec::new()
     } else {
@@ -875,12 +891,12 @@ fn pivot_aggs(
         .filter(|n| !index.contains(n))
         .collect();
     for v in &values {
-        for ((c, a), p) in aggs.iter().zip(&pivots) {
+        for (((_, a), p), pre) in aggs.iter().zip(&pivots).zip(&prefixes) {
             let mut s = p.column(v)?.clone();
             if columns::zero_on_empty(a) {
                 s = s.fill_null(FillNullStrategy::Zero)?;
             }
-            out.push(s.with_name(name(c, a, v).into()));
+            out.push(s.with_name(format!("{pre}{v}").into()));
         }
     }
     DataFrame::new_infer_height(out)

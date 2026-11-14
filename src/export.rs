@@ -11,11 +11,13 @@ use std::path::Path;
 
 use polars::prelude::{DataFrame, DataType};
 
+use crate::duckdb::{ident as q_ident, lit as q_str};
 use crate::reader::SourceKind;
+use crate::sheet::columns::agg_name;
 use crate::sheet::{
     Binning, DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, DiveKey,
     HISTOGRAM_WIDTH, Lineage, Origin, PlanStep, Sheet, SortOrder, TIME_OF_DAY, err_col,
-    freq_keeps_order, freq_stat_names,
+    freq_keeps_order, freq_stat_names, pivot_prefixes,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -446,16 +448,15 @@ impl Script {
                     .map(|(c, a)| format!(", {}", py_agg(c, a)))
                     .collect();
                 let c = py_str(column);
+                let by_value = format!(
+                    "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
+                    n = py_str(n)
+                );
                 let grouped = match bins {
-                    None => format!(
-                        "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
-                        n = py_str(n)
-                    ),
-                    Some(Binning::Values { .. }) => format!(
-                        "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})\
-                         .sort({c}, nulls_last=True, maintain_order=True)",
-                        n = py_str(n)
-                    ),
+                    None => by_value,
+                    Some(Binning::Values { .. }) => {
+                        format!("{by_value}.sort({c}, nulls_last=True, maintain_order=True)")
+                    }
                     Some(Binning::Ranges {
                         min,
                         width,
@@ -468,11 +469,11 @@ impl Script {
                         let zero: String = pairs
                             .iter()
                             .filter(|(_, a)| crate::sheet::columns::zero_on_empty(a))
-                            .map(|(c, a)| format!(", {}", py_str(&format!("{c}_{a}"))))
+                            .map(|(c, a)| format!(", {}", py_str(&agg_name(c, a))))
                             .collect();
                         let names: String = pairs
                             .iter()
-                            .map(|(c, a)| format!(", {}", py_str(&format!("{c}_{a}"))))
+                            .map(|(c, a)| format!(", {}", py_str(&agg_name(c, a))))
                             .collect();
                         format!(
                             "{p}.with_columns(((pl.col({c}).cast(pl.Float64) - {min:?}) / {width:?}).floor()\
@@ -519,7 +520,7 @@ impl Script {
                     .collect();
                 let names: Vec<String> = pairs
                     .iter()
-                    .map(|(c, a)| q_ident(&format!("{c}_{a}")))
+                    .map(|(c, a)| q_ident(&agg_name(c, a)))
                     .collect();
                 let filled: String = pairs
                     .iter()
@@ -828,10 +829,11 @@ impl Script {
                     py_str(c)
                 ));
             }
-            if *dt == DataType::Date && is_text(s, c) {
+            let text = src_type(s, c) == Some(DataType::String);
+            if *dt == DataType::Date && text {
                 self.need(&py_lenient_date());
                 ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
-            } else if matches!(dt, DataType::Datetime(..)) && is_text(s, c) {
+            } else if matches!(dt, DataType::Datetime(..)) && text {
                 self.need(&py_lenient_date());
                 self.need(&py_lenient_datetime());
                 ops.push(format!(".with_columns(lenient_datetime({}))", py_str(c)));
@@ -929,17 +931,19 @@ impl Script {
                 .iter()
                 .map(|(c, dt)| {
                     let i = q_ident(c);
-                    let cast = if *dt == DataType::Date && is_text(s, c) {
+                    let src = src_type(s, c);
+                    let text = src == Some(DataType::String);
+                    let cast = if *dt == DataType::Date && text {
                         self.need(&sql_lenient_date());
                         format!("lenient_date({i})")
-                    } else if matches!(dt, DataType::Datetime(..)) && is_text(s, c) {
+                    } else if matches!(dt, DataType::Datetime(..)) && text {
                         self.need(&sql_lenient_date());
                         self.need(&sql_lenient_datetime());
                         format!("lenient_datetime({i})")
-                    } else if dt.is_numeric() && is_date(s, c) {
+                    } else if dt.is_numeric() && src == Some(DataType::Date) {
                         // Polars casts a date to its days since 1970
                         format!("TRY_CAST(({i} - DATE '1970-01-01') AS {})", sql_dtype(dt))
-                    } else if dt.is_integer() && is_float(s, c) {
+                    } else if dt.is_integer() && src.as_ref().is_some_and(DataType::is_float) {
                         // Polars truncates a float to an int; DuckDB would round
                         format!("TRY_CAST(trunc({i}) AS {})", sql_dtype(dt))
                     } else {
@@ -1902,19 +1906,6 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
     )
 }
 
-/// `W` with aggregators (S-35 B): what [`crate::sheet`]'s `pivot_aggs`
-/// does, VisiData's column names (`prefix` + value).
-fn pivot_prefixes(aggs: &[(String, String)]) -> Vec<String> {
-    let several_cols = aggs.iter().any(|(c, _)| *c != aggs[0].0);
-    aggs.iter()
-        .map(|(c, a)| match (several_cols, aggs.len()) {
-            (true, _) => format!("{c}_{a}_"),
-            (false, 1) => String::new(),
-            _ => format!("{a}_"),
-        })
-        .collect()
-}
-
 fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) -> String {
     let list = |v: Vec<String>| format!("[{}]", v.join(", "));
     let o = py_str(on);
@@ -1929,11 +1920,7 @@ fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) 
     let ks = list(keys.iter().map(|k| py_str(k)).collect());
     let idx = list(idx);
     let agg_exprs = list(aggs.iter().map(|(c, a)| py_agg(c, a)).collect());
-    let alias = list(
-        aggs.iter()
-            .map(|(c, a)| py_str(&format!("{c}_{a}")))
-            .collect(),
-    );
+    let alias = list(aggs.iter().map(|(c, a)| py_str(&agg_name(c, a))).collect());
     let pre = list(pivot_prefixes(aggs).iter().map(|s| py_str(s)).collect());
     let zero = list(
         aggs.iter()
@@ -1962,10 +1949,7 @@ fn sql_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)])
     let o = q_ident(on);
     let lead = k.iter().map(|c| format!("{c}, ")).collect::<String>();
     let text = format!("coalesce(CAST({o} AS VARCHAR), 'null')");
-    let alias: Vec<String> = aggs
-        .iter()
-        .map(|(c, a)| q_ident(&format!("{c}_{a}")))
-        .collect();
+    let alias: Vec<String> = aggs.iter().map(|(c, a)| q_ident(&agg_name(c, a))).collect();
     // no CTEs: a PIVOT reading its columns from the data can't see them
     let g = format!(
         "(SELECT {lead}{text} AS {o}, {} FROM {p} GROUP BY ALL)",
@@ -2055,22 +2039,12 @@ fn sql_agg(c: &str, agg: &str) -> String {
         "stdev" => format!("stddev_samp({q})"),
         _ => format!("{agg}({q})"),
     };
-    format!("{e} AS {}", q_ident(&format!("{c}_{agg}")))
+    format!("{e} AS {}", q_ident(&agg_name(c, agg)))
 }
 
-fn is_float(s: &Sheet, c: &str) -> bool {
-    let schema = s.plan.clone().collect_schema();
-    schema.is_ok_and(|sc| sc.get(c).is_some_and(DataType::is_float))
-}
-
-fn is_date(s: &Sheet, c: &str) -> bool {
-    let schema = s.plan.clone().collect_schema();
-    schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::Date))
-}
-
-fn is_text(s: &Sheet, c: &str) -> bool {
-    let schema = s.plan.clone().collect_schema();
-    schema.is_ok_and(|sc| sc.get(c) == Some(&DataType::String))
+/// `c`'s type in `s`'s base plan (before the view's casts).
+fn src_type(s: &Sheet, c: &str) -> Option<DataType> {
+    s.plan.clone().collect_schema().ok()?.get(c).cloned()
 }
 
 /// A CSV's columns as vdrs read them. A tail's can change after opening; its
@@ -2364,16 +2338,6 @@ fn visible_columns(sheet: &Sheet) -> Result<Option<Vec<String>>, String> {
         .collect_schema()
         .map_err(|e| e.to_string())?;
     Ok(Some(schema.iter_names().map(|n| n.to_string()).collect()))
-}
-
-/// SQL identifier.
-fn q_ident(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "\"\""))
-}
-
-/// SQL string literal.
-fn q_str(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
 }
 
 fn sql_dtype(dt: &DataType) -> &'static str {

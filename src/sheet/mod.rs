@@ -25,7 +25,7 @@ mod undo;
 mod write;
 
 pub use columns::freq_aggregators;
-pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
+pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, pivot_prefixes};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
@@ -853,6 +853,28 @@ impl Sheet {
         self.view_plan_rid(false)
     }
 
+    /// `column`'s type in the view, `None` when it isn't there (or the plan
+    /// has no schema).
+    pub fn view_dtype(&self, column: &str) -> Option<DataType> {
+        self.view_plan().collect_schema().ok()?.get(column).cloned()
+    }
+
+    /// Column order: `first`, then the rest of the old order; empty `first`
+    /// is back to plan order. Whether it changed.
+    pub fn set_order(&mut self, first: &[String]) -> bool {
+        let mut order = first.to_vec();
+        if !first.is_empty() {
+            let rest = self.view.order.iter().filter(|c| !first.contains(c));
+            order.extend(rest.cloned());
+        }
+        if order == self.view.order {
+            return false;
+        }
+        self.view.order = order;
+        self.state.widths_key = None;
+        true
+    }
+
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
@@ -1432,21 +1454,17 @@ impl Sheet {
 
 /// `column` of `parent`'s view holds numbers `numeric_binning` can bin.
 pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
-    let schema = parent.view_plan().collect_schema().ok();
-    schema
-        .and_then(|s| s.get(column).map(DataType::is_primitive_numeric))
-        .unwrap_or(false)
+    parent
+        .view_dtype(column)
+        .is_some_and(|d| d.is_primitive_numeric())
 }
 
 /// VisiData leaves a numeric (or date) freq table in first-seen order and
 /// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
 pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
     parent
-        .view_plan()
-        .collect_schema()
-        .ok()
-        .and_then(|s| s.get(column).map(|d| d.is_numeric() || d.is_temporal()))
-        .unwrap_or(false)
+        .view_dtype(column)
+        .is_some_and(|d| d.is_numeric() || d.is_temporal())
 }
 
 /// Bar length of the most frequent value (VisiData: twice its default column

@@ -217,11 +217,7 @@ impl Sheet {
     /// column's text; empty clears either. The toast.
     pub fn set_fmtstr(&mut self, column: &str, fmt: &str) -> Result<String, String> {
         let dtype = self
-            .view_plan()
-            .collect_schema()
-            .map_err(|e| e.to_string())?
-            .get(column)
-            .cloned()
+            .view_dtype(column)
             .ok_or_else(|| format!("no column {column}"))?;
         let fmt = fmt.trim();
         let dated = matches!(dtype, DataType::Date | DataType::Datetime(..));
@@ -248,14 +244,11 @@ impl Sheet {
             ));
         }
         // a format chrono can't write fails on any value: try one
-        let probe = Series::new("".into(), [0i64])
-            .cast(&dtype)
-            .map_err(|e| e.to_string())?;
-        let ok = match &dtype {
-            DataType::Date => probe.date().map(|d| d.strftime(fmt).is_ok()),
-            _ => probe.datetime().map(|d| d.strftime(fmt).is_ok()),
+        let probe = match &dtype {
+            DataType::Datetime(unit, tz) => AnyValue::Datetime(0, *unit, tz.as_ref()),
+            _ => AnyValue::Date(0),
         };
-        if !ok.unwrap_or(false) {
+        if super::strftime_text(&probe, fmt).is_none() {
             return Err(format!("fmtstr: {fmt:?} isn't a strftime format"));
         }
         self.view
@@ -275,11 +268,7 @@ impl Sheet {
         start: u8,
     ) -> Result<Option<u8>, String> {
         let dtype = self
-            .view_plan()
-            .collect_schema()
-            .map_err(|e| e.to_string())?
-            .get(column)
-            .cloned()
+            .view_dtype(column)
             .ok_or_else(|| format!("no column {column}"))?;
         if !matches!(dtype, DataType::Float32 | DataType::Float64) {
             return Err(format!(
