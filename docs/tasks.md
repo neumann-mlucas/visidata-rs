@@ -209,7 +209,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 
 ## Phase 2 — pivot + plan panel (the differentiating release)
 
-- [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl via polars-ops. Direction §8 OOM risk noted.
+- [x] Pivot sheet: `:pivot <index> <on> <values> [agg]` — eager impl (`sheet::pivot_df`). Direction §8 OOM risk noted.
 - [x] Melt/unpivot sheet: `:unpivot <on1,on2,...> -- <idx1,idx2,...>` — lazy via `LazyFrame::unpivot`
 - [x] `W` pivot: key columns × current column (counts); custom aggregates via `:pivot … <agg>`
 - [x] Live preview panel — `:pivot` prompt previews hints, then the pivot of the first 10k rows (2026-11-05); other ops keep the stale window until the new materialize lands

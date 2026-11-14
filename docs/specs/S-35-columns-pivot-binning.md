@@ -100,7 +100,7 @@ As built:
     column's `%.Nf` to precision and a date or datetime column's format to `date_fmts`; empty
     clears either; other types refuse. A format is checked by formatting one value, so `%Q` is
     refused when set, not at draw time.
-  - Display: `widget::cell_fmt` → `sheet::strftime_text`, Polars' own `strftime`, so the cell
+  - Display: `widget::cell_fmt` → `CellFmt::Strftime`, formatted once per draw by Polars' own `dt.strftime`, so the cell
     text, the freq groups and the Python export agree. Data, `:save` and copies keep the dates.
   - `F` groups by `dt.strftime(fmt)`; the freq column is text. The dive matches rows by the
     same expression (`Sheet::rows_formatted`, by rid, as the binned dive).
