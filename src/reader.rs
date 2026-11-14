@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum SourceKind {
     Csv,
     Tsv,
@@ -15,8 +15,10 @@ pub enum SourceKind {
     Json, // JSON array of records; `.json` holding JSON Lines is sniffed back to Jsonl
     Xlsx,
     Sqlite,
+    #[value(skip)]
     Duckdb, // read through the `duckdb` program (crate::duckdb)
-    Stdin,  // resolved to one of the above after sniffing
+    #[value(skip)]
+    Stdin, // resolved to one of the above after sniffing
 }
 
 #[derive(thiserror::Error, Debug)]

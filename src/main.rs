@@ -1,9 +1,10 @@
 use std::ffi::OsString;
 use std::process::ExitCode;
 
-use clap::{Parser, ValueEnum};
+use anyhow::{Context, anyhow};
+use clap::Parser;
 
-use reader::{OpenError, SourceKind};
+use reader::SourceKind;
 use visidata_rs::sheet::Sheet;
 use visidata_rs::{app, plugins, reader};
 
@@ -26,7 +27,7 @@ struct Cli {
 
     /// Force a format (useful for stdin or when the extension is wrong).
     #[arg(long, value_enum)]
-    format: Option<Format>,
+    format: Option<SourceKind>,
 
     /// Don't start the TUI — print shape, schema, and the first N rows, then exit.
     #[arg(long)]
@@ -37,36 +38,17 @@ struct Cli {
     head: usize,
 }
 
-#[derive(ValueEnum, Debug, Clone, Copy)]
-enum Format {
-    Csv,
-    Tsv,
-    Parquet,
-    Arrow,
-    Jsonl,
-    Json,
-    Xlsx,
-    Sqlite,
-}
-impl From<Format> for SourceKind {
-    fn from(f: Format) -> Self {
-        match f {
-            Format::Csv => SourceKind::Csv,
-            Format::Tsv => SourceKind::Tsv,
-            Format::Parquet => SourceKind::Parquet,
-            Format::Arrow => SourceKind::Arrow,
-            Format::Jsonl => SourceKind::Jsonl,
-            Format::Json => SourceKind::Json,
-            Format::Xlsx => SourceKind::Xlsx,
-            Format::Sqlite => SourceKind::Sqlite,
+fn main() -> ExitCode {
+    match run(Cli::parse()) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("vdrs: {e:#}"); // `:#` = include the cause chain
+            ExitCode::from(1)
         }
     }
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let fmt = cli.format.map(SourceKind::from);
-
+fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     // Load Lua plugins before the initial read so `vd.register_loader` rules
     // can intercept a user-supplied extension. Plugin-load failure is reported
     // but non-fatal — users without an `init.lua` are the common case.
@@ -80,42 +62,21 @@ fn main() -> ExitCode {
 
     let path = match (&cli.session, cli.path) {
         (Some(s), _) => {
-            let text = match std::fs::read_to_string(s) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("vdrs: {s}: {e}");
-                    return ExitCode::from(1);
-                }
-            };
-            match visidata_rs::session::first_root(&text) {
-                Ok(p) => OsString::from(p),
-                Err(e) => {
-                    eprintln!("vdrs: {s}: {e}");
-                    return ExitCode::from(1);
-                }
-            }
+            let text = std::fs::read_to_string(s).with_context(|| s.clone())?;
+            let root = visidata_rs::session::first_root(&text).map_err(|e| anyhow!("{s}: {e}"))?;
+            OsString::from(root)
         }
         (None, Some(p)) => p,
         (None, None) => {
             eprintln!("vdrs: give a file to open, or -S <session>");
-            return ExitCode::from(2);
+            return Ok(ExitCode::from(2));
         }
     };
-    let loaded = match plugins::open(plugins.as_ref(), &path, fmt) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("vdrs: {e}");
-            return ExitCode::from(1);
-        }
-    };
+    // anyhow!: OpenError's message already holds its source; `:#` would repeat it
+    let loaded = plugins::open(plugins.as_ref(), &path, cli.format).map_err(|e| anyhow!("{e}"))?;
     if cli.headless {
-        return match print_headless(&loaded, cli.head) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("vdrs: {e}");
-                ExitCode::from(1)
-            }
-        };
+        print_headless(&loaded, cli.head)?;
+        return Ok(ExitCode::SUCCESS);
     }
     // Several worksheets / tables → start on the list; `<CR>` opens one.
     let parts = match &loaded.path {
@@ -131,31 +92,24 @@ fn main() -> ExitCode {
     // is one: 2 MiB (the default) runs out after a few dozen of them.
     // ponytail: a fixed 16 MiB; flatten consecutive column steps into one
     // `with_columns` if sheets with hundreds of steps show up.
-    let rt = match tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(16 << 20)
         .build()
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("vdrs: tokio: {e}");
-            return ExitCode::from(1);
-        }
-    };
+        .context("tokio")?;
     let result = rt.block_on(app::run(sheet, plugins, plugin_warning, cli.session));
     rt.shutdown_background(); // or quitting waits for running sorts and loads
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("vdrs: {e:#}"); // `:#` = include the cause chain
-            ExitCode::from(1)
-        }
-    }
+    result.map(|()| ExitCode::SUCCESS)
 }
 
-fn print_headless(src: &reader::LoadedSource, head: usize) -> Result<(), AppError> {
+fn print_headless(src: &reader::LoadedSource, head: usize) -> anyhow::Result<()> {
     use std::io::Write;
-    let df = src.lazy.clone().limit(head as u32).collect()?;
+    let df = src
+        .lazy
+        .clone()
+        .limit(head as u32)
+        .collect()
+        .map_err(|e| anyhow!("polars: {e}"))?;
     let mut out = std::io::stdout().lock();
     let written = (|| -> std::io::Result<()> {
         writeln!(out, "source : {} ({:?})", src.display_name, src.kind)?;
@@ -169,16 +123,6 @@ fn print_headless(src: &reader::LoadedSource, head: usize) -> Result<(), AppErro
     match written {
         // `vdrs --headless x | head`: the reader left early; that's fine.
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        other => Ok(other?),
+        other => other.context("write"),
     }
-}
-
-#[derive(thiserror::Error, Debug)]
-enum AppError {
-    #[error(transparent)]
-    Open(#[from] OpenError),
-    #[error("polars: {0}")]
-    Polars(#[from] polars::prelude::PolarsError),
-    #[error("write: {0}")]
-    Io(#[from] std::io::Error),
 }
