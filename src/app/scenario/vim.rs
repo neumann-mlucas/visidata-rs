@@ -473,3 +473,19 @@ async fn vim_operators_motions_and_text_objects() {
     h.keys("d <Esc> j").await;
     assert!(h.app.operator.is_none());
 }
+/// A vim operator count past `usize` saturates: `d<huge>d` cuts to the end.
+#[tokio::test(flavor = "multi_thread")]
+async fn vim_huge_operator_count_saturates() {
+    let mut h = csv(b"id\n1\n2\n3\n").await;
+    h.app.plugins =
+        Some(crate::plugins::Plugins::load_from_source(r#"vd.option("keymap", "vim")"#).unwrap());
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let huge = vec!["9"; 20].join(" ");
+    h.keys(&format!("j d {huge} d")).await;
+    assert_eq!(
+        csv_text(h.app.sheets.active(), b','),
+        "id\n1\n",
+        "{}",
+        h.screen()
+    );
+}

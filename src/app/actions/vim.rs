@@ -49,15 +49,23 @@ impl App {
             && let Some(d) = ch.and_then(|c| c.to_digit(10))
             && (d > 0 || p.motion_count.is_some())
         {
-            p.motion_count = Some(p.motion_count.unwrap_or(0) * 10 + d as usize);
+            p.motion_count = Some(
+                p.motion_count
+                    .unwrap_or(0)
+                    .saturating_mul(10)
+                    .saturating_add(d as usize),
+            );
             self.operator = Some(p);
             return;
         }
-        let n = p.count.unwrap_or(1) * p.motion_count.unwrap_or(1);
+        let n = p
+            .count
+            .unwrap_or(1)
+            .saturating_mul(p.motion_count.unwrap_or(1));
         if self.pending.is_empty() && ch == Some(p.op) {
             self.operator = None;
             let at = self.cursor_row();
-            return self.operator_rows(p.op, at, at + n as u64 - 1);
+            return self.operator_rows(p.op, at, at.saturating_add(n as u64 - 1));
         }
         if self.pending.is_empty() && ch == Some('i') {
             p.object = true;
@@ -119,7 +127,7 @@ impl App {
             _ => return self.change_rows(lo, hi),
         };
         self.goto_row(lo);
-        let l = |r: u64| crate::exline::Addr::Line(r + 1);
+        let l = |r: u64| crate::exline::Addr::Line(r.saturating_add(1));
         let again = format!(".,.+{} {cmd}", hi - lo);
         self.run_ranged_as(crate::exline::Rows::Span(l(lo), l(hi)), cmd.into(), again);
     }
@@ -200,7 +208,7 @@ impl App {
                     return self.change_rows(lo, hi);
                 }
                 self.goto_row(lo);
-                let l = |r: u64| crate::exline::Addr::Line(r + 1);
+                let l = |r: u64| crate::exline::Addr::Line(r.saturating_add(1));
                 self.run_ranged(crate::exline::Rows::Span(l(lo), l(hi)), cells.into());
             }
         }
