@@ -54,14 +54,14 @@ impl<'a> SheetWidget<'a> {
     fn col_widths<'f>(
         df: &DataFrame,
         render: Option<CellRenderer>,
-        digits: &dyn Fn(&str) -> CellFmt<'f>,
+        digits: &dyn Fn(&Column) -> CellFmt<'f>,
     ) -> Vec<u16> {
         let step = (df.height() / Self::WIDTH_ROWS).max(1);
         let rows = (0..df.height()).step_by(step);
         df.columns()
             .iter()
             .map(|s| {
-                let text = ColText::new(s, digits(s.name()));
+                let text = ColText::new(s, digits(s));
                 // Header width = name + " [dtype-badge]" so we don't truncate the badge.
                 let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
                 let data = rows
@@ -254,7 +254,7 @@ impl SheetWidget<'_> {
             .iter()
             .map(|&(ci, _)| {
                 let c = cols[ci].slice(row_start as i64, row_end.saturating_sub(row_start));
-                ColText::new(&c, cell_fmt(view, self.theme, cols[ci].name()))
+                ColText::new(&c, cell_fmt(view, self.theme, &cols[ci]))
             })
             .collect();
         for (dy, ri) in (row_start..row_end).enumerate() {
@@ -543,11 +543,14 @@ pub enum CellFmt<'a> {
     Strftime(&'a str),
 }
 
-/// [`float_digits`], else the column's date `fmtstr`.
-pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &str) -> CellFmt<'a> {
+/// [`float_digits`], else the column's date `fmtstr` (a date column's only:
+/// one a refresh left on a float yields).
+pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &Column) -> CellFmt<'a> {
+    let name = column.name().as_str();
+    let dated = column.dtype().is_temporal();
     match (
-        float_digits(view, theme, column),
-        crate::sheet::date_fmt_of(view, column),
+        float_digits(view, theme, name),
+        crate::sheet::date_fmt_of(view, name).filter(|_| dated),
     ) {
         (_, Some(f)) => CellFmt::Strftime(f),
         (Some(d), None) => CellFmt::Digits(d),
