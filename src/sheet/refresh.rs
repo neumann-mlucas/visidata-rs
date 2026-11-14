@@ -100,6 +100,7 @@ impl Sheet {
         v.keys.retain(|c| names.contains(c));
         v.type_casts.retain(|(c, _)| names.contains(c));
         v.aggregators.retain(|(c, _)| names.contains(c));
+        v.date_fmts.retain(|(c, _)| names.contains(c));
         self.plan = fresh.plan;
         self.state.lineage = fresh.state.lineage;
         self.invalidate(Reason::Plan);
