@@ -20,8 +20,6 @@ use ratatui::style::Style;
 pub enum PluginError {
     #[error("lua: {0}")]
     Lua(#[from] mlua::Error),
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
 }
 
 #[derive(Default, Clone)]
@@ -144,18 +142,8 @@ struct KeymapPatch {
 /// side owns the tempfile lifecycle; we read the returned path once.
 #[derive(Clone)]
 pub struct LoaderRule {
-    pub name: String,
     pub extensions: Vec<String>,
     pub open: LuaFunction,
-}
-
-impl std::fmt::Debug for LoaderRule {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LoaderRule")
-            .field("name", &self.name)
-            .field("extensions", &self.extensions)
-            .finish_non_exhaustive()
-    }
 }
 
 pub struct Plugins {
@@ -885,6 +873,7 @@ fn unbind_fn(lua: &Lua, (layer_s, keys_val): (String, LuaValue)) -> mlua::Result
 }
 
 /// `vd.register_loader { name = "...", extensions = {"...", ...}, open = fn(path) end }`
+/// (`name` is accepted and unused).
 ///
 /// `open(path)` must return a path string pointing at a file in a format we scan
 /// natively (CSV/TSV/Parquet/Arrow/Jsonl). The plugin owns the tempfile lifecycle.
@@ -894,35 +883,17 @@ fn unbind_fn(lua: &Lua, (layer_s, keys_val): (String, LuaValue)) -> mlua::Result
 /// inference. Heavy-dep formats (SPSS, pcap, …) belong in `vdrs-ext-*` Rust crates
 /// per the S-09 extension ADR; everything else can convert to CSV in Lua.
 fn register_loader_fn(lua: &Lua, spec: LuaTable) -> mlua::Result<()> {
-    let name: String = spec.get::<Option<String>>("name")?.unwrap_or_default();
     let open: LuaFunction = spec.get("open")?;
-    let exts_val: LuaValue = spec.get("extensions")?;
-    let extensions: Vec<String> = match exts_val {
-        LuaValue::String(s) => vec![s.to_str()?.to_ascii_lowercase()],
-        LuaValue::Table(t) => {
-            let mut out = Vec::new();
-            for pair in t.sequence_values::<String>() {
-                out.push(pair?.to_ascii_lowercase());
-            }
-            out
-        }
-        other => {
-            return Err(mlua::Error::RuntimeError(format!(
-                "extensions must be string or table of strings, got {}",
-                other.type_name()
-            )));
-        }
-    };
+    let extensions: Vec<String> = strings(spec.get("extensions")?, "extensions")?
+        .iter()
+        .map(|e| e.to_ascii_lowercase())
+        .collect();
     if extensions.is_empty() {
         return Err(mlua::Error::RuntimeError(
             "vd.register_loader: at least one extension required".into(),
         ));
     }
-    let rule = LoaderRule {
-        name,
-        extensions,
-        open,
-    };
+    let rule = LoaderRule { extensions, open };
     registry(lua)?.borrow_mut().loaders.push(rule);
     Ok(())
 }
@@ -1111,24 +1082,21 @@ fn parse_layer(s: &str) -> Option<Layer> {
     }
 }
 
+/// A string or a table of strings (`what` names the argument in the error).
+fn strings(v: LuaValue, what: &str) -> mlua::Result<Vec<String>> {
+    match v {
+        LuaValue::String(s) => Ok(vec![s.to_str()?.to_string()]),
+        LuaValue::Table(t) => t.sequence_values().collect(),
+        other => Err(mlua::Error::RuntimeError(format!(
+            "{what} must be string or table of strings, got {}",
+            other.type_name()
+        ))),
+    }
+}
+
 fn parse_keys(v: LuaValue) -> mlua::Result<Vec<Key>> {
-    let strs: Vec<String> = match v {
-        LuaValue::String(s) => vec![s.to_str()?.to_string()],
-        LuaValue::Table(t) => {
-            let mut out = Vec::new();
-            for pair in t.sequence_values::<String>() {
-                out.push(pair?);
-            }
-            out
-        }
-        other => {
-            return Err(mlua::Error::RuntimeError(format!(
-                "keys must be string or table of strings, got {}",
-                other.type_name()
-            )));
-        }
-    };
-    strs.iter()
+    strings(v, "keys")?
+        .iter()
         .map(|s| s.parse::<Key>())
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| mlua::Error::RuntimeError(format!("bad key: {e}")))
