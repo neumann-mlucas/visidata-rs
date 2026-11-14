@@ -39,9 +39,11 @@ File naming: `S-NN-slug.md`.
 | S-32 | Float precision (`Alt++` / `Alt+-`, `disp_float_fmt`) | — | **shipped 2026-11-12** → [`S-32-float-precision.md`](S-32-float-precision.md) |
 | S-33 | Edits that scan run in the background (was S-24 R6) | — | **shipped 2026-11-13** → [`S-33-background-edits.md`](S-33-background-edits.md) |
 | S-34 | Column order: `H` `L` `gH` `gL`, sorting the columns sheet | S-25 P3, S-31 | **shipped 2026-11-12** → [`S-34-column-order.md`](S-34-column-order.md) |
-| S-35 | New columns at the cursor, `W` with aggregators, numeric binning, `fmtstr` | S-34 | **A, B shipped 2026-11-13**, C planned → [`S-35-columns-pivot-binning.md`](S-35-columns-pivot-binning.md) |
+| S-35 | New columns at the cursor, `W` with aggregators, numeric binning, `fmtstr` | S-34 | **shipped 2026-11-13** → [`S-35-columns-pivot-binning.md`](S-35-columns-pivot-binning.md) |
 | S-36 | Excel gaps: number formats, macros sheet `gm`, totals footer, `:lookup`, `:validate`, named views | S-35 C2, S-19, S-25 P4 | **drafted 2026-11-14** → [`S-36-excel-gaps.md`](S-36-excel-gaps.md) |
 | S-37 | Native GUI (egui): options registry + `O`, command catalog, core/frontend split, toolbar, settings, plots | S-36 B | **drafted 2026-11-14**, P0 before S-36, P1+ gated → [`S-37-native-gui.md`](S-37-native-gui.md) |
+| S-38 | `:set` data options, copies keep widths, `@` keeps the time, xlsx colour columns | S-35 C1/C2, S-31 | **A–C shipped 2026-11-14**, D waiting (parity) → [`S-38-set-widths-dates-xlsx.md`](S-38-set-widths-dates-xlsx.md) |
+| S-39 | Sources that aren't files: Lua loaders return rows, then `trait Source` | S-10, S-18 B | **drafted 2026-11-14** → [`S-39-sources.md`](S-39-sources.md) |
 
 **Not drafted yet** (draft only when the work starts):
 
