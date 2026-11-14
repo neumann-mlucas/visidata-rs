@@ -1190,7 +1190,9 @@ async fn date_fmtstr_the_type_cant_show_is_ignored() {
 #[tokio::test(flavor = "multi_thread")]
 async fn sorted_columns_sheet_rebuild_keeps_cursor() {
     let mut h = csv(b"a,b,c\n1,2,3\n").await;
-    h.keys("C ]").await; // name desc: c b a
+    h.keys("C").await;
+    h.keys("]").await; // name desc: c b a; the cursor follows a down
+    h.keys("g g").await;
     h.keys("e <C-u>").await;
     h.type_("z").await; // rename c, the cursor row
     assert_eq!(h.app.rid_at_cursor(), Some(2), "{}", h.screen());

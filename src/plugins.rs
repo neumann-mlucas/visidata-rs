@@ -199,7 +199,7 @@ impl Plugins {
     }
 
     fn exec(&self, src: &str, name: &str) -> mlua::Result<()> {
-        Ok(self.lua.load(src).set_name(name).exec()?)
+        self.lua.load(src).set_name(name).exec()
     }
 
     /// Build with an explicit config string. Used by tests; errors on any Lua error.
