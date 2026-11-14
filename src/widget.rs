@@ -252,7 +252,7 @@ impl SheetWidget<'_> {
         // Data rows; date columns formatted once for the rows on screen
         let texts: Vec<ColText> = visible
             .iter()
-            .map(|&ci| {
+            .map(|&(ci, _)| {
                 let c = cols[ci].slice(row_start as i64, row_end.saturating_sub(row_start));
                 ColText::new(&c, cell_fmt(view, self.theme, cols[ci].name()))
             })
@@ -284,7 +284,7 @@ impl SheetWidget<'_> {
                 },
                 line,
             );
-            for &(ci, x) in &visible {
+            for (slot, &(ci, x)) in visible.iter().enumerate() {
                 let w = widths[ci];
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
                 let (mut text, dtype_hint) = texts[slot].cell(&av, ri - row_start);
