@@ -302,6 +302,33 @@ impl Sheet {
         .derived(parent, Derivation::Rids(keep.clone())))
     }
 
+    /// What a freq dive from this sheet compares: what the `F` it descends
+    /// from grouped by, as it ran (the parent's fmtstr may change since). A
+    /// dive from a freq sheet keeps its origin: rows of that freq sheet.
+    pub fn freq_dive_key(&self) -> DiveKey {
+        let Some(l) = self.state.lineage.as_deref() else {
+            return DiveKey::Value;
+        };
+        match &l.how {
+            Derivation::Freq {
+                bins: Some(Binning::Ranges { min, width, n }),
+                ..
+            } => DiveKey::Bin {
+                min: *min,
+                width: *width,
+                n: *n,
+            },
+            Derivation::Freq { column, .. } => l
+                .parent
+                .date_fmt(column)
+                .map_or(DiveKey::Value, |f| DiveKey::Fmt(f.into())),
+            Derivation::Values { .. } if matches!(l.parent.origin, Origin::Freq { .. }) => {
+                l.parent.freq_dive_key()
+            }
+            _ => DiveKey::Value,
+        }
+    }
+
     /// Freq dive: `parent`'s rows whose `column`'s `key` (as text, the way the
     /// freq sheet grouped them) is one of `values` (None matches null).
     pub fn rows_with_values(
@@ -316,7 +343,7 @@ impl Sheet {
             .expr(column)
             .is_in(lit(Series::new("v".into(), &text)).implode(false), false);
         if values.iter().any(Option::is_none) {
-            pred = pred.or(col(column).is_null());
+            pred = pred.or(key.expr(column).is_null());
         }
         let shown = |v: &Option<String>| match (&key, v) {
             (DiveKey::Bin { min, width, n }, Some(i)) => i
@@ -324,6 +351,7 @@ impl Sheet {
                 .ok()
                 .and_then(|i| Binning::labels(*min, *width, *n).into_iter().nth(i))
                 .unwrap_or_default(),
+            (DiveKey::Bin { .. }, None) => "null bin".into(),
             (_, v) => v.clone().unwrap_or_default(),
         };
         let label = match (&key, &values[..]) {

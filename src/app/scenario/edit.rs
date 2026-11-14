@@ -1165,3 +1165,23 @@ async fn date_fmtstr_shows_groups_and_dives() {
     let df = h.app.sheets.active().view_plan().collect().unwrap();
     assert_eq!(df.height(), 3, "{}", h.screen());
 }
+
+/// A fmtstr the column's type can no longer show (`$` made it a number, a
+/// time format on a date) doesn't group `F`.
+#[tokio::test(flavor = "multi_thread")]
+async fn date_fmtstr_the_type_cant_show_is_ignored() {
+    let mut h = csv(b"d\n2024-01-05 10:00\n2024-01-20 11:00\n").await;
+    h.keys("@ :").await;
+    h.type_("fmtstr %H").await;
+    h.app
+        .sheets
+        .active_mut()
+        .set_type_cast("d".into(), DataType::Date);
+    assert_eq!(h.app.sheets.active().date_fmt("d"), None);
+    h.keys("F").await;
+    assert!(title(&h).contains("freq(d)"), "{}", h.screen());
+    assert!(h.screen().contains("2024-01-05"), "{}", h.screen());
+    h.keys("q $").await;
+    h.keys("F").await;
+    assert!(title(&h).contains("freq(d)"), "{}", h.screen());
+}

@@ -220,6 +220,57 @@ async fn freq_rows_picked_from_a_freq_sheet_still_dive() {
     assert_eq!(status(&h), "<CR>: nothing to open here", "{}", h.screen());
 }
 
+/// A dive of a dive keys on what the first `F` grouped by (a date fmtstr, a
+/// bin), though the sheet it dives from was made from a freq sheet.
+#[tokio::test(flavor = "multi_thread")]
+async fn dive_of_dive_keys_on_the_first_freq() {
+    let mut h = csv(b"d,v\n2024-01-05,1\n2024-01-20,2\n2024-02-03,3\n").await;
+    h.keys("@ :").await;
+    h.type_("fmtstr %Y-%m").await;
+    h.keys("F").await;
+    h.keys("F").await;
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/1"), "{}", h.screen());
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/2"), "{}", h.screen());
+
+    let mut h = csv(b"x\n1\n2\n3\n10\n").await;
+    h.keys(":").await;
+    h.type_("set numeric_binning true").await;
+    h.keys(":").await;
+    h.type_("set histogram_bins 2").await;
+    h.keys("F").await;
+    h.keys("F").await;
+    h.keys("j <CR>").await;
+    assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+    h.keys("<CR>").await; // the second bin: 10 alone
+    assert_eq!(view_csv(&h), "x\n10\n", "{}", h.screen());
+}
+
+/// The null bin holds NaN too: its dive opens every row it counted, under a
+/// name that says which bin.
+#[tokio::test(flavor = "multi_thread")]
+async fn null_bin_dive_opens_nan_rows() {
+    let mut h = csv(b"x\n1\n2\nNaN\n10\n\n").await;
+    h.keys(":").await;
+    h.type_("set numeric_binning true").await;
+    h.keys(":").await;
+    h.type_("set histogram_bins 2").await;
+    h.keys("F").await;
+    assert!(
+        view_csv(&h).ends_with("\n,2,40.0,■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("G <CR>").await;
+    assert!(title(&h).contains("row 1/2"), "{}", h.screen());
+    assert!(
+        h.app.sheets.active().name.starts_with("x in null bin: "),
+        "{}",
+        h.app.sheets.active().name
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn diff_prompt_uses_key_columns_and_export_writes_scripts() {
     let mut h = Harness::new(3).await;

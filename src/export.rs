@@ -476,8 +476,7 @@ impl Script {
                             .map(|(c, a)| format!(", {}", py_str(&agg_name(c, a))))
                             .collect();
                         format!(
-                            "{p}.with_columns(((pl.col({c}).cast(pl.Float64) - {min:?}) / {width:?}).floor()\
-                             .clip(0, {last}).cast(pl.Int64).alias(\"__vdrs_bin\"))\
+                            "{p}.with_columns({k}.alias(\"__vdrs_bin\"))\
                              .group_by(\"__vdrs_bin\", maintain_order=True).agg(pl.len().alias({n}){aggs})\
                              .pipe(lambda g: pl.concat([pl.LazyFrame({{\"__vdrs_bin\": list(range({bins})), {c}: [{labels}]}}, \
                              schema={{\"__vdrs_bin\": pl.Int64, {c}: pl.Utf8}})\
@@ -485,7 +484,7 @@ impl Script {
                              .with_columns(pl.col([{n}{zero}]).fill_null(0)), \
                              g.filter(pl.col(\"__vdrs_bin\").is_null()).with_columns(pl.lit(None, pl.Utf8).alias({c}))], \
                              how=\"diagonal\")).select([{c}, {n}{names}])",
-                            last = bins - 1,
+                            k = py_bin_index(&c, *min, *width, *bins),
                             labels = labels.join(", "),
                             n = py_str(n),
                         )
@@ -533,11 +532,9 @@ impl Script {
                     )
                     .collect();
                 let names: String = names.iter().map(|q| format!(", {q}")).collect();
-                // DuckDB's least() skips nulls: a null value has no bin
                 let g = format!(
-                    "(SELECT CASE WHEN {c} IS NULL THEN NULL ELSE greatest(least(floor((CAST({c} AS DOUBLE) - {min:?}) / {width:?}), {last}), 0)::BIGINT END AS __vdrs_bin, \
-                     count(*) AS {nq}{aggs} FROM {p} GROUP BY 1)",
-                    last = bins - 1,
+                    "(SELECT {k} AS __vdrs_bin, count(*) AS {nq}{aggs} FROM {p} GROUP BY 1)",
+                    k = sql_bin_index(&c, *min, *width, *bins),
                 );
                 let labels: Vec<String> = Binning::labels(*min, *width, *bins)
                     .iter()
@@ -623,14 +620,10 @@ impl Script {
                     let k = match key {
                         DiveKey::Value => format!("pl.col({c})"),
                         DiveKey::Fmt(f) => format!("pl.col({c}).dt.strftime({})", py_str(f)),
-                        DiveKey::Bin { min, width, n } => format!(
-                            "((pl.col({c}).cast(pl.Float64) - {min:?}) / {width:?}).floor()\
-                             .clip(0, {last}).cast(pl.Int64)",
-                            last = n - 1
-                        ),
+                        DiveKey::Bin { min, width, n } => py_bin_index(&c, *min, *width, *n),
                     };
                     let or_null = if null {
-                        format!(" | pl.col({c}).is_null()")
+                        format!(" | {k}.is_null()")
                     } else {
                         String::new()
                     };
@@ -644,10 +637,7 @@ impl Script {
                     let k = match key {
                         DiveKey::Value => c.clone(),
                         DiveKey::Fmt(f) => format!("strftime({c}, {})", q_str(f)),
-                        DiveKey::Bin { min, width, n } => format!(
-                            "greatest(least(floor((CAST({c} AS DOUBLE) - {min:?}) / {width:?}), {last}), 0)::BIGINT",
-                            last = n - 1
-                        ),
+                        DiveKey::Bin { min, width, n } => sql_bin_index(&c, *min, *width, *n),
                     };
                     let mut w = if list.is_empty() {
                         "FALSE".to_string()
@@ -655,7 +645,7 @@ impl Script {
                         format!("CAST({k} AS VARCHAR) IN ({})", list.join(", "))
                     };
                     if null {
-                        w += &format!(" OR {c} IS NULL");
+                        w += &format!(" OR {k} IS NULL");
                     }
                     format!("SELECT * FROM {p} WHERE {w}")
                 }
@@ -2312,6 +2302,24 @@ fn py_str(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// [`Binning::index`] of column `c` (a Python string): null for null and NaN.
+fn py_bin_index(c: &str, min: f64, width: f64, n: usize) -> String {
+    format!(
+        "((pl.col({c}).cast(pl.Float64) - {min:?}) / {width:?}).floor().clip(0, {last}).cast(pl.Int64, strict=False)",
+        last = n - 1
+    )
+}
+
+/// [`Binning::index`] of column `c` (an SQL identifier): null for null and
+/// NaN (DuckDB's `least()` skips nulls and sorts NaN last).
+fn sql_bin_index(c: &str, min: f64, width: f64, n: usize) -> String {
+    format!(
+        "CASE WHEN {c} IS NULL OR isnan(CAST({c} AS DOUBLE)) THEN NULL \
+         ELSE greatest(least(floor((CAST({c} AS DOUBLE) - {min:?}) / {width:?}), {last}), 0)::BIGINT END",
+        last = n - 1
+    )
 }
 
 fn py_dtype(dt: &DataType) -> &'static str {

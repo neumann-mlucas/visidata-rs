@@ -1759,25 +1759,13 @@ impl App {
             return;
         }
         let plan = s.plan.clone();
-        // what `F` grouped by, as it ran (the parent's fmtstr may change since)
-        use crate::sheet::{Binning, Derivation, DiveKey};
-        let key = match s.state.lineage.as_deref() {
-            Some(l) => match &l.how {
-                Derivation::Freq {
-                    bins: Some(Binning::Ranges { min, width, n }),
-                    ..
-                } => DiveKey::Bin {
-                    min: *min,
-                    width: *width,
-                    n: *n,
-                },
-                _ => l
-                    .parent
-                    .date_fmt(&column)
-                    .map_or(DiveKey::Value, |f| DiveKey::Fmt(f.into())),
-            },
-            None => DiveKey::Value,
-        };
+        let key = s.freq_dive_key();
+        // the freq sheet itself, not rows picked from it (`rows_with_values`)
+        let own_rids = matches!(
+            s.state.lineage.as_deref().map(|l| &l.how),
+            Some(crate::sheet::Derivation::Freq { .. })
+        );
+        use crate::sheet::{Binning, DiveKey};
         let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
@@ -1788,20 +1776,35 @@ impl App {
             // value column is first even if renamed here. `column` names it in
             // the parent.
             // a bin's row id is its index, labels may repeat (`Binning::Ranges`)
-            let picked: Vec<Option<String>> = if let DiveKey::Bin { n, .. } = key {
-                rids.iter()
+            let picked: Vec<Option<String>> = match key {
+                DiveKey::Bin { n, .. } if own_rids => rids
+                    .iter()
                     .map(|r| (*r < n as u64).then(|| r.to_string()))
-                    .collect()
-            } else {
-                let values = plan
-                    .select([nth(0).as_expr()])
-                    .collect()
-                    .map_err(|e| e.to_string())?;
-                let vals = &values.columns()[0];
-                rids.iter()
-                    .filter_map(|r| vals.get(*r as usize).ok())
-                    .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(&v)))
-                    .collect()
+                    .collect(),
+                _ => {
+                    let values = plan
+                        .select([nth(0).as_expr()])
+                        .collect()
+                        .map_err(|e| e.to_string())?;
+                    let vals = &values.columns()[0];
+                    let texts = rids
+                        .iter()
+                        .filter_map(|r| vals.get(*r as usize).ok())
+                        .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(&v)));
+                    match &key {
+                        // ponytail: a repeated label (narrow bins) picks its first bin
+                        DiveKey::Bin { min, width, n } => {
+                            let labels = Binning::labels(*min, *width, *n);
+                            texts
+                                .map(|t| {
+                                    let i = labels.iter().position(|l| Some(l) == t.as_ref());
+                                    i.map(|i| i.to_string())
+                                })
+                                .collect()
+                        }
+                        _ => texts.collect(),
+                    }
+                }
             };
             let child = Sheet::rows_with_values(&parent, id, &column, key, picked);
             Ok(JobDone::PushSheet(Box::new(child)))

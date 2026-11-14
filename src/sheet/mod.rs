@@ -176,7 +176,7 @@ pub enum Binning {
 }
 
 impl Binning {
-    /// Bin index of `c` (Int64; null for null), for [`Binning::Ranges`].
+    /// Bin index of `c` (Int64; null for null and NaN), for [`Binning::Ranges`].
     pub fn index(min: f64, width: f64, n: usize, c: &str) -> Expr {
         ((col(c).cast(DataType::Float64) - lit(min)) / lit(width))
             .floor()
@@ -1446,9 +1446,16 @@ pub fn err_col(column: &str) -> String {
 
 impl Sheet {
     /// `column`'s strftime `fmtstr` (S-35 C2), else `%Y-%m-%d` for a
-    /// datetime `@` made (S-38 C).
+    /// datetime `@` made (S-38 C). `None` once the column's type can't show
+    /// it (a later cast or `$` step, a time format on a date).
     pub fn date_fmt(&self, column: &str) -> Option<&str> {
-        date_fmt_of(&self.view, column)
+        let f = date_fmt_of(&self.view, column)?;
+        let dt = self.view_plan().collect_schema().ok()?.get(column).cloned();
+        match dt? {
+            DataType::Datetime(..) => Some(f),
+            DataType::Date => strftime_text(&AnyValue::Date(0), f).map(|_| f),
+            _ => None,
+        }
     }
 }
 
