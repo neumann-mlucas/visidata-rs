@@ -7,7 +7,7 @@ NO_GOLDEN=40.**
 ## 1. Triage run (2026-11-08)
 
 Run with `tests/vd_replay/quarantine.txt` emptied (`VDRS_REPLAY_VERBOSE=1`):
-**PASS=29 FAIL=12 SKIP=96 UNTESTABLE=63 NO_GOLDEN=40** — addressable ceiling 137. The quarantine
+**PASS=29 FAIL=12 SKIP=96 UNTESTABLE=63 NO_GOLDEN=40** — addressable ceiling 137 before P0 reclassified 44 UNTESTABLE as SKIP (182 after, §1.1; 195 on 2026-11-14). The quarantine
 hides 108 tests behind four headings; the largest ("Join + columns-sheet workflow", 73 stems) mixes
 duckdb/postgres loaders, html, regressions and real columns-sheet tests. Real first blockers:
 

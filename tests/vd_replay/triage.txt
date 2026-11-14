@@ -8,11 +8,11 @@ addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
 aggregators-cols	SKIP addcol-aggregate
 aggregators-errors	SKIP runtime: no column "qty"
-aggregators-set	FAIL line 1: want="Item\tPaid_avg\tPaid_sum\tQuantity_sum\tcount" got="Item\tcount\tQuantity_sum\tPaid_sum\tPaid_avg"
+aggregators-set	PASS
 append	PASS
 avg-nulls	PASS
 bulk-rename-cols	UNTESTABLE setcol-expr
-capture-col-named	FAIL line 1: want="Date\tDate_re.month\tDate_re.day\tDate_re.year\tDate_re.hour\tDate_re.min\tDate_re.meridiem\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid" got="
+capture-col-named	PASS
 column-copy	SKIP freeze-col
 column-name-__name__	PASS
 column-name-_fields	PASS
@@ -33,7 +33,7 @@ duckdb-index	PASS
 duckdb-open-alt-schema	PASS
 duckdb-save-sheet	PASS
 duckdb-types	SKIP serialize: CSV format does not support nested data
-dup-rows-attrs	FAIL line 4: want="Rep\t10\t\t\tJones" got="Rep\t8\t\t\tJones"
+dup-rows-attrs	PASS
 edit-fixed	NO_GOLDEN golden is .fixed
 edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
 edit-joinkey-2	SKIP runtime: read-only: data2+data1 is derived
@@ -49,13 +49,13 @@ extend	SKIP sheets-all
 fill	PASS
 fill-nested	SKIP runtime: InternalError(TapeError) at character 0 ('#')
 fill-zero	PASS
-format-enum	SKIP runtime: cannot locate row 'OrderDate' (keys=[])
+format-enum	SKIP setcol-format-enum
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
 freeze-sheet-attrs	PASS
 freq-dive-except	SKIP dive-except
 freq-error	SKIP runtime: no column "qty"
-freq-fmtstr	SKIP runtime: cannot locate row 'Date' (keys=[])
+freq-fmtstr	PASS
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
 freqtbl-nested-dive-selected	SKIP dive-selected
@@ -181,12 +181,12 @@ messenger-nosave	NO_GOLDEN golden is .dot
 monthly-revenue	SKIP runtime: column already exists: Date
 numeric-cols	PASS
 numeric-names	PASS
-numeric_binning	FAIL line 2: want="1.00 - 21.43\t46\t90.20" got="1\t23\t45.1"
+numeric_binning	PASS
 outer-join-1	SKIP join-sheets-cols
 outer-join-2	PASS
 pandas_loader_dup_selected	PASS
 petsdiet	PASS
-pivot	FAIL line 1: want="Rep\tsum_Pencil\tmean_Pencil\tsum_Binder\tmean_Binder\tsum_Pen\tmean_Pen\tsum_Desk\tmean_Desk\tsum_Pen Set\tmean_Pen Set" got="Pencil\tBinder
+pivot	PASS
 pivot-error	SKIP runtime: no column "qty"
 pivot-noaggr	PASS
 postgres-exec-sql-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
@@ -198,12 +198,12 @@ pr2302	PASS
 pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median mode min max stdev
 pr2372	SKIP runtime: no column: 
 pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
-pr2614	FAIL line 1: want="A" got="incr"
+pr2614	FAIL line 1: want="A" got="C"
 pr2647	SKIP runtime: read-only: b+a is derived
 pr2688a	PASS
 pr2688b	PASS
 pr2815	SKIP serialize: NDJSON line expected to contain JSON object: list[str]
-pr2855	FAIL line 1: want="A\tB\tC\tD\tE\tF\tG\tH\tI" got="A\tincr\tincr2\tincr3\tincr4\tincr5\tincr6\tincr7\tincr8"
+pr2855	PASS
 prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
