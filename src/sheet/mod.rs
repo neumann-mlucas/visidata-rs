@@ -1395,7 +1395,6 @@ fn values_predicate(column: &str, values: &[AnyValue]) -> Expr {
     pred
 }
 
-/// Freq sheet stat columns; renamed when the grouped column already has the name.
 /// Eager pivot (Polars dropped `pivot_stable`): `on` values become columns in
 /// first-seen order; `agg` reduces `element()`. A missing index×on pair is
 /// null, not the aggregate of nothing (`sum` would say 0).
