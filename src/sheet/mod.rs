@@ -71,14 +71,14 @@ pub struct SheetState {
     window_fmt: Vec<Vec<bool>>,
     /// Edits baked into `plan`, in order — replayed by `:export`.
     pub steps: Vec<PlanStep>,
-    /// Undo history of (plan, view, steps), a tree (S-20).
+    /// Undo history of (plan, view, steps, lineage), a tree (S-20).
     pub undo: UndoTree,
     /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
     pub tail: Option<TailCache>,
     /// `:tail`: size + mtime at the last refresh; unchanged means nothing to do.
     pub tail_stamp: Option<(u64, Option<std::time::SystemTime>)>,
     /// Derived sheets: the parent as it was + how this was made (`:export`).
-    pub lineage: Option<Box<Lineage>>,
+    pub lineage: Option<Arc<Lineage>>,
     /// Column widths of `window`, and what they were measured for.
     pub widths: Vec<u16>,
     pub widths_key: Option<(u64, usize, usize, bool)>,
@@ -780,7 +780,7 @@ impl Sheet {
         let mut p = parent.clone();
         p.window = None;
         p.state.undo = UndoTree::default();
-        self.state.lineage = Some(Box::new(Lineage { parent: p, how }));
+        self.state.lineage = Some(Arc::new(Lineage { parent: p, how }));
         self
     }
 

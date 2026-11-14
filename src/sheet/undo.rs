@@ -13,6 +13,7 @@ pub struct Snapshot {
     pub plan: LazyFrame,
     pub view: View,
     pub steps: Vec<PlanStep>,
+    pub lineage: Option<Arc<Lineage>>,
 }
 
 /// States kept per sheet; the oldest off-path branch goes first.
@@ -183,6 +184,7 @@ impl Sheet {
             plan: self.plan.clone(),
             view: self.view.clone(),
             steps: self.state.steps.clone(),
+            lineage: self.state.lineage.clone(),
         }
     }
 
@@ -191,6 +193,7 @@ impl Sheet {
         self.plan = snap.plan;
         self.view = snap.view;
         self.state.steps = snap.steps;
+        self.state.lineage = snap.lineage;
         self.invalidate(Reason::Rows);
     }
 

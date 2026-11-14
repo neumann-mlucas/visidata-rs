@@ -76,8 +76,6 @@ impl Sheet {
 
     /// `fresh`'s rows under this sheet's own view (sort, hidden, keys … of
     /// columns still there) and edits; `U` goes back.
-    // ponytail: undo restores plan/view/steps, not the lineage, so `:export`
-    // after `U` describes the refreshed derivation.
     pub fn adopt(&mut self, mut fresh: Sheet) {
         self.checkpoint();
         // replay the edits; one the new rows can't take (its column gone) drops

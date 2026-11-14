@@ -604,6 +604,35 @@ async fn refresh_keeps_the_edits() {
     assert!(v.starts_with("id,dbl,region") && v.contains("3,6,a"), "{v}");
 }
 
+/// `U` after a refresh puts the lineage back too, so `:export` agrees.
+#[tokio::test(flavor = "multi_thread")]
+async fn undo_of_refresh_restores_the_lineage() {
+    let mut h = csv(b"id,region\n1,a\n2,b\n3,a\n").await;
+    h.keys("g s").await;
+    h.keys("\"").await;
+    let key = |h: &Harness| {
+        h.app
+            .sheets
+            .active()
+            .state
+            .lineage
+            .as_ref()
+            .unwrap()
+            .parent
+            .plan_key()
+    };
+    let before = key(&h);
+    let base = h.app.sheets.iter().next().unwrap().name.clone();
+    raise(&mut h, &base).await;
+    h.keys("g z |").await;
+    h.type_("^a$").await;
+    raise(&mut h, "selected").await;
+    h.keys("<C-r>").await;
+    assert_ne!(key(&h), before);
+    h.keys("U").await;
+    assert_eq!(key(&h), before);
+}
+
 /// S-30 B: `zn` notes a cell (marker, sidebar), survives a restart, `zn`
 /// again edits it, `:notes` lists them and `Enter` jumps; empty deletes.
 #[tokio::test(flavor = "multi_thread")]
