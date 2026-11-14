@@ -923,7 +923,6 @@ impl History {
         }
     }
 
-    #[allow(clippy::should_implement_trait)]
     pub fn prev(&mut self) -> Option<&str> {
         if self.lines.is_empty() {
             return None;

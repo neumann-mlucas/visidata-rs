@@ -972,8 +972,6 @@ impl Replay {
                 Ok(())
             }
             // columns-sheet: enter a meta view listing parent sheet's columns.
-            // ponytail: no-op mode; parent sheet is unchanged. edit-cell /
-            // select-row / etc. while active become no-ops. quit-sheet exits.
             // S-25 P3: the app's columns sheet, written back as the app does
             "columns-sheet" => {
                 let cur = self.current_slot()?;
@@ -1615,7 +1613,7 @@ impl Replay {
                     },
                 )
                 .map_err(|e| StepErr::Runtime(e.to_string()))?
-                // ponytail: col_order hint set after push below; see outer scope
+                // col_order hint set after the push below
             }
             // VisiData `concat` (#3208): rows stacked, columns paired by
             // position, names from the first sheet.

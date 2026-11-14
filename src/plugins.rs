@@ -455,7 +455,6 @@ impl Plugins {
         reg.borrow().clipboard_paste_cmd.clone()
     }
 
-    /// `vd.option("duckdb_cmd", …)`, if set.
     /// Save the session on quit (S-29 D); on unless `session_autosave` is "false".
     pub fn session_autosave(&self) -> bool {
         self.lua
@@ -485,6 +484,7 @@ impl Plugins {
         (reg.numeric_binning, reg.histogram_bins)
     }
 
+    /// `vd.option("duckdb_cmd", …)`, if set.
     pub fn duckdb_cmd(&self) -> Option<String> {
         let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
         reg.borrow().duckdb_cmd.clone()
@@ -1395,7 +1395,6 @@ fn styled(t: &LuaTable) -> Rendered {
     }
 }
 
-/// VisiData's float format, `%.2f` or `{:.2f}` (S-32): its decimals, 0–15.
 /// `"true"` / `"false"`, for `vd.option` and `:set` (S-38 A).
 pub fn parse_bool_option(name: &str, value: &str) -> Result<bool, String> {
     match value {
@@ -1412,6 +1411,7 @@ pub fn parse_histogram_bins(value: &str) -> Result<usize, String> {
         .map_err(|_| format!("histogram_bins is a count, 0 for √rows (got {value:?})"))
 }
 
+/// VisiData's float format, `%.2f` or `{:.2f}` (S-32): its decimals, 0–15.
 pub fn float_fmt_digits(fmt: &str) -> Option<u8> {
     let n = fmt
         .strip_prefix("%.")

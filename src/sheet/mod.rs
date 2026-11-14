@@ -381,7 +381,6 @@ impl Sheets {
     pub fn len(&self) -> usize {
         self.stack.len()
     }
-    #[allow(clippy::missing_const_for_fn)]
     pub fn is_empty(&self) -> bool {
         self.stack.is_empty()
     }
@@ -1058,8 +1057,6 @@ impl Sheet {
         Ok(())
     }
 
-    /// `^` / `:rename`: a `Rename` step, and the view follows the column
-    /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
     /// `H` `L` `gH` `gL` (S-34): move `column` `by` places among the shown
     /// columns of its section (keys, or the rest), clamped at the ends. Its
     /// new index among the shown columns; `None`: it didn't move.
@@ -1187,6 +1184,8 @@ impl Sheet {
         }
     }
 
+    /// `^` / `:rename`: a `Rename` step, and the view follows the column
+    /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {
         if new == ROW_ID {
             return Err(format!("{ROW_ID} is reserved"));
@@ -1418,8 +1417,6 @@ pub fn err_col(column: &str) -> String {
     format!("\u{1f}err:{column}")
 }
 
-/// VisiData leaves a numeric (or date) freq table in first-seen order and
-/// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
 impl Sheet {
     /// `column`'s strftime `fmtstr` (S-35 C2), else `%Y-%m-%d` for a
     /// datetime `@` made (S-38 C).
@@ -1436,6 +1433,8 @@ pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// VisiData leaves a numeric (or date) freq table in first-seen order and
+/// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
 pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
     parent
         .view_plan()
@@ -1461,10 +1460,6 @@ pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
         .collect()
 }
 
-/// A value as `cast(String)` prints it: the text `values_predicate` compares.
-/// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
-/// A date or datetime value in strftime `fmt`, as Polars' `dt.strftime`
-/// writes it (S-35 C2). `None` for other values or a format that fails.
 /// [`Sheet::date_fmt`] from the view alone (the widget draws from it).
 pub fn date_fmt_of<'a>(view: &'a View, column: &str) -> Option<&'a str> {
     let f = view.date_fmts.iter().rev().find(|(c, _)| c == column);
@@ -1476,6 +1471,8 @@ pub fn date_fmt_of<'a>(view: &'a View, column: &str) -> Option<&'a str> {
     }
 }
 
+/// A date or datetime value in strftime `fmt`, as Polars' `dt.strftime`
+/// writes it (S-35 C2). `None` for other values or a format that fails.
 pub fn strftime_text(av: &AnyValue, fmt: &str) -> Option<String> {
     let s = Series::from_any_values("".into(), std::slice::from_ref(av), true).ok()?;
     let out = match s.dtype() {
@@ -1486,6 +1483,8 @@ pub fn strftime_text(av: &AnyValue, fmt: &str) -> Option<String> {
     out.ok()?.get(0).map(str::to_string)
 }
 
+/// A value as `cast(String)` prints it: the text `values_predicate` compares.
+/// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
 pub fn any_text(v: &AnyValue) -> String {
     let cast = Series::from_any_values("v".into(), std::slice::from_ref(v), true)
         .and_then(|s| s.cast(&DataType::String));
