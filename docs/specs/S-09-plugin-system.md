@@ -35,6 +35,8 @@ If `$XDG_CONFIG_HOME/vdrs/init.lua` is absent, the app runs without Lua. No warn
 
 ### Lifecycle
 
+> Historical sketch. As built (`src/plugins.rs`): `Plugins { lua, config, rendered }`; the registry lives in Lua app data; `Plugins::load()` never fails (returns `(Self, Option<String>)` warning); `reload_if_changed()` returns a fresh host; `apply_keymap(&mut Keymap)`; no `notify` watcher, no sandbox.
+
 ```rust
 pub struct Plugins {
     lua: Lua,                                 // single mlua instance, sandbox=true by default
@@ -81,6 +83,8 @@ vd.register_loader {
 
 Rust side: on `reader::open(path)`, after extension detect fails (or alongside), probe `plugins.resolve_loader(path)`. If matched, call the Lua function. Return a `LoadedSource` wrapping either an in-memory DataFrame or a path we can scan.
 
+> As built: `open` returns a path string only (`Plugins::call_loader` → `PathBuf`), which `plugins::open` then scans natively; returning a DataFrame is not supported (S-39 A).
+
 The `LuaSource` variant reserved in S-03 lands here as a plumbing concern (no new enum variant: just construct a normal `LoadedSource` after Lua returns).
 
 #### 2. Aggregator
@@ -95,6 +99,8 @@ end)
 
 Rust side: `polars::prelude::Expr` builder calls into Lua when it encounters a plugin-provided agg name. For Phase 3 the only consumer is `:derive` (depends on S-06); until then aggregators are callable but unused.
 
+> As built: the function receives the column's values as a Lua list; the consumer is `:pivot` (and the live `:pivot` preview), not `:derive`.
+
 #### 3. Renderer
 
 ```lua
@@ -107,6 +113,8 @@ vd.register_renderer {
 ```
 
 Rust side: `widget.rs::display_av` consults the registry when the dtype matches. Fallback remains `AnyValue::to_string()`.
+
+> As built: `vd.register_renderer { column = ... | dtype = ..., render = fn(v) }`; the grid calls `Plugins::render(column, dtype, value)`, memoized per distinct cell.
 
 #### 4. Keymap
 
@@ -124,6 +132,8 @@ Rust side: patches applied **after** the defaults load. Last declaration wins (S
 - Aggregator / renderer runtime error → `MaterializeError` toast; last-good value stays. Catch panics around every Lua-to-Rust boundary via `std::panic::catch_unwind`; the Lua VM itself is single-threaded so a panic in one call doesn't poison the next.
 
 ### Hot-reload
+
+> Historical sketch. As built: no `notify` watcher; the app polls `init.lua`'s mtime (`App::reload_plugins_if_changed` → `Plugins::reload_if_changed`), swaps in a freshly loaded host, rebuilds keymap/theme/clipboard options, and toasts the warning or `init.lua reloaded`.
 
 ```rust
 // in app loop, select! branch:
