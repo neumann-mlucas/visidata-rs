@@ -16,12 +16,6 @@ use crate::widget::Rendered;
 use polars::prelude::{AnyValue, Column, DataFrame, DataType, NamedFrom, Series};
 use ratatui::style::Style;
 
-#[derive(thiserror::Error, Debug)]
-pub enum PluginError {
-    #[error("lua: {0}")]
-    Lua(#[from] mlua::Error),
-}
-
 #[derive(Default, Clone)]
 struct Registry {
     patches: Vec<KeymapPatch>,
@@ -112,7 +106,7 @@ pub struct Aggregator {
 
 impl Aggregator {
     /// Reduce one group's values (a Lua array; nulls are nil).
-    pub fn call(&self, values: &Series) -> Result<AggValue, PluginError> {
+    pub fn call(&self, values: &Series) -> mlua::Result<AggValue> {
         let t = self.lua.create_table()?;
         for (i, v) in values.iter().enumerate() {
             t.raw_set(i + 1, to_lua(&self.lua, &v)?)?;
@@ -204,12 +198,12 @@ impl Plugins {
         }
     }
 
-    fn exec(&self, src: &str, name: &str) -> Result<(), PluginError> {
+    fn exec(&self, src: &str, name: &str) -> mlua::Result<()> {
         Ok(self.lua.load(src).set_name(name).exec()?)
     }
 
     /// Build with an explicit config string. Used by tests; errors on any Lua error.
-    pub fn load_from_source(src: &str) -> Result<Self, PluginError> {
+    pub fn load_from_source(src: &str) -> mlua::Result<Self> {
         let host = Self::empty(None);
         host.exec(src, "inline")?;
         Ok(host)
@@ -319,12 +313,7 @@ impl Plugins {
     /// Run callback `id` with `vd.sheet()` = `ctx`; a `vd.command` function gets
     /// the text after its name (`args`), a `vd.bind` one nil. Returns its toasts
     /// and pushed sheets; a Lua error comes back as Err and discards both.
-    pub fn call(
-        &self,
-        id: usize,
-        ctx: &SheetCtx,
-        args: Option<&str>,
-    ) -> Result<LuaOutput, PluginError> {
+    pub fn call(&self, id: usize, ctx: &SheetCtx, args: Option<&str>) -> mlua::Result<LuaOutput> {
         let lua = &self.lua;
         let t = self.ctx_table(ctx)?;
         let f = {
@@ -372,7 +361,7 @@ impl Plugins {
             Err(e) => return (out, vec![e.to_string()]),
         };
         for f in handlers {
-            let run = || -> Result<LuaOutput, PluginError> {
+            let run = || -> mlua::Result<LuaOutput> {
                 let t = self.ctx_table(ctx)?;
                 for (k, v) in extra {
                     t.set(*k, v.as_str())?;
@@ -400,7 +389,7 @@ impl Plugins {
     }
 
     /// End of a callback: what it asked for, and `vd.sheet()` unset.
-    fn take_output(&self) -> Result<LuaOutput, PluginError> {
+    fn take_output(&self) -> mlua::Result<LuaOutput> {
         let r = registry(&self.lua)?;
         let mut reg = r.borrow_mut();
         reg.current = None;
@@ -412,7 +401,7 @@ impl Plugins {
     }
 
     /// What `vd.sheet()` returns for `ctx`.
-    fn ctx_table(&self, ctx: &SheetCtx) -> Result<LuaTable, PluginError> {
+    fn ctx_table(&self, ctx: &SheetCtx) -> mlua::Result<LuaTable> {
         let lua = &self.lua;
         let t = lua.create_table()?;
         t.set("name", ctx.name)?;
@@ -466,7 +455,7 @@ impl Plugins {
     /// is expected to parse `src_path`, convert into a format we scan natively
     /// (CSV/TSV/Parquet/Arrow/Jsonl), and return the destination path. Tempfile
     /// cleanup is the plugin's responsibility — typically via `os.tmpname()`.
-    pub fn call_loader(&self, rule: &LoaderRule, src_path: &Path) -> Result<PathBuf, PluginError> {
+    pub fn call_loader(&self, rule: &LoaderRule, src_path: &Path) -> mlua::Result<PathBuf> {
         let s = src_path.to_string_lossy().into_owned();
         let out: String = rule.open.call(s)?;
         Ok(PathBuf::from(out))
