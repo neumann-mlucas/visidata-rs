@@ -936,8 +936,7 @@ impl History {
         Some(&self.lines[next])
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Option<&str> {
+    pub fn newer(&mut self) -> Option<&str> {
         let i = self.cursor?;
         if i + 1 >= self.lines.len() {
             self.cursor = None;

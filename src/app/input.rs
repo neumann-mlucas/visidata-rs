@@ -174,7 +174,7 @@ impl App {
         if *prompt == Prompt::Ex {
             let recalled = match key.code {
                 KeyCode::Up => Some(self.ex_history.prev()),
-                KeyCode::Down => Some(self.ex_history.next()),
+                KeyCode::Down => Some(self.ex_history.newer()),
                 _ => None,
             };
             if let Some(r) = recalled {

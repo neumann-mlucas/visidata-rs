@@ -1195,3 +1195,15 @@ async fn sorted_columns_sheet_rebuild_keeps_cursor() {
     h.type_("z").await; // rename c, the cursor row
     assert_eq!(h.app.rid_at_cursor(), Some(2), "{}", h.screen());
 }
+
+/// A date fmtstr left on a column that's now a float (a refresh changed its
+/// type) yields to the float's precision.
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_date_fmtstr_yields_to_float_precision() {
+    let mut h = csv(b"x\n1.5\n").await;
+    let s = h.app.sheets.active_mut();
+    s.view.date_fmts.push(("x".into(), "%Y".into()));
+    h.keys(":").await;
+    h.type_("precision 3").await;
+    assert!(h.screen().contains("1.500"), "{}", h.screen());
+}
