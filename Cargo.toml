@@ -45,6 +45,15 @@ portable-pty = "0.9.0"
 serde_json = "1"
 vt100 = "0.18.1"
 
+# Dev builds: line tables keep file:line in panics and backtraces; full debug
+# info for Polars made each test binary 2.3 GB and its link the slow part of a
+# rebuild. Deps get none (step into them with a release-with-debug build).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

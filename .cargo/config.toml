@@ -1,0 +1,6 @@
+# One build directory for the checkout and its sibling worktrees (`wt`): a new
+# worktree reuses the compiled dependencies instead of rebuilding ~450 crates.
+# Relative paths here resolve from the directory holding `.cargo/`, so `..` is
+# the folder the worktrees live in. CI sets CARGO_TARGET_DIR=target instead.
+[build]
+target-dir = "../.visidata-rs-target"

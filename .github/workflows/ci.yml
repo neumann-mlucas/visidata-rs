@@ -35,5 +35,6 @@ jobs:
           echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
       - run: just check --no-fail-fast
         env:
+          CARGO_TARGET_DIR: target # rust-cache caches ./target, not .cargo/config.toml's shared dir
           VDRS_PYTHON: /home/runner/rt/bin/python
           VDRS_REQUIRE_ROUNDTRIP: "1"
