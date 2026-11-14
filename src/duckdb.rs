@@ -53,11 +53,9 @@ fn run_with(prog: &str, db: &Path, read_only: bool, sql: &str) -> Result<String,
         .arg(db)
         .args(["-c", sql])
         .output()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => format!(
-                "{prog} not found: install DuckDB or set vd.option(\"duckdb_cmd\", …) in init.lua"
-            ),
-            _ => format!("{prog}: {e}"),
+        .map_err(|e| {
+            let hint = ": install DuckDB or set vd.option(\"duckdb_cmd\", …) in init.lua";
+            crate::clipboard::spawn_err(prog, hint, e)
         })?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())

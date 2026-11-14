@@ -28,20 +28,9 @@ impl Clipboard {
         // ponytail: whitespace split, no shell quoting; use a wrapper script for odd argv.
         let cmd = |s: &str| Clipboard::Command(s.split_whitespace().map(String::from).collect());
         match option {
-            Some("osc52") => return Clipboard::Osc52,
-            Some(s) => return cmd(s),
-            None => {}
-        }
-        if env("SSH_TTY").is_some() {
-            Clipboard::Osc52
-        } else if cfg!(windows) || env("WSL_DISTRO_NAME").is_some() {
-            cmd("clip.exe")
-        } else if cfg!(target_os = "macos") {
-            cmd("pbcopy w")
-        } else if env("WAYLAND_DISPLAY").is_some() {
-            cmd("wl-copy")
-        } else {
-            cmd("xclip -selection clipboard -filter")
+            Some("osc52") => Clipboard::Osc52,
+            Some(s) => cmd(s),
+            None => platform(env).map_or(Clipboard::Osc52, |[copy, _]| cmd(copy)),
         }
     }
 
@@ -59,17 +48,14 @@ impl Clipboard {
                 let Some((prog, args)) = argv.split_first() else {
                     return Err("clipboard_copy_cmd is empty".into());
                 };
-                let hint = "set vd.option(\"clipboard_copy_cmd\", …) in init.lua";
+                let hint = "; set vd.option(\"clipboard_copy_cmd\", …) in init.lua";
                 let mut child = Command::new(prog)
                     .args(args)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .spawn()
-                    .map_err(|e| match e.kind() {
-                        std::io::ErrorKind::NotFound => format!("{prog} not found; {hint}"),
-                        _ => format!("{prog}: {e}"),
-                    })?;
+                    .map_err(|e| spawn_err(prog, hint, e))?;
                 let wrote = match child.stdin.take() {
                     Some(mut stdin) => stdin.write_all(text.as_bytes()),
                     None => Err(std::io::ErrorKind::BrokenPipe.into()), // piped above
@@ -77,7 +63,7 @@ impl Clipboard {
                 let status = child.wait().map_err(|e| format!("{prog}: {e}"))?;
                 wrote.map_err(|e| format!("{prog}: {e}"))?;
                 if !status.success() {
-                    return Err(format!("{prog} failed ({status}); {hint}"));
+                    return Err(format!("{prog} failed ({status}){hint}"));
                 }
                 Ok(None)
             }
@@ -92,20 +78,36 @@ pub fn paste_cmd(
     option: Option<&str>,
     env: impl Fn(&str) -> Option<String>,
 ) -> Option<Vec<String>> {
-    let argv = |s: &str| Some(s.split_whitespace().map(String::from).collect());
-    if let Some(s) = option {
-        return argv(s);
-    }
+    let s = option.or_else(|| platform(env).map(|[_, paste]| paste))?;
+    Some(s.split_whitespace().map(String::from).collect())
+}
+
+/// The platform's `[copy, paste]` commands; `None` over SSH.
+fn platform(env: impl Fn(&str) -> Option<String>) -> Option<[&'static str; 2]> {
     if env("SSH_TTY").is_some() {
         None
     } else if cfg!(windows) || env("WSL_DISTRO_NAME").is_some() {
-        argv("powershell.exe -noprofile -command Get-Clipboard")
+        Some([
+            "clip.exe",
+            "powershell.exe -noprofile -command Get-Clipboard",
+        ])
     } else if cfg!(target_os = "macos") {
-        argv("pbpaste")
+        Some(["pbcopy w", "pbpaste"])
     } else if env("WAYLAND_DISPLAY").is_some() {
-        argv("wl-paste")
+        Some(["wl-copy", "wl-paste"])
     } else {
-        argv("xclip -selection clipboard -o")
+        Some([
+            "xclip -selection clipboard -filter",
+            "xclip -selection clipboard -o",
+        ])
+    }
+}
+
+/// A failed spawn of `prog`; `hint` (with its leading separator) follows "not found".
+pub(crate) fn spawn_err(prog: &str, hint: &str, e: std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::NotFound => format!("{prog} not found{hint}"),
+        _ => format!("{prog}: {e}"),
     }
 }
 
@@ -114,18 +116,16 @@ pub fn read(argv: &[String]) -> Result<String, String> {
     let Some((prog, args)) = argv.split_first() else {
         return Err("clipboard_paste_cmd is empty".into());
     };
-    let hint = "set vd.option(\"clipboard_paste_cmd\", …) in init.lua, or paste with the terminal";
+    let hint =
+        "; set vd.option(\"clipboard_paste_cmd\", …) in init.lua, or paste with the terminal";
     let out = Command::new(prog)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => format!("{prog} not found; {hint}"),
-            _ => format!("{prog}: {e}"),
-        })?;
+        .map_err(|e| spawn_err(prog, hint, e))?;
     if !out.status.success() {
-        return Err(format!("{prog} failed ({}); {hint}", out.status));
+        return Err(format!("{prog} failed ({}){hint}", out.status));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
