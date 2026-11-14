@@ -60,6 +60,7 @@ pub async fn run(
     install_panic_hook();
 
     enable_raw_mode().context("no usable terminal (try --headless)")?;
+    let _restore = Restore;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     push_key_flags();
@@ -74,19 +75,25 @@ pub async fn run(
     if let Some(s) = session {
         app.source(&s, true);
     }
-    let result = app.run(&mut terminal).await;
+    app.run(&mut terminal).await
+}
 
-    pop_key_flags();
-    disable_raw_mode().ok();
-    crossterm::execute!(
-        io::stdout(),
-        crossterm::event::DisableMouseCapture,
-        DisableBracketedPaste,
-        LeaveAlternateScreen
-    )
-    .ok();
-    terminal.show_cursor().ok();
-    result
+/// Puts the terminal back on every exit from [`run`], `?` included.
+struct Restore;
+
+impl Drop for Restore {
+    fn drop(&mut self) {
+        pop_key_flags();
+        disable_raw_mode().ok();
+        crossterm::execute!(
+            io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen,
+            crossterm::cursor::Show
+        )
+        .ok();
+    }
 }
 
 /// Kitty keyboard protocol, disambiguate only (S-26 A6): `Esc` comes at once,
