@@ -75,7 +75,7 @@ fn main() -> ExitCode {
         plugins::ensure_default_config();
     }
     let (plugins, plugin_warning) = plugins::Plugins::load();
-    visidata_rs::duckdb::set_cmd(plugins.duckdb_cmd());
+    visidata_rs::duckdb::set_cmd(plugins.options().duckdb_cmd);
     let plugins = Some(plugins);
 
     let path = match (&cli.session, cli.path) {

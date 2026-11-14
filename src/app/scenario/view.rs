@@ -498,7 +498,7 @@ async fn mouse_clicks_and_wheel_move_the_cursor() {
     h.pump().await;
     assert!(title(&h).contains("row 6/30"), "{}", title(&h));
     let p = crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "true")"#).unwrap();
-    assert!(p.mouse());
+    assert!(p.options().mouse);
     assert!(crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "yes")"#).is_err());
 }
 

@@ -67,7 +67,7 @@ pub async fn run(
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(initial, plugins, plugin_warning);
-    if app.plugins.as_ref().is_some_and(|p| p.mouse()) {
+    if app.plugins.as_ref().is_some_and(|p| p.options().mouse) {
         crossterm::execute!(io::stdout(), crossterm::event::EnableMouseCapture)?;
     }
     app.color = crate::theme::ColorDepth::from_env(|k| std::env::var(k).ok());
@@ -745,7 +745,7 @@ impl App {
                 dirty = true;
             }
             if std::mem::take(&mut self.suspend) {
-                let mouse = self.plugins.as_ref().is_some_and(|p| p.mouse());
+                let mouse = self.plugins.as_ref().is_some_and(|p| p.options().mouse);
                 if let Err(e) = suspend(term, mouse) {
                     self.toast = Some(format!("suspend: {e}"));
                 }
@@ -756,7 +756,11 @@ impl App {
             }
         }
         self.fire_event("quit", &[]);
-        if self.plugins.as_ref().is_none_or(|p| p.session_autosave()) {
+        if self
+            .plugins
+            .as_ref()
+            .is_none_or(|p| !p.options().no_autosave)
+        {
             // best effort: a failed save mustn't keep vdrs from exiting
             let _ = crate::session::save(self.sheets.iter(), &crate::session::default_path());
         }
@@ -1185,9 +1189,10 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
     let mut theme = Theme::dark();
     if let Some(p) = plugins {
         p.apply_keymap(&mut keymap);
-        theme = p.theme().unwrap_or(theme);
-        theme.float_digits = p.float_digits();
-        (theme.numeric_binning, theme.histogram_bins) = p.numeric_binning();
+        let o = p.options();
+        theme = o.theme.unwrap_or(theme);
+        theme.float_digits = o.float_digits;
+        (theme.numeric_binning, theme.histogram_bins) = (o.numeric_binning, o.histogram_bins);
     }
     (keymap, theme)
 }
@@ -1198,7 +1203,7 @@ fn clipboard_for(plugins: Option<&crate::plugins::Plugins>) -> crate::clipboard:
         #[cfg(test)]
         return crate::clipboard::Clipboard::Memory(Default::default());
     }
-    let option = plugins.and_then(|p| p.clipboard_copy_cmd());
+    let option = plugins.and_then(|p| p.options().clipboard_copy_cmd);
     crate::clipboard::Clipboard::pick(option.as_deref(), |k| std::env::var(k).ok())
 }
 
@@ -1207,7 +1212,7 @@ fn paste_cmd_for(plugins: Option<&crate::plugins::Plugins>) -> Option<Vec<String
     if cfg!(test) {
         return None;
     }
-    let option = plugins.and_then(|p| p.clipboard_paste_cmd());
+    let option = plugins.and_then(|p| p.options().clipboard_paste_cmd);
     crate::clipboard::paste_cmd(option.as_deref(), |k| std::env::var(k).ok())
 }
 

@@ -28,22 +28,7 @@ pub enum PluginError {
 struct Registry {
     patches: Vec<KeymapPatch>,
     loaders: Vec<LoaderRule>,
-    theme: Option<String>,
-    /// `vd.option("clipboard_copy_cmd", …)`.
-    clipboard_copy_cmd: Option<String>,
-    /// `vd.option("clipboard_paste_cmd", …)`.
-    clipboard_paste_cmd: Option<String>,
-    /// `vd.option("duckdb_cmd", …)`.
-    duckdb_cmd: Option<String>,
-    /// `vd.option("session_autosave", "false")` turns it off.
-    no_autosave: bool,
-    /// `vd.option("mouse", "true")` (S-26 A9).
-    mouse: bool,
-    /// `vd.option("disp_float_fmt", …)` (S-32).
-    float_digits: Option<u8>,
-    /// `vd.option("numeric_binning", true)` / `("histogram_bins", N)` (S-35 C1).
-    numeric_binning: bool,
-    histogram_bins: usize,
+    options: Options,
     aggregators: Vec<(String, LuaFunction)>,
     renderers: Vec<RendererRule>,
     /// `vd.bind` / `vd.command` functions, indexed by `Action::Lua`.
@@ -58,6 +43,28 @@ struct Registry {
     execs: Vec<String>,
     /// `vd.on` handlers (S-29), in registration order.
     handlers: Vec<(String, LuaFunction)>,
+}
+
+/// Settings from `vd.set_theme` and `vd.option`.
+#[derive(Clone, Default)]
+pub struct Options {
+    /// `vd.set_theme`, if called.
+    pub theme: Option<crate::theme::Theme>,
+    /// `vd.option("clipboard_copy_cmd", …)`.
+    pub clipboard_copy_cmd: Option<String>,
+    /// `vd.option("clipboard_paste_cmd", …)`.
+    pub clipboard_paste_cmd: Option<String>,
+    /// `vd.option("duckdb_cmd", …)`.
+    pub duckdb_cmd: Option<String>,
+    /// `vd.option("session_autosave", "false")` turns saving the session on quit off (S-29 D).
+    pub no_autosave: bool,
+    /// `vd.option("mouse", "true")`: wheel and clicks move the cursor (S-26 A9).
+    pub mouse: bool,
+    /// `vd.option("disp_float_fmt", …)`: decimals for float columns (S-32).
+    pub float_digits: Option<u8>,
+    /// `vd.option("numeric_binning", true)` / `("histogram_bins", N)` (S-35 C1; 0 bins: ⌊√rows⌋).
+    pub numeric_binning: bool,
+    pub histogram_bins: usize,
 }
 
 /// Events `vd.on` takes.
@@ -434,60 +441,12 @@ impl Plugins {
         Ok(t)
     }
 
-    /// Theme picked by `vd.set_theme`, if any.
-    pub fn theme(&self) -> Option<crate::theme::Theme> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
-        match reg.borrow().theme.as_deref()? {
-            "light" => Some(crate::theme::Theme::light()),
-            _ => Some(crate::theme::Theme::dark()),
-        }
-    }
-
-    /// `vd.option("clipboard_copy_cmd", …)`, if set.
-    pub fn clipboard_copy_cmd(&self) -> Option<String> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
-        reg.borrow().clipboard_copy_cmd.clone()
-    }
-
-    /// `vd.option("clipboard_paste_cmd", …)`, if set.
-    pub fn clipboard_paste_cmd(&self) -> Option<String> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
-        reg.borrow().clipboard_paste_cmd.clone()
-    }
-
-    /// Save the session on quit (S-29 D); on unless `session_autosave` is "false".
-    pub fn session_autosave(&self) -> bool {
+    /// What `vd.set_theme` and `vd.option` set.
+    pub fn options(&self) -> Options {
         self.lua
             .app_data_ref::<RefCell<Registry>>()
-            .is_none_or(|r| !r.borrow().no_autosave)
-    }
-
-    /// `vd.option("mouse", "true")`: wheel and clicks move the cursor.
-    pub fn mouse(&self) -> bool {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
-            .is_some_and(|r| r.borrow().mouse)
-    }
-
-    /// `vd.option("disp_float_fmt", …)`: decimals for float columns.
-    pub fn float_digits(&self) -> Option<u8> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
-        reg.borrow().float_digits
-    }
-
-    /// `(numeric_binning, histogram_bins)` (S-35 C1; 0 bins: ⌊√rows⌋).
-    pub fn numeric_binning(&self) -> (bool, usize) {
-        let Some(reg) = self.lua.app_data_ref::<RefCell<Registry>>() else {
-            return (false, 0);
-        };
-        let reg = reg.borrow();
-        (reg.numeric_binning, reg.histogram_bins)
-    }
-
-    /// `vd.option("duckdb_cmd", …)`, if set.
-    pub fn duckdb_cmd(&self) -> Option<String> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
-        reg.borrow().duckdb_cmd.clone()
+            .map(|r| r.borrow().options.clone())
+            .unwrap_or_default()
     }
 
     /// Mutate `keymap` by appending the Lua-registered patches.
@@ -694,7 +653,10 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     "unknown theme: {name} (dark|light)"
                 )));
             }
-            registry(lua)?.borrow_mut().theme = Some(name);
+            registry(lua)?.borrow_mut().options.theme = Some(match name.as_str() {
+                "light" => crate::theme::Theme::light(),
+                _ => crate::theme::Theme::dark(),
+            });
             Ok(())
         })?,
     )?;
@@ -710,14 +672,14 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     )));
                 }
                 "clipboard_copy_cmd" => {
-                    registry(lua)?.borrow_mut().clipboard_copy_cmd = Some(value)
+                    registry(lua)?.borrow_mut().options.clipboard_copy_cmd = Some(value)
                 }
                 "clipboard_paste_cmd" => {
-                    registry(lua)?.borrow_mut().clipboard_paste_cmd = Some(value)
+                    registry(lua)?.borrow_mut().options.clipboard_paste_cmd = Some(value)
                 }
-                "duckdb_cmd" => registry(lua)?.borrow_mut().duckdb_cmd = Some(value),
+                "duckdb_cmd" => registry(lua)?.borrow_mut().options.duckdb_cmd = Some(value),
                 "session_autosave" => {
-                    registry(lua)?.borrow_mut().no_autosave = match value.as_str() {
+                    registry(lua)?.borrow_mut().options.no_autosave = match value.as_str() {
                         "true" => false,
                         "false" => true,
                         _ => {
@@ -737,7 +699,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     }
                 },
                 "disp_float_fmt" => match float_fmt_digits(&value) {
-                    Some(d) => registry(lua)?.borrow_mut().float_digits = Some(d),
+                    Some(d) => registry(lua)?.borrow_mut().options.float_digits = Some(d),
                     None => {
                         return Err(mlua::Error::RuntimeError(format!(
                             "vd.option: disp_float_fmt is \"%.Nf\" or \"{{:.Nf}}\", N up to 15 (got {value:?})"
@@ -745,15 +707,15 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     }
                 },
                 "numeric_binning" => {
-                    registry(lua)?.borrow_mut().numeric_binning = parse_bool_option(&name, &value)
+                    registry(lua)?.borrow_mut().options.numeric_binning = parse_bool_option(&name, &value)
                         .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
                 }
                 "histogram_bins" => {
-                    registry(lua)?.borrow_mut().histogram_bins = parse_histogram_bins(&value)
+                    registry(lua)?.borrow_mut().options.histogram_bins = parse_histogram_bins(&value)
                         .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
                 }
                 "mouse" => {
-                    registry(lua)?.borrow_mut().mouse = match value.as_str() {
+                    registry(lua)?.borrow_mut().options.mouse = match value.as_str() {
                         "true" => true,
                         "false" => false,
                         _ => {
@@ -1546,11 +1508,11 @@ mod tests {
             km.resolve(Layer::Sheet, &[], "x".parse().unwrap()),
             Dispatch::Fire(_)
         ));
-        assert!(p.theme().is_some());
+        assert!(p.options().theme.is_some());
         assert!(p.reload_if_changed().is_none());
         std::fs::remove_file(&init).unwrap(); // deleting counts as a change
         let (fresh, warn) = p.reload_if_changed().unwrap();
-        assert!(warn.is_none() && fresh.theme().is_none());
+        assert!(warn.is_none() && fresh.options().theme.is_none());
     }
 
     #[test]
@@ -1589,12 +1551,15 @@ mod tests {
     fn option_sets_clipboard_cmd_and_rejects_unknown() {
         let p =
             Plugins::load_from_source(r#"vd.option("clipboard_copy_cmd", "wl-copy -n")"#).unwrap();
-        assert_eq!(p.clipboard_copy_cmd().as_deref(), Some("wl-copy -n"));
+        assert_eq!(
+            p.options().clipboard_copy_cmd.as_deref(),
+            Some("wl-copy -n")
+        );
         let p =
             Plugins::load_from_source(r#"vd.option("clipboard_paste_cmd", "wl-paste")"#).unwrap();
-        assert_eq!(p.clipboard_paste_cmd().as_deref(), Some("wl-paste"));
+        assert_eq!(p.options().clipboard_paste_cmd.as_deref(), Some("wl-paste"));
         let p = Plugins::load_from_source(r#"vd.option("duckdb_cmd", "/opt/duckdb")"#).unwrap();
-        assert_eq!(p.duckdb_cmd().as_deref(), Some("/opt/duckdb"));
+        assert_eq!(p.options().duckdb_cmd.as_deref(), Some("/opt/duckdb"));
         for bad in [
             r#"vd.option("nope", "x")"#,
             r#"vd.option("clipboard_copy_cmd", " ")"#,
@@ -1666,7 +1631,8 @@ mod tests {
         assert!(
             Plugins::load_from_source(r#"vd.option("disp_float_fmt", "%.3f")"#)
                 .unwrap()
-                .float_digits()
+                .options()
+                .float_digits
                 .is_some_and(|d| d == 3)
         );
         assert!(Plugins::load_from_source(r#"vd.option("disp_float_fmt", "2")"#).is_err());

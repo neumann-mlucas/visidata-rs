@@ -145,7 +145,7 @@ impl App {
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
         self.clipboard = super::clipboard_for(self.plugins.as_ref());
         self.paste_cmd = super::paste_cmd_for(self.plugins.as_ref());
-        crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.duckdb_cmd()));
+        crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.options().duckdb_cmd));
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
     }
