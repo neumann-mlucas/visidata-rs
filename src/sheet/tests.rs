@@ -104,7 +104,7 @@ fn pivot_sum_shape() {
     let mut tmp = tempfile::NamedTempFile::new().unwrap();
     writeln!(
         tmp,
-        "region,product,qty\nwest,a,1\nwest,b,2\neast,a,3\neast,b,4\nwest,a,5"
+        "region,note,product,qty\nwest,x,a,1\nwest,y,b,2\neast,z,a,3\neast,w,b,4\nwest,v,a,5"
     )
     .unwrap();
     tmp.flush().unwrap();
@@ -112,9 +112,17 @@ fn pivot_sum_shape() {
     let parent = Sheet::from_source(0, loaded);
     let piv = Sheet::pivot_from(&parent, 1, "region", "product", "qty", "sum").unwrap();
     let df = piv.plan.clone().collect().unwrap();
-    // columns: region, a, b
-    assert_eq!(df.width(), 3);
-    assert_eq!(df.height(), 2); // east + west
+    // columns: region, a, b; `note` isn't read
+    let names: Vec<_> = df
+        .get_column_names()
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    assert_eq!(names, ["region", "a", "b"]);
+    let sums =
+        |c: &str| -> Vec<Option<i64>> { df.column(c).unwrap().i64().unwrap().iter().collect() };
+    assert_eq!(sums("a"), [Some(6), Some(3)]); // west, east
+    assert_eq!(sums("b"), [Some(2), Some(4)]);
 }
 
 #[test]

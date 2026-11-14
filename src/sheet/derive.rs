@@ -173,9 +173,9 @@ impl Sheet {
         ))
     }
 
-    /// Build a pivot sheet. Eager: collects parent, then pivots.
+    /// Build a pivot sheet. Eager: collects the parent's `index`, `on` and
+    /// `values` columns, then pivots.
     /// Direction §8: Polars 2.x may spill on group-bys but pivots stay in-memory.
-    /// ponytail: eager pivot, document OOM risk, swap to streaming when a user complains.
     pub fn pivot_from(
         parent: &Sheet,
         id: SheetId,
@@ -195,7 +195,14 @@ impl Sheet {
             "last" => e.last(),
             other => return Err(format!("unknown agg: {other}")),
         };
-        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
+        let mut need = vec![index, on, values];
+        need.sort_unstable();
+        need.dedup();
+        let df = parent
+            .view_plan()
+            .select(need.into_iter().map(col).collect::<Vec<_>>())
+            .collect()
+            .map_err(|e| e.to_string())?;
         let out = pivot_df(&df, on, &[index.to_string()], values, pivot_agg)
             .map_err(|e| e.to_string())?;
         let plan = out.clone().lazy();
