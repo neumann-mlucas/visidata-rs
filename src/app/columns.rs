@@ -237,8 +237,6 @@ impl App {
     /// The columns sheet again from its sheets; cursor and selection stay on
     /// the same columns (keying moves rows), `renamed` = the cursor column's
     /// new name.
-    // ponytail: follows by base position, so a sorted columns sheet's cursor
-    // lands by position; map through the view order if that bites.
     fn rebuild_columns(&mut self, renamed: Option<&str>) {
         let ids = self.columns_sheet_ids();
         let mut cur = self.columns_targets(false);
@@ -254,15 +252,24 @@ impl App {
             (false, Some(one)) => Sheet::columns_of(one, id),
             (false, None) => return,
         };
+        let mut rid = None;
         if let Origin::Columns { cols } = &new.origin {
             let at = |t: &(SheetId, String)| cols.iter().position(|c| c == t);
-            if let Some(i) = cur.first().and_then(at) {
-                view.row_cursor = i;
-            }
+            rid = cur.first().and_then(at);
             view.selected =
                 std::sync::Arc::new(sel.iter().filter_map(at).map(|i| i as u64).collect());
         }
         new.view = view;
+        // row ids are base positions; a sorted view puts them elsewhere
+        if let Some(r) = rid {
+            let i = match new.view.sort.is_empty() {
+                true => Some(r as u64),
+                false => new.view_index_of(r as u64).ok().flatten(),
+            };
+            if let Some(i) = i {
+                new.view.row_cursor = i.saturating_sub(new.view.window_offset) as usize;
+            }
+        }
         *self.sheets.active_mut() = new;
         self.spawn_materialize();
     }
