@@ -170,7 +170,7 @@ Stop at the end of any phase if adoption signal is weak; each phase stands alone
 
 ### Later decisions (2026-11-07 / 2026-11-08)
 
-7. **Keymap**: the default keymap matches VisiData's bindings. New or more standard (vim/TUI) meanings go in an opt-in vim profile (`vd.option("keymap", "vim")`), never in the default. Rule R-a…R-e in [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md); every spec follows it.
+7. **Keymap**: the default keymap matches VisiData's bindings. New or more standard (vim/TUI) meanings go in an opt-in vim profile (`vd.option("keymap", "vim")`), never in the default. Rule R-a…R-e in [S-26 §0](specs/S-26-vim-grammar-tui-conventions.md); every spec follows it. The split is vi/vim: default = VisiData muscle memory, the vim profile = the more standard TUI meanings and vdrs's own displaced ones (2026-11-14 sweep: `zs` `zc` `zo` `<C-v>` moved there).
 8. **Editing**: the sheet is editable and has a clipboard; source files stay read-only (`:save` writes elsewhere). Supersedes "non-mutable projection engine" and the row-ops cut. Plan: [S-18](specs/S-18-editing-clipboard.md), macros [S-19](specs/S-19-macros.md), undo tree [S-20](specs/S-20-undo-tree.md).
 9. **Options**: a flat, global `vd.option(name, value)` in `init.lua` (S-18 D6) for the few settings that need one. Still no four-level fallback (§1 cut stands).
 10. **Expressions**: Polars SQL behind VisiData's expression keys (`=`, `g=`, `z/`, `z|`). A Python-flavoured subset only if the corpus or users justify it ([S-21](specs/S-21-expressions.md)). §9.5 (no Python runtime) stands.

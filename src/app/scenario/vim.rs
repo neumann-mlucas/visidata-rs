@@ -194,7 +194,7 @@ async fn ex_ranges_global_and_normal() {
 }
 
 /// S-26 C: `V` grows a row range with the cursor; a verb runs on it and
-/// closes it; `:'<,'>` names it after; `<C-v>` blocks take columns too.
+/// closes it; `:'<,'>` names it after; `:visual-block` (vim `<C-v>`) takes columns too.
 #[tokio::test(flavor = "multi_thread")]
 async fn visual_ranges_run_verbs_on_their_rows() {
     let mut h = csv(b"id,name,n\n1,a,1\n2,b,2\n3,c,3\n4,d,4\n5,e,5\n").await;
@@ -224,7 +224,9 @@ async fn visual_ranges_run_verbs_on_their_rows() {
     h.keys("U").await;
     h.keys("g g V j <Esc>").await;
     assert!(h.app.visual.is_none() && status(&h) != " -- VISUAL --");
-    h.keys("<C-v> l -").await; // block: columns id–name
+    h.keys(":").await;
+    h.type_("visual-block").await;
+    h.keys("l -").await; // block: columns id–name
     let t = csv_text(h.app.sheets.active(), b',');
     assert!(t.starts_with("n\n"), "{t}");
     h.keys(":").await;

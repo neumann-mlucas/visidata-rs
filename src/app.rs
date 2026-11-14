@@ -370,6 +370,8 @@ enum Prompt {
     Note,
     /// `za` (S-31).
     AddCol,
+    /// `zc` (VisiData go-col-number): 0-based, negative from the end.
+    GoCol,
     /// `zH` / `zL` (S-34): how many places to slide.
     Slide {
         left: bool,
@@ -472,6 +474,7 @@ impl Prompt {
             Prompt::Subst { .. } => "search/replace: ",
             Prompt::Note => "note (empty deletes): ",
             Prompt::AddCol => "column name: ",
+            Prompt::GoCol => "move to column number: ",
             Prompt::Slide { left: true } => "slide col left n=",
             Prompt::Slide { left: false } => "slide col right n=",
             Prompt::Capture => "capture regex: ",
@@ -982,7 +985,8 @@ impl App {
                 v.zoom_to_cursor();
                 range = Some(Some(v.x));
             }
-            Action::ZoomAll => range = Some(None),
+            // `_`: resize-col-max on a sheet, zoom-all on a plot (VisiData)
+            Action::ZoomAll | Action::ResizeColMax => range = Some(None),
             Action::ToggleSelectRow | Action::UnselectRow | Action::SubmitRow => {
                 let cursor = v.cursor;
                 let Some(p) = self.sheets.iter().find(|p| p.id == parent).cloned() else {

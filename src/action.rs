@@ -23,6 +23,16 @@ pub enum Action {
     GotoRightmost,
     FreezeColumn,
     UnfreezeAll,
+    /// `zs` (VisiData select-before): select rows from the top to the cursor.
+    SelectBefore,
+    /// `zc` (VisiData go-col-number): prompt for a column number.
+    StartGoColInput,
+    /// `zo` (VisiData open-cell-file): open the path in the cursor cell.
+    OpenCellFile,
+    /// `_` (VisiData resize-col-max): toggle the column between full and default width.
+    ResizeColMax,
+    /// `^V` (VisiData show-version).
+    ShowVersion,
     HideCol,
     UnhideAll,
     KeyCol, // toggle on current column
@@ -668,6 +678,7 @@ impl Action {
                 | Action::SelectRow
                 | Action::UnselectRow
                 | Action::SelectAll
+                | Action::SelectBefore
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
                 | Action::SelectExpr { .. }
@@ -731,6 +742,8 @@ impl Action {
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
+            SelectBefore | OpenCellFile | ResizeColMax => true,
+            StartGoColInput | ShowVersion => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -984,6 +997,11 @@ impl Action {
         ("searchr_cell", SearchCell { backward: true }),
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
+        ("select_before", SelectBefore),
+        ("start_go_col_input", StartGoColInput),
+        ("open_cell_file", OpenCellFile),
+        ("resize_col_max", ResizeColMax),
+        ("show_version", ShowVersion),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),
         ("plot_wider", PlotResize { wider: 1, taller: 0 }),
         ("plot_taller", PlotResize { wider: 0, taller: 1 }),

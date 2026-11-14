@@ -394,6 +394,19 @@ impl App {
             Prompt::MacroKey => self.finish_macro(&text),
             Prompt::Note => self.dispatch_sequence(vec![Action::SetNote { text }]),
             Prompt::AddCol => self.dispatch_sequence(vec![Action::AddCol { name: text }]),
+            Prompt::GoCol => match text.trim().parse::<i64>() {
+                Ok(n) => {
+                    let s = self.sheets.active_mut();
+                    let w = s.window().map_or(0, |df| df.width()) as i64;
+                    let want = if n < 0 { w + n } else { n };
+                    let at = want.clamp(0, (w - 1).max(0));
+                    s.view.col_cursor = at as usize;
+                    if at != want {
+                        self.toast = Some(format!("column {n} out of range; went to {at}"));
+                    }
+                }
+                Err(_) => self.toast = Some(format!("go to column: not a number: {text}")),
+            },
             Prompt::Slide { left } => match text.trim().parse::<i64>() {
                 Ok(n) if n > 0 => {
                     let by = if left { -n } else { n };

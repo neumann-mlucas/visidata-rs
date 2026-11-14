@@ -75,6 +75,8 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }])
         }
         "unsort" | "clear-sort" => Ok(vec![Action::ClearSort]),
+        "freeze" => Ok(vec![Action::FreezeColumn]),
+        "unfreeze" => Ok(vec![Action::UnfreezeAll]),
         "ls" | "sheets" => Ok(vec![Action::OpenSheetSwitcher]),
         "pivot" => {
             // :pivot <index> <on> <values> [agg]
@@ -634,6 +636,8 @@ pub const COMMANDS: &[&str] = &[
     "unpivot",
     "unselect",
     "unsort",
+    "freeze",
+    "unfreeze",
     "w",
     "write",
 ];

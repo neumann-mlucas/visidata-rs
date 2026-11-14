@@ -16,7 +16,9 @@ VisiData from keystroke 1; deviations need a reason. So this spec has two layers
 
 - **R-a** A key VisiData binds to a command vdrs has → the VisiData meaning, in the default keymap.
 - **R-b** A key VisiData leaves free → vdrs may bind a new feature to it in the default keymap
-  (additive, breaks no muscle memory): `V` / `<C-v>` visual, `gz|` filter, `zn` notes.
+  (additive, breaks no muscle memory): `V` visual, `gz|` filter, `zn` notes. (`<C-v>` was listed
+  here, but VisiData binds it to `show-version`: since 2026-11-14 the default shows the version and
+  the cell block is `:visual-block` / vim-profile `<C-v>`.)
 - **R-c** A vdrs meaning that differs from VisiData's → vim profile only.
 - **R-d** Transition: a VisiData key whose command vdrs doesn't have *yet* keeps its current vdrs
   meaning until that command ships; the shipping commit switches the key and moves the old meaning to
@@ -42,8 +44,10 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 | `<C-d>` / `<C-u>` | page down / up | `save-cmdlog` (cut, §9.5) / — | page, plus `<C-f>` / `<C-b>` (VisiData) / PgDn / PgUp; `<C-d>` kept under R-e, `<C-u>` is free | half page (as vimcompat) | phase 0 |
 | `<C-r>` | — | `reload-sheet` | `:refresh` (S-30 A; asks first if the sheet has unsaved edits) | redo | S-30 A |
 | `<C-o>` / `<C-i>` | — | `sysopen-*` (external program) | — | jumplist back / forward | phase A |
-| `zs` / `zc` | freeze / unfreeze cols | `select-before` / `go-col-number` | freeze/unfreeze until those ship (R-d), then `:freeze` / `:unfreeze` | — | when they ship |
-| `zo` | clear sort | `open-cell-file` | clear sort until that ships (R-d), then `:unsort` | — | when it ships |
+| `zs` / `zc` | freeze / unfreeze cols | `select-before` / `go-col-number` | select-before / go-col-number (shipped 2026-11-14); freeze = `:freeze` / `:unfreeze` (VisiData has no column freeze) | freeze / unfreeze | 2026-11-14 |
+| `zo` | clear sort | `open-cell-file` | open-cell-file (shipped 2026-11-14); clear sort = `:unsort` (VisiData has no unsort key) | clear sort | 2026-11-14 |
+| `_` | plot zoom-all | `resize-col-max` (sheet), `zoom-all` (canvas) | toggle column width full/default; plot: zoom to fit | same | 2026-11-14 |
+| `<C-v>` | visual block | `show-version` | show version | visual block (`:visual-block` in both) | 2026-11-14 |
 | `z\|` | regex filter | `select-expr` | select-expr; filter = `gz\|` + `:filter` | same | S-21 A |
 | `P` | plan panel | `paste-before` | paste-before; `:plan` | same | S-18 F (D1) |
 | `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`); case-insensitive regex, as VisiData's default `regex_flags` | `/` all columns (vim searches the whole buffer) | phase 0 |

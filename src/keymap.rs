@@ -126,9 +126,7 @@ impl Keymap {
             ch("g h", GotoLeftmost, "leftmost column"),
             ch("0", GotoLeftmost, "leftmost column"),
             ch("g l", GotoRightmost, "rightmost column"),
-            // freeze
-            ch("z s", FreezeColumn, "freeze columns up to the cursor"),
-            ch("z c", UnfreezeAll, "unfreeze all"),
+            ch("z c", StartGoColInput, "go to column number (0-based, negative from the end)"),
             // column meta
             ch("-", HideCol, "hide current column"),
             ch("g v", UnhideAll, "unhide all columns"),
@@ -160,13 +158,14 @@ impl Keymap {
             ch("g s", SelectAll, "select all"),
             ch("g u", UnselectAll, "unselect all"),
             ch("|", StartSelectInput, "select by regex on current column"),
+            ch("z s", SelectBefore, "select rows from the top to the cursor"),
             ch("z |", StartSelectExprInput { unselect: false }, "select rows by SQL predicate"),
             ch("z \\", StartSelectExprInput { unselect: true }, "unselect rows by SQL predicate"),
             ch("\"", DupSelected, "new sheet from selected rows"),
             // sort
             ch("[", SortAsc, "sort ascending by current column"),
             ch("]", SortDesc, "sort descending by current column"),
-            ch("z o", ClearSort, "clear sort"),
+            ch("z o", OpenCellFile, "open the file or URL path in the current cell"),
             // derived sheets
             ch("F", OpenFreqTable, "frequency table of current column"),
             ch("S", OpenSheetSwitcher, "list open sheets"),
@@ -271,7 +270,7 @@ impl Keymap {
             ch("z L", StartSlideInput { left: false }, "slide the column right N places"),
             ch("J", PlotResize { wider: 0, taller: 1 }, "plot: taller cursor box"),
             ch("K", PlotResize { wider: 0, taller: -1 }, "plot: shorter cursor box"),
-            ch("_", ZoomAll, "plot: zoom to fit"),
+            ch("_", ResizeColMax, "toggle column width full/default; plot: zoom to fit"),
             ch("z z", ScrollTo { at: 1 }, "scroll the cursor row to the middle; plot: zoom to the cursor box"),
             ch("<Tab>", FocusPane, "focus the other pane"),
             ch("g <Tab>", SwapPanes, "swap the panes"),
@@ -287,7 +286,7 @@ impl Keymap {
             ch("<C-6>", JumpPrev, "go to the previous sheet"),
             ch("<C-z>", Suspend, "suspend to the shell"),
             ch("V", Visual { block: false }, "visual: a row range"),
-            ch("<C-v>", Visual { block: true }, "visual: a cell block"),
+            ch("<C-v>", ShowVersion, "show the version"),
         ];
         let input = vec![
             ch("<CR>", SubmitInput, "submit"),
