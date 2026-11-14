@@ -244,11 +244,14 @@ impl Sheet {
             ));
         }
         // a format chrono can't write fails on any value: try one
-        let probe = match &dtype {
-            DataType::Datetime(unit, tz) => AnyValue::Datetime(0, *unit, tz.as_ref()),
-            _ => AnyValue::Date(0),
+        let probe = Series::new("".into(), [0i64])
+            .cast(&dtype)
+            .map_err(|e| e.to_string())?;
+        let ok = match &dtype {
+            DataType::Date => probe.date().map(|d| d.strftime(fmt).is_ok()),
+            _ => probe.datetime().map(|d| d.strftime(fmt).is_ok()),
         };
-        if super::strftime_text(&probe, fmt).is_none() {
+        if !ok.unwrap_or(false) {
             return Err(format!("fmtstr: {fmt:?} isn't a strftime format"));
         }
         self.view
