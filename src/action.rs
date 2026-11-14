@@ -1037,7 +1037,7 @@ impl Action {
             Action::CursorRight { .. } => Action::CursorRight { count },
             Action::Operator { op, .. } => Action::Operator { op, count },
             Action::SlideCol { by: b @ (-1 | 1) } => Action::SlideCol {
-                by: b * count.map_or(1, |n| n as i64),
+                by: b.saturating_mul(count.map_or(1, |n| i64::try_from(n).unwrap_or(i64::MAX))),
             },
             other => other,
         }
@@ -1416,6 +1416,9 @@ mod tests {
                 path: s("p.parquet"),
             },
             ExpandCol { depth: 3 },
+            Order {
+                columns: vec![s("a,b"), s(" x "), s(""), s("y -- z"), s("q\"t")],
+            },
             Hits {
                 needle: s("foo bar"),
             },
@@ -1443,6 +1446,15 @@ mod tests {
         for none in [SelectByRegex { regex: s("x") }, Lua(0)] {
             assert_eq!(none.to_ex(), None, "{none:?}");
         }
+    }
+
+    /// A count past `i64` slides as far as it can, the way it was going.
+    #[test]
+    fn slide_count_saturates() {
+        let slide = |by, n| Action::SlideCol { by }.with_count(Some(n));
+        assert_eq!(slide(1, usize::MAX), Action::SlideCol { by: i64::MAX });
+        assert_eq!(slide(-1, 1 << 63), Action::SlideCol { by: -i64::MAX });
+        assert_eq!(slide(-1, 3), Action::SlideCol { by: -3 });
     }
 
     #[test]
