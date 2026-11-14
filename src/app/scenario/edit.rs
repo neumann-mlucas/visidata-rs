@@ -1130,6 +1130,15 @@ async fn date_fmtstr_shows_groups_and_dives() {
     p.set_fmtstr("d", "").unwrap();
     h.keys("<CR>").await;
     assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    // a session can't replay that `F`: it says so
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        script.contains("changed after this sheet was made"),
+        "{script}"
+    );
     h.app
         .sheets
         .find_by_id_mut(parent)

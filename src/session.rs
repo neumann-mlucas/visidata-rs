@@ -119,6 +119,7 @@ fn same_state(then: &Sheet, now: &Sheet) -> bool {
         && a.hidden == b.hidden
         && a.keys == b.keys
         && a.order == b.order
+        && a.date_fmts == b.date_fmts
 }
 
 /// A freq dive (`<CR>` on a frequency row) whose freq sheet is `below`.
