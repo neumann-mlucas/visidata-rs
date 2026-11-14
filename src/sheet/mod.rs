@@ -1450,10 +1450,12 @@ impl Sheet {
     /// it (a later cast or `$` step, a time format on a date).
     pub fn date_fmt(&self, column: &str) -> Option<&str> {
         let f = date_fmt_of(&self.view, column)?;
-        let dt = self.view_plan().collect_schema().ok()?.get(column).cloned();
-        match dt? {
+        match self.view_dtype(column)? {
             DataType::Datetime(..) => Some(f),
-            DataType::Date => strftime_text(&AnyValue::Date(0), f).map(|_| f),
+            DataType::Date => {
+                let d = Series::new("".into(), [0i32]).cast(&DataType::Date).ok()?;
+                d.date().ok()?.strftime(f).ok().map(|_| f)
+            }
             _ => None,
         }
     }
