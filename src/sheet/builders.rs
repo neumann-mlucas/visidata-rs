@@ -149,8 +149,15 @@ impl Sheet {
 
     /// A copy of `parent`'s rows (`"`, `g"`, `g'`, dedupe, freq dive) keeps
     /// its column attributes: types, aggregators, `:color` and `:scale`
-    /// rules, column order (S-34), for the columns it still has (S-31 C).
+    /// rules, column order (S-34), widths (S-38 B), for the columns it still
+    /// has (S-31 C).
     pub(super) fn inherit_attrs(mut self, parent: &Sheet) -> Self {
+        let shown = parent.window().map(|df| df.get_column_names_owned());
+        let measured = shown.iter().flatten().zip(&parent.state.widths);
+        self.state.width_floor = measured
+            .map(|(c, w)| (c.to_string(), *w))
+            .chain(parent.state.width_floor.iter().cloned())
+            .collect();
         let have: std::collections::HashSet<String> = self
             .plan
             .collect_schema()

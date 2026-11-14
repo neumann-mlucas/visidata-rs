@@ -549,9 +549,11 @@ pub enum CellFmt<'a> {
 
 /// [`float_digits`], else the column's date `fmtstr`.
 pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &str) -> CellFmt<'a> {
-    let date = view.date_fmts.iter().rev().find(|(c, _)| c == column);
-    match (float_digits(view, theme, column), date) {
-        (_, Some((_, f))) => CellFmt::Strftime(f),
+    match (
+        float_digits(view, theme, column),
+        crate::sheet::date_fmt_of(view, column),
+    ) {
+        (_, Some(f)) => CellFmt::Strftime(f),
         (Some(d), None) => CellFmt::Digits(d),
         (None, None) => CellFmt::Plain,
     }
@@ -697,6 +699,10 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>, theme: &Theme
         for (w, old) in widths.iter_mut().zip(&s.state.widths) {
             *w = (*w).max(*old);
         }
+    }
+    for (w, c) in widths.iter_mut().zip(df.get_column_names()) {
+        let floor = s.state.width_floor.iter().filter(|(f, _)| f == c.as_str());
+        *w = floor.fold(*w, |w, (_, f)| w.max(*f));
     }
     s.state.widths = widths;
     s.state.widths_key = Some(key);

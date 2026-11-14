@@ -88,11 +88,7 @@ impl Sheet {
             .iter()
             .find(|(n, _)| n == column)
             .map(|(_, d)| d);
-        let shown_e = match shown {
-            Some(DataType::Date) if base == DataType::String => Some(lenient_date(column)),
-            Some(dt) => Some(col(column).cast(dt.clone())),
-            None => None,
-        };
+        let shown_e = shown.map(|dt| cast_expr(column, dt, base == DataType::String));
         if let (Some(e), Some(dt)) = (shown_e, shown)
             && let Some(i) = first_bad(e)?
         {

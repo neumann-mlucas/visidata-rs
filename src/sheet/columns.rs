@@ -154,7 +154,7 @@ impl Sheet {
             "int" => DataType::Int64,
             "float" => DataType::Float64,
             "str" | "string" => DataType::String,
-            "date" => DataType::Date,
+            "date" => crate::sheet::date_cast_type(self, column),
             "currency" => {
                 let step = PlanStep::Currency {
                     column: column.into(),
@@ -238,7 +238,10 @@ impl Sheet {
                         .rev()
                         .find(|(c, _)| *c == n)
                         .map(|(_, d)| format!("%.{d}f"))
-                        .or_else(|| s.date_fmt(&n).map(String::from)),
+                        .or_else(|| {
+                            let f = v.date_fmts.iter().rev().find(|(c, _)| *c == n);
+                            f.map(|(_, f)| f.clone())
+                        }),
                 );
                 values.push(at.and_then(|i| {
                     let c = &s.window()?.columns()[i];

@@ -26,12 +26,12 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 use visidata_rs::reader::{self, LoadedSource, SourceKind};
-use visidata_rs::sheet::{Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
+use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 70;
+const MIN_PASS: usize = 71;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -1961,6 +1961,25 @@ impl Replay {
             };
             let width = texts.iter().map(|t| t.chars().count()).max().unwrap_or(0);
             let width = width.max(name.chars().count()) + 2;
+            // a copy (`"`, `g"`) keeps its parent's column widths (S-38 B)
+            let parent_width = match s.state.lineage.as_deref() {
+                Some(l) if matches!(l.how, Derivation::Copy | Derivation::Rids(_)) => {
+                    let p = l.parent.view_plan().collect().map_err(err)?;
+                    p.column(name).ok().map(|c| {
+                        let w = (0..c.len())
+                            .map(|i| {
+                                c.get(i)
+                                    .map(|a| av_display(&a).chars().count())
+                                    .unwrap_or(0)
+                            })
+                            .max()
+                            .unwrap_or(0);
+                        w.max(name.chars().count()) + 2
+                    })
+                }
+                _ => None,
+            };
+            let width = width.max(parent_width.unwrap_or(0));
             let currency = s
                 .state
                 .steps

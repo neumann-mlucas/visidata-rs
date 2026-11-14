@@ -285,7 +285,13 @@ impl App {
             Action::TypeCastInt => self.push_type_cast(DataType::Int64),
             Action::TypeCastFloat => self.push_type_cast(DataType::Float64),
             Action::TypeCastString => self.push_type_cast(DataType::String),
-            Action::TypeCastDate => self.push_type_cast(DataType::Date),
+            Action::TypeCastDate => {
+                let Some(c) = self.current_column_name() else {
+                    return self.push_type_cast(DataType::Date);
+                };
+                let dt = crate::sheet::date_cast_type(self.sheets.active(), &c);
+                self.push_type_cast(dt)
+            }
             Action::TypeCastCurrency => self.push_currency_cast(),
             Action::TypeCastJson => {
                 let Some(c) = self.current_column_name() else {
@@ -1022,6 +1028,9 @@ impl App {
                     Ok(None) => format!("{column}: default precision"),
                     Err(e) => e,
                 });
+            }
+            Action::SetOption { name, value } => {
+                self.toast = Some(self.set_option(&name, value.as_deref()));
             }
             Action::SetFmtstr { fmt } => {
                 let Some(column) = self.current_column_name() else {
@@ -1969,13 +1978,35 @@ impl App {
         self.spawn_materialize();
     }
 
+    /// `:set` (S-38 A): the options that change data; the rest live in
+    /// `init.lua`. The toast: `name=value`, or why not.
+    fn set_option(&mut self, name: &str, value: Option<&str>) -> String {
+        let t = &mut self.theme;
+        let res = match (name, value) {
+            ("numeric_binning", Some(v)) => {
+                crate::plugins::parse_bool_option(name, v).map(|b| t.numeric_binning = b)
+            }
+            ("histogram_bins", Some(v)) => {
+                crate::plugins::parse_histogram_bins(v).map(|n| t.histogram_bins = n)
+            }
+            ("numeric_binning" | "histogram_bins", None) => Ok(()),
+            _ => return format!(":set: {name} is set in init.lua (vd.option)"),
+        };
+        match res {
+            Ok(()) if name == "numeric_binning" => format!("{name}={}", t.numeric_binning),
+            Ok(()) => format!("{name}={}", t.histogram_bins),
+            Err(e) => format!(":set: {e}"),
+        }
+    }
+
     fn open_freq_table(&mut self) {
         let Some(col_name) = self.current_column_name() else {
             self.toast = Some("no column to freq".into());
             return;
         };
         let id = self.sheets.alloc_id();
-        if let Some(hist_bins) = self.theme.numeric_binning {
+        if self.theme.numeric_binning {
+            let hist_bins = self.theme.histogram_bins;
             // the bins need the column's min and max
             let parent = self.sheets.active().clone();
             self.spawn_job("freq", move || {

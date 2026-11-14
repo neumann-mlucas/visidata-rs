@@ -35,6 +35,8 @@ Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
 
 - [x] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan in a job (shipped 2026-11-13); `json` typed in the columns sheet still scans inline
 - [x] S-35 A — new columns after the cursor, `i` names `A` `B` … ; B `W` with `+` aggregators; C1 `numeric_binning`, C2 date `fmtstr` (2026-11-13)
+- [x] S-38 A `:set` (sessions write the `F` options), B copies keep widths, C `@` keeps the time (2026-11-14); D xlsx colour columns waiting (parity, D3)
+- [ ] S-39 A — a Lua loader may return rows (0.5 d); B `trait Source` when a live source needs it
 - [x] 2026-11-12: split the biggest files, moves only: `app/actions.rs` → `actions/{files,vim,edit}.rs`, `app.rs` → `app/{jobs,input,hooks}.rs`, `sheet/mod.rs` → `sheet/{edit,meta,rows,write}.rs`, `app/scenario.rs` tests → `scenario/{view,sheets,edit,lua,tail,vim}.rs`; `export.rs` stays whole
 - [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 

@@ -82,6 +82,9 @@ pub struct SheetState {
     pub widths: Vec<u16>,
     pub widths_key: Option<(u64, usize, usize, bool)>,
     pub widths_view: String,
+    /// A copy's columns are at least as wide as its parent's were, as
+    /// VisiData's copies share the column objects (S-38 B).
+    pub width_floor: Vec<(String, u16)>,
     /// `memory_plan` has had its one chance.
     pub load_tried: bool,
     /// The source read into memory by `memory_plan`: the base edits rebuild on.
@@ -933,10 +936,7 @@ impl Sheet {
                 .view
                 .type_casts
                 .iter()
-                .map(|(name, dt)| match dt {
-                    DataType::Date if is_text(name) => lenient_date(name),
-                    _ => col(name.as_str()).cast(dt.clone()).alias(name.as_str()),
-                })
+                .map(|(name, dt)| cast_expr(name, dt, is_text(name)))
                 .collect();
             let names = || self.view.type_casts.iter().map(|(n, _)| n.as_str());
             if errs {
@@ -1224,6 +1224,58 @@ pub const DATE_LAYOUTS: [(&str, &str); 12] = [
 ];
 /// A trailing time part, dropped before parsing.
 pub const DATE_TIME_PART: &str = r"(T| +)\d{1,2}:\d{2}.*$";
+/// The time of day in a [`DATE_TIME_PART`]: hours, minutes, seconds, `a`/`p`
+/// (S-38 C). Fractions of a second and time zones are ignored.
+pub const TIME_OF_DAY: &str = r"(?:T| +)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\s*([aApP])?";
+
+/// What `@` casts to: `Datetime[μs]` when the loaded rows of text `column`
+/// hold a time (VisiData's date keeps it, S-38 C), a datetime column stays
+/// one, else `Date`. ponytail: decides from the loaded window (dispatch reads
+/// nothing more, S-33 D6); a time only in later rows is dropped.
+pub fn date_cast_type(s: &Sheet, column: &str) -> DataType {
+    let base = s.plan.clone().collect_schema().ok();
+    let base = base.and_then(|b| b.get(column).cloned());
+    if let Some(dt @ DataType::Datetime(..)) = base {
+        return dt;
+    }
+    let shown = s.window().and_then(|w| w.column(column).ok());
+    let timed = shown
+        .and_then(|c| c.str().ok())
+        .map(|t| t.contains(DATE_TIME_PART, false).is_ok_and(|m| m.any()));
+    let cast = s.view.type_casts.iter().rev().find(|(c, _)| c == column);
+    match (timed, cast) {
+        (Some(true), _) => DataType::Datetime(TimeUnit::Microseconds, None),
+        (None, Some((_, dt @ DataType::Datetime(..)))) => dt.clone(),
+        _ => DataType::Date,
+    }
+}
+
+/// A type cast of `name` to `dt`; text dates parse leniently.
+pub(crate) fn cast_expr(name: &str, dt: &DataType, text: bool) -> Expr {
+    match dt {
+        DataType::Date if text => lenient_date(name),
+        DataType::Datetime(..) if text => lenient_datetime(name),
+        _ => col(name).cast(dt.clone()).alias(name),
+    }
+}
+
+/// [`lenient_date`] plus the time of day ([`TIME_OF_DAY`]); midnight
+/// without one.
+fn lenient_datetime(name: &str) -> Expr {
+    let t = col(name).str().strip_chars(lit(NULL));
+    let part = |i| t.clone().str().extract(lit(TIME_OF_DAY), i);
+    let num = |i| part(i).cast(DataType::Int64).fill_null(lit(0i64));
+    let (h, ap) = (num(1), part(4).str().to_lowercase());
+    let h = when(ap.clone().eq(lit("p")).and(h.clone().lt(lit(12i64))))
+        .then(h.clone() + lit(12i64))
+        .when(ap.eq(lit("a")).and(h.clone().eq(lit(12i64))))
+        .then(lit(0i64))
+        .otherwise(h);
+    let secs = h * lit(3600i64) + num(2) * lit(60i64) + num(3);
+    let us = TimeUnit::Microseconds;
+    let day = lenient_date(name).cast(DataType::Datetime(us, None));
+    (day + (secs * lit(1_000_000i64)).cast(DataType::Duration(us))).alias(name)
+}
 
 /// Text → Date trying common layouts in turn; a trailing time part is ignored
 /// (`7/3/2018 1:47p` → 2018-07-03). Unparsable values become null.
@@ -1328,11 +1380,19 @@ pub fn err_col(column: &str) -> String {
 /// VisiData leaves a numeric (or date) freq table in first-seen order and
 /// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
 impl Sheet {
-    /// `column`'s strftime `fmtstr`, if set (S-35 C2).
+    /// `column`'s strftime `fmtstr` (S-35 C2), else `%Y-%m-%d` for a
+    /// datetime `@` made (S-38 C).
     pub fn date_fmt(&self, column: &str) -> Option<&str> {
-        let f = self.view.date_fmts.iter().rev().find(|(c, _)| c == column);
-        f.map(|(_, f)| f.as_str())
+        date_fmt_of(&self.view, column)
     }
+}
+
+/// `column` of `parent`'s view holds numbers `numeric_binning` can bin.
+pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
+    let schema = parent.view_plan().collect_schema().ok();
+    schema
+        .and_then(|s| s.get(column).map(DataType::is_primitive_numeric))
+        .unwrap_or(false)
 }
 
 pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
@@ -1364,6 +1424,17 @@ pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
 /// (`AnyValue`'s `Display` rounds floats and shortens datetimes.)
 /// A date or datetime value in strftime `fmt`, as Polars' `dt.strftime`
 /// writes it (S-35 C2). `None` for other values or a format that fails.
+/// [`Sheet::date_fmt`] from the view alone (the widget draws from it).
+pub fn date_fmt_of<'a>(view: &'a View, column: &str) -> Option<&'a str> {
+    let f = view.date_fmts.iter().rev().find(|(c, _)| c == column);
+    let cast = view.type_casts.iter().rev().find(|(c, _)| c == column);
+    match (f, cast) {
+        (Some((_, f)), _) => Some(f.as_str()),
+        (None, Some((_, DataType::Datetime(..)))) => Some("%Y-%m-%d"),
+        _ => None,
+    }
+}
+
 pub fn strftime_text(av: &AnyValue, fmt: &str) -> Option<String> {
     let s = Series::from_any_values("".into(), std::slice::from_ref(av), true).ok()?;
     let out = match s.dtype() {

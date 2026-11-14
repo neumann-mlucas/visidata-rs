@@ -14,7 +14,8 @@ use polars::prelude::{DataFrame, DataType};
 use crate::reader::SourceKind;
 use crate::sheet::{
     Binning, DATE_LAYOUTS, DATE_TIME_PART, DIFF_LEFT, DIFF_RIGHT, Derivation, HISTOGRAM_WIDTH,
-    Lineage, Origin, PlanStep, Sheet, SortOrder, err_col, freq_keeps_order, freq_stat_names,
+    Lineage, Origin, PlanStep, Sheet, SortOrder, TIME_OF_DAY, err_col, freq_keeps_order,
+    freq_stat_names,
 };
 
 /// Script for `sheet`, language picked by `path`'s extension.
@@ -809,6 +810,10 @@ impl Script {
             if *dt == DataType::Date && is_text(s, c) {
                 self.need(&py_lenient_date());
                 ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
+            } else if matches!(dt, DataType::Datetime(..)) && is_text(s, c) {
+                self.need(&py_lenient_date());
+                self.need(&py_lenient_datetime());
+                ops.push(format!(".with_columns(lenient_datetime({}))", py_str(c)));
             } else {
                 ops.push(format!(
                     ".with_columns(pl.col({c}).cast({}, strict=False))",
@@ -906,6 +911,10 @@ impl Script {
                     let cast = if *dt == DataType::Date && is_text(s, c) {
                         self.need(&sql_lenient_date());
                         format!("lenient_date({i})")
+                    } else if matches!(dt, DataType::Datetime(..)) && is_text(s, c) {
+                        self.need(&sql_lenient_date());
+                        self.need(&sql_lenient_datetime());
+                        format!("lenient_datetime({i})")
                     } else if dt.is_numeric() && is_date(s, c) {
                         // Polars casts a date to its days since 1970
                         format!("TRY_CAST(({i} - DATE '1970-01-01') AS {})", sql_dtype(dt))
@@ -2196,6 +2205,36 @@ fn py_lenient_date() -> String {
         "\ndef lenient_date(c):\n    d = pl.col(c).str.strip_chars().str.replace({}, \"\")\n    return pl.coalesce([\n{}\n    ]).alias(c)",
         py_str(DATE_TIME_PART),
         tries.join("\n")
+    )
+}
+
+/// Python twin of `sheet::lenient_datetime` (S-38 C).
+fn py_lenient_datetime() -> String {
+    format!(
+        "\ndef lenient_datetime(c):\n    t = pl.col(c).str.strip_chars()\n    \
+         p = lambda i: t.str.extract({re}, i)\n    \
+         n = lambda i: p(i).cast(pl.Int64).fill_null(0)\n    \
+         h, ap = n(1), p(4).str.to_lowercase()\n    \
+         h = pl.when((ap == \"p\") & (h < 12)).then(h + 12).when((ap == \"a\") & (h == 12)).then(0).otherwise(h)\n    \
+         return (lenient_date(c).cast(pl.Datetime(\"us\")) + pl.duration(seconds=h * 3600 + n(2) * 60 + n(3))).alias(c)",
+        re = py_str(TIME_OF_DAY)
+    )
+}
+
+/// SQL twin of `sheet::lenient_datetime`.
+fn sql_lenient_datetime() -> String {
+    let re = q_str(TIME_OF_DAY);
+    let num = |i: u8| {
+        format!("coalesce(TRY_CAST(nullif(regexp_extract(t, {re}, {i}), '') AS BIGINT), 0)")
+    };
+    format!(
+        "CREATE TEMP MACRO lenient_datetime(s) AS (\n  SELECT CAST(lenient_date(s) AS TIMESTAMP) + to_seconds(\
+         (CASE WHEN ap = 'p' AND h < 12 THEN h + 12 WHEN ap = 'a' AND h = 12 THEN 0 ELSE h END) * 3600 + m * 60 + sec)\n  \
+         FROM (SELECT {h} AS h, {m} AS m, {sec} AS sec, lower(regexp_extract(t, {re}, 4)) AS ap \
+         FROM (SELECT trim(CAST(s AS VARCHAR)) AS t))\n);",
+        h = num(1),
+        m = num(2),
+        sec = num(3),
     )
 }
 

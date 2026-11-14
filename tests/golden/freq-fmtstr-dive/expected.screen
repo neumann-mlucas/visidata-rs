@@ -1,7 +1,7 @@
  d=2024-02: tests/golden/freq-fmtstr-dive/input.csv  csv · sheets 3            d 1/2  row 1/2 · 50%
-d date   v i
-2024-02    3
-2024-02    6
+d date      v i
+2024-02       3
+2024-02       6
 
 
 

@@ -401,6 +401,17 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 _ => Err(ExError::Usage(":precision [0-15]")),
             },
         },
+        "set" => match rest.split_once(' ') {
+            _ if rest.is_empty() => Err(ExError::Usage(":set <option> [value]")),
+            Some((name, value)) => Ok(vec![Action::SetOption {
+                name: name.into(),
+                value: Some(value.trim().into()),
+            }]),
+            None => Ok(vec![Action::SetOption {
+                name: rest.into(),
+                value: None,
+            }]),
+        },
         "fmtstr" => Ok(vec![Action::SetFmtstr {
             fmt: rest.to_string(),
         }]),
@@ -558,6 +569,7 @@ pub const COMMANDS: &[&str] = &[
     "capture",
     "precision",
     "fmtstr",
+    "set",
     "patch",
     "open",
     "select-ids",

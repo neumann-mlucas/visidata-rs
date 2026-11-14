@@ -342,6 +342,15 @@ fn table(csv: &str, ordered: bool) -> Vec<String> {
             Err(_) if c == "NULL" => String::new(), // DuckDB's CSV null
             Err(_) if c.eq_ignore_ascii_case("true") => "true".into(),
             Err(_) if c.eq_ignore_ascii_case("false") => "false".into(),
+            // timestamps: DuckDB `2018-07-03 10:05:00`, Polars `…T10:05:00.000000`
+            Err(_) if c.len() >= 19 && matches!(c.as_bytes()[10], b'T' | b' ') => {
+                let (day, time) = c.split_at(10);
+                let time = match time[1..].split_once('.') {
+                    Some((hms, frac)) if frac.bytes().all(|b| b == b'0') => hms,
+                    _ => &time[1..],
+                };
+                format!("{day}T{time}")
+            }
             Err(_) => c.to_string(),
         }
     };

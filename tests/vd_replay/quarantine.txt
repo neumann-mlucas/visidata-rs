@@ -10,7 +10,6 @@
 # Correctness fixes (S-25 P2)
 
 # Aggregators (S-25 P4)
-dup-rows-attrs       # copies keep types and aggregators (S-31 C) but not widths: VisiData's Rep is 10 wide from the parent's rows, the copy measures 8
 
 # Permanent: VisiData semantics vdrs doesn't model
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)
@@ -18,7 +17,7 @@ issue3219-dedupe-int # per-cell mixed types
 issue3219-freq       # per-cell mixed types
 xlsx-color-cells     # xlsx_meta_columns option: per-cell font/fill metadata columns
 issue2988            # xlsx_meta_columns: per-cell xlsx metadata columns (same as xlsx-color-cells)
-describe             # VisiData keeps Date's time (47 distinct, vdrs 32) and shows #ERR for date sum/mean/stdev; typed columns hold no #ERR
+describe             # VisiData shows #ERR for a date column's sum/mean/stdev; vdrs leaves them empty (S-38 C4). The driver has no loaded window, so its `@` stays a date
 issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric stats appear (S-25 P2 typed reads)
 issue1377  # paste into a new sheet: VisiData list rows put the first pasted value in column A (positional); vdrs matches by name and adds the rest
 issue1377b  # same as issue1377

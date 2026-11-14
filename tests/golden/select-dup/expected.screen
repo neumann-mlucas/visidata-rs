@@ -1,7 +1,7 @@
  selected (2 rows): tests/golden/select-dup/input.csv  csv · sheets 2         id 1/5  row 1/2 · 50%
- id i name str  grp str   amt f day date
-    1 ann       a           1.5 2024-01-02
-    3 cid       a             · 2024-01-04
+ id i name str  grp str       amt f day date
+    1 ann       a               1.5 2024-01-02
+    3 cid       a                 · 2024-01-04
 
 
 

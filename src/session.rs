@@ -89,7 +89,7 @@ pub fn script<'a>(sheets: impl Iterator<Item = &'a Sheet>, data: Option<&Path>) 
                         p.name
                     ));
                 }
-                b.derivation(&l.how)
+                b.derivation(&l.how, &l.parent)
             }
             _ => b.root(s),
         };
@@ -228,14 +228,31 @@ impl Block {
     }
 
     /// The command that made a sheet from the one above; false: none.
-    fn derivation(&mut self, how: &Derivation) -> bool {
+    fn derivation(&mut self, how: &Derivation, parent: &Sheet) -> bool {
         let file = |s: &Sheet| match (&s.origin, &s.source.path) {
             (Origin::File, Some(p)) if s.state.steps.is_empty() => Some(abs(p)),
             _ => None,
         };
         match how {
             Derivation::Copy => self.ex(Action::DupSheet),
-            Derivation::Freq { column, .. } => {
+            Derivation::Freq { column, bins } => {
+                // the options this `F` ran under (S-38 A): a number column bins or not
+                let set = |name: &str, v: String| Action::SetOption {
+                    name: name.into(),
+                    value: Some(v),
+                };
+                match bins {
+                    Some(b) => {
+                        self.ex(set("numeric_binning", "true".into()));
+                        if let crate::sheet::Binning::Ranges { n, .. } = b {
+                            self.ex(set("histogram_bins", n.to_string()));
+                        }
+                    }
+                    None if crate::sheet::is_number_column(parent, column) => {
+                        self.ex(set("numeric_binning", "false".into()))
+                    }
+                    None => {}
+                }
                 self.col(column);
                 self.ex(Action::OpenFreqTable);
             }
@@ -389,7 +406,7 @@ impl Block {
                 DataType::Int64 => Action::TypeCastInt,
                 DataType::Float64 => Action::TypeCastFloat,
                 DataType::String => Action::TypeCastString,
-                DataType::Date => Action::TypeCastDate,
+                DataType::Date | DataType::Datetime(..) => Action::TypeCastDate,
                 other => {
                     self.note(&format!("{column} as {other}"));
                     continue;

@@ -419,6 +419,12 @@ pub enum Action {
     SetFmtstr {
         fmt: String,
     },
+    /// `:set name [value]` (S-38 A): a data option for this run; no value
+    /// shows it.
+    SetOption {
+        name: String,
+        value: Option<String>,
+    },
     /// `H` `L` `gH` `gL` (S-34): move the current column `by` places in its
     /// section; `i64::MIN` / `MAX`: to its first / last place.
     SlideCol {
@@ -726,6 +732,7 @@ impl Action {
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
+            SetOption { .. } => false,
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
@@ -1142,6 +1149,11 @@ impl Action {
             SetPrecision { digits: Some(d) } => format!("precision {d}"),
             SetPrecision { digits: None } => "precision".into(),
             SetFmtstr { fmt } => format!("fmtstr {fmt}").trim_end().to_string(),
+            SetOption {
+                name,
+                value: Some(v),
+            } => format!("set {name} {v}"),
+            SetOption { name, value: None } => format!("set {name}"),
             SlideCol { by } if *by < 0 => format!("slide_left {}", by.unsigned_abs()),
             SlideCol { by } => format!("slide_right {by}"),
             Order { columns } => columns
@@ -1371,6 +1383,14 @@ mod tests {
             SetPrecision { digits: None },
             SetFmtstr { fmt: s("%Y-%m %d") },
             SetFmtstr { fmt: s("") },
+            SetOption {
+                name: s("numeric_binning"),
+                value: Some(s("true")),
+            },
+            SetOption {
+                name: s("histogram_bins"),
+                value: None,
+            },
             Capture {
                 pattern: s("(?P<y>\\d{4})-(\\d+)"),
             },

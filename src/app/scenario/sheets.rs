@@ -139,7 +139,11 @@ async fn freq_dive_opens_matching_rows() {
 #[tokio::test(flavor = "multi_thread")]
 async fn binned_freq_counts_ranges_and_dives() {
     let mut h = Harness::new(5000).await;
-    h.app.theme.numeric_binning = Some(4);
+    h.keys(":").await;
+    h.type_("set numeric_binning true").await;
+    assert_eq!(status(&h), "numeric_binning=true");
+    h.keys(":").await;
+    h.type_("set histogram_bins 4").await;
     h.keys("F").await;
     let df = h.app.sheets.active().view_plan().collect().unwrap();
     assert_eq!(df.height(), 4, "{}", h.screen());
@@ -152,6 +156,22 @@ async fn binned_freq_counts_ranges_and_dives() {
     assert!(title(&h).contains("row 1/1250"), "{}", title(&h));
     h.keys("q s j s g <CR>").await; // two ranges → union
     assert!(title(&h).contains("row 1/2500"), "{}", title(&h));
+    // a session writes the options its `F` ran under (S-38 A); they stay set
+    h.keys("q").await;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        script.contains("set numeric_binning true\nset histogram_bins 4\n"),
+        "{script}"
+    );
+    let mut r = Harness::new(3).await;
+    r.app.source(&path.display().to_string(), false);
+    r.pump().await;
+    let df = r.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 4, "{}", r.screen());
+    assert!(r.app.theme.numeric_binning);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -894,4 +914,15 @@ async fn no_color_and_256_color_frames() {
         ruled.modifier.contains(Modifier::REVERSED),
         ":color as reverse"
     );
+}
+
+/// S-38 B: `"` keeps the parent's column widths, as VisiData's copies do.
+#[tokio::test(flavor = "multi_thread")]
+async fn copies_keep_the_parents_widths() {
+    let mut h = csv(b"rep,n\nRichardson,1\nAl,2\n").await;
+    let widths = |h: &Harness| h.app.sheets.active().state.widths.clone();
+    let parent = widths(&h);
+    h.keys("j s \"").await;
+    assert!(title(&h).contains("selected (1 rows)"), "{}", title(&h));
+    assert_eq!(widths(&h), parent);
 }

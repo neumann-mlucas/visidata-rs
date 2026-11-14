@@ -476,12 +476,13 @@ impl Plugins {
         reg.borrow().float_digits
     }
 
-    /// `numeric_binning` on: `F` bins numbers into `Some(histogram_bins)`
-    /// (0: ⌊√rows⌋) ranges (S-35 C1).
-    pub fn numeric_binning(&self) -> Option<usize> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+    /// `(numeric_binning, histogram_bins)` (S-35 C1; 0 bins: ⌊√rows⌋).
+    pub fn numeric_binning(&self) -> (bool, usize) {
+        let Some(reg) = self.lua.app_data_ref::<RefCell<Registry>>() else {
+            return (false, 0);
+        };
         let reg = reg.borrow();
-        reg.numeric_binning.then_some(reg.histogram_bins)
+        (reg.numeric_binning, reg.histogram_bins)
     }
 
     pub fn duckdb_cmd(&self) -> Option<String> {
@@ -744,22 +745,12 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     }
                 },
                 "numeric_binning" => {
-                    registry(lua)?.borrow_mut().numeric_binning = match value.as_str() {
-                        "true" => true,
-                        "false" => false,
-                        _ => {
-                            return Err(mlua::Error::RuntimeError(
-                                "vd.option: numeric_binning is \"true\" or \"false\"".into(),
-                            ));
-                        }
-                    }
+                    registry(lua)?.borrow_mut().numeric_binning = parse_bool_option(&name, &value)
+                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
                 }
                 "histogram_bins" => {
-                    registry(lua)?.borrow_mut().histogram_bins = value.parse().map_err(|_| {
-                        mlua::Error::RuntimeError(format!(
-                            "vd.option: histogram_bins is a count, 0 for √rows (got {value:?})"
-                        ))
-                    })?
+                    registry(lua)?.borrow_mut().histogram_bins = parse_histogram_bins(&value)
+                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
                 }
                 "mouse" => {
                     registry(lua)?.borrow_mut().mouse = match value.as_str() {
@@ -1405,6 +1396,22 @@ fn styled(t: &LuaTable) -> Rendered {
 }
 
 /// VisiData's float format, `%.2f` or `{:.2f}` (S-32): its decimals, 0–15.
+/// `"true"` / `"false"`, for `vd.option` and `:set` (S-38 A).
+pub fn parse_bool_option(name: &str, value: &str) -> Result<bool, String> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("{name} is \"true\" or \"false\"")),
+    }
+}
+
+/// `histogram_bins`: a count, 0 for ⌊√rows⌋.
+pub fn parse_histogram_bins(value: &str) -> Result<usize, String> {
+    value
+        .parse()
+        .map_err(|_| format!("histogram_bins is a count, 0 for √rows (got {value:?})"))
+}
+
 pub fn float_fmt_digits(fmt: &str) -> Option<u8> {
     let n = fmt
         .strip_prefix("%.")
