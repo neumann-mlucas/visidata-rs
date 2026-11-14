@@ -1324,9 +1324,17 @@ fn numeric_bins_pick_ranges_or_values() {
     // 1..=9 in more bins than values: one row per value
     assert!(matches!(
         Sheet::numeric_bins(&s, "i", 20).unwrap(),
-        Some(Binning::Values)
+        Some(Binning::Values { hist_bins: 20 })
     ));
     assert!(Sheet::numeric_bins(&s, "t", 2).unwrap().is_none());
+    // outside the bins (a refresh after edits): the first or last bin
+    let i = df!("x" => [-5.0, 9.0]).unwrap().lazy();
+    let i = i
+        .select([Binning::index(0.0, 1.0, 3, "x")])
+        .collect()
+        .unwrap();
+    let i: Vec<Option<i64>> = i.columns()[0].i64().unwrap().iter().collect();
+    assert_eq!(i, [Some(0), Some(2)]);
     let f = Sheet::freq_binned(&s, 1, "x", Some(Binning::Ranges { min, width, n }));
     let df = f.plan.clone().collect().unwrap();
     let counts: Vec<_> = df

@@ -149,6 +149,13 @@ impl Sheet {
         let dt = match ty.trim() {
             "" => {
                 self.view.type_casts.retain(|(c, _)| c != column);
+                let dt = self.view_plan().collect_schema().ok();
+                if !dt
+                    .and_then(|s| s.get(column).cloned())
+                    .is_some_and(|d| matches!(d, DataType::Date | DataType::Datetime(..)))
+                {
+                    self.view.date_fmts.retain(|(c, _)| c != column);
+                }
                 return Ok(());
             }
             "int" => DataType::Int64,

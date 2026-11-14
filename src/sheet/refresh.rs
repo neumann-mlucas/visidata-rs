@@ -45,16 +45,11 @@ impl Sheet {
                     .map_err(|e| e.to_string())?;
                 Sheet::rows_from(parent, id, df, rids, self.name.clone())?
             }
-            Derivation::Values { column, values } => {
-                let values: Vec<AnyValue> = values
-                    .iter()
-                    .map(|v| {
-                        v.clone()
-                            .map_or(AnyValue::Null, |s| AnyValue::StringOwned(s.into()))
-                    })
-                    .collect();
-                Sheet::rows_with_values(parent, id, column, &values)
-            }
+            Derivation::Values {
+                column,
+                key,
+                values,
+            } => Sheet::rows_with_values(parent, id, column, key.clone(), values.clone()),
             Derivation::Sql { query, others } => {
                 Sheet::sql_from(parent, id, query, others.iter().map(live).collect())?
             }

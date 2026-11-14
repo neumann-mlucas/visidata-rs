@@ -1121,6 +1121,21 @@ async fn date_fmtstr_shows_groups_and_dives() {
     assert!(h.screen().contains("2024-01        2"), "{}", h.screen());
     h.keys("<CR>").await;
     assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    // the dive keys on the fmtstr `F` grouped by, not the parent's now
+    h.keys("q").await;
+    let Origin::Freq { parent, .. } = h.app.sheets.active().origin.clone() else {
+        panic!("not a freq sheet");
+    };
+    let p = h.app.sheets.find_by_id_mut(parent).unwrap();
+    p.set_fmtstr("d", "").unwrap();
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    h.app
+        .sheets
+        .find_by_id_mut(parent)
+        .unwrap()
+        .set_fmtstr("d", "%Y-%m")
+        .unwrap();
     h.keys("q q :").await;
     h.type_("fmtstr %Q").await;
     assert_eq!(status(&h), "fmtstr: \"%Q\" isn't a strftime format");
@@ -1134,4 +1149,10 @@ async fn date_fmtstr_shows_groups_and_dives() {
         status(&h),
         "fmtstr: v is i (float, date or datetime columns only)"
     );
+    // a cast to text drops the fmtstr: `F` counts the text
+    h.keys("h :").await;
+    h.type_("fmtstr %Y").await;
+    h.keys("~ F").await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 3, "{}", h.screen());
 }

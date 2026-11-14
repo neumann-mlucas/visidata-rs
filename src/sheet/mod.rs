@@ -115,9 +115,11 @@ pub enum Derivation {
     },
     /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
     Rids(std::collections::BTreeSet<u64>),
-    /// Rows whose `column`, as text, is one of `values` (freq dive; None = null).
+    /// Rows whose `column`'s `key`, as text, is one of `values` (freq dive;
+    /// None = null).
     Values {
         column: String,
+        key: DiveKey,
         values: Vec<Option<String>>,
     },
     /// `others`: the `s<id>` sheets the query names.
@@ -164,11 +166,12 @@ pub enum Derivation {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Binning {
     /// `n` equal ranges from `min`, `width` wide: a value's bin is
-    /// `⌊(v − min) / width⌋`, capped at the last. Every bin is a row.
+    /// `⌊(v − min) / width⌋`, clamped to the first and last. Every bin is a
+    /// row, its row id in the freq sheet's base plan; the null bin's is `n`.
     Ranges { min: f64, width: f64, n: usize },
     /// One bin per distinct value, ascending: ints with fewer values than
-    /// bins, or a single value.
-    Values,
+    /// bins, or a single value. `hist_bins`: the `histogram_bins` that chose it.
+    Values { hist_bins: usize },
 }
 
 impl Binning {
@@ -176,7 +179,7 @@ impl Binning {
     pub fn index(min: f64, width: f64, n: usize, c: &str) -> Expr {
         ((col(c).cast(DataType::Float64) - lit(min)) / lit(width))
             .floor()
-            .clip_max(lit((n - 1) as f64))
+            .clip(lit(0.0), lit((n - 1) as f64))
             .cast(DataType::Int64)
     }
 
@@ -188,6 +191,33 @@ impl Binning {
                 format!("{lo:.2} - {:.2}", lo + width)
             })
             .collect()
+    }
+}
+
+/// What a freq dive compares to its picked values: what the freq sheet
+/// grouped `column` by.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DiveKey {
+    Value,
+    /// The text a date `fmtstr` shows (S-35 C2).
+    Fmt(String),
+    /// The [`Binning::Ranges`] bin index.
+    Bin {
+        min: f64,
+        width: f64,
+        n: usize,
+    },
+}
+
+impl DiveKey {
+    /// `column`'s key, as text.
+    pub fn expr(&self, column: &str) -> Expr {
+        let e = match self {
+            DiveKey::Value => col(column),
+            DiveKey::Fmt(f) => col(column).dt().strftime(f),
+            DiveKey::Bin { min, width, n } => Binning::index(*min, *width, *n, column),
+        };
+        e.cast(DataType::String)
     }
 }
 
@@ -1093,6 +1123,13 @@ impl Sheet {
             .collect())
     }
 
+    /// Every non-key column in display order, hidden ones in place.
+    pub fn display_order(&self) -> Vec<String> {
+        self.plan_names()
+            .map(|n| self.non_keys_in_order(&n))
+            .unwrap_or_default()
+    }
+
     /// The non-key columns of `names` in display order, hidden ones in place.
     fn non_keys_in_order(&self, names: &[String]) -> Vec<String> {
         let v = &self.view;
@@ -1199,7 +1236,11 @@ impl Sheet {
     }
 
     /// `# % ~ @`: show `name` as `dt` (a view cast; the base plan is untouched).
+    /// A date `fmtstr` outlives only a cast to another date type.
     pub fn set_type_cast(&mut self, name: String, dt: DataType) {
+        if !matches!(dt, DataType::Date | DataType::Datetime(..)) {
+            self.view.date_fmts.retain(|(c, _)| *c != name);
+        }
         match self.view.type_casts.iter_mut().find(|(c, _)| *c == name) {
             Some(entry) => entry.1 = dt,
             None => self.view.type_casts.push((name, dt)),

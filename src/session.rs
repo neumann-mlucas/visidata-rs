@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use polars::prelude::DataType;
+use polars::prelude::{DataType, TimeUnit};
 
 use crate::action::Action;
 use crate::sheet::{Derivation, Origin, PlanStep, Sheet, SortOrder};
@@ -139,9 +139,25 @@ struct Block {
 impl Block {
     /// The freq sheet's rows holding `values` selected, then dived into.
     fn dive(&mut self, l: &crate::sheet::Lineage) -> bool {
-        let Derivation::Values { column, values } = &l.how else {
+        let Derivation::Values {
+            column,
+            key,
+            values,
+        } = &l.how
+        else {
             return false;
         };
+        if let crate::sheet::DiveKey::Bin { n, .. } = key {
+            // a bin's row id is its index (labels may repeat); the null bin's is `n`
+            let n = *n as u64;
+            self.select(
+                values
+                    .iter()
+                    .map(|v| v.as_deref().and_then(|i| i.parse().ok()).unwrap_or(n)),
+            );
+            self.ex(Action::SubmitSelected);
+            return true;
+        }
         let c = crate::duckdb::ident(column);
         let texts: Vec<String> = values
             .iter()
@@ -244,9 +260,11 @@ impl Block {
                 match bins {
                     Some(b) => {
                         self.ex(set("numeric_binning", "true".into()));
-                        if let crate::sheet::Binning::Ranges { n, .. } = b {
-                            self.ex(set("histogram_bins", n.to_string()));
-                        }
+                        let hist_bins = match b {
+                            crate::sheet::Binning::Ranges { n, .. } => n,
+                            crate::sheet::Binning::Values { hist_bins } => hist_bins,
+                        };
+                        self.ex(set("histogram_bins", hist_bins.to_string()));
                     }
                     None if crate::sheet::is_number_column(parent, column) => {
                         self.ex(set("numeric_binning", "false".into()))
@@ -406,7 +424,13 @@ impl Block {
                 DataType::Int64 => Action::TypeCastInt,
                 DataType::Float64 => Action::TypeCastFloat,
                 DataType::String => Action::TypeCastString,
-                DataType::Date | DataType::Datetime(..) => Action::TypeCastDate,
+                // the type picked, not picked again from the replay's rows
+                DataType::Date => Action::TypeCastDateAs { time: false },
+                DataType::Datetime(TimeUnit::Microseconds, None) => {
+                    Action::TypeCastDateAs { time: true }
+                }
+                // the loaded datetime type: `@` keeps it
+                DataType::Datetime(..) => Action::TypeCastDate,
                 other => {
                     self.note(&format!("{column} as {other}"));
                     continue;
@@ -466,11 +490,14 @@ impl Block {
             self.col(k);
             self.ex(Action::KeyCol);
         }
-        // replayed steps place new columns at the replay's cursor: say where they go
+        // replayed steps place new columns at the replay's cursor: say where
+        // each goes (`:order` keeps unnamed columns where they are)
         if !v.order.is_empty() || !s.state.steps.is_empty() {
-            self.ex(Action::Order {
-                columns: v.order.clone(),
-            });
+            let columns = match v.order.is_empty() {
+                true => Vec::new(),
+                false => s.display_order(),
+            };
+            self.ex(Action::Order { columns });
         }
         for h in &v.hidden {
             self.ex(Action::HideNamed { column: h.clone() });

@@ -174,6 +174,30 @@ async fn binned_freq_counts_ranges_and_dives() {
     assert!(r.app.theme.numeric_binning);
 }
 
+/// Narrow bins share a label: `<CR>` opens its own bin, and a session keeps
+/// the dive (S-35 C1).
+#[tokio::test(flavor = "multi_thread")]
+async fn binned_dive_opens_its_own_bin() {
+    let mut h = csv(b"x\n0\n0.0002\n0.0008\n0.0009\n0.001\n").await;
+    h.keys(":").await;
+    h.type_("set numeric_binning true").await;
+    h.keys(":").await;
+    h.type_("set histogram_bins 2").await;
+    h.keys("F").await;
+    h.keys("j <CR>").await; // both bins read `0.00 - 0.00`
+    assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(!script.contains("# not saved"), "{script}");
+    let mut r = Harness::new(3).await;
+    r.app.source(&path.display().to_string(), false);
+    r.pump().await;
+    let df = r.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 3, "{}", r.screen());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn freq_rows_picked_from_a_freq_sheet_still_dive() {
     let mut h = Harness::new(5000).await; // grp 1, 2: 715 rows; 0, 3..=6: 714

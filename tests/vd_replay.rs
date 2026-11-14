@@ -299,16 +299,20 @@ impl Replay {
                 None => row.parse().ok(),
             }
             .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
-            let picked = [vals
-                .get(i)
-                .map_err(|e| Runtime(e.to_string()))?
-                .into_static()];
+            let v = vals.get(i).map_err(|e| Runtime(e.to_string()))?;
+            let picked = vec![(!v.is_null()).then(|| visidata_rs::sheet::any_text(&v))];
             let p = self
                 .loaded
                 .iter()
                 .find(|l| l.sheet.id == parent)
                 .ok_or_else(|| Runtime("open-row: freq parent gone".into()))?;
-            let sheet = Sheet::rows_with_values(&p.sheet, self.next_id, &column, &picked);
+            let sheet = Sheet::rows_with_values(
+                &p.sheet,
+                self.next_id,
+                &column,
+                visidata_rs::sheet::DiveKey::Value,
+                picked,
+            );
             self.next_id += 1;
             let name = format!(
                 "{}_{}",

@@ -292,6 +292,10 @@ impl App {
                 let dt = crate::sheet::date_cast_type(self.sheets.active(), &c);
                 self.push_type_cast(dt)
             }
+            Action::TypeCastDateAs { time: true } => {
+                self.push_type_cast(DataType::Datetime(TimeUnit::Microseconds, None))
+            }
+            Action::TypeCastDateAs { time: false } => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
             Action::TypeCastJson => {
                 let Some(c) = self.current_column_name() else {
@@ -1767,12 +1771,24 @@ impl App {
             return;
         }
         let plan = s.plan.clone();
-        let ranges = match s.state.lineage.as_deref().map(|l| &l.how) {
-            Some(crate::sheet::Derivation::Freq {
-                bins: Some(crate::sheet::Binning::Ranges { min, width, n }),
-                ..
-            }) => Some((*min, *width, *n)),
-            _ => None,
+        // what `F` grouped by, as it ran (the parent's fmtstr may change since)
+        use crate::sheet::{Binning, Derivation, DiveKey};
+        let key = match s.state.lineage.as_deref() {
+            Some(l) => match &l.how {
+                Derivation::Freq {
+                    bins: Some(Binning::Ranges { min, width, n }),
+                    ..
+                } => DiveKey::Bin {
+                    min: *min,
+                    width: *width,
+                    n: *n,
+                },
+                _ => l
+                    .parent
+                    .date_fmt(&column)
+                    .map_or(DiveKey::Value, |f| DiveKey::Fmt(f.into())),
+            },
+            None => DiveKey::Value,
         };
         let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
@@ -1783,26 +1799,23 @@ impl App {
             // Values by row id = position in the freq sheet's base plan; the
             // value column is first even if renamed here. `column` names it in
             // the parent.
-            let values = plan
-                .select([nth(0).as_expr()])
-                .collect()
-                .map_err(|e| e.to_string())?;
-            let vals = &values.columns()[0];
-            let picked: Vec<AnyValue> = rids
-                .iter()
-                .filter_map(|r| vals.get(*r as usize).ok().map(|v| v.into_static()))
-                .collect();
-            let texts = || -> Vec<Option<String>> {
-                picked
-                    .iter()
-                    .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(v)))
+            // a bin's row id is its index, labels may repeat (`Binning::Ranges`)
+            let picked: Vec<Option<String>> = if let DiveKey::Bin { n, .. } = key {
+                rids.iter()
+                    .map(|r| (*r < n as u64).then(|| r.to_string()))
+                    .collect()
+            } else {
+                let values = plan
+                    .select([nth(0).as_expr()])
+                    .collect()
+                    .map_err(|e| e.to_string())?;
+                let vals = &values.columns()[0];
+                rids.iter()
+                    .filter_map(|r| vals.get(*r as usize).ok())
+                    .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(&v)))
                     .collect()
             };
-            let child = match (ranges, parent.date_fmt(&column)) {
-                (Some(r), _) => Sheet::rows_in_bins(&parent, id, &column, r, &texts())?,
-                (None, Some(f)) => Sheet::rows_formatted(&parent, id, &column, f, &texts())?,
-                (None, None) => Sheet::rows_with_values(&parent, id, &column, &picked),
-            };
+            let child = Sheet::rows_with_values(&parent, id, &column, key, picked);
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }

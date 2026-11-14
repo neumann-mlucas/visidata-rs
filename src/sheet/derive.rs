@@ -29,7 +29,7 @@ impl Sheet {
         };
         let grouped = match &bins {
             None => base.group_by_stable([key]).agg(exprs),
-            Some(Binning::Values) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
+            Some(Binning::Values { .. }) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
                 [col_name],
                 SortMultipleOptions::default()
                     .with_nulls_last(true)
@@ -155,7 +155,7 @@ impl Sheet {
         };
         let rows = get("n").unwrap_or(0.0);
         let (Some(min), Some(max)) = (get("lo"), get("hi")) else {
-            return Ok(Some(Binning::Values));
+            return Ok(Some(Binning::Values { hist_bins }));
         };
         let n = if hist_bins > 0 {
             hist_bins
@@ -166,7 +166,7 @@ impl Sheet {
         let width = (max - min) / n as f64;
         Ok(Some(
             if width == 0.0 || (dt.is_integer() && n as f64 > max - min) || width == 1.0 {
-                Binning::Values
+                Binning::Values { hist_bins }
             } else {
                 Binning::Ranges { min, width, n }
             },
@@ -295,87 +295,35 @@ impl Sheet {
         .derived(parent, Derivation::Rids(keep.clone())))
     }
 
-    /// Freq dive on a binned freq row (S-35 C1): `parent`'s rows in the
-    /// bins labelled `labels` ([`Binning::labels`]; null: null values).
-    pub fn rows_in_bins(
-        parent: &Sheet,
-        id: SheetId,
-        column: &str,
-        (min, width, n): (f64, f64, usize),
-        labels: &[Option<String>],
-    ) -> Result<Self, String> {
-        let all = Binning::labels(min, width, n);
-        let picked: Vec<Option<String>> = labels
-            .iter()
-            .map(|l| {
-                l.as_ref()
-                    .and_then(|l| all.iter().position(|a| a == l))
-                    .map(|i| i.to_string())
-            })
-            .collect();
-        let name = match labels {
-            [Some(one)] => format!("{column} in {one}: {}", parent.name),
-            many => format!("{column} in {} bins: {}", many.len(), parent.name),
-        };
-        let key = Binning::index(min, width, n, column);
-        Self::rows_keyed(parent, id, key, &picked, name)
-    }
-
-    /// Freq dive on a date `fmtstr` freq row (S-35 C2): `parent`'s rows whose
-    /// `column` reads one of `texts` in `fmt`.
-    pub fn rows_formatted(
-        parent: &Sheet,
-        id: SheetId,
-        column: &str,
-        fmt: &str,
-        texts: &[Option<String>],
-    ) -> Result<Self, String> {
-        let name = match texts {
-            [Some(one)] => format!("{column}={one}: {}", parent.name),
-            many => format!("{column} in {} values: {}", many.len(), parent.name),
-        };
-        let key = col(column).dt().strftime(fmt);
-        Self::rows_keyed(parent, id, key, texts, name)
-    }
-
-    /// `parent`'s rows whose `key` (as text) is one of `picked`, kept by rid.
-    fn rows_keyed(
-        parent: &Sheet,
-        id: SheetId,
-        key: Expr,
-        picked: &[Option<String>],
-        name: String,
-    ) -> Result<Self, String> {
-        const K: &str = "__vdrs_key";
-        let mut df = parent
-            .view_plan_rid(true)
-            .with_column(key.cast(DataType::String).alias(K))
-            .collect()
-            .map_err(|e| e.to_string())?;
-        let keys = df.drop_in_place(K).map_err(|e| e.to_string())?;
-        let keys = keys.str().map_err(|e| e.to_string())?;
-        let rids = rid_values(&df).map_err(|e| e.to_string())?;
-        let keep = rids
-            .iter()
-            .zip(keys.iter())
-            .filter(|(_, k)| picked.iter().any(|p| p.as_deref() == *k))
-            .map(|(r, _)| *r)
-            .collect();
-        Self::rows_from(parent, id, df, &keep, name)
-    }
-
-    /// Freq dive: `parent`'s rows whose `column` equals one of `values`
-    /// (compared as text, the way the freq sheet grouped them; null matches null).
+    /// Freq dive: `parent`'s rows whose `column`'s `key` (as text, the way the
+    /// freq sheet grouped them) is one of `values` (None matches null).
     pub fn rows_with_values(
         parent: &Sheet,
         id: SheetId,
         column: &str,
-        values: &[AnyValue],
+        key: DiveKey,
+        values: Vec<Option<String>>,
     ) -> Self {
-        let pred = values_predicate(column, values);
-        let label = match values {
-            [one] => format!("{column}={}", any_text(one)),
-            many => format!("{column} in {} values", many.len()),
+        let text: Vec<&str> = values.iter().flatten().map(String::as_str).collect();
+        let mut pred = key
+            .expr(column)
+            .is_in(lit(Series::new("v".into(), &text)).implode(false), false);
+        if values.iter().any(Option::is_none) {
+            pred = pred.or(col(column).is_null());
+        }
+        let shown = |v: &Option<String>| match (&key, v) {
+            (DiveKey::Bin { min, width, n }, Some(i)) => i
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| Binning::labels(*min, *width, *n).into_iter().nth(i))
+                .unwrap_or_default(),
+            (_, v) => v.clone().unwrap_or_default(),
+        };
+        let label = match (&key, &values[..]) {
+            (DiveKey::Bin { .. }, [one]) => format!("{column} in {}", shown(one)),
+            (DiveKey::Bin { .. }, many) => format!("{column} in {} bins", many.len()),
+            (_, [one]) => format!("{column}={}", shown(one)),
+            (_, many) => format!("{column} in {} values", many.len()),
         };
         // freq rows picked from a freq sheet still dive to the source rows, as
         // VisiData — while the value column is still first (the dive reads it)
@@ -390,10 +338,6 @@ impl Sheet {
             }
             _ => Origin::Selected { parent: parent.id },
         };
-        let text = values
-            .iter()
-            .map(|v| (!v.is_null()).then(|| any_text(v)))
-            .collect();
         Self::child(
             parent,
             id,
@@ -406,7 +350,8 @@ impl Sheet {
             parent,
             Derivation::Values {
                 column: column.into(),
-                values: text,
+                key,
+                values,
             },
         )
     }

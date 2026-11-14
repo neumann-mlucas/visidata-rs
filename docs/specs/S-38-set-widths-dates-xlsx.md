@@ -48,7 +48,7 @@ away (`lenient_date` strips it), which loses data: rows can't be sorted within a
   `Date`, as before (a pure-date column must not save as midnight timestamps). Rows without a
   time read midnight. `@` on a datetime column keeps it (no truncation). Deciding from the loaded
   window keeps dispatch scan-free (S-33 D6); a time that only later rows have is dropped. The
-  `type_casts` entry is the type picked; sessions write `:type date` and the restore picks again.
+  `type_casts` entry is the type picked; sessions write the type picked (`:type datetime` / `:type date-only`), not a re-pick.
 - C1b. **Time of day:** `TIME_OF_DAY` reads `H:MM[:SS][.fff][ ]a|p`; fractions and zones are
   ignored.
 - C2. **Display:** a datetime column `@` made shows `%Y-%m-%d`, as VisiData. A date `fmtstr` (S-35 C2)

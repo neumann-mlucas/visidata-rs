@@ -538,6 +538,34 @@ async fn slides_reorder_columns_within_their_section() {
     assert_eq!(s.view.order, ["d", "a", "b"]);
 }
 
+/// A session puts new columns back where they went, wherever its replay's
+/// cursor is; `@` restores the type it picked.
+#[tokio::test(flavor = "multi_thread")]
+async fn session_keeps_new_columns_and_date_types() {
+    let header = |h: &Harness| view_csv(h).lines().next().unwrap().to_string();
+    let mut h = csv(b"a,b,c,t\n1,2,3,2018-07-03 10:05\n").await;
+    h.keys("l l :").await;
+    h.type_("derive m = a + 1").await;
+    h.keys("g h :").await;
+    h.type_("derive n = a + 2").await;
+    assert_eq!(header(&h), "a,n,b,c,m,t");
+    h.keys("g l @").await;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(script.contains("\ntype datetime\n"), "{script}");
+    let mut r = Harness::new(3).await;
+    r.app.source(&path.display().to_string(), false);
+    r.pump().await;
+    assert_eq!(header(&r), "a,n,b,c,m,t");
+    let dt = r.app.sheets.active().view_plan().collect_schema().unwrap();
+    assert!(
+        matches!(dt.get("t"), Some(DataType::Datetime(..))),
+        "{dt:?}"
+    );
+}
+
 /// `[` on a columns sheet reorders its sheet's columns, as VisiData; `U` on
 /// the sheet undoes it (S-34 A4).
 #[tokio::test(flavor = "multi_thread")]

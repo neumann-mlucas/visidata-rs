@@ -35,6 +35,11 @@ pub enum Action {
     TypeCastFloat,
     TypeCastString,
     TypeCastDate,
+    /// `:type datetime` / `:type date-only`: `@`'s cast, its type named
+    /// rather than picked from the rows shown (sessions).
+    TypeCastDateAs {
+        time: bool,
+    },
     TypeCastCurrency,
     /// `:type json` (S-22 C): decode JSON text into lists / structs.
     TypeCastJson,
@@ -646,6 +651,7 @@ impl Action {
                 | Action::TypeCastFloat
                 | Action::TypeCastString
                 | Action::TypeCastDate
+                | Action::TypeCastDateAs { .. }
                 | Action::TypeCastCurrency
                 | Action::FreezeColumn
                 | Action::UnfreezeAll
@@ -771,6 +777,7 @@ impl Action {
             | UnkeyAll
             | RenameCol { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
+            TypeCastDateAs { .. } => true,
             TypeCastJson => true,
             SearchNext | SearchPrev | SetFilter { .. } | ClearFilter => true,
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
@@ -1057,6 +1064,8 @@ impl Action {
             CursorLeft { count: Some(n) } => format!("cursor_left {n}"),
             CursorRight { count: Some(n) } => format!("cursor_right {n}"),
             RenameCol { new_name } => format!("rename {}", q(new_name)),
+            TypeCastDateAs { time: true } => "type datetime".into(),
+            TypeCastDateAs { time: false } => "type date-only".into(),
             SetFilter { column, regex } if !regex.is_empty() && regex.trim() == regex => {
                 format!("filter {} {regex}", q(column))
             }
@@ -1234,6 +1243,10 @@ mod tests {
             CursorUp { count: Some(1) },
             CursorLeft { count: Some(2) },
             CursorRight { count: Some(10) },
+            SlideCol { by: 3 },
+            SlideCol { by: -2 },
+            TypeCastDateAs { time: true },
+            TypeCastDateAs { time: false },
             RenameCol {
                 new_name: s("new name"),
             },
