@@ -1979,22 +1979,40 @@ fn sql_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)])
         [] => String::new(),
         _ => format!(" GROUP BY {}", k.join(", ")),
     };
-    // PIVOT names `<value>_<alias>`; VisiData's is `<alias>_<value>`.
-    // ponytail: a key column whose name ends in `_<alias>` matches the
-    // rename too; name the value columns one by one if that bites.
-    let select = if prefixes[0].is_empty() {
-        "*".to_string()
+    // PIVOT names `<value>_<alias>`; VisiData's is `<alias>_<value>`. Keys
+    // go by `__vdk<i>_` meanwhile: no alias ends in `_`, so the rename
+    // can't match one.
+    let (select, rename) = if prefixes[0].is_empty() {
+        ("*".to_string(), String::new())
     } else {
         let alts: Vec<String> = prefixes
             .iter()
             .map(|s| regex::escape(s.trim_end_matches('_')).replace('\'', "''"))
             .collect();
-        format!("{lead}COLUMNS('^(.*)_({})$') AS '\\2_\\1'", alts.join("|"))
+        let tmp = |i: usize| q_ident(&format!("__vdk{i}_"));
+        let back: String = k
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("{} AS {c}, ", tmp(i)))
+            .collect();
+        let rename = match keys {
+            [] => String::new(),
+            _ => format!(
+                " RENAME ({})",
+                k.iter()
+                    .enumerate()
+                    .map(|(i, c)| format!("{c} AS {}", tmp(i)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        let cols = format!("COLUMNS('^(.*)_({})$') AS '\\2_\\1'", alts.join("|"));
+        (format!("{back}{cols}"), rename)
     };
     format!(
-        "SELECT {select} FROM (PIVOT (SELECT c.*, {filled} FROM {combos} c LEFT JOIN {g} g \
+        "SELECT {select} FROM (SELECT *{rename} FROM (PIVOT (SELECT c.*, {filled} FROM {combos} c LEFT JOIN {g} g \
          USING ({using_join})) ON {o} IN (SELECT {o} FROM (SELECT {text} AS {o}, \
-         row_number() OVER () AS __r FROM {p}) GROUP BY {o} ORDER BY min(__r)) USING {using}{group})",
+         row_number() OVER () AS __r FROM {p}) GROUP BY {o} ORDER BY min(__r)) USING {using}{group}))",
         filled = filled.join(", "),
         using_join = using_join.join(", "),
         using = using.join(", "),
