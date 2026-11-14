@@ -198,12 +198,12 @@ impl App {
                 }
             }
             Ok(JobDone::Refreshed(r)) => {
-                // ponytail: whole sheets replace the stack's, so a sort made while
-                // the job ran is lost; adopt on landing if refreshes get slow.
+                // adopted into the sheet as it is now: a sort or edit made while
+                // the job ran stays
                 let active = self.sheets.active().id;
                 for new in r.sheets {
                     if let Some(s) = self.sheets.find_by_id_mut(new.id) {
-                        *s = new;
+                        s.adopt(new);
                         s.state.stale = s.id != active;
                     }
                 }

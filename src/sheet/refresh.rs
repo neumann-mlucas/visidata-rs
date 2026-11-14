@@ -78,7 +78,7 @@ impl Sheet {
     /// columns still there) and edits; `U` goes back.
     // ponytail: undo restores plan/view/steps, not the lineage, so `:export`
     // after `U` describes the refreshed derivation.
-    fn adopt(&mut self, mut fresh: Sheet) {
+    pub fn adopt(&mut self, mut fresh: Sheet) {
         self.checkpoint();
         let names: std::collections::BTreeSet<String> = fresh
             .plan

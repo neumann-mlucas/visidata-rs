@@ -204,3 +204,22 @@ async fn no_action_blocks_the_ui() {
         "a command wrote into the working directory"
     );
 }
+
+/// A sort made while `<C-r>` rebuilds the sheet survives the refresh landing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sort_during_refresh_survives() {
+    let mut h = slow().await;
+    h.keys("g s").await;
+    h.keys("\"").await; // a copy, rebuilt from the slow parent
+    press_quick(&mut h, "<C-r>");
+    h.keys("]").await; // sort id desc while the refresh runs
+    let s = h.app.sheets.active();
+    assert_eq!(
+        s.view.sort.len(),
+        1,
+        "{}",
+        h.app.toast.as_deref().unwrap_or("")
+    );
+    let first = s.window().unwrap().column("id").unwrap().get(0).unwrap();
+    assert_eq!(first.extract::<i64>(), Some(3000));
+}
