@@ -4548,7 +4548,6 @@ dependencies = [
  "flate2",
  "mlua",
  "polars",
- "polars-ops",
  "portable-pty",
  "ratatui",
  "regex",
