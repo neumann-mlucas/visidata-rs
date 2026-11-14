@@ -107,7 +107,7 @@ fn print_headless(src: &reader::LoadedSource, head: usize) -> anyhow::Result<()>
     let df = src
         .lazy
         .clone()
-        .limit(head as u32)
+        .limit(u32::try_from(head).unwrap_or(u32::MAX))
         .collect()
         .map_err(|e| anyhow!("polars: {e}"))?;
     let mut out = std::io::stdout().lock();
