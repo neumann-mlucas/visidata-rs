@@ -134,6 +134,8 @@ td:first-child { white-space: nowrap; }
       <div><p class="group">Reference</p>
         <a href="#ex">Ex commands</a>
         <a href="#keys">All keys</a>
+        <a href="#keymaps">Default &amp; vim keymaps</a>
+        <a href="#breaking">Changed keys</a>
         <a href="#lua">Lua config</a>
         <a href="#trouble">Troubleshooting</a>
         <a href="#limits">Limitations</a>
@@ -710,6 +712,27 @@ print(t3.collect())</code></pre>
 <p>Commands defined in <code>init.lua</code> with <a href="#lua-command"><code>vd.command</code></a> run the same way.</p>
 
 <h2 id="keys">All keys</h2>
+<h3 id="keymaps">Default and vim keymaps</h3>
+<p>Two keymaps, like vi and vim. The default is VisiData's: a key VisiData binds does what it does there, so VisiData habits and its <code>.vd</code> scripts carry over. The vim profile keeps those defaults and rebinds only the keys where vim (or a more common TUI meaning) disagrees: <kbd>u</kbd> undo, <kbd>d</kbd>/<kbd>y</kbd>/<kbd>c</kbd> operators, <kbd>q</kbd> macros, <kbd>m</kbd>/<kbd>'</kbd> marks, <kbd>w</kbd>/<kbd>b</kbd>/<kbd>e</kbd> cell motions, <kbd>Ctrl-d</kbd>/<kbd>Ctrl-u</kbd> half pages, <kbd>z</kbd><kbd>s</kbd>/<kbd>z</kbd><kbd>c</kbd> freeze, <kbd>Ctrl-v</kbd> visual block. The full list is in <a href="#vim">the vim profile</a>.</p>
+<p>Turn it on with one line in <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (hot-reloaded, no restart):</p>
+<pre><code>vd.option("keymap", "vim")   -- "visidata" (the default) turns it off</code></pre>
+<p>Any key in either keymap can be changed with <a href="#lua"><code>vd.bind</code></a>. Commands that lost their default key keep an ex command: <code>:freeze</code>, <code>:unfreeze</code>, <code>:unsort</code>, <code>:visual-block</code>.</p>
+<h3 id="breaking">Changed keys (2026-11-14)</h3>
+<p>These default keys now mean what they mean in VisiData. If you used the old meaning, use the replacement or switch to the vim profile, which keeps most of them.</p>
+<div class="table-wrap"><table>
+<tr><th>Key</th><th>Was</th><th>Now (VisiData)</th><th>Old meaning now on</th></tr>
+<tr><td><kbd>s</kbd></td><td>toggle row selection</td><td>select row, cursor down</td><td><kbd>t</kbd> (toggle)</td></tr>
+<tr><td><kbd>t</kbd>, <kbd>u</kbd></td><td>toggle / unselect, cursor stays</td><td>same, then cursor down</td><td>—</td></tr>
+<tr><td><kbd>z</kbd><kbd>s</kbd></td><td>freeze columns up to the cursor</td><td>select rows above the cursor</td><td><code>:freeze</code>; vim <kbd>z</kbd><kbd>s</kbd></td></tr>
+<tr><td><kbd>z</kbd><kbd>c</kbd></td><td>unfreeze</td><td>go to column number</td><td><code>:unfreeze</code>; vim <kbd>z</kbd><kbd>c</kbd></td></tr>
+<tr><td><kbd>z</kbd><kbd>o</kbd></td><td>clear sort</td><td>open the cell's path as a sheet</td><td><code>:unsort</code>; vim <kbd>z</kbd><kbd>o</kbd></td></tr>
+<tr><td><kbd>Ctrl-v</kbd></td><td>visual cell block</td><td>show version</td><td><code>:visual-block</code>; vim <kbd>Ctrl-v</kbd></td></tr>
+<tr><td><kbd>_</kbd></td><td>plots only</td><td>sheet: column width full / default; plot: zoom to fit</td><td>—</td></tr>
+<tr><td><kbd>g</kbd><kbd>%</kbd></td><td>columns sheet only</td><td>elsewhere: float precision (<code>:precision</code>)</td><td>—</td></tr>
+<tr><td><kbd>z</kbd><kbd>u</kbd></td><td>unbound</td><td>unselect rows above the cursor</td><td>—</td></tr>
+</table></div>
+<p>Also changed: Lua plugin errors no longer start with <code>lua: </code>. Still different from VisiData on purpose: <kbd>:</kbd> is the command line (VisiData: split column), <kbd>D</kbd> / <kbd>Ctrl-d</kbd> are diff and page down (VisiData: the cmdlog, which vdrs doesn't have), and <kbd>J</kbd>/<kbd>K</kbd> only resize the plot box (rows follow the sort and file order, so they don't slide).</p>
+<h3 id="keylist">Key list</h3>
 <p><input id="keyfilter" type="search" placeholder="Filter keys…" aria-label="Filter the key table"></p>
 <div class="scroll"><table id="keytable">
 <tr><th>Keys</th><th>Action</th></tr>

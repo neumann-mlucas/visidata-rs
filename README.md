@@ -76,6 +76,12 @@ commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
 `:export` writes a Polars or DuckDB script that rebuilds the view, including
 derived sheets.
 
+Keymaps work like vi and vim: the default is VisiData's, and
+`vd.option("keymap", "vim")` in `init.lua` switches on vim meanings (`u` undo,
+`d`/`y`/`c` operators, `q` macros, …). Keys changed to match VisiData on
+2026-11-14 (`s` selects instead of toggling, `zs` `zc` `zo` `<C-v>`): see the
+guide's [changed keys](https://neumann-mlucas.github.io/visidata-rs/#breaking).
+
 - **User guide**: <https://neumann-mlucas.github.io/visidata-rs/>
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
