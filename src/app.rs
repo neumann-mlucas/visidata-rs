@@ -83,17 +83,22 @@ struct Restore;
 
 impl Drop for Restore {
     fn drop(&mut self) {
-        pop_key_flags();
-        disable_raw_mode().ok();
-        crossterm::execute!(
-            io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            DisableBracketedPaste,
-            LeaveAlternateScreen,
-            crossterm::cursor::Show
-        )
-        .ok();
+        restore_terminal().ok();
     }
+}
+
+/// Undo [`run`]'s terminal setup: key flags, raw mode, mouse, paste, screen.
+fn restore_terminal() -> io::Result<()> {
+    pop_key_flags();
+    let raw = disable_raw_mode(); // the screen goes back even if this fails
+    crossterm::execute!(
+        io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        DisableBracketedPaste,
+        LeaveAlternateScreen,
+        crossterm::cursor::Show
+    )?;
+    raw
 }
 
 /// Kitty keyboard protocol, disambiguate only (S-26 A6): `Esc` comes at once,
@@ -116,14 +121,7 @@ where
 {
     #[cfg(unix)]
     {
-        pop_key_flags();
-        disable_raw_mode()?;
-        crossterm::execute!(
-            io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            DisableBracketedPaste,
-            LeaveAlternateScreen
-        )?;
+        restore_terminal()?;
         // the stop lands before `kill` is reaped; `fg` continues from here
         let stopped = std::process::Command::new("kill")
             .args(["-TSTP", &std::process::id().to_string()])
@@ -153,14 +151,7 @@ where
 fn install_panic_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        pop_key_flags();
-        let _ = disable_raw_mode();
-        let _ = crossterm::execute!(
-            io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            DisableBracketedPaste,
-            LeaveAlternateScreen
-        );
+        let _ = restore_terminal();
         default(info);
     }));
 }
