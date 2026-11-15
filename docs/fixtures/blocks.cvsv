@@ -1,0 +1,10 @@
+## people
+name,age
+ann,31
+bob,42
+cy,27
+
+## pets
+pet,owner
+rex,ann
+tom,cy

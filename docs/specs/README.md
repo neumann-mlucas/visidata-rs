@@ -44,7 +44,7 @@ File naming: `S-NN-slug.md`.
 | S-37 | Native GUI (egui): options registry + `O`, command catalog, core/frontend split, toolbar, settings, plots | S-36 B | **drafted 2026-11-14**, P0 before S-36, P1+ gated → [`S-37-native-gui.md`](S-37-native-gui.md) |
 | S-38 | `:set` data options, copies keep widths, `@` keeps the time, xlsx colour columns | S-35 C1/C2, S-31 | **A–C shipped 2026-11-14**, D waiting (parity) → [`S-38-set-widths-dates-xlsx.md`](S-38-set-widths-dates-xlsx.md) |
 | S-39 | Sources that aren't files: Lua loaders return rows, then `trait Source` | S-10, S-18 B | **A shipped 2026-11-15**; B gated → [`S-39-sources.md`](S-39-sources.md) |
-| S-40 | Lua config: `vd.augroup` + event options, project `.vdrs.lua` (trust, merge), multi-sheet loaders by name, Lua status line / title bar, Lua sidebar pages | S-29, S-39 A, S-37 P0c | **drafted 2026-11-15**, K1–K7 decided → [`S-40-lua-config-extensions.md`](S-40-lua-config-extensions.md) |
+| S-40 | Lua config: `vd.augroup` + event options, project `.vdrs.lua` (trust, merge), multi-sheet loaders by name, Lua status line / title bar, Lua sidebar pages | S-29, S-39 A, S-37 P0c | **shipped 2026-11-15** (A–G) → [`S-40-lua-config-extensions.md`](S-40-lua-config-extensions.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

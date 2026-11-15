@@ -2508,6 +2508,71 @@ mod tests {
         let _ = std::fs::remove_file(&out_path);
     }
 
+    /// S-40 F: each guide recipe's loader on its `docs/fixtures/` sample.
+    #[test]
+    fn guide_recipes_open_their_fixtures() {
+        let html = include_str!("../docs/index.html");
+        let recipe = |name: &str| {
+            let start = format!("<pre data-recipe=\"{name}\"><code>");
+            let b = html.split(&start).nth(1).expect(name);
+            let b = b.split("</code></pre>").next().unwrap();
+            let src = b
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&");
+            Plugins::load_from_source(&src).unwrap_or_else(|e| panic!("{name}: {e}"))
+        };
+        let fixture = |f: &str| format!("{}/docs/fixtures/{f}", env!("CARGO_MANIFEST_DIR"));
+        let frame = |s: &LoadedSource| s.lazy.clone().collect().unwrap();
+        let names = |df: &DataFrame| -> Vec<String> {
+            df.get_column_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect()
+        };
+
+        let p = recipe("cvsv");
+        let s = open(Some(&p), fixture("blocks.cvsv").as_ref(), None).unwrap();
+        let parts: Vec<&str> = s.parts.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(parts, ["people", "pets"]);
+        assert_eq!(frame(&s.parts[0].1).shape(), (3, 2));
+
+        let p = recipe("pdb");
+        let df = frame(&open(Some(&p), fixture("crambin.pdb").as_ref(), None).unwrap());
+        assert_eq!(df.height(), 50);
+        assert_eq!(names(&df)[..3], ["serial", "atom", "residue"]);
+        assert_eq!(df.column("x").unwrap().dtype(), &DataType::Float64);
+        assert_eq!(df.column("serial").unwrap().dtype(), &DataType::Int64);
+        assert_eq!(
+            df.column("residue").unwrap().str().unwrap().get(0),
+            Some("THE")
+        );
+
+        let p = recipe("fasta");
+        let df = frame(&open(Some(&p), fixture("sample.fasta").as_ref(), None).unwrap());
+        assert_eq!(
+            names(&df),
+            ["id", "description", "length", "gc", "sequence"]
+        );
+        assert_eq!(df.height(), 4);
+        let len = df.column("length").unwrap().i64().unwrap();
+        assert_eq!(len.get(0), Some(24)); // two lines joined
+        let gc = df.column("gc").unwrap().f64().unwrap();
+        assert_eq!((gc.get(2), gc.get(3)), (Some(0.5), None)); // protein: no gc
+
+        let p = recipe("access-log");
+        let s = open(Some(&p), fixture("access.log").as_ref(), None).unwrap();
+        let (req, bad) = (frame(&s.parts[0].1), frame(&s.parts[1].1));
+        assert_eq!((req.height(), bad.height()), (6, 1));
+        assert_eq!(names(&req)[..2], ["host", "time"]);
+        let time = req.column("time").unwrap().str().unwrap();
+        assert_eq!(time.get(0), Some("2026-10-10T20:55:36Z"));
+        assert_eq!(time.get(2), Some("2026-10-10T21:10:02Z")); // +0200
+        let bytes = req.column("bytes").unwrap().i64().unwrap();
+        assert_eq!(bytes.get(3), None); // "-"
+        assert_eq!(bad.column("line").unwrap().i64().unwrap().get(0), Some(6));
+    }
+
     /// Every Lua block in docs/index.html loads.
     #[test]
     fn guide_lua_blocks_load() {
@@ -2516,7 +2581,7 @@ mod tests {
             .split("<pre><code>")
             .skip(1)
             .filter_map(|b| b.split("</code></pre>").next())
-            .filter(|b| b.starts_with("--") || b.starts_with("vd."))
+            .filter(|b| ["--", "vd.", "local "].iter().any(|p| b.starts_with(p)))
             .map(|b| {
                 b.replace("&lt;", "<")
                     .replace("&gt;", ">")

@@ -284,7 +284,9 @@ end }
 
 Tests: scenario: register a page, `<C-g>` reaches it, it shows the cursor cell.
 
-## F. Guide recipes (0.5–1 d, with each part)
+## F. Guide recipes (0.5–1 d, with each part) — shipped 2026-11-15
+
+As built: the guide's "Lua recipes" section. Format recipes are `<pre data-recipe="name">` blocks; `guide_recipes_open_their_fixtures` (plugins.rs) loads each and opens its fixture: `blocks.cvsv`, `crambin.pdb` (the first 50 atoms of PDB entry 1CRN, which has no HETATM records, so it opens straight away), `sample.fasta`, `access.log`. The log recipe sorts and hides rather than casts: an ex `:type` acts on the cursor column, and there is no ex command to move it to a named column. Access-log times are UTC ISO 8601 text, worked out in Lua. Pairwise PDB distances stay out (no cross join).
 
 A "Recipes" section in `docs/index.html`. `plugins.rs` already loads every Lua block in the guide,
 so each recipe is checked to parse and register.

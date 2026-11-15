@@ -1,0 +1,7 @@
+192.0.2.10 - - [10/Oct/2026:13:55:36 -0700] "GET /index.html HTTP/1.1" 200 2326 "-" "curl/8.5"
+192.0.2.10 - - [10/Oct/2026:13:55:40 -0700] "GET /img/logo.png HTTP/1.1" 200 5120 "http://example.org/index.html" "Mozilla/5.0"
+198.51.100.7 - ann [10/Oct/2026:23:10:02 +0200] "POST /api/orders HTTP/1.1" 201 87 "-" "python-requests/2.32"
+198.51.100.7 - ann [10/Oct/2026:23:10:05 +0200] "GET /api/orders/9 HTTP/1.1" 500 - "-" "python-requests/2.32"
+203.0.113.42 - - [11/Oct/2026:00:00:01 +0000] "GET /missing HTTP/1.1" 404 153 "-" "Mozilla/5.0"
+garbage line from a crashed writer
+203.0.113.42 - - [11/Oct/2026:00:00:09 +0000] "GET /index.html HTTP/1.1" 304 - "-" "Mozilla/5.0"
