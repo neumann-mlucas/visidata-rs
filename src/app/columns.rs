@@ -262,9 +262,10 @@ impl App {
         new.view = view;
         // row ids are base positions; a sorted view puts them elsewhere
         if let Some(r) = rid {
-            let i = match new.view.sort.is_empty() {
-                true => Some(r as u64),
-                false => new.view_index_of(r as u64).ok().flatten(),
+            let i = if new.view.sort.is_empty() {
+                Some(r as u64)
+            } else {
+                new.view_index_of(r as u64).ok().flatten()
             };
             if let Some(i) = i {
                 new.view.row_cursor = i.saturating_sub(new.view.window_offset) as usize;
