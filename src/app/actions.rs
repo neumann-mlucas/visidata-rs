@@ -192,18 +192,10 @@ impl App {
                     }
                 }
             }
-            Action::CursorDown { count } => {
-                self.move_cursor_rows(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
-            }
-            Action::CursorUp { count } => {
-                self.move_cursor_rows(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
-            }
-            Action::CursorLeft { count } => {
-                self.move_cursor_cols(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
-            }
-            Action::CursorRight { count } => {
-                self.move_cursor_cols(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
-            }
+            Action::CursorDown { count } => self.move_cursor_rows(steps(count)),
+            Action::CursorUp { count } => self.move_cursor_rows(-steps(count)),
+            Action::CursorLeft { count } => self.move_cursor_cols(-steps(count)),
+            Action::CursorRight { count } => self.move_cursor_cols(steps(count)),
             Action::PageDown => self.page(1),
             Action::PageUp => self.page(-1),
             Action::GotoTop => {
@@ -2116,6 +2108,11 @@ impl App {
         self.sheets.push(child);
         self.spawn_materialize();
     }
+}
+
+/// A motion count as signed steps; no count is one.
+fn steps(count: Option<usize>) -> isize {
+    isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)
 }
 
 /// `3 edits`.
