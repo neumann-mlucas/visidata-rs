@@ -576,6 +576,23 @@ impl Sheet {
         rid_values(&df)
     }
 
+    /// View rows from `at` to the next (`forward`) or previous selected row,
+    /// both ends included; None without one.
+    pub fn rids_to_selected(&self, at: u64, forward: bool) -> PolarsResult<Option<Vec<u64>>> {
+        let rids = rid_values(&self.sorted_plan(true).select([col(ROW_ID)]).collect()?)?;
+        let at = (at as usize).min(rids.len().saturating_sub(1));
+        let sel = &self.view.selected;
+        let hit = match forward {
+            true => rids
+                .iter()
+                .skip(at + 1)
+                .position(|r| sel.contains(r))
+                .map(|i| at + 1 + i),
+            false => rids[..at].iter().rposition(|r| sel.contains(r)),
+        };
+        Ok(hit.map(|h| rids[at.min(h)..=at.max(h)].to_vec()))
+    }
+
     /// `e` / `:edit`: set one cell (row id `rid`) of `column`.
     pub fn edit_cell(&mut self, column: &str, rid: u64, text: &str) -> Result<(), String> {
         self.set_rows(column, Arc::from([rid]), text)

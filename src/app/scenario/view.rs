@@ -964,3 +964,27 @@ async fn regex_select_any_column() {
     h.type_("x1").await; // matches the hidden X1 only, ignoring case
     assert_eq!(sel(&h), 0, "{}", status(&h));
 }
+
+/// S-41 B: `z}` selects down to the next selected row, `z{` up to the
+/// previous one; with none, a toast.
+#[tokio::test(flavor = "multi_thread")]
+async fn select_to_next_and_prev_selected() {
+    let mut h = csv(b"n\nr0\nr1\nr2\nr3\nr4\nr5\nr6\n").await;
+    let sel = |h: &Harness| {
+        h.app
+            .sheets
+            .active()
+            .view
+            .selected
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+    };
+    h.keys("5 j s").await; // r5 selected, cursor on r6
+    h.keys("g g j z }").await;
+    assert_eq!(sel(&h), [1, 2, 3, 4, 5], "{}", status(&h));
+    h.keys("g u G z {").await;
+    assert!(status(&h).contains("no selected row"), "{}", status(&h));
+    h.keys("g g s G z {").await;
+    assert_eq!(sel(&h).len(), 7, "{}", status(&h));
+}

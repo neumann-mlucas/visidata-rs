@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 72;
+const MIN_PASS: usize = 73;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -945,6 +945,19 @@ impl Replay {
             "select-row" => self.toggle_single(&r.row, true, false),
             "unselect-row" => self.toggle_single(&r.row, false, false),
             "stoggle-row" => self.toggle_single(&r.row, false, true),
+            "select-to-next-selected" | "select-to-prev-selected" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let rid = view_rid(s, &r.row)?;
+                let rt = |e: PolarsError| Runtime(e.to_string());
+                let at = s.view_rids().map_err(rt)?.iter().position(|x| *x == rid);
+                let forward = r.longname == "select-to-next-selected";
+                let rids = s
+                    .rids_to_selected(at.unwrap_or(0) as u64, forward)
+                    .map_err(rt)?
+                    .ok_or_else(|| Runtime("no selected row".into()))?;
+                Arc::make_mut(&mut s.view.selected).extend(rids);
+                Ok(())
+            }
             "select-col-regex"
             | "unselect-col-regex"
             | "select-cols-regex"

@@ -1405,6 +1405,21 @@ impl App {
                 });
             }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
+            Action::SelectToSelected { forward } => {
+                let at = self.cursor_row();
+                let sheet = self.sheets.active().clone();
+                self.spawn_job("select", move || {
+                    let rids = sheet
+                        .rids_to_selected(at, forward)
+                        .map_err(|e| e.to_string())?
+                        .ok_or("no selected row")?;
+                    Ok(JobDone::SelectIn {
+                        sheet: sheet.id,
+                        select: true,
+                        rids,
+                    })
+                });
+            }
             // checkpointed when the rows arrive (`JobDone::SelectIn`)
             Action::SelectBefore | Action::UnselectBefore => {
                 let select = matches!(action, Action::SelectBefore);

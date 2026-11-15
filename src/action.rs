@@ -27,6 +27,11 @@ pub enum Action {
     SelectBefore,
     /// `zu` (VisiData unselect-before): unselect rows from the top to the cursor.
     UnselectBefore,
+    /// `z}` / `z{` (VisiData select-to-next/prev-selected): select from the
+    /// cursor to the next (previous) selected row.
+    SelectToSelected {
+        forward: bool,
+    },
     /// `zc` (VisiData go-col-number): prompt for a column number.
     StartGoColInput,
     /// `zo` (VisiData open-cell-file): open the path in the cursor cell.
@@ -800,6 +805,7 @@ impl Action {
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
+            SelectToSelected { .. } => true,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
@@ -1060,6 +1066,8 @@ impl Action {
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("select_before", SelectBefore),
+        ("select_to_next_selected", SelectToSelected { forward: true }),
+        ("select_to_prev_selected", SelectToSelected { forward: false }),
         ("unselect_before", UnselectBefore),
         ("start_go_col_input", StartGoColInput),
         ("open_cell_file", OpenCellFile),

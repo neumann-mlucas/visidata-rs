@@ -111,6 +111,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|
 | `SelectRow` / `ToggleSelectRow` / `UnselectRow` | `s` / `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan); cursor moves down after, as VisiData |
 | `SelectBefore` / `UnselectBefore` | `zs` / `zu` | rows from the top to the cursor; background job |
+| `SelectToSelected { forward }` | `z}` / `z{` | the cursor row through the next (previous) selected row, view order; none → `no selected row`; `Sheet::rids_to_selected`, background job (S-41 B) |
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
 | `SelectByRegex { regex, unselect, all }` | — | regex (case-insensitive, VisiData's `regex_flags` `I`) over the current col, or any visible col (`all`); whole view; `Sheet::rids_matching_any` (S-41 A) |
 | `StartSelectInput { unselect, all }` → prompt | `\|` `\\` `g\|` `g\\` | — |

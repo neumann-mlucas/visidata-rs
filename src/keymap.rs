@@ -164,6 +164,8 @@ impl Keymap {
             ch("g |", StartSelectInput { unselect: false, all: true }, "select by regex in any visible column"),
             ch("g \\", StartSelectInput { unselect: true, all: true }, "unselect by regex in any visible column"),
             ch("z s", SelectBefore, "select rows from the top to the cursor"),
+            ch("z }", SelectToSelected { forward: true }, "select rows down to the next selected row"),
+            ch("z {", SelectToSelected { forward: false }, "select rows up to the previous selected row"),
             ch("z u", UnselectBefore, "unselect rows from the top to the cursor"),
             ch("z |", StartSelectExprInput { unselect: false }, "select rows by SQL predicate"),
             ch("z \\", StartSelectExprInput { unselect: true }, "unselect rows by SQL predicate"),

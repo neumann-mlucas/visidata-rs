@@ -217,7 +217,7 @@ save-geojson	NO_GOLDEN golden is .geojson
 save-json	SKIP serialize: ExpectedObjectColon at character 33 (',')
 save-jsonla	NO_GOLDEN golden is .jsonla
 save-usv	NO_GOLDEN golden is .usv
-select-to-selected	SKIP select-to-next-selected
+select-to-selected	PASS
 setcol-precision	PASS
 setcol_fake	UNTESTABLE setcol-fake
 setcol_precision_less	PASS

@@ -1,6 +1,6 @@
 # S-41 — VisiData commands the replay corpus is blocked on
 
-Status: **drafted 2026-11-15**; A shipped 2026-11-15.
+Status: **drafted 2026-11-15**; A, B shipped 2026-11-15.
 Depends on: S-25 P0 (replay harness), S-33 (background selection jobs).
 
 ## 1. Today
@@ -31,6 +31,7 @@ keymap; the vim profile is unchanged.
   case-insensitive too (it was case-sensitive, unlike VisiData). The replay's own
   `select-col-regex` / `unselect-col-regex` code (case-sensitive, row index as row id) is gone:
   all four longnames go through `rids_matching_any`. load-pandas-2 passes (72).
+- **B**: one background job over the sorted view's row ids. select-to-selected passes (73).
 
 ## 3. Out of scope
 
