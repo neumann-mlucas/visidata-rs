@@ -550,7 +550,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             let mut reg = r.borrow_mut();
             if reg.current.is_none() {
                 return Err(mlua::Error::RuntimeError(
-                    "vd.toast works inside a vd.bind function".into(),
+                    "vd.toast works inside a vd.bind, vd.command or vd.on function".into(),
                 ));
             }
             reg.toasts.push(msg);
@@ -594,7 +594,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             let r = registry(lua)?;
             if r.borrow().current.is_none() {
                 return Err(mlua::Error::RuntimeError(
-                    "vd.push_sheet works inside a vd.bind function".into(),
+                    "vd.push_sheet works inside a vd.bind, vd.command or vd.on function".into(),
                 ));
             }
             let sheet = sheet_from_lua(&spec)?;

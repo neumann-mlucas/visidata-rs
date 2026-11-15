@@ -1041,7 +1041,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 <p>From <code>vd.api_version</code> 10, <code>render</code> can return a table instead, to style the cell: <code>{ text = "(5)", fg = "red", bg = "#202020", bold = true }</code>. Every field is optional: no <code>text</code> keeps the normal text. Colors are those of <code>:color</code>; a color it doesn't know is left out. Styles also support <code>italic</code>, <code>underline</code> and <code>reverse</code>. The cursor row and selected rows keep their own colors, and <code>:color</code> rules paint over the renderer's style.</p>
 
 <h3>vd.sheet(), vd.toast(message)</h3>
-<p>Only inside a function bound with <code>vd.bind</code>. <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
+<p>Inside a <code>vd.bind</code>, <code>vd.command</code> or <code>vd.on</code> function (at the top level of <code>init.lua</code>, <code>vd.sheet()</code> returns <code>nil</code> and <code>vd.toast</code> is an error). <code>vd.sheet()</code> returns the current sheet: <code>name</code>, <code>cursor.row</code> and <code>cursor.col</code> (counting from 1), <code>column</code> (current column name), <code>value</code> (current cell; <code>nil</code> if empty) and <code>column_names</code>. <code>vd.toast</code> shows a message in the status line.</p>
 
 <h3>vd.exec(command)</h3>
 <p>Inside a <code>vd.bind</code>, <code>vd.command</code> or <code>vd.on</code> function: run an ex command (<code>":sort -date"</code>, or an action name) once the function returns. Several run in order, each after the previous one's background work, like a macro.</p>
@@ -1061,7 +1061,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 end)</code></pre>
 
 <h3>vd.push_sheet { name, columns, rows }</h3>
-<p>Only inside a function bound with <code>vd.bind</code>. Opens a new sheet from Lua data once the function returns; <kbd>q</kbd> closes it like any other. <code>columns</code> lists the column names in order; <code>rows</code> is an array of rows, each an array of values in that order (<code>nil</code> is an empty cell). <code>name</code> is optional. Each column's type follows its values: all integers → integer, any other number → float, all booleans → boolean, anything else → text.</p>
+<p>Inside a <code>vd.bind</code>, <code>vd.command</code> or <code>vd.on</code> function. Opens a new sheet from Lua data once the function returns; <kbd>q</kbd> closes it like any other. <code>columns</code> lists the column names in order; <code>rows</code> is an array of rows, each an array of values in that order (<code>nil</code> is an empty cell). <code>name</code> is optional. Each column's type follows its values: all integers → integer, any other number → float, all booleans → boolean, anything else → text.</p>
 <pre><code>vd.bind("sheet", "&lt;F3&gt;", function()        -- a sheet listing the columns
   local rows = {}
   for i, name in ipairs(vd.sheet().column_names) do
