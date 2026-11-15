@@ -27,6 +27,11 @@ impl App {
             Action::DeleteRow => false, // d: hide, as VisiData drops it
             Action::HideUniform | Action::DeleteSelected => true, // g- gd
             Action::KeySelected { .. } | Action::TypeSelected { .. } => true,
+            // VisiData's ColumnsSheet g%; `.` repeats the cast
+            Action::SetcolPrecisionInput => {
+                self.dispatch_sequence(vec![Action::TypeSelected { name: "float" }]);
+                return true;
+            }
             Action::StartAggregateInput { memo, selected } => {
                 self.start_input(Prompt::Aggregate {
                     memo: *memo,

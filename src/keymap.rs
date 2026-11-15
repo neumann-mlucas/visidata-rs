@@ -225,7 +225,7 @@ impl Keymap {
             ch("g !", KeySelected { on: true }, "columns sheet: key selected columns"),
             ch("g z !", KeySelected { on: false }, "columns sheet: unkey selected columns"),
             ch("g #", TypeSelected { name: "int" }, "columns sheet: selected columns int"),
-            ch("g %", TypeSelected { name: "float" }, "columns sheet: selected columns float; else float precision"),
+            ch("g %", SetcolPrecisionInput, "float precision; columns sheet: selected columns float"),
             ch("g ~", TypeSelected { name: "str" }, "columns sheet: selected columns text"),
             ch("g @", TypeSelected { name: "date" }, "columns sheet: selected columns date"),
             ch("g $", TypeSelected { name: "currency" }, "columns sheet: selected columns currency"),

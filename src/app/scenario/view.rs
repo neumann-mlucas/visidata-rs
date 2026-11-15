@@ -773,3 +773,32 @@ async fn resize_col_max_measures_display_format() {
     h.keys("_").await;
     assert!(width(&h) > 40, "{}", width(&h));
 }
+
+/// `g%` is VisiData's setcol-precision-input; `.` doesn't reopen the prompt.
+/// On the columns sheet it is type-float-selected, and `.` repeats the cast.
+#[tokio::test(flavor = "multi_thread")]
+async fn g_percent_precision_prompt_and_columns_sheet_float() {
+    let mut h = csv(b"a,b\n1,2\n").await;
+    h.keys("g %").await;
+    assert!(h.app.input.is_some());
+    assert_eq!(h.app.last_action, None);
+    h.keys("<Esc>").await;
+    h.keys("C s g % q").await;
+    let dtype = |h: &Harness, c: &str| {
+        h.app
+            .sheets
+            .active()
+            .window()
+            .unwrap()
+            .column(c)
+            .unwrap()
+            .dtype()
+            .clone()
+    };
+    assert_eq!(dtype(&h, "a"), DataType::Float64, "{}", status(&h));
+    assert_eq!(dtype(&h, "b"), DataType::Int64);
+    assert_eq!(
+        h.app.last_action,
+        Some(vec![Action::TypeSelected { name: "float" }])
+    );
+}

@@ -35,6 +35,9 @@ pub enum Action {
     ResizeColMax,
     /// `^V` (VisiData show-version).
     ShowVersion,
+    /// `g%` (VisiData setcol-precision-input): prompt for float precision;
+    /// on the columns sheet, type-float-selected.
+    SetcolPrecisionInput,
     HideCol,
     UnhideAll,
     KeyCol, // toggle on current column
@@ -744,7 +747,7 @@ impl Action {
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
-            StartGoColInput | ShowVersion => false,
+            StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
@@ -1004,6 +1007,7 @@ impl Action {
         ("open_cell_file", OpenCellFile),
         ("resize_col_max", ResizeColMax),
         ("show_version", ShowVersion),
+        ("setcol_precision_input", SetcolPrecisionInput),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),
         ("plot_wider", PlotResize { wider: 1, taller: 0 }),
         ("plot_taller", PlotResize { wider: 0, taller: 1 }),

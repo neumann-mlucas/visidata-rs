@@ -1191,8 +1191,7 @@ impl App {
             }
             Action::OpenColumns => self.open_columns(false),
             Action::OpenColumnsAll => self.open_columns(true),
-            // VisiData's g% off the columns sheet: float precision
-            Action::TypeSelected { name: "float" } => {
+            Action::SetcolPrecisionInput => {
                 self.start_input(Prompt::Ex);
                 if let Some((_, line)) = self.input.as_mut() {
                     line.set("precision ");
