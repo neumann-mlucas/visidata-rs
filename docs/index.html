@@ -111,6 +111,7 @@ td:first-child { white-space: nowrap; }
         <a href="#open">Opening data</a>
         <a href="#tour">A first session</a>
         <a href="#screen">The screen</a>
+        <a href="#from-vd">Coming from VisiData</a>
       </div>
       <div><p class="group">Workflows</p>
         <a href="#wf-clean">Clean an export</a>
@@ -227,6 +228,28 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <li><strong>Status line</strong>: a short key hint, or messages, prompts (<code>/</code>, <code>:</code>, …), <code>working: …</code> while a long command runs in the background, a pending count (<code>count: 3</code>) or a pending key chord. When you press the first key of a chord (for example <kbd>g</kbd> or <kbd>z</kbd>), a popup lists what can follow.</li>
 </ul>
 <p>Messages stay until your next key press.</p>
+
+<h2 id="from-vd">Coming from VisiData</h2>
+<p>The keys are VisiData's, with a few exceptions listed in <a href="#breaking">Changed keys</a>. What works differently:</p>
+<ul>
+<li><strong>Expressions are SQL, not Python.</strong> <kbd>=</kbd>, <kbd>g</kbd><kbd>=</kbd>, <kbd>z</kbd><kbd>|</kbd> and <kbd>z</kbd><kbd>/</kbd> take Polars SQL expressions over column names.</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>VisiData (Python)</th><th>vdrs (SQL)</th></tr>
+<tr><td><code>name.upper()</code></td><td><code>upper(name)</code></td></tr>
+<tr><td><code>date.strftime('%Y-%m')</code></td><td><code>strftime(date, '%Y-%m')</code></td></tr>
+<tr><td><code>a + b</code> (text)</td><td><code>a || b</code></td></tr>
+<tr><td><code>x if c else y</code></td><td><code>CASE WHEN c THEN x ELSE y END</code></td></tr>
+<tr><td><code>qty &gt; 10 and name.startswith('b')</code></td><td><code>qty &gt; 10 AND name LIKE 'b%'</code></td></tr>
+</table></div>
+<ul>
+<li><strong>Config is Lua.</strong> <code>.visidatarc</code> becomes <code>~/.config/vdrs/init.lua</code>: <code>options.disp_float_fmt = '%.2f'</code> is <code>vd.option("disp_float_fmt", "%.2f")</code>, and <code>bindkey</code> is <code>vd.bind</code>. Only a few options exist; see <a href="#lua">Lua configuration</a>.</li>
+<li><strong><kbd>:</kbd> is the ex command line</strong> (VisiData: split column). There is no cmdlog; <kbd>D</kbd> is diff.</li>
+<li><strong>Edits stay in the sheet</strong> until <code>:save</code>; the file you opened is never changed (<a href="#change">Changing data</a>).</li>
+<li><strong>Loaders</strong>: a core set (<a href="#open">Opening data</a>); add others with a <a href="#lua-loader">Lua loader</a>.</li>
+<li><strong>New here</strong>: the query plan in the sidebar (<a href="#plan">Sidebar &amp; plan</a>), <code>:export view.py</code> to turn the view into a script (<a href="#save">Saving &amp; export</a>), an undo tree (<code>:undotree</code>, <a href="#wf-undo">Back out of a wrong turn</a>) and sessions (<a href="#wf-session">Pick up tomorrow</a>).</li>
+</ul>
+<p>What's missing on purpose is in <a href="#limits">Limitations</a>.</p>
 
 <h2 id="workflows">Workflows</h2>
 <p>Real tasks, start to finish. Every screen here is recorded from vdrs by the test suite, so it is exactly what you will see. The files are in <a href="https://github.com/neumann-mlucas/visidata-rs/tree/master/docs/fixtures"><code>docs/fixtures</code></a>: <code>cd docs/fixtures</code> and follow along.</p>
