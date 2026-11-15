@@ -136,13 +136,7 @@ impl App {
     pub(super) fn change_rows(&mut self, lo: u64, hi: u64) {
         let s = self.sheets.active();
         let col = s.view.col_cursor;
-        self.last_visual = Some(Visual {
-            sheet: s.id,
-            row: lo,
-            col,
-            end: (hi, col),
-            block: false,
-        });
+        self.last_visual = Some(Visual::new(s, lo, col, (hi, col), false));
         self.start_input(Prompt::Ex);
         if let Some((_, line)) = self.input.as_mut() {
             line.set("'<,'> setcol ");
@@ -215,11 +209,11 @@ impl App {
     }
 
     /// The visual range with its moving corner at the cursor; `None` when
-    /// the active sheet isn't the one it was started on.
+    /// the active sheet isn't the one it was started on, or its rows moved.
     pub(in crate::app) fn live_visual(&self) -> Option<Visual> {
         let mut v = self.visual?;
         let s = self.sheets.active();
-        if v.sheet != s.id {
+        if !v.on(s) {
             return None;
         }
         v.end = (
@@ -324,10 +318,7 @@ impl App {
         let s = self.sheets.active();
         let cursor = s.view.window_offset + s.view.row_cursor as u64;
         let total = s.row_count();
-        let marks = self
-            .last_visual
-            .filter(|v| v.sheet == s.id)
-            .map(|v| v.rows());
+        let marks = self.last_visual.filter(|v| v.on(s)).map(|v| v.rows());
         let line = |a: &Addr| match a {
             Addr::Line(n) => Ok(n.saturating_sub(1)),
             Addr::Cursor => Ok(cursor),

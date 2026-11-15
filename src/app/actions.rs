@@ -487,13 +487,7 @@ impl App {
                 let s = self.sheets.active();
                 let row = s.view.window_offset + s.view.row_cursor as u64;
                 let col = s.view.col_cursor;
-                self.visual = Some(Visual {
-                    sheet: s.id,
-                    row,
-                    col,
-                    end: (row, col),
-                    block,
-                });
+                self.visual = Some(Visual::new(s, row, col, (row, col), block));
             }
             Action::RegisterPrefix => self.awaiting = Some(crate::app::Await::Register),
             Action::SetMark => self.awaiting = Some(crate::app::Await::SetMark),
@@ -632,7 +626,7 @@ impl App {
                 });
             }
             Action::Reselect => match self.last_visual {
-                Some(v) if v.sheet == self.sheets.active().id => {
+                Some(v) if v.on(self.sheets.active()) => {
                     self.goto_row(v.end.0);
                     self.sheets.active_mut().view.col_cursor = v.end.1;
                     self.visual = Some(v);

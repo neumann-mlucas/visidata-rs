@@ -234,6 +234,23 @@ async fn visual_ranges_run_verbs_on_their_rows() {
     assert!(h.app.visual.is_some());
 }
 
+/// A sort while `V` is open closes it: the range held view positions, and
+/// they'd now name other rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn visual_range_closes_on_sort() {
+    let mut h = csv(b"id\n3\n1\n2\n").await;
+    h.keys("V j ]").await; // ] sorts descending
+    assert!(h.app.live_visual().is_none(), "{}", status(&h));
+    assert!(!status(&h).contains("VISUAL"), "{}", status(&h));
+    h.keys("s").await;
+    assert_eq!(
+        h.app.sheets.active().view.selected.len(),
+        1,
+        "s is plain again"
+    );
+    assert!(h.app.visual.is_none());
+}
+
 /// S-26 D: the vim profile's motions and its `u` / `U` swap.
 #[tokio::test(flavor = "multi_thread")]
 async fn vim_profile_motions_and_undo_keys() {

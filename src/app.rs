@@ -394,12 +394,13 @@ enum Prompt {
 }
 
 /// A visual range: from the anchor to the cursor (view rows from 0, and
-/// columns for a block).
-// ponytail: view rows, not row ids: a sort while it's open moves the range
-// with the positions, not the rows.
+/// columns for a block). It holds only while the sheet's rows keep their
+/// positions: a sort, filter or row-count change closes it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Visual {
     sheet: SheetId,
+    /// [`Visual::rows_key`] when it was taken.
+    key: u64,
     row: u64,
     col: usize,
     /// The other corner; the live range takes the cursor instead.
@@ -408,6 +409,27 @@ pub(crate) struct Visual {
 }
 
 impl Visual {
+    fn new(s: &Sheet, row: u64, col: usize, end: (u64, usize), block: bool) -> Self {
+        let key = Self::rows_key(s);
+        Visual {
+            sheet: s.id,
+            key,
+            row,
+            col,
+            end,
+            block,
+        }
+    }
+    /// What puts rows at view positions: sort, filter, row count.
+    fn rows_key(s: &Sheet) -> u64 {
+        use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+        let k = format!("{}|{:?}", s.count_key(), s.view.sort);
+        BuildHasherDefault::<DefaultHasher>::default().hash_one(k)
+    }
+    /// Still on `s`'s rows as they were.
+    fn on(&self, s: &Sheet) -> bool {
+        self.sheet == s.id && self.key == Self::rows_key(s)
+    }
     fn rows(&self) -> (u64, u64) {
         (self.row.min(self.end.0), self.row.max(self.end.0))
     }

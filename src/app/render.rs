@@ -516,7 +516,10 @@ impl App {
                     .collect::<Vec<_>>()
                     .join(" ")
             )),
-            _ if let Some(v) = self.live_visual().or(self.visual) => {
+            _ if let Some(v) = self
+                .live_visual()
+                .or(self.visual.filter(|v| v.sheet != self.sheets.active().id)) =>
+            {
                 let (a, b) = v.rows();
                 let what = if v.block { "block" } else { "rows" };
                 Line::from(format!(

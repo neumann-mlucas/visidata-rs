@@ -122,8 +122,9 @@ No key conflicts — all on `:`.
   block's columns, `"` new sheet. `:` pre-fills `:'<,'>`.
 - Reselect the last range: `gv` in the vim profile only (default `gv` = unhide-cols, §0); `:reselect`
   in both.
-- Visual ranges are row ids (survive sort, like selection).
-- Tests: scenario per verb on a range; range survives `[` sort; monkey gets `V`, `<C-v>`.
+- Visual ranges are view positions; a sort, filter or row-count change closes the open range (and
+  drops `'<,'>`), since a range of ids stops being contiguous once rows move.
+- Tests: scenario per verb on a range; `]` sort closes the range; monkey gets `V`, `<C-v>`.
 
 ## 5. Part D — `keymap = "vim"` profile (3–4 d)
 
