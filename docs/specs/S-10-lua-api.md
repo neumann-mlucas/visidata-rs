@@ -14,35 +14,42 @@ The Lua API is a contract. A plugin written against `vd.register_loader` at v0.4
 
 ## Shape
 
-### API surface (initial, v0.3.0)
+### API surface
+
+Shipped (`src/plugins.rs`; the guide's Lua section has the details):
 
 ```lua
 -- registration
-vd.register_loader { name, extensions, mimes?, open }     -- since 0.3.0
-vd.register_aggregator(name, fn)                           -- since 0.3.0
-vd.register_renderer { dtype, render }                     -- since 0.3.0
-vd.bind(layer, keys, action, desc?)                        -- since 0.3.0
-vd.unbind(layer, keys)                                     -- since 0.3.0
-
--- data
-vd.frame { columns = { name = { ... } } } -> Frame         -- since 0.3.0
-Frame:column(name) -> Series                               -- since 0.3.0
-Series:sum() / :mean() / :count() / :min() / :max()        -- since 0.3.0
-Series:std()                                               -- since 0.3.0
-Series:collect() -> table                                  -- since 0.3.0 (be careful on big data)
-
--- app
-vd.toast(msg)                                              -- since 0.3.0
-vd.sheet() -> Sheet                                        -- since 0.3.0
-Sheet.name, Sheet.cursor, Sheet.column_names               -- since 0.3.0
-vd.push_sheet { name?, columns, rows }      -- api_version 3
-vd.pop_sheet()                                             -- since 0.3.0
+vd.register_loader { name?, extensions, open }   -- `name` is accepted, unused
+vd.register_aggregator(name, fn)
+vd.register_renderer { column | dtype, render }
+vd.bind(layer, keys, action, desc?)
+vd.unbind(layer, keys)
+vd.command(name, fn)
+vd.on(event, fn)
 
 -- config
-vd.sandbox = true  -- planned (S-16), not built: Lua runs unsandboxed today; set false to re-enable os.*, io.*
+vd.set_theme(name)
+vd.option(name, value)
+vd.api_version
 
--- coroutines (lands when first plugin needs it)
-vd.co(fn) -> coroutine                                     -- since ?.?
+-- app (inside a bind / command / on function)
+vd.sheet() -> { name, cursor, column, value, column_names }
+vd.toast(msg)
+vd.push_sheet { name?, columns, rows }
+vd.exec(command)
+```
+
+Planned (S-16), not built:
+
+```lua
+vd.frame { columns = { name = { ... } } } -> Frame
+Frame:column(name) -> Series
+Series:sum() / :mean() / :count() / :min() / :max() / :std()
+Series:collect() -> table   -- careful on big data
+vd.pop_sheet()
+vd.sandbox = true           -- Lua runs unsandboxed today; false would re-enable os.*, io.*
+vd.co(fn) -> coroutine      -- when a plugin needs it
 ```
 
 This is small on purpose. S-09's rule: ship what's needed for the four shapes to work, nothing more. New verbs enter the API when a Lua user asks for them.
