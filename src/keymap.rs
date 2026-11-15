@@ -44,14 +44,6 @@ impl Keymap {
         }
     }
 
-    /// No bindings at all.
-    pub fn empty() -> Self {
-        Keymap {
-            sheet: Vec::new(),
-            input: Vec::new(),
-        }
-    }
-
     /// Append a chord to a layer. Plugins call this via `vd.bind`; last-declaration-wins
     /// resolution means the appended chord shadows an identical default.
     pub fn append(&mut self, layer: Layer, chord: Chord) {
