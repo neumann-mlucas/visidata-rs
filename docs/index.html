@@ -1076,6 +1076,7 @@ end, "list columns")</code></pre>
 <p><code>session_autosave</code>: <code>"false"</code> stops saving the session on quit (default <code>"true"</code>).</p>
 <p><code>keymap</code>: <code>"vim"</code> rebinds the keys where vim and VisiData disagree (below); everything else stays as listed in <a href="#keys">All keys</a>. Default <code>"visidata"</code>.</p>
 <p><code>disp_float_fmt</code>: decimals for float columns, VisiData's way: <code>"%.2f"</code> or <code>"{:.2f}"</code> (0 to 15). Unset, a float shows its shortest exact text up to 15 significant digits (<code>0.3</code>, <code>1176.47</code>). A column's own precision (<kbd>Alt</kbd><kbd>+</kbd>) wins.</p>
+<p><code>numeric_binning</code>: <code>"true"</code> makes <kbd>F</kbd> on a number column count equal ranges instead of values (default <code>"false"</code>); <code>histogram_bins</code>: how many ranges (default: the square root of the row count). See <a href="#sheets">Sheets</a>; <code>:set</code> changes both for one run.</p>
 <p><code>mouse</code>: <code>"true"</code> lets the wheel move the cursor three rows and a click put it on a cell (on the header: a column). Off by default, so the terminal's own text selection keeps working.</p>
 
 <p>Colors follow the terminal: 24-bit when <code>COLORTERM</code> is <code>truecolor</code> or <code>24bit</code>, else the nearest of the 256 xterm colors. With <code>NO_COLOR</code> set (to anything but empty) there are no colors: the cursor shows in reverse video, selected rows in bold, and <code>:color</code> rules in reverse video.</p>
