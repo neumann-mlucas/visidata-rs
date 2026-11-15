@@ -1,6 +1,6 @@
 # S-41 — VisiData commands the replay corpus is blocked on
 
-Status: **drafted 2026-11-15**; A–C, E shipped 2026-11-15; D deferred.
+Status: **shipped 2026-11-15** (A–C, E, F); D deferred.
 Depends on: S-25 P0 (replay harness), S-33 (background selection jobs).
 
 ## 1. Today
@@ -45,6 +45,13 @@ keymap; the vim profile is unchanged.
   replay now moves its cursor the way VisiData does: onto a column `addcol-incr-key` adds, and
   after `key-col` to whatever column now sits at the cursor's screen index (keys move left).
   incr-key passes (74).
+- **F**: `zs` / `zu` keep their meaning elsewhere; on a describe sheet (`Origin::Describe`)
+  they select on the parent. issue3223-median passes (75). issue3223 runs to the end but is
+  quarantined: the replay's `type-date` makes a plain date (it loads no window, so
+  `date_cast_type` sees no times; making it a datetime breaks save-benchmarks and
+  freq-same-int output). VisiData's mode is per timestamp, the replay's per day.
+
+Replay: 71 → 75 (load-pandas-2, select-to-selected, incr-key, issue3223-median).
 
 ## 3. Out of scope
 

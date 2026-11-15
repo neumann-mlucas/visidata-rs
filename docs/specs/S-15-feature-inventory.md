@@ -181,6 +181,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 |---|---|---|
 | Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null); rows dived from a freq sheet are a freq sheet again (`Origin::Freq` kept), so `<CR>` goes on to the source |
 | Describe | `I`, `:describe` | VisiData's describe sheet: per visible column `sheet` `column` `type` (sheet, type hidden), errors (failed type casts), nulls, distinct (null = one value), mode (first seen on ties); numbers: min max sum median mean stdev (sample); dates: min max, median when the count is odd (VisiData `#ERR` → empty) (background job) |
+| Describe select-cell | `zs` / `zu` on the describe sheet | the parent's view rows the cursor stat describes (`Sheet::described_rids`: errors, nulls, = mode/min/max, median low/high, distinct all, else non-null); a null stat → `no <stat> for <col>`; background job, `JobDone::SelectIn` on the parent (S-41 F) |
 | Pivot | `W` | key cols × current col, counts; with `+` aggregators one column per aggregator and value (`sum_Pencil`, VisiData names; S-35 B); no keys → one row |
 | Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background, Lua aggs too); Enter runs the full pivot |
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |

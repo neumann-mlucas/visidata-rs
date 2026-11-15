@@ -1008,3 +1008,27 @@ async fn search_keys_keeps_the_column() {
     h.keys("n").await;
     assert_eq!(pos(&h), (2, 1), "{}", status(&h));
 }
+
+/// S-41 F: `zs` on the describe sheet selects the rows a stat describes
+/// on the sheet below; an even count's median takes both middle rows.
+#[tokio::test(flavor = "multi_thread")]
+async fn describe_select_cell() {
+    let mut h = csv(b"n\n1\n2\n3\n4\n\n").await;
+    h.keys("I").await;
+    assert!(h.app.sheets.active().name.starts_with("describe"));
+    // column errors nulls distinct mode min max sum median
+    h.keys("8 l z s").await;
+    h.keys("2 h z s").await; // max
+    h.keys("4 h z s").await; // nulls
+    h.keys("q").await;
+    let sel: Vec<u64> = h
+        .app
+        .sheets
+        .active()
+        .view
+        .selected
+        .iter()
+        .copied()
+        .collect();
+    assert_eq!(sel, [1, 2, 3, 4], "{}", status(&h));
+}

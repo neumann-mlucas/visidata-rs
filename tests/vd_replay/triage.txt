@@ -118,10 +118,10 @@ issue3215-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3219-dedupe	FAIL line 3: want="1.0" got="abc"
 issue3219-dedupe-int	FAIL line 3: want="abc" got="<EOF>"
 issue3219-freq	FAIL line 2: want="1\t2\t28.57\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■" got="1\t3\t42.86\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
-issue3223	SKIP select-cell
+issue3223	FAIL line 2: want="2018-07-10\tSusan Ashworth\tCAT060\tCat, Korat (Felis catus)\t1\t$720.42\t$720.42" got="2018-08-20\tKyle Kennedy\tRETURN\tDog, Golden Retriev
 issue3223-distinct	FAIL line 2: want="n\t0\t0\t4\t1" got="n\t0\t0\t4\t1\t1\t4\t10.00\t2.5\t2.50\t1.29"
 issue3223-dive	SKIP dive-cell
-issue3223-median	SKIP select-cell
+issue3223-median	PASS
 issue3223-nostat	SKIP allow-error
 issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command

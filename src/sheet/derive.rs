@@ -570,6 +570,54 @@ impl Sheet {
         Ok(sheet)
     }
 
+    /// `zs` / `zu` on the describe sheet (VisiData select-cell, S-41 F): the
+    /// view rows of this sheet that `stat` of `column` describes. errors /
+    /// nulls: those cells; mode, min, max: rows equal to it; median: rows
+    /// equal to the middle value, or either middle value of an even count;
+    /// distinct: every row; the rest (sum, mean, stdev): rows with a value.
+    pub fn described_rids(&self, column: &str, stat: &str) -> Result<Vec<u64>, String> {
+        let e = |e: PolarsError| e.to_string();
+        let lf = self.sorted_plan_with(true, true);
+        let schema = lf.clone().collect_schema().map_err(e)?;
+        if !schema.contains(column) {
+            return Err(format!("no column {column}"));
+        }
+        let c = || col(column);
+        let err = match schema.contains(err_col(column).as_str()) {
+            true => col(err_col(column)),
+            false => lit(false),
+        };
+        let valid = || c().is_not_null().and(err.clone().not());
+        let sorted = || c().drop_nulls().sort(Default::default());
+        let n = || c().count();
+        let pred = match stat {
+            "errors" => err.clone(),
+            "nulls" => c().is_null().and(err.clone().not()),
+            "distinct" => lit(true),
+            "min" => c().eq(c().min()),
+            "max" => c().eq(c().max()),
+            "mode" => {
+                let cnt = c().count().over([c()]).map_err(e)?;
+                c().eq(c()
+                    .filter(c().is_not_null().and(cnt.clone().eq(cnt.max())))
+                    .first())
+            }
+            "median" => {
+                let low = sorted().get((n() - lit(1u32)) / lit(2u32), true);
+                let high = sorted().get(n() / lit(2u32), true);
+                c().eq(low).or(c().eq(high))
+            }
+            "sum" | "mean" | "stdev" => valid(),
+            _ => return Err("no rows described in this column".into()),
+        };
+        let df = lf
+            .filter(pred.fill_null(lit(false)))
+            .select([col(ROW_ID)])
+            .collect()
+            .map_err(e)?;
+        rid_values(&df).map_err(e)
+    }
+
     /// `W`: pivot of the current column `on`, rows keyed by `keys`: counts,
     /// or with `aggs` (the `+` aggregators, [`columns::freq_aggregators`])
     /// one column per aggregator and value, VisiData's names (S-35 B).

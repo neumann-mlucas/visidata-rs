@@ -45,7 +45,7 @@ File naming: `S-NN-slug.md`.
 | S-38 | `:set` data options, copies keep widths, `@` keeps the time, xlsx colour columns | S-35 C1/C2, S-31 | **A–C shipped 2026-11-14**, D waiting (parity) → [`S-38-set-widths-dates-xlsx.md`](S-38-set-widths-dates-xlsx.md) |
 | S-39 | Sources that aren't files: Lua loaders return rows, then `trait Source` | S-10, S-18 B | **A shipped 2026-11-15**; B gated → [`S-39-sources.md`](S-39-sources.md) |
 | S-40 | Lua config: `vd.augroup` + event options, project `.vdrs.lua` (trust, merge), multi-sheet loaders by name, Lua status line / title bar, Lua sidebar pages | S-29, S-39 A, S-37 P0c | **shipped 2026-11-15** (A–G) → [`S-40-lua-config-extensions.md`](S-40-lua-config-extensions.md) |
-| S-41 | VisiData commands the replay corpus is blocked on: regex select over columns, select-to-next-selected, search-keys, freeze-col, addcol-incr-key, describe select-cell | S-25 P0 | **drafted 2026-11-15** → [`S-41-replay-parity-commands.md`](S-41-replay-parity-commands.md) |
+| S-41 | VisiData commands the replay corpus is blocked on: regex select over columns, select-to-next-selected, search-keys, freeze-col, addcol-incr-key, describe select-cell | S-25 P0 | **shipped 2026-11-15** (A–C, E, F; D deferred) → [`S-41-replay-parity-commands.md`](S-41-replay-parity-commands.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

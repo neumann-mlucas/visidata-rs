@@ -1436,6 +1436,11 @@ impl App {
                 });
             }
             // checkpointed when the rows arrive (`JobDone::SelectIn`)
+            Action::SelectBefore | Action::UnselectBefore
+                if let Origin::Describe { parent } = self.sheets.active().origin =>
+            {
+                self.select_described(parent, matches!(action, Action::SelectBefore));
+            }
             Action::SelectBefore | Action::UnselectBefore => {
                 let select = matches!(action, Action::SelectBefore);
                 let n = self.cursor_row() as usize;

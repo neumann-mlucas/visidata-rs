@@ -79,6 +79,32 @@ impl App {
         });
     }
 
+    /// `zs` / `zu` on a describe sheet (VisiData select-cell / unselect-cell,
+    /// S-41 F): select the rows of `parent` the cursor stat describes.
+    pub(super) fn select_described(&mut self, parent: SheetId, select: bool) {
+        let s = self.sheets.active();
+        let stat = self.current_column_name().unwrap_or_default();
+        let column = s.cursor_value("column").map(|v| crate::sheet::any_text(&v));
+        let stat_value = s.cursor_value(&stat);
+        let Some(column) = column else { return };
+        if stat_value.as_ref().is_none_or(|v| v.is_null()) && stat != "distinct" {
+            self.toast = Some(format!("no {stat} for {column}"));
+            return;
+        }
+        let Some(p) = self.sheets.iter().find(|p| p.id == parent).cloned() else {
+            self.toast = Some("the described sheet is gone".into());
+            return;
+        };
+        self.spawn_job("select", move || {
+            let rids = p.described_rids(&column, &stat)?;
+            Ok(JobDone::SelectIn {
+                sheet: p.id,
+                select,
+                rids,
+            })
+        });
+    }
+
     /// `:select` / `:unselect` / `z|` / `z\`: rows where a SQL predicate holds.
     pub(super) fn select_by_expr(&mut self, expr: String, unselect: bool) {
         let sheet = self.sheets.active().clone();

@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 74;
+const MIN_PASS: usize = 75;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -747,6 +747,41 @@ impl Replay {
             "contract-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 s.contract(&r.col).map(drop).map_err(Runtime)
+            }
+            // `zs` / `zu` on the describe sheet: rows of the described sheet
+            "select-cell" | "unselect-cell" => {
+                let d = &self.current_slot()?.sheet;
+                let Origin::Describe { parent } = d.origin else {
+                    return Err(Runtime(format!("{} on a non-describe sheet", r.longname)));
+                };
+                let rt = |e: PolarsError| Runtime(e.to_string());
+                let df = d.view_plan().collect().map_err(rt)?;
+                let i: usize = r.row.parse().unwrap_or(0);
+                let column = df
+                    .column("column")
+                    .map_err(rt)?
+                    .get(i)
+                    .map(|v| av_display(&v))
+                    .map_err(rt)?;
+                let stat = df.column(&r.col).map_err(rt)?.get(i).map_err(rt)?;
+                if stat.is_null() && r.col != "distinct" {
+                    return Err(Runtime(format!("no {} for this column", r.col)));
+                }
+                let slot = (self.loaded.iter_mut())
+                    .find(|s| s.sheet.id == parent)
+                    .ok_or_else(|| Runtime("described sheet is gone".into()))?;
+                let rids = slot
+                    .sheet
+                    .described_rids(&column, &r.col)
+                    .map_err(Runtime)?;
+                let sel = Arc::make_mut(&mut slot.sheet.view.selected);
+                match r.longname == "select-cell" {
+                    true => sel.extend(rids),
+                    false => rids.iter().for_each(|x| {
+                        sel.remove(x);
+                    }),
+                }
+                Ok(())
             }
             "describe-sheet" => {
                 let id = self.alloc();
