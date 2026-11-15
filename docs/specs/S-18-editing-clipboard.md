@@ -306,7 +306,7 @@ Shared tools: unit tests next to the code; `scenario` (`Harness`, real keymap + 
 - Unit: position keys — insert after/before source rows, between two inserted rows (repeatedly, no
   renumbering), at the top, at the end; order of the result = expected rid list.
 - Scenario: `a` adds a blank row right after the cursor and moves there; `ga 3`; edit the new row; `U`.
-- Scenario: insert, then sort by a column, then `zo` (clear sort) → rows back at their inserted place.
+- Scenario: insert, then sort by a column, then `:unsort` (was `zo`) → rows back at their inserted place.
 - Scenario: `:tail` growth with inserted rows: new source rows append after all existing rows.
 - Scenario: `p` pastes copied rows by column name; missing columns null; mismatch refused.
 - Scenario: `A` new sheet → `a` → `e` → `:save x.csv` → reopen = typed rows.
