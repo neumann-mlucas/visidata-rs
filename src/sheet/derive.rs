@@ -1,3 +1,5 @@
+//! Derived sheets from a parent: frequency, pivot, describe, copies, selected and dive rows, dedupe, `:sql`, `:join`, `:unpivot`.
+
 use super::*;
 
 impl Sheet {

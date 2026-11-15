@@ -1,3 +1,5 @@
+//! [`PlanStep`]: an edit baked into the sheet's plan (rename, derive, setcol, …), and how it applies.
+
 use super::*;
 
 /// A change made to a sheet's base `plan` (as opposed to `View` state).
