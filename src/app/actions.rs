@@ -1334,25 +1334,16 @@ impl App {
                 });
             }
             Action::StartDiffInput => self.start_input(Prompt::Diff),
-            Action::SelectBefore => {
-                let s = self.sheets.active();
-                let n = s.view.window_offset as usize + s.view.row_cursor;
-                let sheet = s.clone();
+            // checkpointed when the rows arrive (`JobDone::SelectIn`)
+            Action::SelectBefore | Action::UnselectBefore => {
+                let select = matches!(action, Action::SelectBefore);
+                let n = self.cursor_row() as usize;
+                let sheet = self.sheets.active().clone();
                 self.spawn_job("select", move || {
-                    let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
-                    let note = format!("selected {} rows above the cursor", rids.len());
-                    Ok(JobDone::Select { rids, note })
-                });
-            }
-            Action::UnselectBefore => {
-                let s = self.sheets.active();
-                let n = s.view.window_offset as usize + s.view.row_cursor;
-                let sheet = s.clone();
-                self.spawn_job("unselect", move || {
                     let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
                     Ok(JobDone::SelectIn {
                         sheet: sheet.id,
-                        select: false,
+                        select,
                         rids,
                     })
                 });

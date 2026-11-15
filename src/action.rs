@@ -680,8 +680,6 @@ impl Action {
                 | Action::SelectRow
                 | Action::UnselectRow
                 | Action::SelectAll
-                | Action::SelectBefore
-                | Action::UnselectBefore
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
                 | Action::SelectExpr { .. }

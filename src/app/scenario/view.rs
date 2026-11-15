@@ -698,3 +698,22 @@ async fn visidata_s_t_u_move_down_zu_unselects_above_g_percent_precision() {
     h.type_("3").await;
     assert!(h.screen().contains("1.500"), "{}", h.screen());
 }
+
+/// `zs` / `zu` are one `U` step each: the next `U` undoes what came before.
+#[tokio::test(flavor = "multi_thread")]
+async fn select_unselect_before_is_one_undo_step() {
+    let mut h = csv(b"a\n1\n2\n3\n4\n").await;
+    let sel = |h: &Harness| h.app.sheets.active().view.selected.len();
+    h.keys("g s").await; // the selection lands before `zu` starts
+    h.keys("G z u").await;
+    assert_eq!(sel(&h), 1, "{}", status(&h));
+    h.keys("U").await;
+    assert_eq!(sel(&h), 4, "{}", status(&h));
+    h.keys("U").await; // undoes `gs`
+    assert_eq!(sel(&h), 0, "{}", status(&h));
+    h.keys("g u").await;
+    h.keys("G z s").await;
+    assert_eq!(sel(&h), 3, "{}", status(&h));
+    h.keys("U").await;
+    assert_eq!(sel(&h), 0, "{}", status(&h));
+}
