@@ -402,7 +402,7 @@ impl App {
             Action::Unpivot { on, index } => self.open_unpivot(&on, &index),
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
-            Action::Open { path } => self.open_file(&path),
+            Action::Open { path, format } => self.open_file(&path, format.as_deref()),
             Action::Source { path } => self.source(&path, false),
             Action::Patch { column, path } => {
                 let read = polars::prelude::LazyFrame::scan_parquet(
@@ -1403,7 +1403,7 @@ impl App {
                 } else if !path.contains("://") && !std::path::Path::new(&path).exists() {
                     self.toast = Some(format!("file {path} does not exist"));
                 } else {
-                    self.dispatch(Action::Open { path });
+                    self.dispatch(Action::Open { path, format: None });
                 }
             }
             Action::ResizeColMax => {
@@ -1818,6 +1818,24 @@ impl App {
                 }
                 self.goto_column(&column);
                 self.goto_row(row - 1);
+                self.spawn_materialize();
+            }
+            Origin::Parts { .. } if !self.sheets.active().source.parts.is_empty() => {
+                let s = self.sheets.active();
+                let name = s
+                    .cursor_value("part")
+                    .and_then(|v| v.get_str().map(String::from));
+                let part = s
+                    .source
+                    .parts
+                    .iter()
+                    .find(|(n, _)| Some(n) == name.as_ref());
+                let Some(src) = part.map(|(_, src)| src.clone()) else {
+                    return;
+                };
+                let id = self.sheets.alloc_id();
+                let child = Sheet::from_shared(id, src);
+                self.sheets.push(child);
                 self.spawn_materialize();
             }
             Origin::Parts { path, kind } => {

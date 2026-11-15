@@ -388,8 +388,11 @@ pub enum Action {
     RepeatLast,
     Redraw,
     /// `:open <path>` (S-29): a file as a new sheet, as on the command line.
+    /// `:open path [format]`: `format`, a built-in kind or a Lua loader's
+    /// name (S-40 C2).
     Open {
         path: String,
+        format: Option<String>,
     },
     /// `:cursor <row> [column]`: row counts from 1 in the view.
     SetCursor {
@@ -1224,7 +1227,11 @@ impl Action {
             SetCol { value } => format!("setcol {}", q(value)),
             EditCell { value } => format!("edit {}", q(value)),
             ExCommand(s) => s.clone(),
-            Open { path } => format!("open {}", q(path)),
+            Open { path, format: None } => format!("open {}", q(path)),
+            Open {
+                path,
+                format: Some(f),
+            } => format!("open {} {}", q(path), q(f)),
             SetCursor { row, column: None } => format!("cursor {row}"),
             SetCursor {
                 row,
@@ -1494,6 +1501,11 @@ mod tests {
             KeySelected { on: false },
             Open {
                 path: s("data/a b.csv"),
+                format: None,
+            },
+            Open {
+                path: s("blocks.txt"),
+                format: Some(s("cvsv")),
             },
             SetCursor {
                 row: 12,

@@ -23,6 +23,39 @@ fn vdrs(args: &[&str], stdin: &[u8]) -> Output {
     child.wait_with_output().unwrap()
 }
 
+/// `vdrs` with `init_lua` as its config.
+fn vdrs_lua(args: &[&str], init_lua: &str) -> Output {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("vdrs")).unwrap();
+    std::fs::write(dir.path().join("vdrs/init.lua"), init_lua).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_vdrs"))
+        .args(args)
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env("XDG_STATE_HOME", dir.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+/// S-40 C2: `--format` / `-f` takes a Lua loader's name.
+#[test]
+fn format_names_a_lua_loader() {
+    let f = tempfile::Builder::new().suffix(".txt").tempfile().unwrap();
+    let lua = r#"vd.register_loader { name = "rows", open = function(p)
+        return { columns = { "who" }, rows = { { "loader" } } } end }"#;
+    let p = f.path().to_str().unwrap();
+    let o = vdrs_lua(&[p, "--headless", "-f", "rows"], lua);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(text(&o.stdout).contains("loader"), "{}", text(&o.stdout));
+    let o = vdrs_lua(&[p, "--headless", "--format", "nope"], lua);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(
+        text(&o.stderr).contains("unknown format nope"),
+        "{}",
+        text(&o.stderr)
+    );
+}
+
 fn text(b: &[u8]) -> String {
     String::from_utf8_lossy(b).into_owned()
 }

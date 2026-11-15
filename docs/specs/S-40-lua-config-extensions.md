@@ -140,7 +140,13 @@ Tests: unit (walk-up stops at `$HOME`, merge order per kind, `vd.reset()` refuse
 last loader wins); scenario: untrusted file → toast, `:trust` → the project key works, edit the
 file → untrusted again.
 
-## C. Loaders: rows, several sheets, choosing a loader (2–2.5 d, after S-39 A)
+## C. Loaders: rows, several sheets, choosing a loader (2–2.5 d, after S-39 A) — shipped 2026-11-15
+
+As built: parts are opened (paths scanned, rows in memory) when the loader runs and kept in
+`LoadedSource.parts`; the list is an `Origin::Parts` sheet with one `part` column. Not done: the
+column sidebar naming the loader, stdin through a loader (refused: a loader gets a path; a kept
+tempfile would fix it), and sessions keep `:open file` without the loader name (a loader picked
+by name on a file no pattern claims reopens with the built-in reader).
 
 S-39 A lets `open(path)` return `{ columns, rows }` (one sheet). This part adds:
 

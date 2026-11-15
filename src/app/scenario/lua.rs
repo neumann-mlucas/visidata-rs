@@ -492,3 +492,43 @@ async fn project_config_needs_trust() {
     h.pump().await;
     assert!(status(&h).contains("not trusted: :trust"), "{}", status(&h));
 }
+
+/// S-40 C1: a loader's parts open on a list; `<CR>` opens one, `F` works on it.
+#[tokio::test(flavor = "multi_thread")]
+async fn loader_parts_list_and_dive() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("blocks.cvsv");
+    std::fs::write(&file, "## a\nk\n1\n1\n## b\nk\n2\n## c\nk\n3\n").unwrap();
+    let mut h = with_lua(
+        2,
+        r#"vd.register_loader { name = "cvsv", extensions = "cvsv", open = function(path)
+          local parts, cur = {}, nil
+          for line in io.lines(path) do
+            local name = line:match("^## (.+)$")
+            if name then cur = { name = name, columns = nil, rows = {} }; table.insert(parts, cur)
+            elseif cur.columns == nil then cur.columns = { line }
+            else table.insert(cur.rows, { tonumber(line) }) end
+          end
+          return { parts = parts }
+        end }"#,
+    )
+    .await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", file.display())).await;
+    let t = csv_text(h.app.sheets.active(), b',');
+    assert_eq!(t, "part\na\nb\nc\n");
+    h.keys("<CR>").await;
+    assert!(
+        h.app.sheets.active().name.ends_with("blocks.cvsv:a"),
+        "{}",
+        h.app.sheets.active().name
+    );
+    h.keys("F").await;
+    assert_eq!(
+        csv_text(h.app.sheets.active(), b',')
+            .lines()
+            .nth(1)
+            .map(|l| l.starts_with("1,2,")),
+        Some(true)
+    );
+}

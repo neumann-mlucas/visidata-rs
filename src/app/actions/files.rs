@@ -12,7 +12,7 @@ fn source_steps(text: &str, exists: impl Fn(&str) -> bool) -> (Vec<Action>, Vec<
         if cmd.is_empty() || cmd.starts_with('#') {
             continue;
         }
-        if let Ok([Action::Open { path } | Action::Tail { path, .. }]) =
+        if let Ok([Action::Open { path, .. } | Action::Tail { path, .. }]) =
             crate::exline::parse(cmd).as_deref()
         {
             skipping = !exists(path);
@@ -58,27 +58,19 @@ impl App {
     }
 
     /// `:open`: like the command line, a multi-part file opens on its list.
-    pub(super) fn open_file(&mut self, path: &str) {
-        let Ok(opened) = self.open_with_loader("open", path) else {
+    pub(super) fn open_file(&mut self, path: &str, format: Option<&str>) {
+        let Ok(opened) = self.open_with_format("open", path, format) else {
             return;
         };
         let id = self.sheets.alloc_id();
         let path = path.to_string();
+        let kind = format.and_then(crate::plugins::builtin_format);
         self.spawn_job("open", move || {
             let loaded = match opened {
                 Some(l) => l,
-                None => crate::reader::open(path.as_ref(), None).map_err(|e| e.to_string())?,
+                None => crate::reader::open(path.as_ref(), kind).map_err(|e| e.to_string())?,
             };
-            let parts = match &loaded.path {
-                Some(p) => crate::reader::list_parts(p, loaded.kind).unwrap_or_default(),
-                None => Vec::new(),
-            };
-            let s = if parts.is_empty() && loaded.kind != crate::reader::SourceKind::Duckdb {
-                Sheet::from_source(id, loaded)
-            } else {
-                Sheet::parts_list(id, loaded, parts)
-            };
-            Ok(JobDone::PushSheet(Box::new(s)))
+            Ok(JobDone::PushSheet(Box::new(Sheet::opened(id, loaded))))
         });
     }
 
@@ -268,7 +260,7 @@ impl App {
     /// Whether a Lua loader claims `path`: those run here, on the VM's thread.
     pub(super) fn lua_loader_for(&self, path: &str) -> bool {
         let p = self.plugins.as_ref();
-        p.is_some_and(|p| p.resolve_loader(std::path::Path::new(path)).is_some())
+        p.is_some_and(|p| p.loader_for(path, None).is_some())
     }
 
     /// Open `path` now through a Lua loader, or return None for `job` to read it.
@@ -277,12 +269,27 @@ impl App {
         label: &str,
         path: &str,
     ) -> Result<Option<crate::reader::LoadedSource>, ()> {
-        if !self.lua_loader_for(path) {
+        self.open_with_format(label, path, None)
+    }
+
+    /// [`Self::open_with_loader`]; `format` a loader's name runs it (an
+    /// unknown one is an error), a built-in kind is for the job's reader.
+    pub(super) fn open_with_format(
+        &mut self,
+        label: &str,
+        path: &str,
+        format: Option<&str>,
+    ) -> Result<Option<crate::reader::LoadedSource>, ()> {
+        let lua = match format {
+            Some(f) => crate::plugins::builtin_format(f).is_none(),
+            None => self.lua_loader_for(path),
+        };
+        if !lua {
             return Ok(None);
         }
-        crate::plugins::open(self.plugins.as_ref(), path.as_ref(), None)
+        crate::plugins::open(self.plugins.as_ref(), path.as_ref(), format)
             .map(Some)
-            .map_err(|e| self.toast = Some(format!("{label}: {e}")))
+            .map_err(|e| self.fail(format!("{label}: {e}")))
     }
 
     pub(super) fn open_diff(&mut self, path: &str, keys: &[String]) {

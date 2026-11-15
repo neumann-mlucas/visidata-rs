@@ -617,6 +617,11 @@ pub(crate) fn extend_prefix(right: &Sheet) -> &str {
 
 impl Sheet {
     pub fn from_source(id: SheetId, loaded: LoadedSource) -> Self {
+        Self::from_shared(id, Arc::new(loaded))
+    }
+
+    /// [`Self::from_source`] of a source other sheets may share (a loader's part).
+    pub fn from_shared(id: SheetId, loaded: Arc<LoadedSource>) -> Self {
         let name = loaded.display_name.clone();
         let kind = loaded.kind;
         let plan = with_rids(loaded.lazy.clone());
@@ -624,7 +629,7 @@ impl Sheet {
             id,
             name,
             kind,
-            source: Arc::new(loaded),
+            source: loaded,
             plan,
             view: View::default(),
             window: None,

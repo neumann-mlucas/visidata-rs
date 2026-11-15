@@ -303,6 +303,9 @@ pub struct LoadedSource {
     /// Opened through a Lua loader: `display_name` is the file the user opened
     /// (`path` is what the loader wrote, or none when it returned rows).
     pub via_loader: bool,
+    /// A Lua loader's parts (S-40 C1), when it gave more than one: this
+    /// source is their list, `<CR>` opens one.
+    pub parts: Vec<(String, std::sync::Arc<LoadedSource>)>,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -321,6 +324,7 @@ impl LoadedSource {
             path,
             lazy: df.lazy(),
             via_loader: false,
+            parts: Vec::new(),
             _tempfile: None,
         }
     }
@@ -333,6 +337,7 @@ impl LoadedSource {
             path: None,
             lazy: DataFrame::empty().lazy(),
             via_loader: false,
+            parts: Vec::new(),
             _tempfile: None,
         }
     }
@@ -382,6 +387,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         path: Some(dir.to_owned()),
         lazy,
         via_loader: false,
+        parts: Vec::new(),
         _tempfile: None,
     })
 }
@@ -420,6 +426,7 @@ pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSour
         path: Some(path.to_owned()),
         lazy,
         via_loader: false,
+        parts: Vec::new(),
         _tempfile: tempfile,
     })
 }
@@ -559,6 +566,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         path: Some(path.to_owned()),
         lazy,
         via_loader: false,
+        parts: Vec::new(),
         _tempfile: tempfile,
     })
 }
@@ -787,6 +795,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         path: None,
         lazy,
         via_loader: false,
+        parts: Vec::new(),
         _tempfile: Some(tmp),
     })
 }

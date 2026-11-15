@@ -383,9 +383,16 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             Ok(vec![Action::TimeWalk { n }])
         }
         "undotree" | "undo-tree" => Ok(vec![Action::OpenUndoTree]),
-        "open" | "o" => match split_args(rest, ":open <path>")?.as_slice() {
-            [p] if p != "-" => Ok(vec![Action::Open { path: p.clone() }]),
-            _ => Err(ExError::Usage(":open <path> (a file; not stdin)")),
+        "open" | "o" => match split_args(rest, ":open <path> [format]")?.as_slice() {
+            [p] if p != "-" => Ok(vec![Action::Open {
+                path: p.clone(),
+                format: None,
+            }]),
+            [p, f] if p != "-" => Ok(vec![Action::Open {
+                path: p.clone(),
+                format: Some(f.clone()),
+            }]),
+            _ => Err(ExError::Usage(":open <path> [format] (a file; not stdin)")),
         },
         "source" | "so" => match split_args(rest, ":source <path>")?.as_slice() {
             [p] => Ok(vec![Action::Source { path: p.clone() }]),

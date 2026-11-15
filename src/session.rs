@@ -31,11 +31,21 @@ fn abs(p: &Path) -> String {
         .to_string()
 }
 
+/// [`abs`] of a path or of the file in a loader's `file:part`.
+fn abs_part(p: &str) -> String {
+    match p.rsplit_once(':') {
+        Some((file, part)) if !Path::new(p).exists() && Path::new(file).is_file() => {
+            format!("{}:{part}", abs(Path::new(file)))
+        }
+        _ => abs(Path::new(p)),
+    }
+}
+
 /// A line that starts a sheet: its file, and whether it's a `tail`.
 pub fn root(line: &str) -> Option<(String, bool)> {
     let line = line.trim().trim_start_matches(':');
     match crate::exline::parse(line).ok()?.as_slice() {
-        [Action::Open { path }] => Some((path.clone(), false)),
+        [Action::Open { path, .. }] => Some((path.clone(), false)),
         [Action::Tail { path, .. }] => Some((path.clone(), true)),
         _ => None,
     }
@@ -214,12 +224,12 @@ impl Block {
     fn root(&mut self, s: &Sheet) -> bool {
         // a Lua loader runs again on the file the user opened, not on what it wrote
         let path = match s.source.via_loader {
-            true => Some(abs(Path::new(&s.source.display_name))),
+            true => Some(abs_part(&s.source.display_name)),
             false => s.source.path.as_deref().map(abs),
         };
         match (&s.origin, path) {
             (Origin::File | Origin::Parts { .. }, Some(path)) => {
-                self.ex(Action::Open { path });
+                self.ex(Action::Open { path, format: None });
                 true
             }
             (Origin::Tail { path, follow }, _) => {

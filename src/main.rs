@@ -4,7 +4,6 @@ use std::process::ExitCode;
 use anyhow::{Context, anyhow};
 use clap::Parser;
 
-use reader::SourceKind;
 use visidata_rs::sheet::Sheet;
 use visidata_rs::{app, plugins, reader};
 
@@ -25,9 +24,10 @@ struct Cli {
     )]
     session: Option<String>,
 
-    /// Force a format (useful for stdin or when the extension is wrong).
-    #[arg(long, value_enum)]
-    format: Option<SourceKind>,
+    /// Force a format (stdin, or a wrong extension): csv, tsv, parquet,
+    /// arrow, jsonl, json, xlsx, sqlite, or a Lua loader's name.
+    #[arg(short = 'f', long)]
+    format: Option<String>,
 
     /// Don't start the TUI — print shape, schema, and the first N rows, then exit.
     #[arg(long)]
@@ -73,7 +73,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
     };
     // anyhow!: OpenError's message already holds its source; `:#` would repeat it
-    let loaded = plugins::open(plugins.as_ref(), &path, cli.format).map_err(|e| anyhow!("{e}"))?;
+    let loaded = plugins::open(plugins.as_ref(), &path, cli.format.as_deref())
+        .map_err(|e| anyhow!("{e}"))?;
     if cli.headless {
         if let Some(w) = &plugin_warning {
             eprintln!("vdrs: {w}");
@@ -81,16 +82,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         print_headless(&loaded, cli.head)?;
         return Ok(ExitCode::SUCCESS);
     }
-    // Several worksheets / tables → start on the list; `<CR>` opens one.
-    let parts = match &loaded.path {
-        Some(p) => reader::list_parts(p, loaded.kind).unwrap_or_default(),
-        None => Vec::new(),
-    };
-    let sheet = if parts.is_empty() && loaded.kind != SourceKind::Duckdb {
-        Sheet::from_source(0, loaded)
-    } else {
-        Sheet::parts_list(0, loaded, parts)
-    };
+    let sheet = Sheet::opened(0, loaded);
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

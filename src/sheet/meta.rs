@@ -228,6 +228,30 @@ impl Sheet {
         }
     }
 
+    /// A sheet for what was opened: the list of a multi-part file (xlsx,
+    /// sqlite, duckdb, a Lua loader's parts; `<CR>` opens one), else the data.
+    pub fn opened(id: SheetId, loaded: LoadedSource) -> Self {
+        if !loaded.parts.is_empty() {
+            let name = format!("{}: parts", loaded.display_name);
+            let path = std::path::PathBuf::from(&loaded.display_name);
+            let mut s = Sheet::from_source(id, loaded);
+            s.name = name;
+            s.origin = Origin::Parts {
+                path,
+                kind: SourceKind::Csv,
+            };
+            return s;
+        }
+        let parts = match &loaded.path {
+            Some(p) => crate::reader::list_parts(p, loaded.kind).unwrap_or_default(),
+            None => Vec::new(),
+        };
+        match parts.is_empty() && loaded.kind != SourceKind::Duckdb {
+            true => Sheet::from_source(id, loaded),
+            false => Sheet::parts_list(id, loaded, parts),
+        }
+    }
+
     /// List sheet for a multi-part xlsx/sqlite file, or a duckdb file's index
     /// (its source already is that list; `parts` is unused).
     pub fn parts_list(id: SheetId, loaded: LoadedSource, parts: Vec<String>) -> Self {
