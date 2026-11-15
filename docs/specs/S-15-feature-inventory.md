@@ -350,7 +350,7 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated at load)
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
-vd.set_theme("dark" | "light")
+vd.set_theme("dark" | "light" | { base?, <Theme field> = colour, … })  -- table: api 19
 vd.api_version                                  -- 7 (vd.option clipboard_paste_cmd)
 vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
 vd.toast(msg)                                   -- status line; only inside a bound function
@@ -364,7 +364,7 @@ vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; insid
 
 ## 8. Theme
 
-`Theme::dark()` / `Theme::light()` in `src/theme.rs` drive the table, title bar, status bar and toasts; `vd.set_theme` picks one. No per-colour override.
+`Theme::dark()` / `Theme::light()` in `src/theme.rs` drive the table, title bar, status bar and toasts; `vd.set_theme` picks one, or patches a table of colours over one (`Theme::COLOR_KEYS`, `color_mut`; S-40 G).
 
 Colours are 24-bit RGB when `COLORTERM` is `truecolor`/`24bit`, else each frame maps them to the nearest xterm-256 index; `NO_COLOR` (non-empty) strips colors, keeping the cursor as reverse and the selection as bold (`theme::downgrade`, S-26 A4). Numbers are right-aligned; a sorted column's header shows ▲/▼ in place of its type (with its rank under a multi-column sort); a `│` follows the pinned columns.
 

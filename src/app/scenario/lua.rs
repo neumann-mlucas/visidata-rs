@@ -532,3 +532,16 @@ async fn loader_parts_list_and_dive() {
         Some(true)
     );
 }
+
+/// S-40 G: `vd.set_theme { statusbar_bg = … }` colours the status line.
+#[tokio::test(flavor = "multi_thread")]
+async fn theme_table_colours_the_status_line() {
+    let h = with_lua(3, r##"vd.set_theme { statusbar_bg = "#102030" }"##).await;
+    let (_, theme) = keymap_and_theme(h.app.plugins.as_ref());
+    let mut h = h;
+    h.app.theme = theme;
+    h.pump().await;
+    let buf = h.term.backend().buffer();
+    let last = buf.area.height - 1;
+    assert_eq!(buf[(0, last)].bg, ratatui::style::Color::Rgb(16, 32, 48));
+}

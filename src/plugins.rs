@@ -213,7 +213,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 18; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders
+pub const API_VERSION: i64 = 19; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -1129,16 +1129,38 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     )?;
     vd.set(
         "set_theme",
-        lua.create_function(|lua, name: String| {
-            if !matches!(name.as_str(), "dark" | "light") {
-                return Err(mlua::Error::RuntimeError(format!(
-                    "unknown theme: {name} (dark|light)"
-                )));
-            }
-            registry(lua)?.borrow_mut().options.theme = Some(match name.as_str() {
-                "light" => crate::theme::Theme::light(),
-                _ => crate::theme::Theme::dark(),
-            });
+        lua.create_function(|lua, spec: LuaValue| {
+            use crate::theme::Theme;
+            let err = |m: String| mlua::Error::RuntimeError(format!("vd.set_theme: {m}"));
+            let base = |name: &str| match name {
+                "dark" => Ok(Theme::dark()),
+                "light" => Ok(Theme::light()),
+                _ => Err(err(format!("unknown theme: {name} (dark|light)"))),
+            };
+            let theme = match spec {
+                LuaValue::String(s) => base(&s.to_str()?)?,
+                // S-40 G: `{ base = "light", statusbar_bg = "#24283b", … }`
+                LuaValue::Table(t) => {
+                    let mut th = base(&t.get::<Option<String>>("base")?.unwrap_or("dark".into()))?;
+                    for pair in t.pairs::<String, String>() {
+                        let (k, v) = pair?;
+                        if k == "base" {
+                            continue;
+                        }
+                        let Some(slot) = th.color_mut(&k) else {
+                            return Err(err(format!(
+                                "unknown key {k} ({})",
+                                Theme::COLOR_KEYS.join(", ")
+                            )));
+                        };
+                        *slot =
+                            crate::theme::parse_color(&v).map_err(|e| err(format!("{k}: {e}")))?;
+                    }
+                    th
+                }
+                _ => return Err(err("a theme name or a table of colours".into())),
+            };
+            registry(lua)?.borrow_mut().options.theme = Some(theme);
             Ok(())
         })?,
     )?;
@@ -2224,6 +2246,34 @@ mod tests {
         let p = Plugins::load_from_source("assert(vd.api_version >= 1)");
         assert!(p.is_ok());
         assert!(Plugins::load_from_source("vd.set_theme('neon')").is_err());
+    }
+
+    /// S-40 G: a table patches `dark` (or its `base`); a bad key or colour
+    /// is an error naming it.
+    #[test]
+    fn set_theme_table_patches_a_base() {
+        use crate::theme::Theme;
+        use ratatui::style::Color;
+        let th = |src: &str| Plugins::load_from_source(src).map(|p| p.options().theme.unwrap());
+        let t = th(r##"vd.set_theme { statusbar_bg = "#010203", header_fg = "blue" }"##).unwrap();
+        assert_eq!(
+            (t.statusbar_bg, t.header_fg),
+            (Color::Rgb(1, 2, 3), Color::Blue)
+        );
+        assert_eq!(t.row_cursor_bg, Theme::dark().row_cursor_bg);
+        let t = th(r#"vd.set_theme { base = "light", null_fg = "red" }"#).unwrap();
+        assert_eq!(t.null_fg, Color::Red);
+        assert_eq!(t.statusbar_bg, Theme::light().statusbar_bg);
+        let e = th(r#"vd.set_theme { statusbar = "red" }"#)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(e.contains("unknown key statusbar"), "{e}");
+        let e = th(r#"vd.set_theme { null_fg = "nope" }"#)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(e.contains("null_fg"), "{e}");
     }
 
     #[test]

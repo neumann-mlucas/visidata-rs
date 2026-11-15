@@ -58,6 +58,58 @@ pub struct Theme {
     pub footer: bool,
 }
 
+/// The colour fields by name, for `vd.set_theme { … }` (S-40 G).
+macro_rules! color_fields {
+    ($($f:ident),* $(,)?) => {
+        impl Theme {
+            /// Every colour key `vd.set_theme` takes.
+            pub const COLOR_KEYS: &[&str] = &[$(stringify!($f)),*];
+
+            pub fn color_mut(&mut self, key: &str) -> Option<&mut Color> {
+                match key {
+                    $(stringify!($f) => Some(&mut self.$f),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+color_fields!(
+    titlebar_left_fg,
+    titlebar_left_bg,
+    titlebar_mid_fg,
+    titlebar_mid_bg,
+    titlebar_right_fg,
+    titlebar_right_bg,
+    statusbar_fg,
+    statusbar_bg,
+    toast_fg,
+    header_fg,
+    header_bg,
+    header_cursor_fg,
+    header_cursor_bg,
+    row_stripe_bg,
+    row_cursor_fg,
+    row_cursor_bg,
+    cell_cursor_fg,
+    cell_cursor_bg,
+    col_cursor_fg,
+    selected_fg,
+    selected_bg,
+    null_fg,
+    num_fg,
+    date_fg,
+    bool_true_fg,
+    bool_false_fg,
+    dtype_badge_fg,
+    overlay_fg,
+    overlay_bg,
+    overlay_border_fg,
+    which_key_fg,
+    plan_border_fg,
+);
+
 impl Theme {
     pub const fn dark() -> Self {
         Self {

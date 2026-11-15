@@ -252,7 +252,9 @@ Tests: unit (segments → spans, cache hit when `ctx` is unchanged, error falls 
 the `TestBackend` screen: the custom line shows the selection count after `s`, a prompt still
 replaces it.
 
-## G. Theme colours from Lua (0.5 d)
+## G. Theme colours from Lua (0.5 d) — shipped 2026-11-15
+
+As built: `color_fields!` in `theme.rs` lists the 32 colour fields (`Theme::COLOR_KEYS`, `color_mut`); `float_digits` and other non-colour fields stay out. `vd.api_version` 19.
 
 `vd.set_theme` also takes a table: `{ base = "dark", statusbar_bg = "#24283b", header_fg = "blue",
 … }`. Keys are the `Theme` fields; `base` picks the theme the rest patch. An unknown key or a bad
