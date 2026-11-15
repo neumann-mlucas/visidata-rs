@@ -21,7 +21,7 @@ Source: [saulpw/visidata](https://github.com/saulpw/visidata) (v3.4).
 | Modal keybind model w/ prefix maps (`g`, `z`, `gz`, `Alt+`) | `visidata/keys.py` | **Keep + extend** | Users want *more* vim here (see §2). Leader key, text objects, `.` repeat. |
 | `@asyncthread` for long ops | `visidata/vdobj.py:14` | **Replace** | Tokio tasks. No GIL. Progress channels instead of shared mutable progress lists. |
 | Undo via closure-stack (`undofuncs`) | `visidata/undo.py` | **Replace** | Polars LazyFrame plan IS the undo log — the stack of transforms is the history. Snapshot the plan, not the data. |
-| `.visidatarc` Python config | `visidata/plugins.py` | **Replace** | `init.lua`. Sandboxed. Hot-reload. |
+| `.visidatarc` Python config | `visidata/plugins.py` | **Replace** | `init.lua`. Not sandboxed yet (S-16). Hot-reload. |
 
 ### Hard replacements
 

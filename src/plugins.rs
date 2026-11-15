@@ -492,7 +492,7 @@ b("U", "unselect_row")               -- default: undo
 vd.unbind("sheet", "R")              -- default: redo
 b("x", "cut_cell")                   -- default: cut row
 b("H", "screen_top")                 -- default: slide column left
-b("M", "screen_middle")              -- default: melt
+b("M", "screen_middle")              -- default: unbound (:melt)
 b("L", "screen_bottom")              -- default: slide column right
 b({"z", "t"}, "scroll_top")
 b({"z", "b"}, "scroll_bottom")
@@ -544,7 +544,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             let mut reg = r.borrow_mut();
             if reg.current.is_none() {
                 return Err(mlua::Error::RuntimeError(
-                    "vd.toast works inside a vd.bind function".into(),
+                    "vd.toast works inside a vd.bind, vd.command or vd.on function".into(),
                 ));
             }
             reg.toasts.push(msg);
@@ -588,7 +588,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             let r = registry(lua)?;
             if r.borrow().current.is_none() {
                 return Err(mlua::Error::RuntimeError(
-                    "vd.push_sheet works inside a vd.bind function".into(),
+                    "vd.push_sheet works inside a vd.bind, vd.command or vd.on function".into(),
                 ));
             }
             let sheet = sheet_from_lua(&spec)?;
@@ -1137,7 +1137,8 @@ pub fn default_init_lua() -> String {
          -- .duckdb files: the DuckDB program vdrs runs. Default: duckdb on PATH.\n\
          -- vd.option(\"duckdb_cmd\", \"/usr/local/bin/duckdb\")\n\
          \n\
-         -- Keys: \"visidata\" (default) or \"vim\" (hjkl motions, counts, operators, visual).\n\
+         -- Keys: \"visidata\" (default) or \"vim\": rebinds the keys where vim and VisiData\n\
+         -- disagree (u undo, d/y/c operators, q macros, m/' marks, w/b/e cell motions).\n\
          -- vd.option(\"keymap\", \"vim\")\n\
          \n\
          -- Decimals of every float column (\"%.Nf\" or \"{{:.Nf}}\"). Default: shortest\n\

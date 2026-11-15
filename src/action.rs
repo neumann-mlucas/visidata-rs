@@ -210,7 +210,8 @@ pub enum Action {
     KeySelected {
         on: bool,
     },
-    /// Columns sheet `g#` `g%` `g~` `g@` `g$`: type the selected rows' columns.
+    /// Columns sheet `g#` `g%` `g~` `g@` `g$`: type the selected rows' columns
+    /// (`g%` elsewhere: the `:precision` prompt).
     TypeSelected {
         name: &'static str,
     },
@@ -511,7 +512,7 @@ pub enum Action {
     JumpForward,
     /// `:jumps`: the jumplist as a sheet.
     Jumps,
-    /// `V` / `<C-v>` (S-26 C): start (or end) a visual row range / cell block.
+    /// `V` / `:visual-block` (vim `<C-v>`, S-26 C): start (or end) a visual row range / cell block.
     Visual {
         block: bool,
     },

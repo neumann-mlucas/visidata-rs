@@ -588,7 +588,7 @@ pub struct App {
     viewport_rows: usize,
     /// Columns of the table area: a plot bins x to twice this (braille).
     viewport_cols: u16,
-    /// `V` / `<C-v>` in progress (S-26 C), and the last one (`'<,'>`).
+    /// `V` / `:visual-block` in progress (S-26 C), and the last one (`'<,'>`).
     visual: Option<Visual>,
     last_visual: Option<Visual>,
     /// Places before big jumps (S-26 A7); `jump_at`: where `jump_back` is.

@@ -6,6 +6,6 @@ l l ;
 > received (?P<date>\S+) qty (?P<qty>\d+)
 (
 # Show <code>unit_cost</code> with two decimals.
-g h l l l
+g l
 :
 > precision 2
