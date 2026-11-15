@@ -883,7 +883,7 @@ pub struct History {
 
 impl History {
     pub fn load() -> Self {
-        let path = history_path();
+        let path = crate::state_path("exline_history");
         let mut lines = fs::File::open(&path)
             .ok()
             .map(|f| {
@@ -954,19 +954,6 @@ impl History {
     pub fn reset_cursor(&mut self) {
         self.cursor = None;
     }
-}
-
-fn history_path() -> PathBuf {
-    // Unit tests drive the real App; never touch the user's history file.
-    if cfg!(test) {
-        let dir = std::env::temp_dir().join(format!("vdrs-test-{}", std::process::id()));
-        return dir.join("exline_history");
-    }
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("vdrs").join("exline_history")
 }
 
 #[cfg(test)]

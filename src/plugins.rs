@@ -1231,8 +1231,7 @@ pub fn default_init_lua() -> String {
 /// `cfg!(test)`, so tests never touch the user's config).
 pub fn macros_path() -> Option<PathBuf> {
     if cfg!(test) {
-        let dir = std::env::temp_dir().join(format!("vdrs-test-{}", std::process::id()));
-        return Some(dir.join("macros.lua"));
+        return Some(crate::state_path("macros.lua"));
     }
     Some(default_config_path()?.with_file_name("macros.lua"))
 }

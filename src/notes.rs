@@ -36,7 +36,7 @@ impl Notes {
     /// The notes of `source` (none yet: empty).
     pub fn load(source: &Path) -> Self {
         let source = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-        let path = store_dir().join(format!(
+        let path = crate::state_path("notes").join(format!(
             "{:016x}.tsv",
             fnv(source.as_os_str().as_encoded_bytes())
         ));
@@ -101,20 +101,6 @@ impl Notes {
         self.notes = notes;
         Ok(())
     }
-}
-
-/// `$XDG_STATE_HOME/vdrs/notes`; tests use a temp dir.
-fn store_dir() -> PathBuf {
-    if cfg!(test) {
-        return std::env::temp_dir()
-            .join(format!("vdrs-test-{}", std::process::id()))
-            .join("notes");
-    }
-    std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("vdrs/notes")
 }
 
 /// FNV-1a: a stable file name per source path (std's hasher may change).

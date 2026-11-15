@@ -20,15 +20,7 @@ const MAX_SELECTED: usize = 100_000;
 /// Where `:mksession` writes without a path: `$XDG_STATE_HOME/vdrs/session.vdrs`
 /// (a temp dir under `cfg!(test)`).
 pub fn default_path() -> PathBuf {
-    if cfg!(test) {
-        let dir = std::env::temp_dir().join(format!("vdrs-test-{}", std::process::id()));
-        return dir.join("session.vdrs");
-    }
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("vdrs").join("session.vdrs")
+    crate::state_path("session.vdrs")
 }
 
 /// `p` absolute, so a session replays from any directory.
