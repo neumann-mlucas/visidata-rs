@@ -220,7 +220,7 @@ impl Plugins {
     /// The aggregator `vd.register_aggregator` defined as `name`. `Send`: pivots
     /// run it on a background job; each call holds the VM lock only for one cell.
     pub fn aggregator(&self, name: &str) -> Option<Aggregator> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let reg = reg(&self.lua)?;
         let f = reg
             .borrow()
             .aggregators
@@ -235,9 +235,7 @@ impl Plugins {
     }
 
     pub fn has_renderers(&self) -> bool {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
-            .is_some_and(|r| !r.borrow().renderers.is_empty())
+        reg(&self.lua).is_some_and(|r| !r.borrow().renderers.is_empty())
     }
 
     /// Display text from the first renderer matching the cell's column name or
@@ -261,7 +259,7 @@ impl Plugins {
     }
 
     fn render_uncached(&self, column: &str, dt: &str, value: &AnyValue) -> Option<Rendered> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let reg = reg(&self.lua)?;
         let f = {
             let reg = reg.borrow();
             let rule = reg
@@ -294,7 +292,7 @@ impl Plugins {
 
     /// Callback index of the `vd.command` named `name`.
     pub fn command(&self, name: &str) -> Option<usize> {
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let reg = reg(&self.lua)?;
         reg.borrow()
             .commands
             .iter()
@@ -304,8 +302,7 @@ impl Plugins {
 
     /// Names of the `vd.command` ex commands.
     pub fn command_names(&self) -> Vec<String> {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
+        reg(&self.lua)
             .map(|r| r.borrow().commands.iter().map(|(n, _)| n.clone()).collect())
             .unwrap_or_default()
     }
@@ -333,9 +330,7 @@ impl Plugins {
 
     /// Some `vd.on(event, …)` handler is registered.
     pub fn handles(&self, event: &str) -> bool {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
-            .is_some_and(|r| r.borrow().handlers.iter().any(|(e, _)| e == event))
+        reg(&self.lua).is_some_and(|r| r.borrow().handlers.iter().any(|(e, _)| e == event))
     }
 
     /// Run `event`'s handlers in registration order. Each gets the
@@ -420,8 +415,7 @@ impl Plugins {
 
     /// What `vd.set_theme` and `vd.option` set.
     pub fn options(&self) -> Options {
-        self.lua
-            .app_data_ref::<RefCell<Registry>>()
+        reg(&self.lua)
             .map(|r| r.borrow().options.clone())
             .unwrap_or_default()
     }
@@ -429,7 +423,7 @@ impl Plugins {
     /// Mutate `keymap` by appending the Lua-registered patches.
     /// Last declaration wins at `Keymap::resolve` time (S-04 rule), so user binds shadow defaults.
     pub fn apply_keymap(&self, keymap: &mut Keymap) {
-        let reg = match self.lua.app_data_ref::<RefCell<Registry>>() {
+        let reg = match reg(&self.lua) {
             Some(r) => r.borrow().clone(),
             None => return,
         };
@@ -443,7 +437,7 @@ impl Plugins {
     /// fine for the handful a user registers.
     pub fn resolve_loader(&self, path: &Path) -> Option<LoaderRule> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-        let reg = self.lua.app_data_ref::<RefCell<Registry>>()?;
+        let reg = reg(&self.lua)?;
         reg.borrow()
             .loaders
             .iter()
@@ -1062,9 +1056,12 @@ fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
     Ok((name.unwrap_or_else(|| "lua".into()), df))
 }
 
-fn registry(lua: &Lua) -> mlua::Result<mlua::AppDataRef<'_, RefCell<Registry>>> {
+fn reg(lua: &Lua) -> Option<mlua::AppDataRef<'_, RefCell<Registry>>> {
     lua.app_data_ref::<RefCell<Registry>>()
-        .ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))
+}
+
+fn registry(lua: &Lua) -> mlua::Result<mlua::AppDataRef<'_, RefCell<Registry>>> {
+    reg(lua).ok_or_else(|| mlua::Error::RuntimeError("registry missing".into()))
 }
 
 fn parse_layer(s: &str) -> Option<Layer> {
