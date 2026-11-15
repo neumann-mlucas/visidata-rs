@@ -1822,11 +1822,7 @@ impl App {
         }
         let plan = s.plan.clone();
         let key = s.freq_dive_key();
-        // the freq sheet itself, not rows picked from it (`rows_with_values`)
-        let own_rids = matches!(
-            s.state.lineage.as_deref().map(|l| &l.how),
-            Some(crate::sheet::Derivation::Freq { .. })
-        );
+        let own_rids = s.is_freq();
         use crate::sheet::{Binning, DiveKey};
         let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
