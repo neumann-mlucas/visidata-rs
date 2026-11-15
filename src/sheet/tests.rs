@@ -1368,3 +1368,31 @@ fn numeric_bins_pick_ranges_or_values() {
         .collect();
     assert_eq!(counts, ["2", "1", "1"]); // two ranges, then the null row
 }
+
+/// `adopt` replays every edit when the new rows take them all, and drops
+/// only the one whose column is gone otherwise.
+#[test]
+fn adopt_drops_only_the_edit_the_new_rows_cant_take() {
+    let names = |s: &Sheet| -> Vec<String> {
+        let df = s.plan.clone().collect().unwrap();
+        let names = df
+            .get_column_names()
+            .into_iter()
+            .filter(|n| n.as_str() != ROW_ID);
+        names.map(|n| n.to_string()).collect()
+    };
+    let (mut s, _t) = sheet_of("id,x\n1,2\n");
+    s.derive("y", "x * 2").unwrap();
+    s.derive("z", "id + 1").unwrap();
+    s.view.hidden.insert("x".into());
+    let (fresh, _t2) = sheet_of("id,x\n5,6\n");
+    s.adopt(fresh);
+    assert_eq!(s.state.steps.len(), 2);
+    assert_eq!(names(&s), ["id", "x", "y", "z"]);
+    assert!(s.view.hidden.contains("x"));
+    let (fresh, _t3) = sheet_of("id\n5\n");
+    s.adopt(fresh);
+    assert_eq!(s.state.steps.len(), 1);
+    assert_eq!(names(&s), ["id", "z"]);
+    assert!(s.view.hidden.is_empty());
+}

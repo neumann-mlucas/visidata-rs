@@ -78,20 +78,32 @@ impl Sheet {
     /// columns still there) and edits; `U` goes back.
     pub fn adopt(&mut self, mut fresh: Sheet) {
         self.checkpoint();
-        // replay the edits; one the new rows can't take (its column gone) drops
-        self.state.steps.retain(|step| {
-            let Ok(mut p) = step.apply(fresh.plan.clone()) else {
-                return false;
-            };
-            let ok = p.collect_schema().is_ok();
-            if ok {
+        // replay the edits; a bad step fails the whole plan's schema, so check
+        // once and only then go step by step
+        let all = (self.state.steps.iter())
+            .try_fold(fresh.plan.clone(), |p, step| step.apply(p))
+            .and_then(|mut p| p.collect_schema().map(|s| (p, s)));
+        let schema = match all {
+            Ok((p, s)) => {
                 fresh.plan = p;
+                Ok(s)
             }
-            ok
-        });
-        let names: std::collections::BTreeSet<String> = fresh
-            .plan
-            .collect_schema()
+            Err(_) => {
+                // one the new rows can't take (its column gone) drops
+                self.state.steps.retain(|step| {
+                    let Ok(mut p) = step.apply(fresh.plan.clone()) else {
+                        return false;
+                    };
+                    let ok = p.collect_schema().is_ok();
+                    if ok {
+                        fresh.plan = p;
+                    }
+                    ok
+                });
+                fresh.plan.collect_schema()
+            }
+        };
+        let names: std::collections::BTreeSet<String> = schema
             .map(|s| s.iter_names().map(|n| n.to_string()).collect())
             .unwrap_or_default();
         let v = &mut self.view;
