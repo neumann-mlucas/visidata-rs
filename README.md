@@ -11,8 +11,8 @@ VisiData is open in one of my terminals most days. Treating everything as a
 sheet, with a frequency table one keystroke away, changed how I look at data,
 and nothing else in the terminal comes close. visidata-rs is not a fork. It
 rebuilds that tool in Rust: same keys, same behavior, different insides.
-VisiData's own test corpus is replayed against it: 71 of the 195 scripts it can
-address pass today.
+VisiData's own test corpus is replayed against it: about 70 of the 195 scripts
+it can address pass today (see `MIN_PASS` in `tests/vd_replay.rs`).
 
 The insides matter because that's where VisiData's open issues pile up:
 
@@ -67,6 +67,9 @@ The install compiles Polars with release optimizations: expect a long build (abo
 vdrs data.parquet          # TUI
 vdrs --headless data.csv   # schema + first rows, no TUI
 cat data.csv | vdrs -      # stdin, format sniffed
+vdrs data/                 # every *.parquet in a directory, as one table
+vdrs book.xlsx:Sheet2      # one worksheet
+vdrs -S monday.vdrs        # restore a session (:mksession)
 ```
 
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
@@ -115,13 +118,24 @@ guide's [changed keys](https://neumann-mlucas.github.io/visidata-rs/#breaking).
 
 ## Development
 
-`just check` is the done-gate: fmt, clippy `-D warnings` and the full nextest
-run (`just test <filter>` for a narrow one). It covers unit tests, end-to-end UI
-scenarios (`app::scenario`), golden cases (`tests/golden/`; `UPDATE_GOLDEN=1`
-rewrites them, `VDRS_PYTHON=<python with polars>` also runs their exported
-scripts) and, when a VisiData checkout sits at `../visidata`, its golden-corpus
-replay (`tests/vd_replay.rs`; CI pins the commit). Without the checkout that
-test skips.
+`just check` is the done-gate. Commands, rules and test switches are in
+[`CLAUDE.md`](CLAUDE.md).
+
+The VisiData corpus replay (`tests/vd_replay.rs`) needs a checkout at
+`../visidata`, at the commit CI pins; without it that test skips:
+
+```text
+git init -q ../visidata
+git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata 5f67ff8af28c59a8f7429e396601606f2ac8dd47
+git -C ../visidata checkout -q FETCH_HEAD
+```
+
+Optional:
+
+- `duckdb` on `PATH` and a Python with polars in `VDRS_PYTHON` run the golden
+  cases' exported scripts; `VDRS_REQUIRE_ROUNDTRIP=1` makes them required, as in CI.
+- `prek install` once for the pre-commit hooks.
+- Builds go to `../.visidata-rs-target`, shared with worktrees.
 
 ## License
 

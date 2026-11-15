@@ -1,3 +1,5 @@
+//! `:diff` / `D`: schema diff, or row diff on key columns.
+
 use super::*;
 
 impl Sheet {

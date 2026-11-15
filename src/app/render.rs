@@ -1,3 +1,5 @@
+//! Drawing the screen: title bar, sheet, status line, sidebar, panes, which-key popup, pivot preview.
+
 use super::*;
 
 impl App {

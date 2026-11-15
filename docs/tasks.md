@@ -5,6 +5,15 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ## Open issues & gaps
 
+### Open
+
+- [ ] S-39 A — a Lua loader may return rows (0.5 d); B `trait Source` when a live source needs it
+- [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
+
+Deferred phase items stay under their phase below.
+
+### Closed
+
 Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same day:
 
 - [x] Harness-only features → binary: `:join` (inner/left/full/merge/append), `:uniform`, `:setcol`, `:dup`/`g"`, `W` (pivot with/without keys), `,` select-equal
@@ -22,7 +31,7 @@ Rescan 2026-11-05 list — all closed on branch `feature/open-features` the same
 
 Done in the same pass (2026-11-05): live `:pivot` preview; Lua function bindings, `vd.toast`, `vd.sheet()` (api 2); `vd.push_sheet` (api 3); renderer memo + widths; Lua aggregators off the UI thread; deterministic join / `:sql` order; `:export` for derived sheets, describe, row diff, `W`, Arrow/Excel/SQLite sources; `path:part` targets. Later: `vd.command` (api 4, 2026-11-07).
 
-Found 2026-11-09 (S-25 P3/P4), open:
+Found 2026-11-09 (S-25 P3/P4):
 
 - [x] Freq count ties: VisiData keeps first-seen order, vdrs broke ties by value — fixed 2026-11-12 (stable group-by + stable count sort, exports too); `petsdiet`, `avg-nulls` pass, PASS=64
 - [x] Export date→float cast: app gives epoch days, DuckDB `TRY_CAST` gave null — fixed 2026-11-12 (`day - DATE '1970-01-01'`, golden `date-to-float`)
@@ -31,15 +40,13 @@ Found 2026-11-09 (S-25 P3/P4), open:
 
 Found 2026-11-12, fixed: sort put nulls first in both directions (Polars' default); VisiData's null is the smallest value, so `]` now puts them last, in the app and both exports.
 
-Found 2026-11-10 (review of S-18/S-20/S-22/S-25), open:
+Found 2026-11-10 (review of S-18/S-20/S-22/S-25):
 
 - [x] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan in a job (shipped 2026-11-13); `json` typed in the columns sheet still scans inline
 - [x] S-35 A — new columns after the cursor, `i` names `A` `B` … ; B `W` with `+` aggregators; C1 `numeric_binning`, C2 date `fmtstr` (2026-11-13)
 - [x] S-38 A `:set` (sessions write the `F` options), B copies keep widths, C `@` keeps the time (2026-11-14); D xlsx colour columns waiting (parity, D3)
 - [x] Key sweep vs VisiData (S-26 §0, 2026-11-14): `s` `t` `u` then cursor down; `zs` `zu` `zc` `zo` `_` `g%` `<C-v>` VisiData meanings; freeze / unfreeze / unsort / visual block on ex commands and the vim profile; `:` and `D` / `<C-d>` still differ (R-d, R-e)
-- [ ] S-39 A — a Lua loader may return rows (0.5 d); B `trait Source` when a live source needs it
 - [x] 2026-11-12: split the biggest files, moves only: `app/actions.rs` → `actions/{files,vim,edit}.rs`, `app.rs` → `app/{jobs,input,hooks}.rs`, `sheet/mod.rs` → `sheet/{edit,meta,rows,write}.rs`, `app/scenario.rs` tests → `scenario/{view,sheets,edit,lua,tail,vim}.rs`; `export.rs` stays whole
-- [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 
 ## Roadmap (ordered, 2026-11-08)
 

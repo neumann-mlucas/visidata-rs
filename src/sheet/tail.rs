@@ -1,3 +1,5 @@
+//! `:tail`: a growing file, re-read on refresh (new lines only for CSV/TSV/JSONL).
+
 use super::*;
 
 impl Sheet {

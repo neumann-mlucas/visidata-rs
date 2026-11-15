@@ -25,3 +25,30 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
   `exline::history_path`, `paste_cmd_for`).
 - A `vd_replay` count drop can stay green: read the `vd_replay:` line.
   Regenerate `tests/vd_replay/triage.txt` with `VDRS_REPLAY_TRIAGE=1`.
+
+## Docs
+
+- `docs/index.html` is the user guide, pulled into tests by `include_str!`:
+  `keymap.rs` `user_guide_documents_every_default_key` (a `data-keys` row per
+  default chord), `action.rs` `user_guide_lists_every_action_name`
+  (`<code>name</code>` per `Action::NAMED`), `exline.rs`
+  `user_guide_commands_exist` (every `data-ex` parses) and
+  `user_guide_examples_parse` (every concrete `<code>:cmd</code>` parses).
+  `plugins.rs` also loads its Lua blocks.
+- Screens between `<!-- golden:docs-* -->` and `<!-- /golden -->` come from
+  `tests/golden/docs-*` via `UPDATE_GOLDEN=1`. Never hand-edit them.
+- A user-visible change updates the guide prose and S-15 in the same commit.
+
+## Adding a command
+
+1. Spec, plus a row in `docs/specs/README.md` and `docs/tasks.md`.
+2. Check `../visidata` `addCommand`/`bindkey` for its key and longname.
+3. `src/action.rs`: `Action` variant; a `NAMED` entry (no arguments) or a
+   `to_ex` arm plus a case in `to_ex_round_trips_through_the_ex_parser`.
+4. Handle it in `App::dispatch` (`src/app/actions.rs`).
+5. `Keymap::defaults` entry with its desc; `exline::parse` arm.
+6. `Harness` test in `src/app/scenario/<topic>.rs`.
+7. Guide: key list row, prose, `data-ex` row. S-15 row.
+8. `tests/vd_replay.rs`: translate the longname, check
+   `tests/vd_replay/quarantine.txt`, raise `MIN_PASS`.
+9. `just check`.

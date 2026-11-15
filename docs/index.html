@@ -111,6 +111,7 @@ td:first-child { white-space: nowrap; }
         <a href="#open">Opening data</a>
         <a href="#tour">A first session</a>
         <a href="#screen">The screen</a>
+        <a href="#from-vd">Coming from VisiData</a>
       </div>
       <div><p class="group">Workflows</p>
         <a href="#wf-clean">Clean an export</a>
@@ -170,10 +171,19 @@ td:first-child { white-space: nowrap; }
 <p>You need a Rust toolchain (1.88 or newer):</p>
 <pre><code>cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked</code></pre>
 <p>This installs the <code>vdrs</code> binary. <code>--locked</code> builds with the dependency versions the project is tested with; without it Cargo may pick newer, incompatible releases.</p>
+<p>The build compiles Polars with release optimizations: expect a long build (about 45 minutes in one test) and over 1 GB of disk while it runs.</p>
+<p>Files vdrs writes on its own:</p>
+<ul>
+<li><code>~/.config/vdrs/init.lua</code> (<code>$XDG_CONFIG_HOME</code>), the first time the TUI starts without one: every default binding, commented out (<a href="#lua">Lua configuration</a>).</li>
+<li><code>macros.lua</code> next to it, when you record a macro with <kbd>m</kbd>.</li>
+<li>In <code>~/.local/state/vdrs/</code> (<code>$XDG_STATE_HOME</code>): <code>exline_history</code> (the <kbd>:</kbd> history), <code>session.vdrs</code> (saved on quit, <a href="#wf-session">Pick up tomorrow</a>) and <code>notes/</code> (cell notes).</li>
+</ul>
 
 <h2 id="open">Opening data</h2>
 <pre><code>vdrs sales.parquet                 # open in the TUI
 vdrs data/                         # every *.parquet file in a directory, as one table
+vdrs book.xlsx:Sheet2              # one worksheet (or app.db:users, one table)
+vdrs -S monday.vdrs                # restore a session saved with :mksession
 cat events.jsonl | vdrs -          # read stdin; format is sniffed
 vdrs --format tsv export.txt       # force a format when the extension is wrong
 vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
@@ -227,6 +237,28 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <li><strong>Status line</strong>: a short key hint, or messages, prompts (<code>/</code>, <code>:</code>, …), <code>working: …</code> while a long command runs in the background, a pending count (<code>count: 3</code>) or a pending key chord. When you press the first key of a chord (for example <kbd>g</kbd> or <kbd>z</kbd>), a popup lists what can follow.</li>
 </ul>
 <p>Messages stay until your next key press.</p>
+
+<h2 id="from-vd">Coming from VisiData</h2>
+<p>The keys are VisiData's, with a few exceptions listed in <a href="#breaking">Changed keys</a>. What works differently:</p>
+<ul>
+<li><strong>Expressions are SQL, not Python.</strong> <kbd>=</kbd>, <kbd>g</kbd><kbd>=</kbd>, <kbd>z</kbd><kbd>|</kbd> and <kbd>z</kbd><kbd>/</kbd> take Polars SQL expressions over column names.</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>VisiData (Python)</th><th>vdrs (SQL)</th></tr>
+<tr><td><code>name.upper()</code></td><td><code>upper(name)</code></td></tr>
+<tr><td><code>date.strftime('%Y-%m')</code></td><td><code>strftime(date, '%Y-%m')</code></td></tr>
+<tr><td><code>a + b</code> (text)</td><td><code>a || b</code></td></tr>
+<tr><td><code>x if c else y</code></td><td><code>CASE WHEN c THEN x ELSE y END</code></td></tr>
+<tr><td><code>qty &gt; 10 and name.startswith('b')</code></td><td><code>qty &gt; 10 AND name LIKE 'b%'</code></td></tr>
+</table></div>
+<ul>
+<li><strong>Config is Lua.</strong> <code>.visidatarc</code> becomes <code>~/.config/vdrs/init.lua</code>: <code>options.disp_float_fmt = '%.2f'</code> is <code>vd.option("disp_float_fmt", "%.2f")</code>, and <code>bindkey</code> is <code>vd.bind</code>. Only a few options exist; see <a href="#lua">Lua configuration</a>.</li>
+<li><strong><kbd>:</kbd> is the ex command line</strong> (VisiData: split column). There is no cmdlog; <kbd>D</kbd> is diff.</li>
+<li><strong>Edits stay in the sheet</strong> until <code>:save</code>; the file you opened is never changed (<a href="#change">Changing data</a>).</li>
+<li><strong>Loaders</strong>: a core set (<a href="#open">Opening data</a>); add others with a <a href="#lua-loader">Lua loader</a>.</li>
+<li><strong>New here</strong>: the query plan in the sidebar (<a href="#plan">Sidebar &amp; plan</a>), <code>:export view.py</code> to turn the view into a script (<a href="#save">Saving &amp; export</a>), an undo tree (<code>:undotree</code>, <a href="#wf-undo">Back out of a wrong turn</a>) and sessions (<a href="#wf-session">Pick up tomorrow</a>).</li>
+</ul>
+<p>What's missing on purpose is in <a href="#limits">Limitations</a>.</p>
 
 <h2 id="workflows">Workflows</h2>
 <p>Real tasks, start to finish. Every screen here is recorded from vdrs by the test suite, so it is exactly what you will see. The files are in <a href="https://github.com/neumann-mlucas/visidata-rs/tree/master/docs/fixtures"><code>docs/fixtures</code></a>: <code>cd docs/fixtures</code> and follow along.</p>
@@ -1018,7 +1050,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 <pre><code>vd.command("hello", function(args) vd.toast("hello " .. args) end)  -- :hello world</code></pre>
 
 <h3 id="lua-loader">vd.register_loader { name?, extensions, open }</h3>
-<p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads natively (CSV, TSV, Parquet, Arrow, JSON Lines) and returns the path of the result. Used when opening files from the command line and by <code>:diff</code> and <code>:join</code>.</p>
+<p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads natively (CSV, TSV, Parquet, Arrow, JSON Lines) and returns the path of the result; that path's extension picks the format. <code>extensions</code> is a string or a list, without the dot, matched ignoring case (<code>"log"</code> also takes <code>app.LOG</code>); the first loader registered for an extension wins. <code>name</code> is accepted but not used yet. Used when opening files from the command line and by <code>:open</code>, <code>:diff</code> and <code>:join</code>; <code>:tail</code> refuses such files. <code>open</code> runs on the UI thread, so vdrs waits until it returns: keep it quick, or convert big files ahead of time.</p>
 <pre><code>vd.register_loader {
   extensions = { "log" },
   open = function(path)

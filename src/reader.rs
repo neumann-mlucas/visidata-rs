@@ -1,3 +1,5 @@
+//! Opening files: format detection, lazy scans per format, multi-part files (`book.xlsx:Sheet2`), stdin and gzip.
+
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
