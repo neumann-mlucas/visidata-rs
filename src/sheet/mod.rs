@@ -875,6 +875,12 @@ impl Sheet {
         true
     }
 
+    /// Measure column widths afresh, not only widening as within one view.
+    pub fn reset_widths(&mut self) {
+        self.state.widths_key = None;
+        self.state.widths_view.clear();
+    }
+
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {

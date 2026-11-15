@@ -731,3 +731,45 @@ async fn go_col_while_loading_uses_plan_columns() {
     assert_eq!(h.app.sheets.active().view.col_cursor, 2, "{}", status(&h));
     assert!(!status(&h).contains("out of range"), "{}", status(&h));
 }
+
+/// `_` on a copy maxes a column its parent drew clamped (the inherited
+/// floor is not "already maxed"), and toggles back.
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_col_max_on_a_copy_maxes_first() {
+    let long = "x".repeat(60);
+    let mut h = csv(format!("a,b\n1,{long}\n").as_bytes()).await;
+    h.keys("g \"").await; // a job pushes the copy
+    h.keys("l").await;
+    let width = |h: &Harness| h.app.sheets.active().state.widths[1];
+    let default = width(&h);
+    assert!(default < 60, "{default}");
+    h.keys("_").await;
+    assert!(width(&h) >= 60, "{}", width(&h));
+    h.keys("_").await;
+    assert_eq!(width(&h), default);
+}
+
+/// `_` before the window loads leaves the width alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_col_max_while_loading_toasts() {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::io::Write::write_all(&mut tmp, b"a\n1\n").unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::from_app(App::new(Sheet::from_source(0, loaded), None, None)).await;
+    h.keys("_").await;
+    assert_eq!(status(&h), "_: still loading");
+    assert!(h.app.sheets.active().state.width_floor.is_empty());
+}
+
+/// `_` measures cells as drawn: a long date `fmtstr` counts, not the raw date.
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_col_max_measures_display_format() {
+    let mut h = csv(b"d\n2024-01-02\n").await;
+    h.keys("@").await;
+    h.keys(":").await;
+    h.type_("fmtstr %Y-%m-%d %A %B %Y-%m-%d %A %B %Y").await;
+    let width = |h: &Harness| h.app.sheets.active().state.widths[0];
+    assert_eq!(width(&h), 40, "{}", h.screen());
+    h.keys("_").await;
+    assert!(width(&h) > 40, "{}", width(&h));
+}

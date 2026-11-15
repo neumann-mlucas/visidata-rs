@@ -1364,25 +1364,33 @@ impl App {
                 }
             }
             Action::ResizeColMax => {
-                use unicode_width::UnicodeWidthStr;
                 let Some(c) = self.current_column_name() else {
                     return;
                 };
+                let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
+                let render_cell = |c: &str, d: &polars::prelude::DataType, v: &AnyValue| {
+                    lua_render.and_then(|p| p.render(c, d, v))
+                };
+                let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
+                let s = self.sheets.active();
+                let Some((at, full)) = s.window().filter(|_| s.is_loaded()).and_then(|df| {
+                    let at = df.get_column_index(&c)?;
+                    let fmt = crate::widget::cell_fmt(&s.view, &self.theme, &df[at]);
+                    let w =
+                        crate::widget::SheetWidget::full_width(df.height(), &df[at], render, fmt);
+                    Some((at, w))
+                }) else {
+                    self.toast = Some("_: still loading".into());
+                    return;
+                };
+                // VisiData's toggleWidth: full width, or back to the default
                 let s = self.sheets.active_mut();
-                if s.state.width_floor.remove(&c).is_none() {
-                    let full = s.window().and_then(|df| df.column(&c).ok()).map(|col| {
-                        (0..col.len())
-                            .filter_map(|i| col.get(i).ok())
-                            .map(|v| crate::sheet::any_text(&v).width())
-                            .fold(c.width() + 2, usize::max)
-                    });
-                    s.state
-                        .width_floor
-                        .insert(c, u16::try_from(full.unwrap_or(0)).unwrap_or(u16::MAX));
+                if s.state.widths.get(at) == Some(&full) {
+                    s.state.width_floor.remove(&c);
+                } else {
+                    s.state.width_floor.insert(c, full);
                 }
-                // re-measure from scratch: widths only widen within one view
-                s.state.widths_key = None;
-                s.state.widths_view.clear();
+                s.reset_widths();
             }
             Action::ShowVersion => {
                 self.toast = Some(format!("vdrs {}", env!("CARGO_PKG_VERSION")));

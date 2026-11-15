@@ -56,32 +56,42 @@ impl<'a> SheetWidget<'a> {
         render: Option<CellRenderer>,
         digits: &dyn Fn(&Column) -> CellFmt<'f>,
     ) -> Vec<u16> {
-        let step = (df.height() / Self::WIDTH_ROWS).max(1);
-        let rows = (0..df.height()).step_by(step);
         df.columns()
             .iter()
             .map(|s| {
-                let text = ColText::new(s, digits(s));
-                // Header width = name + " [dtype-badge]" so we don't truncate the badge.
-                let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
-                let data = rows
-                    .clone()
-                    .filter(|i| *i < s.len())
-                    .filter_map(|i| {
-                        let av = s.get(i).ok()?;
-                        let custom = render.and_then(|r| r(s.name(), s.dtype(), &av)?.text);
-                        Some(
-                            custom
-                                .map_or_else(|| text.cell(&av, i).0, |t| printable(&t))
-                                .width() as u16,
-                        )
-                    })
-                    .max()
-                    .unwrap_or(0);
-                hdr.max(data)
+                Self::full_width(df.height(), s, render, digits(s))
                     .clamp(Self::MIN_COL_WIDTH, Self::MAX_COL_WIDTH)
             })
             .collect()
+    }
+
+    /// Unclamped width of column `s` as drawn (header with its dtype badge,
+    /// cells in `fmt`), from rows spread evenly through its `height` rows.
+    pub fn full_width(
+        height: usize,
+        s: &Column,
+        render: Option<CellRenderer>,
+        fmt: CellFmt,
+    ) -> u16 {
+        let step = (height / Self::WIDTH_ROWS).max(1);
+        let text = ColText::new(s, fmt);
+        // Header width = name + " [dtype-badge]" so we don't truncate the badge.
+        let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
+        let data = (0..height)
+            .step_by(step)
+            .filter(|i| *i < s.len())
+            .filter_map(|i| {
+                let av = s.get(i).ok()?;
+                let custom = render.and_then(|r| r(s.name(), s.dtype(), &av)?.text);
+                Some(
+                    custom
+                        .map_or_else(|| text.cell(&av, i).0, |t| printable(&t))
+                        .width() as u16,
+                )
+            })
+            .max()
+            .unwrap_or(0);
+        hdr.max(data)
     }
 }
 
