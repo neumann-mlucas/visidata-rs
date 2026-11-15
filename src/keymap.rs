@@ -1,8 +1,7 @@
-//! Keymap. Linear-vec per layer + first-key match → fire or pending. See S-04.
+//! Keymap. Linear vec per layer, last declaration wins → fire or pending. See S-04.
 //!
-//! Phase 0 ships a baked-in default keymap only; TOML config loading lands in Phase 3
-//! when Lua is also in play (user explicitly deferred custom color scheme to the plugin
-//! system, same rationale for user keymap).
+//! Defaults are baked in; `init.lua` (`vd.bind`, the vim profile) appends chords
+//! over them (S-09).
 
 use std::borrow::Cow;
 
@@ -91,7 +90,7 @@ impl Keymap {
         }
     }
 
-    /// Baked-in default bindings — the VisiData muscle-memory subset relevant to Phase 0.
+    /// Baked-in default bindings: VisiData's keys (S-26 §0).
     #[expect(
         clippy::unwrap_used,
         reason = "literal key names; every test builds the defaults"
