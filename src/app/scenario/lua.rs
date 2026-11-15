@@ -426,3 +426,29 @@ async fn loader_rows_open_freq_and_session_reopen() {
         r.screen()
     );
 }
+
+/// S-40 A: `enter` fires when a sheet comes back on top (`q` to the parent),
+/// `loaded` once per new sheet with its row count; `:handlers` lists them.
+#[tokio::test(flavor = "multi_thread")]
+async fn enter_and_loaded_events_and_handlers_sheet() {
+    let mut h = with_lua(
+        4,
+        r#"
+        vd.on("enter", function(s) vd.toast("enter " .. s.name) end)
+        vd.on("loaded", { once = true }, function(s) vd.toast("rows " .. s.rows) end)
+        "#,
+    )
+    .await;
+    let base = h.app.sheets.active().name.clone();
+    h.app.link_seen = None; // the harness's first pump saw it before the VM
+    h.pump().await;
+    assert_eq!(status(&h), format!("enter {base}"));
+    h.keys("l F").await;
+    h.keys("q").await;
+    assert_eq!(status(&h), format!("enter {base}"));
+    h.keys(":").await;
+    h.type_("handlers").await;
+    let t = csv_text(h.app.sheets.active(), b'|');
+    assert!(t.contains("|enter|") && t.ends_with("|false\n"), "{t}");
+    assert!(!t.contains("loaded"), "once: gone after it ran\n{t}");
+}

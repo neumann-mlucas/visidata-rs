@@ -23,7 +23,13 @@ Order: A, B, C, D, G, E, F.
   `src/app/render.rs`). Lua picks `vd.set_theme("dark"|"light")`, nothing else.
 - Sidebar pages are a closed enum (`SidebarPage`: plan, plan-opt, column, cell, help).
 
-## A. Event groups (`vd.augroup`) and handler options (1–1.5 d)
+## A. Event groups (`vd.augroup`) and handler options (1–1.5 d) — shipped 2026-11-15
+
+As built: `:source` runs ex scripts only and hot reload builds a fresh VM, so nothing re-runs
+Lua in a live VM today and the "doubling" below can't happen yet; groups still clear on
+`vd.augroup` for when something does (B's project file). `enter` fires from `follow_link` (once
+per activation, the first sheet at start too), `loaded` right after `push` with `rows` empty
+while the count is running, `reload` after hot reload with `paths` = the `init.lua` path.
 
 Neovim's autocmd shape, cut to what vdrs's events need.
 

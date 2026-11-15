@@ -326,6 +326,8 @@ pub enum Action {
     },
     /// `:validations`: list the `:validate` rules.
     Validations,
+    /// `:handlers` (S-40 A): a sheet of the `vd.on` handlers.
+    Handlers,
     SetCol {
         value: String,
     },
@@ -778,7 +780,7 @@ impl Action {
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
             SetNote { .. } | Color { .. } | NoColor { .. } | Validate { .. } => true,
-            Validations => false,
+            Validations | Handlers => false,
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
@@ -1061,6 +1063,7 @@ impl Action {
         ("commit_sheet", CommitSheet),
         ("options_global", OptionsSheet),
         ("validations", Validations),
+        ("handlers", Handlers),
         ("slide_left", SlideCol { by: -1 }),
         ("slide_right", SlideCol { by: 1 }),
         ("slide_leftmost", SlideCol { by: i64::MIN }),

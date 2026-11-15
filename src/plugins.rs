@@ -33,8 +33,53 @@ struct Registry {
     pushed: Vec<(String, DataFrame)>,
     /// `vd.exec` commands, run once the callback returns.
     execs: Vec<String>,
-    /// `vd.on` handlers (S-29), in registration order.
-    handlers: Vec<(String, LuaFunction)>,
+    /// `vd.on` handlers (S-29, S-40 A), in registration order.
+    handlers: Vec<Handler>,
+    next_handler: i64,
+}
+
+/// A `vd.on` handler (S-40 A).
+#[derive(Clone)]
+struct Handler {
+    id: i64,
+    event: String,
+    group: Option<String>,
+    /// `pattern` as given, and as regexes; empty: every path.
+    pattern: Vec<String>,
+    globs: Vec<regex::Regex>,
+    once: bool,
+    f: LuaFunction,
+}
+
+impl Handler {
+    /// A glob without `/` matches the file name, with `/` the whole path.
+    fn matches(&self, path: &str) -> bool {
+        if self.globs.is_empty() {
+            return true;
+        }
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        let hit = |(p, re): (&String, &regex::Regex)| match p.contains('/') {
+            true => re.is_match(path),
+            false => !path.is_empty() && re.is_match(&name),
+        };
+        self.pattern.iter().zip(&self.globs).any(hit)
+    }
+}
+
+/// `*` and `?` (not across `/`), the rest literal.
+fn glob_regex(glob: &str) -> Result<regex::Regex, regex::Error> {
+    let mut re = String::from("^");
+    for c in glob.chars() {
+        match c {
+            '*' => re.push_str("[^/]*"),
+            '?' => re.push_str("[^/]"),
+            c => re.push_str(&regex::escape(&c.to_string())),
+        }
+    }
+    re.push('$');
+    regex::Regex::new(&re)
 }
 
 /// Settings from `vd.set_theme` and `vd.option`.
@@ -92,7 +137,12 @@ impl Options {
 }
 
 /// Events `vd.on` takes.
-pub const EVENTS: &[&str] = &["open", "push", "save", "quit"];
+pub const EVENTS: &[&str] = &[
+    "open", "push", "save", "quit", "tick", "enter", "loaded", "reload",
+];
+
+/// Events with no path: `pattern` is refused on them.
+const PATHLESS: &[&str] = &["quit", "tick", "reload"];
 
 /// What a `vd.bind` function asked for: status messages and new sheets.
 #[derive(Default)]
@@ -155,7 +205,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 15; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation
+pub const API_VERSION: i64 = 16; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -366,9 +416,34 @@ impl Plugins {
         Ok(out)
     }
 
+    /// The `init.lua` this VM loaded, if any.
+    pub fn config_file(&self) -> Option<&Path> {
+        self.config.as_ref().map(|(p, _)| p.as_path())
+    }
+
+    /// `:handlers`: id, event, group, pattern, once per `vd.on` handler.
+    pub fn handler_rows(&self) -> Vec<Vec<String>> {
+        let Some(r) = reg(&self.lua) else {
+            return Vec::new();
+        };
+        let r = r.borrow();
+        r.handlers
+            .iter()
+            .map(|h| {
+                vec![
+                    h.id.to_string(),
+                    h.event.clone(),
+                    h.group.clone().unwrap_or_default(),
+                    h.pattern.join(" "),
+                    h.once.to_string(),
+                ]
+            })
+            .collect()
+    }
+
     /// Some `vd.on(event, …)` handler is registered.
     pub fn handles(&self, event: &str) -> bool {
-        reg(&self.lua).is_some_and(|r| r.borrow().handlers.iter().any(|(e, _)| e == event))
+        reg(&self.lua).is_some_and(|r| r.borrow().handlers.iter().any(|h| h.event == event))
     }
 
     /// Run `event`'s handlers in registration order. Each gets the
@@ -383,14 +458,23 @@ impl Plugins {
     ) -> (LuaOutput, Vec<String>) {
         let mut errors = Vec::new();
         let mut out = LuaOutput::default();
+        let path = extra
+            .iter()
+            .find(|(k, _)| *k == "path")
+            .map_or("", |(_, v)| v.as_str());
         let handlers: Vec<LuaFunction> = match registry(&self.lua) {
-            Ok(r) => r
-                .borrow()
-                .handlers
-                .iter()
-                .filter(|(e, _)| e == event)
-                .map(|(_, f)| f.clone())
-                .collect(),
+            Ok(r) => {
+                let mut reg = r.borrow_mut();
+                let hit = |h: &Handler| h.event == event && h.matches(path);
+                let fs = reg
+                    .handlers
+                    .iter()
+                    .filter(|h| hit(h))
+                    .map(|h| h.f.clone())
+                    .collect();
+                reg.handlers.retain(|h| !(h.once && hit(h)));
+                fs
+            }
             Err(e) => return (out, vec![e.to_string()]),
         };
         for f in handlers {
@@ -614,15 +698,107 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     )?;
     vd.set(
         "on",
-        lua.create_function(|lua, (event, f): (String, LuaFunction)| {
-            if !EVENTS.contains(&event.as_str()) {
-                return Err(mlua::Error::RuntimeError(format!(
-                    "vd.on: unknown event {event} ({})",
-                    EVENTS.join(", ")
-                )));
+        lua.create_function(
+            |lua, (event, opts, f): (String, LuaValue, Option<LuaFunction>)| {
+                let err = |m: String| mlua::Error::RuntimeError(format!("vd.on: {m}"));
+                if !EVENTS.contains(&event.as_str()) {
+                    return Err(err(format!(
+                        "unknown event {event} ({})",
+                        EVENTS.join(", ")
+                    )));
+                }
+                let (opts, f) = match (opts, f) {
+                    (LuaValue::Function(f), None) => (None, f),
+                    (LuaValue::Table(t), Some(f)) => (Some(t), f),
+                    _ => return Err(err("vd.on(event, [opts,] fn)".into())),
+                };
+                let (mut group, mut pattern, mut once) = (None, Vec::new(), false);
+                if let Some(t) = opts {
+                    group = t.get::<Option<String>>("group")?;
+                    once = t.get::<Option<bool>>("once")?.unwrap_or(false);
+                    pattern = match t.get::<LuaValue>("pattern")? {
+                        LuaValue::Nil => Vec::new(),
+                        LuaValue::String(s) => vec![s.to_str()?.to_string()],
+                        LuaValue::Table(l) => {
+                            l.sequence_values::<String>().collect::<mlua::Result<_>>()?
+                        }
+                        _ => return Err(err("pattern is a glob or a list of globs".into())),
+                    };
+                }
+                if !pattern.is_empty() && PATHLESS.contains(&event.as_str()) {
+                    return Err(err(format!("{event} has no path to match a pattern")));
+                }
+                let globs = pattern
+                    .iter()
+                    .map(|p| glob_regex(p).map_err(|e| err(e.to_string())))
+                    .collect::<mlua::Result<_>>()?;
+                let r = registry(lua)?;
+                let mut reg = r.borrow_mut();
+                reg.next_handler += 1;
+                let id = reg.next_handler;
+                reg.handlers.push(Handler {
+                    id,
+                    event,
+                    group,
+                    pattern,
+                    globs,
+                    once,
+                    f,
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+    vd.set(
+        "off",
+        lua.create_function(|lua, id: i64| {
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            let n = reg.handlers.len();
+            reg.handlers.retain(|h| h.id != id);
+            Ok(reg.handlers.len() < n)
+        })?,
+    )?;
+    let clear_group = |lua: &Lua, name: &str| -> mlua::Result<()> {
+        let r = registry(lua)?;
+        r.borrow_mut()
+            .handlers
+            .retain(|h| h.group.as_deref() != Some(name));
+        Ok(())
+    };
+    vd.set(
+        "clear_group",
+        lua.create_function(move |lua, name: String| clear_group(lua, &name))?,
+    )?;
+    vd.set(
+        "augroup",
+        lua.create_function(move |lua, (name, opts): (String, Option<LuaTable>)| {
+            let clear = match &opts {
+                Some(t) => t.get::<Option<bool>>("clear")?.unwrap_or(true),
+                None => true,
+            };
+            if clear {
+                clear_group(lua, &name)?;
             }
-            registry(lua)?.borrow_mut().handlers.push((event, f));
-            Ok(())
+            Ok(name)
+        })?,
+    )?;
+    vd.set(
+        "handlers",
+        lua.create_function(|lua, ()| {
+            let r = registry(lua)?;
+            let reg = r.borrow();
+            let out = lua.create_table()?;
+            for (i, h) in reg.handlers.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("id", h.id)?;
+                t.set("event", h.event.as_str())?;
+                t.set("group", h.group.as_deref())?;
+                t.set("pattern", h.pattern.join(" "))?;
+                t.set("once", h.once)?;
+                out.set(i + 1, t)?;
+            }
+            Ok(out)
         })?,
     )?;
     vd.set(
@@ -1218,7 +1394,7 @@ pub fn default_init_lua() -> String {
     ));
     out += "-- vd.command(\"hello\", function(args) vd.toast(\"hello \" .. args) end)\n\n";
     out += &wrap(
-        "More (see the guide): vd.register_loader { name, extensions, open }, vd.register_aggregator(name, fn), vd.register_renderer { column, render }, vd.sheet(), vd.toast(msg), vd.push_sheet { name, columns, rows }, vd.on(event, fn), vd.exec(\":ex command\")."
+        "More (see the guide): vd.register_loader { name, extensions, open }, vd.register_aggregator(name, fn), vd.register_renderer { column, render }, vd.sheet(), vd.toast(msg), vd.push_sheet { name, columns, rows }, vd.on(event, [opts,] fn), vd.off(id), vd.augroup(name), vd.exec(\":ex command\")."
             .into(),
     );
     out
@@ -1997,6 +2173,45 @@ mod tests {
         let r = |f| p.render_text("x", &DataType::Float64, &AnyValue::Float64(f));
         assert_eq!(r(1.00000001).as_deref(), Some("1.00000001"));
         assert_eq!(r(1.00000002).as_deref(), Some("1.00000002"));
+    }
+
+    /// S-40 A: ids, `once`, `vd.off`, groups that clear, globs on the name
+    /// or the path, `pattern` refused where there's no path.
+    #[test]
+    fn handler_options_filter_and_remove() {
+        let src = r#"
+            local g = vd.augroup("logs")
+            vd.on("open", { group = g, pattern = "*.log.csv" }, function(s) vd.toast("first " .. s.path) end)
+            g = vd.augroup("logs")  -- as if sourced again: replaces
+            vd.on("open", { group = g, pattern = { "*.log.csv", "/data/*.tsv" } }, function(s) vd.toast("log") end)
+            vd.on("save", { once = true }, function() vd.toast("once") end)
+            gone = vd.on("save", function() vd.toast("gone") end)
+            assert(vd.off(gone) and not vd.off(gone))
+            ok, err = pcall(vd.on, "quit", { pattern = "*" }, function() end)
+            assert(not ok and tostring(err):find("no path"))
+        "#;
+        let p = Plugins::load_from_source(src).unwrap();
+        let ctx = SheetCtx {
+            name: "s",
+            row: 1,
+            col: 1,
+            column_names: vec![],
+            value: AnyValue::Null,
+        };
+        let open = |path: &str| p.fire("open", &ctx, &[("path", path.into())]).0.toasts;
+        assert_eq!(open("/x/app.log.csv"), ["log"]);
+        assert_eq!(open("/data/b.tsv"), ["log"]);
+        assert!(open("/x/b.tsv").is_empty());
+        assert!(open("").is_empty());
+        let save = || p.fire("save", &ctx, &[]).0.toasts;
+        assert_eq!(save(), ["once"]);
+        assert!(save().is_empty());
+        let rows = p.handler_rows();
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(
+            rows[0][1..],
+            ["open", "logs", "*.log.csv /data/*.tsv", "false"]
+        );
     }
 
     fn push_error(body: &str) -> String {

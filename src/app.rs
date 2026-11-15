@@ -780,6 +780,7 @@ impl App {
                 _ = tail_tick.tick() => {
                     self.reload_plugins_if_changed();
                     self.on_tail_tick();
+                    self.fire_event("tick", &[]);
                     dirty = true;
                 }
                 _ = std::future::ready(()), if dirty && !self.quit => {
@@ -1142,6 +1143,8 @@ impl App {
             return;
         }
         self.link_seen = Some(s.id);
+        let path = s.source.path.as_ref().map(|p| p.display().to_string());
+        self.fire_event("enter", &[("path", path.unwrap_or_default())]);
         self.follow_lookups();
         let s = self.sheets.active();
         if !s.state.linked {

@@ -1156,6 +1156,18 @@ impl App {
                 });
             }
             Action::Validations => self.toast = Some(self.sheets.active().validations_text()),
+            Action::Handlers => {
+                let rows = self
+                    .plugins
+                    .as_ref()
+                    .map(|p| p.handler_rows())
+                    .unwrap_or_default();
+                let id = self.sheets.alloc_id();
+                let names = ["id", "event", "group", "pattern", "once"];
+                self.sheets
+                    .push(Sheet::listing(id, "handlers", &names, &rows));
+                self.spawn_materialize();
+            }
             Action::Scale { column, colors } => {
                 let colors = colors.unwrap_or_else(|| (SCALE_LOW.into(), SCALE_HIGH.into()));
                 self.scale(column, Some(colors))

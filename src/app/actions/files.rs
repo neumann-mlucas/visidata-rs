@@ -149,6 +149,9 @@ impl App {
         crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.options().duckdb_cmd));
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
         self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
+        let paths = self.plugins.as_ref().and_then(|p| p.config_file());
+        let paths = paths.map(|p| p.display().to_string());
+        self.fire_event("reload", &[("paths", paths.unwrap_or_default())]);
     }
 
     pub(in crate::app) fn on_tail_tick(&mut self) {

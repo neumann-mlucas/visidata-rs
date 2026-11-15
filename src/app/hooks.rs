@@ -75,6 +75,7 @@ impl App {
             .map(|p| p.display().to_string())
             .unwrap_or_default();
         let format = format!("{:?}", s.kind).to_lowercase();
+        let rows = s.row_count().map(|n| n.to_string()).unwrap_or_default();
         if matches!(
             s.origin,
             Origin::File | Origin::Tail { .. } | Origin::Parts { .. }
@@ -87,11 +88,12 @@ impl App {
         self.fire_event(
             "push",
             &[
-                ("path", path),
+                ("path", path.clone()),
                 ("format", format),
                 ("origin", origin.into()),
             ],
         );
+        self.fire_event("loaded", &[("path", path), ("rows", rows)]);
         true
     }
 
