@@ -1012,12 +1012,24 @@ impl App {
                     Err(e) => self.toast = Some(format!("addcol: {e}")),
                 }
             }
-            Action::AddColIncr => {
+            Action::AddColIncr | Action::AddColIncrKey => {
                 let at = self.current_column_name();
+                let base = self.theme.incr_base;
+                let by_key = action == Action::AddColIncrKey;
                 self.scan_edit(
                     "addcol-incr",
-                    |s| s.view_order_rids(),
-                    move |app, rids| match app.sheets.active_mut().add_incr_col_with(rids) {
+                    move |s| match by_key {
+                        true => s.key_run_numbers(base),
+                        false => s.view_order_rids().map(|r| {
+                            let n = r.len() as i64;
+                            (r, (0..n).map(|i| base as i64 + i).collect())
+                        }),
+                    },
+                    move |app, (rids, nums)| match app
+                        .sheets
+                        .active_mut()
+                        .add_incr_col_with(rids, nums)
+                    {
                         Ok(name) => {
                             app.place_new_column(&name, at.as_deref());
                             app.spawn_materialize();
@@ -1030,6 +1042,7 @@ impl App {
                 let Some(column) = self.current_column_name() else {
                     return;
                 };
+                let base = self.theme.incr_base;
                 match &action {
                     Action::SetColIncr if self.sheets.active().view.selected.is_empty() => {
                         self.toast = Some("no rows selected".into());
@@ -1040,8 +1053,8 @@ impl App {
                         move |app, rids| {
                             let s = app.sheets.active_mut();
                             let done = s
-                                .set_incr_with(&column, rids)
-                                .map(|n| format!("set {column} to 1…{n}"));
+                                .set_incr_with(&column, rids, base)
+                                .map(|n| format!("set {column} to {base}…{}", base + n as u64 - 1));
                             app.edit_done(done, "");
                         },
                     ),
@@ -2214,6 +2227,7 @@ impl App {
         match name {
             "numeric_binning" => t.numeric_binning = v == "true",
             "histogram_bins" => t.histogram_bins = v.parse().unwrap_or(0),
+            "incr_base" => t.incr_base = v.parse().unwrap_or(1),
             "disp_footer" => t.footer = v == "true",
             "disp_float_fmt" => {
                 t.float_digits = crate::plugins::float_fmt_digits(&v);

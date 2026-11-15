@@ -70,7 +70,7 @@ graphpr-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 hide-uniform	PASS
 histogram	UNTESTABLE addcol-expr
 import-python	UNTESTABLE import-python
-incr-key	SKIP addcol-incr-key
+incr-key	PASS
 inner-join	PASS
 invalid_unicode_sqlite	PASS
 issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknown format for ../visidata/sample_data/issue1308.html

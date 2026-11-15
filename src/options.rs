@@ -69,6 +69,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "ranges F counts with numeric_binning; 0: the square root of the rows",
     },
     Opt {
+        name: "incr_base",
+        kind: Kind::Count,
+        default: "1",
+        live: true,
+        help: "first number of i, gi and :addcol-incr-key",
+    },
+    Opt {
         name: "keymap",
         kind: Kind::Choice(&["visidata", "vim"]),
         default: "visidata",

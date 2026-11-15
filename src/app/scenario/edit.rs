@@ -1297,3 +1297,20 @@ async fn validate_refuses_then_warns() {
     h.type_("validate amt").await;
     assert_eq!(status(&h), "amt: no validation");
 }
+
+/// S-41 E: `:addcol-incr-key` restarts at each new key value; `incr_base`
+/// moves where it (and `i`) start.
+#[tokio::test(flavor = "multi_thread")]
+async fn addcol_incr_key_restarts_per_key() {
+    let mut h = csv(b"g\nA\nA\nB\nA\n").await;
+    h.keys("!").await;
+    h.keys(":").await;
+    h.type_("addcol-incr-key").await;
+    h.keys(":").await;
+    h.type_("set incr_base 5").await;
+    h.keys(":").await;
+    h.type_("addcol-incr").await;
+    let out = csv_text(h.app.sheets.active(), b',');
+    let rows: Vec<&str> = out.lines().skip(1).collect();
+    assert_eq!(rows, ["A,1,5", "A,2,6", "B,1,7", "A,1,8"], "{out}");
+}

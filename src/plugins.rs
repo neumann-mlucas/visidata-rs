@@ -118,6 +118,8 @@ pub struct Options {
     /// `vd.option("numeric_binning", true)` / `("histogram_bins", N)` (S-35 C1; 0 bins: ⌊√rows⌋).
     pub numeric_binning: bool,
     pub histogram_bins: usize,
+    /// `vd.option("incr_base", N)` (S-41 E): where `i` starts; None: 1.
+    pub incr_base: Option<u64>,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
     /// Every value set, as checked (S-37 P0c): what `O` shows.
@@ -139,6 +141,7 @@ impl Options {
             "numeric_binning" => self.numeric_binning = on,
             "disp_footer" => self.disp_footer = on,
             "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
+            "incr_base" => self.incr_base = v.parse().ok(),
             "mouse" => self.mouse = on,
             _ => {} // keymap: applied when set (the vim profile's binds)
         }
@@ -1692,6 +1695,9 @@ pub fn default_init_lua() -> String {
          -- how many (0: the square root of the row count).\n\
          -- vd.option(\"numeric_binning\", \"true\")\n\
          -- vd.option(\"histogram_bins\", \"0\")\n\
+         \n\
+         -- First number of i, gi and :addcol-incr-key. Default 1.\n\
+         -- vd.option(\"incr_base\", \"1\")\n\
          \n\
          -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
          -- turns it on or off.\n\

@@ -54,6 +54,9 @@ pub struct Theme {
     /// bins numbers into `histogram_bins` ranges (0: ⌊√rows⌋).
     pub numeric_binning: bool,
     pub histogram_bins: usize,
+    /// `incr_base` (S-41 E): the first number `i`, `gi` and
+    /// `:addcol-incr-key` write.
+    pub incr_base: u64,
     /// `disp_footer`, `:footer` (S-36 C): a totals row under the table.
     pub footer: bool,
 }
@@ -148,6 +151,7 @@ impl Theme {
             float_digits: None,
             numeric_binning: false,
             histogram_bins: 0,
+            incr_base: 1,
             footer: false,
         }
     }
@@ -190,6 +194,7 @@ impl Theme {
             float_digits: None,
             numeric_binning: false,
             histogram_bins: 0,
+            incr_base: 1,
             footer: false,
         }
     }

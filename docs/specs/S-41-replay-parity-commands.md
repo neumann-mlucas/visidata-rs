@@ -1,6 +1,6 @@
 # S-41 — VisiData commands the replay corpus is blocked on
 
-Status: **drafted 2026-11-15**; A–C shipped 2026-11-15.
+Status: **drafted 2026-11-15**; A–C, E shipped 2026-11-15; D deferred.
 Depends on: S-25 P0 (replay harness), S-33 (background selection jobs).
 
 ## 1. Today
@@ -36,6 +36,15 @@ keymap; the vim profile is unchanged.
   `edit-cell edited` on `Key`: vdrs reads `Key` as i64 and refuses text (VisiData reads text),
   the typed-reads difference of S-25 P2. No new pass. The replay's `hide-col` now moves its
   cursor to the next visible column, as VisiData does.
+- **D, deferred**: neither file can pass with it. frozen-attrs wants the copy to keep the
+  source's width (7): vdrs has no per-column width (measured, header included).
+  column-copy edits a cell of the freq sheet, which vdrs keeps read-only (derived sheets).
+  Build `'` when one of those lands, or when a user asks for it.
+- **E**: `Sheet::key_run_numbers`; the incr builders take a base, and the app reads
+  `Theme.incr_base`. Sessions are unaffected: they store the numbers, not the base. The
+  replay now moves its cursor the way VisiData does: onto a column `addcol-incr-key` adds, and
+  after `key-col` to whatever column now sits at the cursor's screen index (keys move left).
+  incr-key passes (74).
 
 ## 3. Out of scope
 

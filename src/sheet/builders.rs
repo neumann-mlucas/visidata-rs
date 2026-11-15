@@ -18,14 +18,53 @@ impl Sheet {
     }
 
     /// `i` / `:addcol-incr`: a new int column numbering the view's rows
-    /// 1…n in view order; rows the filter hides stay null. Its name.
-    pub fn add_incr_col(&mut self) -> Result<String, String> {
+    /// base, base + 1, … in view order; rows the filter hides stay null. Its name.
+    pub fn add_incr_col(&mut self, base: u64) -> Result<String, String> {
         let rids = self.view_order_rids()?;
-        self.add_incr_col_with(rids)
+        let nums = counting(base, rids.len());
+        self.add_incr_col_with(rids, nums)
     }
 
-    /// [`Self::add_incr_col`] with the view's row ids already read (S-33).
-    pub fn add_incr_col_with(&mut self, rids: Vec<u64>) -> Result<String, String> {
+    /// `:addcol-incr-key` (S-41 E): [`Self::add_incr_col`], restarting at
+    /// `base` wherever the key columns' values change from the row above.
+    pub fn add_incr_key_col(&mut self, base: u64) -> Result<String, String> {
+        let (rids, nums) = self.key_run_numbers(base)?;
+        self.add_incr_col_with(rids, nums)
+    }
+
+    /// The view's row ids in order, numbered from `base` within each run of
+    /// equal key values (one run without keys).
+    pub fn key_run_numbers(&self, base: u64) -> Result<(Vec<u64>, Vec<i64>), String> {
+        let e = |e: PolarsError| e.to_string();
+        let keys = &self.view.keys;
+        let mut sel = vec![col(ROW_ID)];
+        sel.extend(keys.iter().map(|k| col(k.as_str()).cast(DataType::String)));
+        let df = self.sorted_plan(true).select(sel).collect().map_err(e)?;
+        let rids = rid_values(&df).map_err(e)?;
+        let text = |i: usize| -> Vec<Option<String>> {
+            (df.columns()[1..].iter())
+                .map(|c| c.str().ok().and_then(|s| s.get(i)).map(String::from))
+                .collect()
+        };
+        let mut nums = Vec::with_capacity(rids.len());
+        let mut last = None;
+        let mut n = base as i64;
+        for i in 0..rids.len() {
+            let k = text(i);
+            n = if last.as_ref() == Some(&k) {
+                n + 1
+            } else {
+                base as i64
+            };
+            nums.push(n);
+            last = Some(k);
+        }
+        Ok((rids, nums))
+    }
+
+    /// [`Self::add_incr_col`] with the view's row ids and their numbers
+    /// already worked out (S-33).
+    pub fn add_incr_col_with(&mut self, rids: Vec<u64>, nums: Vec<i64>) -> Result<String, String> {
         self.editable()?;
         let before = self.snapshot();
         let name = self.next_colname();
@@ -36,7 +75,7 @@ impl Sheet {
                 replaces: false,
             })
             .map_err(|e| e.to_string())
-            .and_then(|()| self.number_rows(&name, rids));
+            .and_then(|()| self.number_rows(&name, rids, &nums));
         match made {
             Ok(()) => {
                 self.push_undo(before);
@@ -49,22 +88,28 @@ impl Sheet {
         }
     }
 
-    /// `gi` / `:setcol-incr`: the selected rows of `column` get 1…k in view
-    /// order. The count.
-    pub fn set_incr(&mut self, column: &str) -> Result<usize, String> {
+    /// `gi` / `:setcol-incr`: the selected rows of `column` get base…
+    /// in view order. The count.
+    pub fn set_incr(&mut self, column: &str, base: u64) -> Result<usize, String> {
         let rids = self.selected_in_view_order().map_err(|e| e.to_string())?;
-        self.set_incr_with(column, rids)
+        self.set_incr_with(column, rids, base)
     }
 
     /// [`Self::set_incr`] with the selected rows in view order (S-33).
-    pub fn set_incr_with(&mut self, column: &str, rids: Vec<u64>) -> Result<usize, String> {
+    pub fn set_incr_with(
+        &mut self,
+        column: &str,
+        rids: Vec<u64>,
+        base: u64,
+    ) -> Result<usize, String> {
         self.editable()?;
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
         let n = rids.len();
         let before = self.snapshot();
-        self.number_rows(column, rids)?;
+        let nums = counting(base, n);
+        self.number_rows(column, rids, &nums)?;
         self.push_undo(before);
         Ok(n)
     }
@@ -346,9 +391,9 @@ impl Sheet {
         rid_values(&df.map_err(|e| e.to_string())?).map_err(|e| e.to_string())
     }
 
-    /// `rids[i]` of `column` := i + 1, as the column's type.
-    fn number_rows(&mut self, column: &str, rids: Vec<u64>) -> Result<(), String> {
-        let texts: Vec<Option<String>> = (1..=rids.len()).map(|i| Some(i.to_string())).collect();
+    /// `rids[i]` of `column` := `nums[i]`, as the column's type.
+    fn number_rows(&mut self, column: &str, rids: Vec<u64>, nums: &[i64]) -> Result<(), String> {
+        let texts: Vec<Option<String>> = nums.iter().map(|i| Some(i.to_string())).collect();
         let vals = self.edit_values(column, &texts)?;
         self.set_cells(column, rids, vals)
     }
@@ -366,4 +411,9 @@ impl Sheet {
         };
         self.insert_edit(column, step).map_err(|e| e.to_string())
     }
+}
+
+/// `base`, `base + 1`, … (`n` of them).
+fn counting(base: u64, n: usize) -> Vec<i64> {
+    (0..n as i64).map(|i| base as i64 + i).collect()
 }

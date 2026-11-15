@@ -470,6 +470,9 @@ pub enum Action {
     },
     /// `i`: a new column numbering the view's rows 1…n.
     AddColIncr,
+    /// `:addcol-incr-key` (S-41 E): `i`, restarting at each change of the
+    /// key columns' values.
+    AddColIncrKey,
     /// `gi`: the current column of the selected rows := 1…k.
     SetColIncr,
     /// `f`: fill the current column's empty cells from above.
@@ -815,7 +818,12 @@ impl Action {
             SetNote { .. } | Color { .. } | NoColor { .. } | Validate { .. } => true,
             Validations | Handlers | Trust { .. } => false,
             StartAddColInput | StartCaptureInput => false,
-            AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
+            AddCol { .. }
+            | AddColIncr
+            | AddColIncrKey
+            | SetColIncr
+            | SetColFill
+            | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
             SetOption { .. } | ToggleFooter | MacroSheet | CommitSheet | OptionsSheet => false,
             SlideCol { .. } | Order { .. } => true,
@@ -1093,6 +1101,7 @@ impl Action {
         ("start_note_input", StartNoteInput),
         ("start_addcol_input", StartAddColInput),
         ("addcol_incr", AddColIncr),
+        ("addcol_incr_key", AddColIncrKey),
         ("setcol_incr", SetColIncr),
         ("setcol_fill", SetColFill),
         ("start_capture_input", StartCaptureInput),

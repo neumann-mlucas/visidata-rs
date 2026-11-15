@@ -1328,6 +1328,7 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme.float_digits = o.float_digits;
         (theme.numeric_binning, theme.histogram_bins) = (o.numeric_binning, o.histogram_bins);
         theme.footer = o.disp_footer;
+        theme.incr_base = o.incr_base.unwrap_or(1);
     }
     (keymap, theme)
 }

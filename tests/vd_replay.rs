@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 73;
+const MIN_PASS: usize = 74;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -187,6 +187,8 @@ struct Replay {
     next_id: SheetId,
     /// `set-option numeric_binning True`: `F` on a number bins ranges.
     numeric_binning: bool,
+    /// `set-option incr_base N` (S-41 E).
+    incr_base: u64,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
@@ -251,6 +253,7 @@ impl Replay {
             root,
             next_id: 0,
             numeric_binning: false,
+            incr_base: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
@@ -856,16 +859,31 @@ impl Replay {
                 s.place_col(&r.input, Some(&r.col)).map_err(Runtime)
             }
             "addcol-incr" => {
+                let base = self.incr_base;
                 let s = &mut self.current_slot_mut()?.sheet;
-                let name = s.add_incr_col().map_err(Runtime)?;
+                let name = s.add_incr_col(base).map_err(Runtime)?;
                 s.place_col(&name, Some(&r.col)).map_err(Runtime)
             }
+            "addcol-incr-key" => {
+                let base = self.incr_base;
+                let s = &mut self.current_slot_mut()?.sheet;
+                let name = s.add_incr_key_col(base).map_err(Runtime)?;
+                s.place_col(&name, Some(&r.col)).map_err(Runtime)?;
+                // VisiData's cursor moves onto the new column
+                if let (Some(cursor), Some(cur)) = (self.cursor.as_mut(), self.current)
+                    && let Some(pos) = cursor.get_mut(&cur)
+                {
+                    pos.0 = name;
+                }
+                Ok(())
+            }
             "setcol-incr" => {
+                let base = self.incr_base;
                 let s = &mut self.current_slot_mut()?.sheet;
                 if s.view.selected.is_empty() {
                     return Ok(());
                 }
-                s.set_incr(&r.col).map(|_| ()).map_err(Runtime)
+                s.set_incr(&r.col, base).map(|_| ()).map_err(Runtime)
             }
             "setcol-fill" => {
                 let s = &mut self.current_slot_mut()?.sheet;
@@ -907,11 +925,27 @@ impl Replay {
             "key-col" => {
                 // VisiData `!` is TOGGLE, not add. Repeated key-col on the
                 // same col removes it (seen in inner-join / full-join tests).
+                let visible = |s: &Sheet| -> Vec<String> {
+                    s.view_plan()
+                        .collect_schema()
+                        .map(|sc| sc.iter_names().map(|n| n.to_string()).collect())
+                        .unwrap_or_default()
+                };
                 let slot = self.current_slot_mut()?;
+                let at = visible(&slot.sheet).iter().position(|c| *c == r.col);
                 if let Some(i) = slot.sheet.view.keys.iter().position(|k| k == &r.col) {
                     slot.sheet.view.keys.remove(i);
                 } else {
                     slot.sheet.view.keys.push(r.col.clone());
+                }
+                // VisiData's cursor keeps its screen index as keys move left
+                let after = visible(&slot.sheet);
+                if let (Some(at), Some(cursor), Some(cur)) =
+                    (at, self.cursor.as_mut(), self.current)
+                    && let Some(next) = after.get(at)
+                    && let Some(pos) = cursor.get_mut(&cur)
+                {
+                    pos.0 = next.clone();
                 }
                 Ok(())
             }
@@ -1120,6 +1154,11 @@ impl Replay {
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" if r.row == "unfurl_empty" && r.input == "True" => {
                 Err(Runtime("option unfurl_empty".into()))
+            }
+            "set-option" if r.row == "incr_base" => {
+                // VisiData's is a float (`5.0`); an int base here
+                self.incr_base = r.input.parse::<f64>().map_or(1, |f| f as u64);
+                Ok(())
             }
             "set-option" if r.row == "numeric_binning" => {
                 self.numeric_binning = r.input == "True";
