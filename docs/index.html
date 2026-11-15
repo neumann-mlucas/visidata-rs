@@ -171,6 +171,13 @@ td:first-child { white-space: nowrap; }
 <p>You need a Rust toolchain (1.88 or newer):</p>
 <pre><code>cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked</code></pre>
 <p>This installs the <code>vdrs</code> binary. <code>--locked</code> builds with the dependency versions the project is tested with; without it Cargo may pick newer, incompatible releases.</p>
+<p>The build compiles Polars with release optimizations: expect a long build (about 45 minutes in one test) and over 1 GB of disk while it runs.</p>
+<p>Files vdrs writes on its own:</p>
+<ul>
+<li><code>~/.config/vdrs/init.lua</code> (<code>$XDG_CONFIG_HOME</code>), the first time the TUI starts without one: every default binding, commented out (<a href="#lua">Lua configuration</a>).</li>
+<li><code>macros.lua</code> next to it, when you record a macro with <kbd>m</kbd>.</li>
+<li>In <code>~/.local/state/vdrs/</code> (<code>$XDG_STATE_HOME</code>): <code>exline_history</code> (the <kbd>:</kbd> history), <code>session.vdrs</code> (saved on quit, <a href="#wf-session">Pick up tomorrow</a>) and <code>notes/</code> (cell notes).</li>
+</ul>
 
 <h2 id="open">Opening data</h2>
 <pre><code>vdrs sales.parquet                 # open in the TUI
