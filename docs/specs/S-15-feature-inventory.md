@@ -71,7 +71,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
 | `SlideCol { by }` / `StartSlideInput { left }` / `Order { columns }` | `H` `L` / `gH` `gL` / `zH` `zL` | `:order a b c` | `View.order`: non-key columns placed first in that order (keys stay first; slides stay inside their section); `[` `]` on the columns sheet writes its row order back; sessions save `order` (S-34) |
 | `StartRenameColInput` → `RenameCol { new_name }` | `^` | `:rename NEW` | plan.rename() + updates hidden/keys/casts/filter/sort refs; refuses an existing name |
-| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|currency` | `View.type_casts` applied in window_plan |
+| `TypeCastInt/Float/String/Date/Currency` | `#` / `%` / `~` / `@` / `$` | `:type int\|float\|string\|date\|datetime\|date-only\|currency` | `View.type_casts` applied in window_plan; `TypeCastDateAs { time }` = `:type datetime` / `:type date-only` (`@` with the type named, for sessions) |
 | `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |
 | `ExpandCol { depth }` / `StartExpandDepthInput` / `ExpandCols { depth }` | `(` / `z(` `gz(` / `g(` | `:expand-col` … | `PlanStep::Expand`: struct fields as `col.field` columns right after the struct (depth 0 = all the way; taken names get `_2`), struct hidden; one undo step; `(` on an expanded struct only shows its columns again (S-22 A) |
 | `OpenColumns` / `OpenColumnsAll` | `C` / `gC` | `:columns-sheet` `:columns-all` | `Origin::Columns`: a row per column (hidden too) `name width type value aggregators sortorder key` (`gC`: `sheet` first); `e` on name/width/type/value/aggregators, `d` / `g-` `gd` hide, `Enter` freq, `U`/`R` write back to the listed sheet(s), one undo step per sheet (S-25 P3) |
@@ -265,7 +265,7 @@ Full grammar: `src/exline.rs:parse()`; the complete list is what `:<Tab>` comple
 :hide / :unhide                      current col
 :key / :unkey                        toggle key on current col / clear all
 :rename <new-name>                   rename current col
-:type int|float|string|str|date|currency
+:type int|float|string|str|date|datetime|date-only|currency|json
 :save / :w / :write <path.ext>       persist active sheet; writer by extension
                                      (csv|tsv|parquet|pq|ipc|arrow|feather|
                                      jsonl|ndjson|json)
