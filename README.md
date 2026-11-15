@@ -10,8 +10,9 @@ Lua-extensible like Neovim. Pre-alpha.
 VisiData is open in one of my terminals most days. Treating everything as a
 sheet, with a frequency table one keystroke away, changed how I look at data,
 and nothing else in the terminal comes close. visidata-rs is not a fork. It
-rebuilds that tool in Rust: same keys, same behavior (VisiData's own test corpus
-is replayed against it), different insides.
+rebuilds that tool in Rust: same keys, same behavior, different insides.
+VisiData's own test corpus is replayed against it: 71 of the 195 scripts it can
+address pass today.
 
 The insides matter because that's where VisiData's open issues pile up:
 
@@ -51,30 +52,50 @@ What it won't fix: VisiData's 60-odd loaders shrink to a core set plus Lua,
 hundreds of commands are still hard to discover, and a Rust codebase doesn't
 grow more maintainers. If VisiData does what you need, keep using it. I still do.
 
+## Install
+
 ```text
 cargo install --git https://github.com/neumann-mlucas/visidata-rs --locked   # installs `vdrs`; needs Rust 1.88+
-vdrs data.parquet          # TUI
-vdrs --headless data.csv   # schema + first rows, no TUI
-cat data.csv | vdrs -      # stdin, format sniffed
 ```
 
 The install compiles Polars with release optimizations: expect a long build (about
 45 minutes in one test) and over 1 GB of disk while it runs.
 
+## Use
+
+```text
+vdrs data.parquet          # TUI
+vdrs --headless data.csv   # schema + first rows, no TUI
+cat data.csv | vdrs -      # stdin, format sniffed
+```
+
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
 arrays, Excel/ODS, SQLite (several sheets/tables → a list; `book.xlsx:Sheet2`
-opens one) and DuckDB (through the `duckdb` program), and any of these gzipped; Lua loaders add more. Files are scanned
-lazily: only a 1024-row window is materialized, and row counts, searches and
-pivots run in the background.
+opens one) and DuckDB (through the `duckdb` program), and any of these gzipped;
+Lua loaders add more. Files are scanned lazily: only a 1024-row window is
+materialized, and row counts, searches and pivots run in the background. Edits
+never touch the file you opened until `:save`.
 
-Basics (VisiData's keys): `hjkl` move, `gg`/`G` top/bottom, `/` search the column (`g/` all), `[`/`]` sort, `gz|` filter,
-`F` frequency table (`Enter` opens a value's rows), `I` describe, `W` pivot,
-`s`/`gs`/`|`/`,` select (`z|` by SQL condition), `=` new column, `"` sheet of selected rows, `-` hide, `!` key column,
-`#%~@` type casts, `za` empty column, `i` row numbers, `f` fill down, `;` regex captures, `e` edit, `a` add row, `d` delete row, `y`/`p` copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree: `:undotree`), `(`/`zM` expand structs / unfurl lists, `C` columns sheet (edits write back), `+` aggregators (`F` adds `Units_sum` …; `z+` in the status line), `b` sidebar, `S` sheet list, `:` ex
-commands (`:join`, `:sql`, `:derive`, `:save out.parquet`, `:export view.sql`,
-`:tail -f`, …), `q` back, `gq` quit, `Ctrl-c` cancels background work. `:pivot` previews its result while you type;
-`:export` writes a Polars or DuckDB script that rebuilds the view, including
-derived sheets.
+## Keys
+
+VisiData's, grouped:
+
+- **Move**: `hjkl`, `gg`/`G` top/bottom, `q` back, `gq` quit, `Ctrl-c` cancels
+  background work
+- **Find**: `/` search the column (`g/` all), `[`/`]` sort, `gz|` filter
+- **Summarize**: `F` frequency table (`Enter` opens a value's rows), `I`
+  describe, `W` pivot (`:pivot` previews while you type), `+` aggregators (`F`
+  adds `Units_sum` …; `z+` in the status line)
+- **Select**: `s`/`gs`/`|`/`,` select (`z|` by SQL condition), `"` sheet of
+  selected rows
+- **Columns**: `=` new column, `-` hide, `!` key column, `#%~@` type casts, `za`
+  empty column, `i` row numbers, `;` regex captures, `(`/`zM` expand structs /
+  unfurl lists, `C` columns sheet (edits write back)
+- **Edit**: `e` edit, `f` fill down, `a` add row, `d` delete row, `y`/`p`
+  copy/paste (`Y`/`zP` system clipboard), `U`/`R` undo/redo (a tree:
+  `:undotree`)
+- **Sheets**: `b` sidebar, `S` sheet list, `:` ex commands (`:join`, `:sql`,
+  `:derive`, `:save out.parquet`, `:export view.sql`, `:tail -f`, …)
 
 Keymaps work like vi and vim: the default is VisiData's, and
 `vd.option("keymap", "vim")` in `init.lua` switches on vim meanings (`u` undo,
@@ -82,19 +103,25 @@ Keymaps work like vi and vim: the default is VisiData's, and
 2026-11-14 (`s` selects instead of toggling, `zs` `zc` `zo` `<C-v>`): see the
 guide's [changed keys](https://neumann-mlucas.github.io/visidata-rs/#breaking).
 
+## Docs
+
 - **User guide**: <https://neumann-mlucas.github.io/visidata-rs/>
 - What ships: [`docs/specs/S-15-feature-inventory.md`](docs/specs/S-15-feature-inventory.md)
 - Direction & scope: [`docs/direction.md`](docs/direction.md)
 - Punchlist: [`docs/tasks.md`](docs/tasks.md)
-- Edits ([S-18](docs/specs/S-18-editing-clipboard.md)) never touch the file you opened until `:save`
 - Config: `$XDG_CONFIG_HOME/vdrs/init.lua`, hot-reloaded: `vd.bind` (to an action, ex
   command or Lua function), `vd.register_loader`, `vd.register_aggregator`,
   `vd.register_renderer`, `vd.set_theme` — see the guide's Lua section
 
-Development: `cargo test` runs unit tests, end-to-end UI scenarios
-(`app::scenario`) and, when a VisiData checkout sits at `../visidata`, its
-golden-corpus replay (`tests/vd_replay.rs`; CI pins the commit). Without the
-checkout that test skips.
+## Development
+
+`just check` is the done-gate: fmt, clippy `-D warnings` and the full nextest
+run (`just test <filter>` for a narrow one). It covers unit tests, end-to-end UI
+scenarios (`app::scenario`), golden cases (`tests/golden/`; `UPDATE_GOLDEN=1`
+rewrites them, `VDRS_PYTHON=<python with polars>` also runs their exported
+scripts) and, when a VisiData checkout sits at `../visidata`, its golden-corpus
+replay (`tests/vd_replay.rs`; CI pins the commit). Without the checkout that
+test skips.
 
 ## License
 
