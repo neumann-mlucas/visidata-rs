@@ -22,7 +22,7 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
   `src/app/scenario/*.rs`): real key path, real background materialize. Unit
   tests alone don't cover the UI.
 - Tests never touch the user's state or clipboard (`cfg!(test)` guards in
-  `exline::history_path`, `paste_cmd_for`).
+  `state_path` in `src/lib.rs`, `paste_cmd_for`).
 - A `vd_replay` count drop can stay green: read the `vd_replay:` line.
   Regenerate `tests/vd_replay/triage.txt` with `VDRS_REPLAY_TRIAGE=1`.
 
