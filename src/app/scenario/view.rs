@@ -802,3 +802,12 @@ async fn g_percent_precision_prompt_and_columns_sheet_float() {
         Some(vec![Action::TypeSelected { name: "float" }])
     );
 }
+
+/// `zo` opens the cell as displayed; a missing file gets VisiData's message.
+#[tokio::test(flavor = "multi_thread")]
+async fn open_cell_file_missing_says_so() {
+    let mut h = csv(b"p\n/no/such/file.csv\n").await;
+    h.keys("z o").await;
+    assert_eq!(status(&h), "file /no/such/file.csv does not exist");
+    assert_eq!(h.app.sheets.len(), 1);
+}

@@ -568,6 +568,16 @@ pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &Column) -> CellFmt<'
     }
 }
 
+/// Row `i` of `column` as the sheet draws it; `None` for a null.
+pub fn cell_display(view: &View, theme: &Theme, column: &Column, i: usize) -> Option<String> {
+    let av = column.get(i).ok().filter(|v| !v.is_null())?;
+    Some(
+        ColText::new(column, cell_fmt(view, theme, column))
+            .cell(&av, i)
+            .0,
+    )
+}
+
 /// A column's cell texts in its [`CellFmt`]: a date column in strftime
 /// format is formatted once, as Polars' `dt.strftime` writes it (S-35 C2).
 struct ColText<'a> {

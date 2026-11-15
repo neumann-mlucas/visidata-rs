@@ -1352,12 +1352,15 @@ impl App {
                 let s = self.sheets.active();
                 let path = self
                     .current_column_name()
-                    .and_then(|c| s.window()?.column(&c).ok()?.get(s.view.row_cursor).ok())
-                    .filter(|v| !v.is_null())
-                    .map(|v| crate::sheet::any_text(&v))
+                    .and_then(|c| {
+                        let col = s.window()?.column(&c).ok()?;
+                        crate::widget::cell_display(&s.view, &self.theme, col, s.view.row_cursor)
+                    })
                     .unwrap_or_default();
                 if path.is_empty() {
                     self.toast = Some("no path given".into());
+                } else if !path.contains("://") && !std::path::Path::new(&path).exists() {
+                    self.toast = Some(format!("file {path} does not exist"));
                 } else {
                     self.dispatch(Action::Open { path });
                 }
