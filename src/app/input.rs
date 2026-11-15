@@ -396,8 +396,8 @@ impl App {
             Prompt::AddCol => self.dispatch_sequence(vec![Action::AddCol { name: text }]),
             Prompt::GoCol => match text.trim().parse::<i64>() {
                 Ok(n) => {
+                    let w = self.column_names().len() as i64;
                     let s = self.sheets.active_mut();
-                    let w = s.window().map_or(0, |df| df.width()) as i64;
                     let want = if n < 0 { w + n } else { n };
                     let at = want.clamp(0, (w - 1).max(0));
                     s.view.col_cursor = at as usize;

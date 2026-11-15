@@ -717,3 +717,17 @@ async fn select_unselect_before_is_one_undo_step() {
     h.keys("U").await;
     assert_eq!(sel(&h), 0, "{}", status(&h));
 }
+
+/// `zc` before the window loads counts the plan's columns.
+#[tokio::test(flavor = "multi_thread")]
+async fn go_col_while_loading_uses_plan_columns() {
+    let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    std::io::Write::write_all(&mut tmp, b"a,b,c\n1,2,3\n").unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::from_app(App::new(Sheet::from_source(0, loaded), None, None)).await;
+    assert!(h.app.sheets.active().window().is_none());
+    h.keys("z c").await;
+    h.type_("2").await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 2, "{}", status(&h));
+    assert!(!status(&h).contains("out of range"), "{}", status(&h));
+}

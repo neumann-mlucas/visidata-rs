@@ -1119,8 +1119,17 @@ impl App {
     /// Column under the cursor. While a new window is on its way the loaded one
     /// is out of date (a key hit right after `-`), so ask the plan instead.
     fn current_column_name(&self) -> Option<String> {
+        let names = self.column_names();
         let s = self.sheets.active();
-        let names: Vec<String> = match s.window() {
+        names
+            .get(s.view.col_cursor.min(names.len().saturating_sub(1)))
+            .cloned()
+    }
+
+    /// The active sheet's columns: the window's once loaded, else the plan's.
+    fn column_names(&self) -> Vec<String> {
+        let s = self.sheets.active();
+        match s.window() {
             Some(df) if s.is_loaded() => df
                 .get_column_names()
                 .iter()
@@ -1129,14 +1138,9 @@ impl App {
             _ => s
                 .view_plan()
                 .collect_schema()
-                .ok()?
-                .iter_names()
-                .map(|n| n.to_string())
-                .collect(),
-        };
-        names
-            .get(s.view.col_cursor.min(names.len().saturating_sub(1)))
-            .cloned()
+                .map(|schema| schema.iter_names().map(|n| n.to_string()).collect())
+                .unwrap_or_default(),
+        }
     }
 }
 
