@@ -2545,7 +2545,7 @@ mod tests {
         assert_eq!(df.column("serial").unwrap().dtype(), &DataType::Int64);
         assert_eq!(
             df.column("residue").unwrap().str().unwrap().get(0),
-            Some("THE")
+            Some("THR")
         );
 
         let p = recipe("fasta");
