@@ -67,7 +67,7 @@ async fn edits_scan_in_the_background() {
     assert!(columns(&h).contains(&"A".to_string()), "{:?}", columns(&h));
 
     // gi on the selected rows; f fills t; gzp pastes
-    h.keys("g g s j s").await;
+    h.keys("g g s s").await;
     press_quick(&mut h, "g i");
     h.pump().await;
     assert!(

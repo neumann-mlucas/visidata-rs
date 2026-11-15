@@ -25,6 +25,8 @@ pub enum Action {
     UnfreezeAll,
     /// `zs` (VisiData select-before): select rows from the top to the cursor.
     SelectBefore,
+    /// `zu` (VisiData unselect-before): unselect rows from the top to the cursor.
+    UnselectBefore,
     /// `zc` (VisiData go-col-number): prompt for a column number.
     StartGoColInput,
     /// `zo` (VisiData open-cell-file): open the path in the cursor cell.
@@ -679,6 +681,7 @@ impl Action {
                 | Action::UnselectRow
                 | Action::SelectAll
                 | Action::SelectBefore
+                | Action::UnselectBefore
                 | Action::UnselectAll
                 | Action::SelectByRegex { .. }
                 | Action::SelectExpr { .. }
@@ -742,7 +745,7 @@ impl Action {
             SplitPane { .. } | ClosePane | FocusPane | SwapPanes => false,
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
-            SelectBefore | OpenCellFile | ResizeColMax => true,
+            SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
             StartGoColInput | ShowVersion => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
@@ -998,6 +1001,7 @@ impl Action {
         ("plot_column", PlotColumn),
         ("zoom_all", ZoomAll),
         ("select_before", SelectBefore),
+        ("unselect_before", UnselectBefore),
         ("start_go_col_input", StartGoColInput),
         ("open_cell_file", OpenCellFile),
         ("resize_col_max", ResizeColMax),

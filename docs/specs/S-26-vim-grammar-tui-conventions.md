@@ -48,6 +48,10 @@ Shipped vdrs keys this changes (compared with VisiData's core `addCommand`/`bind
 | `zo` | clear sort | `open-cell-file` | open-cell-file (shipped 2026-11-14); clear sort = `:unsort` (VisiData has no unsort key) | clear sort | 2026-11-14 |
 | `_` | plot zoom-all | `resize-col-max` (sheet), `zoom-all` (canvas) | toggle column width full/default; plot: zoom to fit | same | 2026-11-14 |
 | `<C-v>` | visual block | `show-version` | show version | visual block (`:visual-block` in both) | 2026-11-14 |
+| `s` / `t` / `u` | toggle / toggle / unselect, cursor stays | `select-row` / `stoggle-row` / `unselect-row`, then cursor down | as VisiData (shipped 2026-11-14) | `s` `t` same; `u` undo, `U` unselect | 2026-11-14 |
+| `zu` | — | `unselect-before` | unselect-before (shipped 2026-11-14) | same | 2026-11-14 |
+| `g%` | columns sheet: type float | columns sheet: `type-float-selected`; sheet: `setcol-precision-input` | both: elsewhere opens `:precision ` (shipped 2026-11-14) | same | 2026-11-14 |
+| `J` / `K` | plot box taller / shorter | `slide-down` / `slide-up` (sheet), box resize (canvas) | plot only: rows follow the plan order (S-34 A3) | same | — |
 | `z\|` | regex filter | `select-expr` | select-expr; filter = `gz\|` + `:filter` | same | S-21 A |
 | `P` | plan panel | `paste-before` | paste-before; `:plan` | same | S-18 F (D1) |
 | `/` / `g/` | search all columns / — | `search-col` (current column) / `search-cols` (all) | `/` current column, `g/` all columns; `?` / `g?` backwards (`searchr-col`); case-insensitive regex, as VisiData's default `regex_flags` | `/` all columns (vim searches the whole buffer) | phase 0 |

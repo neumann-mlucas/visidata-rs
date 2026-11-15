@@ -987,7 +987,10 @@ impl App {
             }
             // `_`: resize-col-max on a sheet, zoom-all on a plot (VisiData)
             Action::ZoomAll | Action::ResizeColMax => range = Some(None),
-            Action::ToggleSelectRow | Action::UnselectRow | Action::SubmitRow => {
+            Action::ToggleSelectRow
+            | Action::SelectRow
+            | Action::UnselectRow
+            | Action::SubmitRow => {
                 let cursor = v.cursor;
                 let Some(p) = self.sheets.iter().find(|p| p.id == parent).cloned() else {
                     self.toast = Some("plot: its sheet was closed".into());
@@ -1003,7 +1006,7 @@ impl App {
                         }
                         a => JobDone::SelectIn {
                             sheet: p.id,
-                            select: matches!(a, Action::ToggleSelectRow),
+                            select: !matches!(a, Action::UnselectRow),
                             rids,
                         },
                     })

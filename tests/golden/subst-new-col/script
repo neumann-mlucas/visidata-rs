@@ -1,4 +1,4 @@
 l *
 > (\w)\w*/\1.
-l s j s g *
+l s s g *
 > o/O

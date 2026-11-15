@@ -36,7 +36,7 @@ async fn derive_setcol_and_undo_redo() {
     h.type_("derive bad = nosuch + 1").await;
     assert!(status(&h).starts_with("derive:"), "{}", status(&h));
     // setcol on selected rows, type-checked
-    h.keys("s j s 0 :").await;
+    h.keys("s s 0 :").await;
     h.type_("setcol 42").await;
     assert_eq!(status(&h), "set id on 2 rows");
     let ids: Vec<_> = h
@@ -181,7 +181,7 @@ async fn copy_to_register_rows_and_cells() {
 
     // hidden columns stay in the register; selection in view order after a sort
     h.keys("g l -").await; // hide note
-    h.keys("g h s j j s").await; // select rows 2 and 3
+    h.keys("g h s j s").await; // select rows 2 and 3
     h.keys("]").await; // sort id desc: 3, 2, 1
     h.keys("g y").await;
     let r = h.app.register.clone().unwrap();
@@ -229,7 +229,7 @@ async fn syscopy_sends_tsv_and_lines_to_the_clipboard() {
     assert_eq!(h.app.toast.as_deref(), Some("copied 1 row to clipboard"));
     assert!(h.app.register.is_none(), "Y leaves the register alone");
 
-    h.keys("g l - g h s j s").await; // hide note; select rows 1, 2
+    h.keys("g l - g h s s").await; // hide note; select rows 1, 2
     h.keys("g Y").await; // visible columns only, null empty
     assert_eq!(sent(1).as_deref(), Some("id\tx\n1\t1.5\n2\t\n"));
     h.keys("l g z Y").await;
@@ -304,7 +304,7 @@ async fn edit_goes_before_derives_that_read_it_and_follows_its_row() {
         "id,qty,price,total\n3,1,4.0,4.0\n2,4,2.0,8.0\n1,10,1.5,0.0\n"
     );
     // ge = setcol prompt on the selected rows
-    h.keys("g h s j s g e").await;
+    h.keys("g h s s g e").await;
     h.type_("7").await;
     assert!(view_csv(&h).starts_with("id,qty,price,total\n7,1,4.0,4.0\n7,4,2.0,8.0\n"));
 }
@@ -385,8 +385,8 @@ async fn paste_and_cut_cells() {
     assert!(view_csv(&h).contains("2,3,b"));
 
     // gzp cycles the copied cells over the selected rows in view order
-    h.keys("g g s j s g z y").await; // copy qty of ids 1, 2: [2, 3]
-    h.keys("g u g g j s j s j s h ]").await; // select ids 2..4; sort id desc
+    h.keys("g g s s g z y").await; // copy qty of ids 1, 2: [2, 3]
+    h.keys("g u g g j s s s h ]").await; // select ids 2..4; sort id desc
     h.keys("l g z p").await; // view order 4, 3, 2 gets 2, 3, 2
     assert_eq!(status(&h), "pasted into qty on 3 rows");
     h.keys("h [").await;
@@ -447,7 +447,7 @@ async fn delete_and_cut_rows() {
 
     // gd on a sorted view drops the selection's rows and their selection
     h.keys("h ]").await;
-    h.keys("g g s j s").await; // id desc: 5, 4 selected
+    h.keys("g g s s").await; // id desc: 5, 4 selected
     h.keys("g d").await;
     assert_eq!(view_csv(&h), "id,v\n3,C\n1,a\n");
     assert!(h.app.sheets.active().view.selected.is_empty());
@@ -623,7 +623,7 @@ async fn terminal_paste_and_syspaste_cells() {
 
     // gzP: into the selected rows, in view order; a bad value refuses all
     h.paste("40\n10\n").await;
-    h.keys("g g s j j s h h g z P").await;
+    h.keys("g g s j s h h g z P").await;
     assert_eq!(view_csv(&h), "id,v,w\n40,a,x\n2,b,y\n10,c,z\n");
     h.paste("11\nnope\n").await;
     h.keys("g z P").await;
@@ -773,7 +773,7 @@ async fn columns_sheet_writes_back_to_its_sheet() {
     );
     assert!(h.screen().contains("name_1"), "{}", h.screen()); // the cursor row's value
     h.keys("d").await; // hide `name`
-    h.keys("j s g !").await; // key `grp`
+    h.keys("j s k g !").await; // key `grp`
     h.keys("e <C-u>").await;
     h.type_("group").await; // rename it
     assert!(h.screen().contains("group"), "{}", h.screen());
@@ -792,7 +792,7 @@ async fn columns_sheet_writes_back_to_its_sheet() {
     );
     h.keys("<CR>").await; // freq of grp
     assert!(title(&h).contains("freq(grp)"), "{}", title(&h));
-    h.keys("q g g s j s l g e").await; // back on C: ge on `width` of grp, id hides both
+    h.keys("q g g s s l g e").await; // back on C: ge on `width` of grp, id hides both
     h.type_("0").await;
     h.keys("q").await;
     let hd = header(&h);
@@ -878,7 +878,7 @@ async fn rejected_or_columns_sheet_edits_leave_no_empty_undo_state() {
 #[tokio::test(flavor = "multi_thread")]
 async fn substitute_on_selection_new_column_and_read_only() {
     let mut h = csv(b"id,name\n1,a  \n2,b \n3,c\n").await;
-    h.keys("l s j").await; // rows 1 selected, cursor on row 2
+    h.keys("l s").await; // rows 1 selected, cursor on row 2
     h.keys(":").await;
     h.type_("s/ +$//").await;
     assert_eq!(status(&h), "replaced / +$/ in name on 1 selected rows");

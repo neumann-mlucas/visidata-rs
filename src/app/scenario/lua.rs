@@ -86,7 +86,8 @@ async fn tab_completes_ex_command_names() {
     h.keys("<Tab>").await; // unselect-all, unselect-row → common prefix
     assert_eq!(h.app.input.as_ref().unwrap().1.text(), "unselect-");
     assert!(
-        h.screen().contains("unselect-all (g u) unselect-row (u)"),
+        h.screen()
+            .contains("unselect-all (g u) unselect-before (z u) unselect-row (u)"),
         "{}",
         h.screen()
     );

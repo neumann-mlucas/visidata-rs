@@ -1,4 +1,4 @@
- tests/golden/subst-new-col/input.csv  csv · sel 2                          city 4/4  row 2/4 · 50%
+ tests/golden/subst-new-col/input.csv  csv · sel 2                          city 4/4  row 3/4 · 75%
  id i name str  name_re str  city str
     1 ann lee   a. l.        OslO
     2 bob  ray  b.  r.       rOme

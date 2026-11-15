@@ -128,7 +128,7 @@ async fn freq_dive_opens_matching_rows() {
             .iter()
             .all(|v| v == Some(1))
     );
-    h.keys("q s j s g <CR>").await; // two freq rows selected → union
+    h.keys("q s s g <CR>").await; // two freq rows selected → union
     assert!(title(&h).contains("row 1/1430"), "{}", title(&h));
     h.keys("q q <CR>").await; // <CR> on a data sheet explains itself
     assert_eq!(status(&h), "<CR>: nothing to open here");
@@ -154,7 +154,7 @@ async fn binned_freq_counts_ranges_and_dives() {
     );
     h.keys("<CR>").await;
     assert!(title(&h).contains("row 1/1250"), "{}", title(&h));
-    h.keys("q s j s g <CR>").await; // two ranges → union
+    h.keys("q s s g <CR>").await; // two ranges → union
     assert!(title(&h).contains("row 1/2500"), "{}", title(&h));
     // a session writes the options its `F` ran under (S-38 A); they stay set
     h.keys("q").await;

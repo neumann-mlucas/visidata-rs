@@ -6,9 +6,9 @@ use super::*;
 async fn title_shows_what_shapes_the_view_and_always_the_position() {
     let mut h = Harness::new(5000).await;
     assert!(!title(&h).contains("sel "), "{}", title(&h));
-    h.keys("l [ s -").await;
+    h.keys("l [ s -").await; // s moves the cursor down
     let line = h.screen().lines().next().unwrap().to_string();
-    assert!(line.contains("row 1/5,000 · 0%"), "{line}");
+    assert!(line.contains("row 2/5,000 · 0%"), "{line}");
     for chip in ["csv", "sort name▲", "sel 1", "hidden 1"] {
         assert!(line.contains(chip), "{chip}: {line}");
     }
@@ -17,7 +17,7 @@ async fn title_shows_what_shapes_the_view_and_always_the_position() {
     h.app.sheets.active_mut().name = "x".repeat(300);
     h.pump().await;
     let line = h.screen().lines().next().unwrap().to_string();
-    assert!(line.contains("row 1/5,000") && line.contains('…'), "{line}");
+    assert!(line.contains("row 2/5,000") && line.contains('…'), "{line}");
     assert_eq!(line.width(), 99, "{line:?}");
 }
 
@@ -457,7 +457,7 @@ async fn a_cancelled_job_result_does_not_take_a_newer_jobs_place() {
 async fn selection_stats_follow_selection_and_column() {
     let mut h = csv(b"id,name,amt\n1,a,1.5\n2,b,\n3,a,-4.25\n4,c,1000\n").await;
     assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
-    h.keys("l l s j s j s").await;
+    h.keys("l l s s s").await;
     assert_eq!(
         status(&h),
         "sel 3 · sum -2.75 · avg -1.38 · min -4.25 · max 1.5"
@@ -671,4 +671,30 @@ async fn vim_profile_keeps_freeze_unfreeze_unsort() {
     assert_eq!(first_cell(&h), "1");
     h.keys("z o").await;
     assert_eq!(first_cell(&h), "2");
+}
+
+/// VisiData's `s` `t` `u` select / toggle / unselect then move down; `zu`
+/// unselects the rows above the cursor; `g%` off the columns sheet asks for
+/// float precision.
+#[tokio::test(flavor = "multi_thread")]
+async fn visidata_s_t_u_move_down_zu_unselects_above_g_percent_precision() {
+    let mut h = csv(b"a,x\n1,1.5\n2,2.5\n3,3.5\n4,4.5\n").await;
+    let sel = |h: &Harness| h.app.sheets.active().view.selected.len();
+    let row = |h: &Harness| h.app.sheets.active().view.row_cursor;
+    h.keys("s").await;
+    assert_eq!((sel(&h), row(&h)), (1, 1));
+    h.keys("k s").await; // s selects, never toggles off
+    assert_eq!((sel(&h), row(&h)), (1, 1));
+    h.keys("t t").await; // rows 2, 3 on
+    assert_eq!((sel(&h), row(&h)), (3, 3));
+    h.keys("k t").await; // row 3 off
+    assert_eq!((sel(&h), row(&h)), (2, 3));
+    h.keys("g g u").await;
+    assert_eq!((sel(&h), row(&h)), (1, 1));
+    h.keys("g s G z u").await; // the last row stays
+    assert_eq!(sel(&h), 1, "{}", status(&h));
+    h.keys("l g %").await; // on the float column
+    assert_eq!(h.app.input.as_ref().unwrap().1.text(), "precision ");
+    h.type_("3").await;
+    assert!(h.screen().contains("1.500"), "{}", h.screen());
 }

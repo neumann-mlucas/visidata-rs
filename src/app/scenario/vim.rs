@@ -261,14 +261,14 @@ async fn vim_profile_motions_and_undo_keys() {
     assert!(title(&h).contains("row 3/4"), "{}", title(&h));
     h.keys("$").await;
     assert_eq!(h.current_column(), "c");
-    h.keys("s").await;
+    h.keys("s").await; // selects, cursor down (VisiData)
     assert_eq!(h.app.sheets.active().view.selected.len(), 1);
-    h.keys("U").await;
+    h.keys("k U").await;
     assert!(
         h.app.sheets.active().view.selected.is_empty(),
         "U unselects"
     );
-    h.keys("s j u").await; // unselect-row would act on the row below
+    h.keys("s u").await; // s moved down: unselect-row would act on the row below
     assert_eq!(
         h.app.sheets.active().view.selected.len(),
         0,
@@ -386,7 +386,7 @@ async fn vim_marks_and_register_macros() {
     // a ranged step replays on the cursor row, not on the selection
     h.keys("g g q d d d q").await;
     assert_eq!(h.app.macros[&'d'], [":.,.+0 cut-row"]);
-    h.keys("s j s").await;
+    h.keys("s s k").await; // ids 2, 3 selected, cursor on 3
     h.keys("@ d").await;
     let ids = csv_text(h.app.sheets.active(), b',').replace('\n', " ");
     assert_eq!(ids, "id 2 4 5 6 ", "@d cuts the cursor row only");

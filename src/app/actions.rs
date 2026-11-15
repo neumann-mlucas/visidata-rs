@@ -795,9 +795,19 @@ impl App {
             }
             Action::Save { path } => self.save_active(&path),
             Action::SubmitRow => self.submit_row(),
-            Action::ToggleSelectRow => self.toggle_select_current(),
-            Action::SelectRow => self.set_select_current(true),
-            Action::UnselectRow => self.set_select_current(false),
+            // VisiData's s / t / u move the cursor down after
+            Action::ToggleSelectRow => {
+                self.toggle_select_current();
+                self.move_cursor_rows(1);
+            }
+            Action::SelectRow => {
+                self.set_select_current(true);
+                self.move_cursor_rows(1);
+            }
+            Action::UnselectRow => {
+                self.set_select_current(false);
+                self.move_cursor_rows(1);
+            }
             Action::SelectAll => self.select_all(),
             Action::UnselectAll => {
                 self.sheets.active_mut().view.selected = Default::default();
@@ -1181,6 +1191,13 @@ impl App {
             }
             Action::OpenColumns => self.open_columns(false),
             Action::OpenColumnsAll => self.open_columns(true),
+            // VisiData's g% off the columns sheet: float precision
+            Action::TypeSelected { name: "float" } => {
+                self.start_input(Prompt::Ex);
+                if let Some((_, line)) = self.input.as_mut() {
+                    line.set("precision ");
+                }
+            }
             Action::KeySelected { .. }
             | Action::TypeSelected { .. }
             | Action::AggregateCols { .. }
@@ -1325,6 +1342,19 @@ impl App {
                     let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
                     let note = format!("selected {} rows above the cursor", rids.len());
                     Ok(JobDone::Select { rids, note })
+                });
+            }
+            Action::UnselectBefore => {
+                let s = self.sheets.active();
+                let n = s.view.window_offset as usize + s.view.row_cursor;
+                let sheet = s.clone();
+                self.spawn_job("unselect", move || {
+                    let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
+                    Ok(JobDone::SelectIn {
+                        sheet: sheet.id,
+                        select: false,
+                        rids,
+                    })
                 });
             }
             Action::StartGoColInput => self.start_input(Prompt::GoCol),
