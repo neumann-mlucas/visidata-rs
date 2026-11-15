@@ -16,7 +16,7 @@ File naming: `S-NN-slug.md`.
 | S-07 | Pivot / melt UX + LazyFrame construction | 2 | shipped — `:pivot` / `:unpivot` / `W` (Lua aggregators run in the background); live preview while typing `:pivot` |
 | S-08 | Plan panel: display, optimize, export | 2 | **shipped** — `:plan` / sidebar plan page (`b`, `<C-g>`) shows the optimized plan; `:export` writes Polars `.py` / DuckDB `.sql` |
 | S-09 | mlua plugin system: shapes, sandbox, errors | 3 | **keymap, loader, aggregator, renderer shapes + hot-reload shipped** → [`S-09-plugin-system.md`](S-09-plugin-system.md) |
-| S-10 | Lua API surface + versioning (`since` / `deprecate`) | 3 | `vd.api_version` 11 shipped (bind functions, `vd.sheet`, `vd.toast`, `vd.push_sheet`, `vd.command`, `vd.option`, `vd.on`, `vd.exec`, styled renderers); `since`/`deprecate` registry + `vd.frame` not started → [`S-10-lua-api.md`](S-10-lua-api.md) |
+| S-10 | Lua API surface + versioning (`since` / `deprecate`) | 3 | `vd.api_version` 12 shipped (bind functions, `vd.sheet`, `vd.toast`, `vd.push_sheet`, `vd.command`, `vd.option`, `vd.on`, `vd.exec`, styled renderers); `since`/`deprecate` registry + `vd.frame` not started → [`S-10-lua-api.md`](S-10-lua-api.md) |
 | S-11 | Streaming source abstraction | 4 | not-started as a trait; `:tail` reads CSV/JSONL incrementally and watches Parquet dirs |
 | S-12 | Frame diff | 5 | **shipped** — `:diff` and `D` (prompt; key columns as keys) |
 | S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | **closed** (iter 14 — honest classification replaced the "~160 PASS" target) → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
