@@ -687,8 +687,8 @@ pub enum Rows {
 
 /// `rows` + `cmd` as the ex text [`ranged`] reads back: what a macro or `.`
 /// replays.
-// ponytail: a `g/` pattern ending in `\` doesn't read back; such a line
-// can't be typed either.
+// A `g/` pattern ending in `\` doesn't read back; such a line can't be typed
+// either.
 pub fn ranged_text(rows: &Rows, cmd: &str) -> String {
     let addr = |a: &Addr| match a {
         Addr::Line(n) => n.to_string(),

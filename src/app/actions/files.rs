@@ -364,6 +364,7 @@ impl App {
     /// results whose row order Polars doesn't fix (joins, GROUP BY): row ids
     /// are positions, so a re-collect in another order would move selections.
     // ponytail: holds the whole result in memory; fine for joins/aggregates.
+    // Sink to a parquet tempfile and scan it if a result outgrows memory.
     pub(super) fn push_collected(&mut self, label: &'static str, mut sheet: Sheet) {
         self.spawn_job(label, move || {
             sheet.plan = sheet

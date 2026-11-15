@@ -319,7 +319,8 @@ impl Block {
             }),
             Derivation::Values { .. } => {
                 // a dive right above its freq sheet is saved (`Block::dive`);
-                // ponytail: one whose freq sheet was closed isn't
+                // ponytail: one whose freq sheet was closed isn't; save its value
+                // filter as a plain filter if someone needs that back
                 self.note("a sheet opened from a frequency row (<CR>)");
                 return false;
             }

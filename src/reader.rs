@@ -568,6 +568,7 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             return scan(path, SourceKind::Jsonl);
         }
         // ponytail: eager read; JSON arrays can't be streamed by Polars' lazy reader.
+        // Rewrite to JSONL in a tempfile first if a big array stalls the open.
         SourceKind::Json => JsonReader::new(std::fs::File::open(path)?)
             .with_json_format(JsonFormat::Json)
             .finish()?

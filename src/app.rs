@@ -1106,7 +1106,8 @@ impl App {
         };
         let s = self.sheets.active();
         // ponytail: edits/undo show up as step or undo counts; a cheap proxy
-        // for "the data changed", recomputes on selection changes too.
+        // for "the data changed", recomputes on selection changes too. Key on
+        // a data generation counter if selection churn makes it recompute too often.
         let key = format!(
             "{}|{column}|{}|{}|{}",
             s.id,
@@ -1166,6 +1167,7 @@ impl App {
 /// reduces it. Runs on a background job; the VM lock is held per cell, so
 /// renderers on the UI thread interleave.
 /// ponytail: per-cell Lua calls; fine for pivot-sized outputs, slow for millions of cells.
+/// Pass each group's values to Lua in one call if a big pivot stalls.
 fn lua_pivot(
     a: &crate::plugins::Aggregator,
     parent: &Sheet,

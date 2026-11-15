@@ -11,8 +11,8 @@ use std::sync::RwLock;
 use polars::prelude::*;
 use tempfile::NamedTempFile;
 
-// ponytail: process-wide, set from init.lua at start and on reload; readers
-// run on job threads without the Lua VM.
+// Process-wide, set from init.lua at start and on reload: readers run on job
+// threads without the Lua VM.
 static CMD: RwLock<Option<String>> = RwLock::new(None);
 
 /// `vd.option("duckdb_cmd")`; `None` = `duckdb`.
@@ -105,6 +105,7 @@ pub fn index(db: &Path) -> Result<DataFrame, String> {
 /// `schema.table` (no dot: `main`) → a scan of its rows; keep the tempfile alive.
 pub fn open_table(db: &Path, part: &str) -> Result<(LazyFrame, NamedTempFile), String> {
     // ponytail: first dot splits; a schema name holding a dot can't be opened.
+    // Match the part against the table list (schema, name) if one shows up.
     let (schema, table) = part.split_once('.').unwrap_or(("main", part));
     let tmp = copy_out(db, &format!("FROM {}.{}", ident(schema), ident(table)))?;
     let path = PlRefPath::try_from_path(tmp.path()).map_err(|e| e.to_string())?;
@@ -130,7 +131,8 @@ pub fn save(df: &mut DataFrame, db: &Path, table: &str) -> Result<(), String> {
 }
 
 /// `:exec-sql`: run statements read-write; the last query's rows, if any query
-/// printed. ponytail: a query followed by DDL still returns that query's rows.
+/// printed. ponytail: a query followed by DDL still returns that query's rows;
+/// return `None` when the last statement isn't a query if that misleads.
 pub fn exec(db: &Path, sql: &str) -> Result<Option<DataFrame>, String> {
     let out = run(db, false, sql)?;
     let Some(last) = out

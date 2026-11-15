@@ -173,7 +173,8 @@ impl App {
             }
             'c' => self.run_ranged(crate::exline::Rows::All, cells.into()),
             _ => {
-                // ponytail: the loaded rows only, like `{` `}`
+                // ponytail: the loaded rows only, like `{` `}`; scan the view in a
+                // job if a run past the window matters
                 let s = self.sheets.active();
                 let Some(col) = s
                     .window()
@@ -425,7 +426,8 @@ impl App {
     /// `:5,20 normal <keys>`: the keys, typed on each row in turn. Only rows
     /// already loaded (the window): moving there must not wait for a load.
     // ponytail: keys run back to back; a key whose effect lands in a job
-    // (a freq, a copy) sees each row's state when it started.
+    // (a freq, a copy) sees each row's state when it started. Wait for the
+    // row's jobs before its next key if one needs the result.
     pub(super) fn normal_on_rows(&mut self, from: u64, to: u64, keys: &str) {
         const MAX: u64 = 10_000;
         let keys = match normal_keys(keys) {

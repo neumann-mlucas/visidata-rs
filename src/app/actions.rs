@@ -1885,7 +1885,8 @@ impl App {
                         .filter_map(|r| vals.get(*r as usize).ok())
                         .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(&v)));
                     match &key {
-                        // ponytail: a repeated label (narrow bins) picks its first bin
+                        // ponytail: a repeated label (narrow bins) picks its first bin;
+                        // dive by bin index instead of label if narrow bins matter
                         DiveKey::Bin { min, width, n } => {
                             let labels = Binning::labels(*min, *width, *n);
                             texts

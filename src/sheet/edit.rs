@@ -125,8 +125,8 @@ impl Sheet {
     }
 
     /// The plan carries [`ROW_ID`] (source sheets, see [`with_rids`]).
-    // ponytail: a schema lookup per view plan; Polars caches it, a flag would
-    // go stale whenever a caller swaps `plan`.
+    // A schema lookup per view plan: Polars caches it, and a flag would go
+    // stale whenever a caller swaps `plan`.
     pub(super) fn has_rids(&self) -> bool {
         self.plan
             .clone()
