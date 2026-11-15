@@ -109,8 +109,10 @@ pub enum Action {
     ToggleFooter,
     /// `gm` (S-36 E): the macros sheet.
     MacroSheet,
-    /// `z<C-s>`: commit a sheet's pending changes (the macros sheet's).
+    /// `z<C-s>`: commit a sheet's pending changes (the macros and options sheets').
     CommitSheet,
+    /// `O` (S-37 P0c): the options sheet.
+    OptionsSheet,
     /// `Ctrl+G`: next page (column → cell → help → plan), opening it.
     CycleSidebar,
     /// `:sidebar <page>`.
@@ -762,7 +764,7 @@ impl Action {
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
-            SetOption { .. } | ToggleFooter | MacroSheet | CommitSheet => false,
+            SetOption { .. } | ToggleFooter | MacroSheet | CommitSheet | OptionsSheet => false,
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
@@ -1038,6 +1040,7 @@ impl Action {
         ("footer", ToggleFooter),
         ("macro_sheet", MacroSheet),
         ("commit_sheet", CommitSheet),
+        ("options_global", OptionsSheet),
         ("slide_left", SlideCol { by: -1 }),
         ("slide_right", SlideCol { by: 1 }),
         ("slide_leftmost", SlideCol { by: i64::MIN }),

@@ -315,6 +315,8 @@ pub enum Origin {
     Listing,
     /// `gm` (S-36 E): a row per macro binding; `d`/`e` mark, `z<C-s>` commits.
     Macros,
+    /// `O` (S-37 P0c): a row per option; `e` sets, `z<C-s>` saves.
+    Options,
     /// `g"` / `:dup`: copy of `parent`'s view.
     Copy {
         parent: SheetId,
@@ -354,6 +356,7 @@ impl Origin {
             Origin::Lua { .. } => "lua",
             Origin::Listing => "list",
             Origin::Macros => "macros",
+            Origin::Options => "options",
             Origin::Copy { .. } => "copy",
             Origin::Parts { .. } => "parts",
             Origin::Join { .. } => "join",

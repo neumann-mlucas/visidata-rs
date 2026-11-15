@@ -104,6 +104,10 @@ impl App {
         if matches!(self.sheets.active().origin, Origin::Macros) && self.macros_dispatch(&action) {
             return;
         }
+        if matches!(self.sheets.active().origin, Origin::Options) && self.options_dispatch(&action)
+        {
+            return;
+        }
         if matches!(self.sheets.active().origin, Origin::Plot { .. }) && self.plot_dispatch(&action)
         {
             return;
@@ -1041,6 +1045,7 @@ impl App {
                 });
             }
             Action::MacroSheet => self.open_macros(),
+            Action::OptionsSheet => self.open_options(),
             Action::CommitSheet => {
                 self.toast = Some("commit-sheet: nothing to commit on this sheet".into())
             }
@@ -2067,26 +2072,51 @@ impl App {
 
     /// `:set` (S-38 A): the options that change data; the rest live in
     /// `init.lua`. The toast: `name=value`, or why not.
-    fn set_option(&mut self, name: &str, value: Option<&str>) -> String {
-        let t = &mut self.theme;
-        let res = match (name, value) {
-            ("numeric_binning", Some(v)) => {
-                crate::plugins::parse_bool_option(name, v).map(|b| t.numeric_binning = b)
-            }
-            ("histogram_bins", Some(v)) => {
-                crate::plugins::parse_histogram_bins(v).map(|n| t.histogram_bins = n)
-            }
-            ("disp_footer", Some(v)) => {
-                crate::plugins::parse_bool_option(name, v).map(|b| t.footer = b)
-            }
-            ("numeric_binning" | "histogram_bins" | "disp_footer", None) => Ok(()),
-            _ => return format!(":set: {name} is set in init.lua (vd.option)"),
+    /// `:set`, `O` `e` (S-37 P0c): option `name` = `value` now (`None`: show
+    /// it), checked through the registry and kept with the Lua options.
+    pub(super) fn set_option(&mut self, name: &str, value: Option<&str>) -> String {
+        let Some(opt) = crate::options::find(name) else {
+            let e = crate::options::check(name, "").err().unwrap_or_default();
+            return format!(":set: {e}");
         };
-        match res {
-            Ok(()) if name == "numeric_binning" => format!("{name}={}", t.numeric_binning),
-            Ok(()) if name == "disp_footer" => format!("{name}={}", t.footer),
-            Ok(()) => format!("{name}={}", t.histogram_bins),
-            Err(e) => format!(":set: {e}"),
+        let Some(value) = value else {
+            return format!("{name}={}", self.option_value(name));
+        };
+        let v = match crate::options::check(name, value) {
+            Ok(v) => v,
+            Err(e) => return format!(":set: {e}"),
+        };
+        if self.plugins.is_none() {
+            self.plugins = crate::plugins::Plugins::load_from_source("").ok();
+        }
+        if let Some(p) = &self.plugins {
+            p.set_option(name, &v);
+        }
+        let t = &mut self.theme;
+        match name {
+            "numeric_binning" => t.numeric_binning = v == "true",
+            "histogram_bins" => t.histogram_bins = v.parse().unwrap_or(0),
+            "disp_footer" => t.footer = v == "true",
+            "disp_float_fmt" => {
+                t.float_digits = crate::plugins::float_fmt_digits(&v);
+                self.sheets.active_mut().state.widths_key = None;
+            }
+            "duckdb_cmd" => crate::duckdb::set_cmd(Some(v.clone())),
+            "clipboard_copy_cmd" => self.clipboard = clipboard_for(self.plugins.as_ref()),
+            "clipboard_paste_cmd" => self.paste_cmd = paste_cmd_for(self.plugins.as_ref()),
+            _ => {}
+        }
+        match opt.live {
+            true => format!("{name}={v}"),
+            false => format!("{name}={v} (from the next start)"),
+        }
+    }
+
+    /// Option `name` as it is now: as set, else its default.
+    pub(super) fn option_value(&self, name: &str) -> String {
+        match &self.plugins {
+            Some(p) => p.options().value(name),
+            None => crate::options::find(name).map_or("", |o| o.default).into(),
         }
     }
 

@@ -29,6 +29,7 @@ pub mod keymap;
 pub mod lineedit;
 pub mod notes;
 pub mod numfmt;
+pub mod options;
 pub mod plugins;
 pub mod reader;
 pub mod session;

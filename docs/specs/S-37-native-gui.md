@@ -71,7 +71,12 @@ Each part helps the TUI on its own and keeps ratatui and crossterm out of the co
   - `theme.rs` and the Lua renderer (`plugins.rs`, `Rendered.style`) use a vdrs `Style` and
     `Color`, converted to ratatui's at paint time.
   - The Lua API doesn't change: Lua already passes strings and tables.
-- **P0c. Option registry + options sheet `O` (2–3 d):**
+- **P0c. Option registry + options sheet `O` (2–3 d):** shipped 2026-11-15. As built:
+  `src/options.rs` (`OPTIONS`: name, `Kind`, default, `live`, help; `check` normalizes).
+  `vd.option` and `:set` both check through it; `Options::apply` stores, `Options::set` keeps
+  what was set for `O`. `:set` now takes every option (`live = false`: `keymap`, `mouse`, from
+  the next start) and stores into the Lua options, so `p.options()` readers see it. No `scope`
+  column: every option is global today; `zO` waits for a per-sheet option.
   - One table of options: name, type (bool / int / enum / string / fmtstr), default, help, and
     whether it applies to the sheet or globally.
   - `vd.option` validates through it, replacing the `match` in `plugins.rs`.

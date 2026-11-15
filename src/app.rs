@@ -45,6 +45,7 @@ mod jobs;
 mod macros;
 #[cfg(test)]
 mod monkey;
+mod optsheet;
 mod render;
 
 /// Data rows assumed visible before the first draw measures the real area.
@@ -577,6 +578,8 @@ pub struct App {
     footer_asked: Option<String>,
     /// `gm` (S-36 E): changes marked on the macros sheet, not committed yet.
     macro_edits: Vec<macros::MacroEdit>,
+    /// `O` (S-37 P0c): options set there, not saved to `options.lua` yet.
+    option_edits: Vec<(String, String)>,
     /// `Z` (S-23 B): the second pane, if split.
     split: Option<Split>,
     /// Cell notes by source file, read when first shown (S-30 B).
@@ -678,6 +681,7 @@ impl App {
             footer: None,
             footer_asked: None,
             macro_edits: Vec::new(),
+            option_edits: Vec::new(),
             link_seen: None,
             notes: Default::default(),
             split: None,

@@ -870,3 +870,66 @@ async fn footer_totals_follow_filter_and_edits() {
     h.type_("footer").await;
     assert!(!h.screen().contains("Σ"), "{}", h.screen());
 }
+
+/// S-37 P0c: `O` lists every option; `e` on `value` checks and sets it now;
+/// `z<C-s>` writes `options.lua`, which loads back to the same value.
+#[tokio::test(flavor = "multi_thread")]
+async fn options_sheet_sets_now_and_commits() {
+    let path = crate::plugins::options_path().unwrap();
+    let _ = std::fs::remove_file(&path);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "-- by hand\n").unwrap();
+    let mut h = Harness::new(3).await;
+    h.keys("O").await;
+    assert!(title(&h).contains("options"), "{}", title(&h));
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), crate::options::OPTIONS.len());
+    let row = crate::options::OPTIONS
+        .iter()
+        .position(|o| o.name == "numeric_binning")
+        .unwrap();
+    h.keys(&"j ".repeat(row)).await;
+    h.keys("e").await;
+    assert_eq!(status(&h), "options: e edits value");
+    h.keys("l e <C-u>").await;
+    h.type_("yes").await;
+    assert!(
+        status(&h).contains("\"true\" or \"false\""),
+        "{}",
+        status(&h)
+    );
+    h.keys("e <C-u>").await;
+    h.type_("true").await;
+    assert_eq!(status(&h), "numeric_binning=true");
+    assert!(h.app.theme.numeric_binning);
+    assert!(
+        h.screen()
+            .lines()
+            .any(|l| l.starts_with("numeric_binning") && l.contains("true ")),
+        "{}",
+        h.screen()
+    );
+    h.keys("z <C-s>").await;
+    assert!(status(&h).starts_with("options: 1 saved"), "{}", status(&h));
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        text,
+        "-- by hand\nvd.option(\"numeric_binning\", \"true\")\n"
+    );
+    let p = crate::plugins::Plugins::load_from_source(&text).unwrap();
+    assert!(p.options().numeric_binning);
+    // `:set` goes through the same table
+    h.keys("q :").await;
+    h.type_("set keymap vim").await;
+    assert_eq!(status(&h), "keymap=vim (from the next start)");
+    h.keys(":").await;
+    h.type_("set nope 1").await;
+    assert!(
+        status(&h).starts_with(":set: unknown option nope ("),
+        "{}",
+        status(&h)
+    );
+    h.keys(":").await;
+    h.type_("set histogram_bins").await;
+    assert_eq!(status(&h), "histogram_bins=0");
+}

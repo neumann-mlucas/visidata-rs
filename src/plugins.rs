@@ -59,6 +59,36 @@ pub struct Options {
     pub histogram_bins: usize,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
+    /// Every value set, as checked (S-37 P0c): what `O` shows.
+    pub set: std::collections::BTreeMap<String, String>,
+}
+
+impl Options {
+    /// Store option `name` = `v`, already checked by [`crate::options::check`].
+    pub fn apply(&mut self, name: &str, v: &str) {
+        let on = v == "true";
+        match name {
+            "clipboard_copy_cmd" => self.clipboard_copy_cmd = Some(v.into()),
+            "clipboard_paste_cmd" => self.clipboard_paste_cmd = Some(v.into()),
+            "duckdb_cmd" => self.duckdb_cmd = Some(v.into()),
+            "session_autosave" => self.no_autosave = !on,
+            "disp_float_fmt" => self.float_digits = float_fmt_digits(v),
+            "numeric_binning" => self.numeric_binning = on,
+            "disp_footer" => self.disp_footer = on,
+            "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
+            "mouse" => self.mouse = on,
+            _ => {} // keymap: applied when set (the vim profile's binds)
+        }
+        self.set.insert(name.into(), v.into());
+    }
+
+    /// Option `name`'s value: as set, else its default.
+    pub fn value(&self, name: &str) -> String {
+        match self.set.get(name) {
+            Some(v) => v.clone(),
+            None => crate::options::find(name).map_or("", |o| o.default).into(),
+        }
+    }
 }
 
 /// Events `vd.on` takes.
@@ -181,15 +211,15 @@ impl Plugins {
         let host = Self::empty(config);
         let err = src.and_then(|s| host.exec(&s, "init.lua").err());
         let mut warn = err.map(|e| format!("init.lua: {e}"));
-        // macros.lua (S-19) sits next to init.lua and runs after it.
-        let macros = host
-            .config
-            .as_ref()
-            .map(|(p, _)| p.with_file_name("macros.lua"));
-        if let Some(Ok(src)) = macros.map(std::fs::read_to_string)
-            && let Err(e) = host.exec(&src, "macros.lua")
-        {
-            warn = Some(warn.map_or(String::new(), |w| w + "; ") + &format!("macros.lua: {e}"));
+        // options.lua (`O`, S-37 P0c) then macros.lua (S-19) sit next to
+        // init.lua and run after it.
+        for name in ["options.lua", "macros.lua"] {
+            let file = host.config.as_ref().map(|(p, _)| p.with_file_name(name));
+            if let Some(Ok(src)) = file.map(std::fs::read_to_string)
+                && let Err(e) = host.exec(&src, name)
+            {
+                warn = Some(warn.map_or(String::new(), |w| w + "; ") + &format!("{name}: {e}"));
+            }
         }
         (host, warn)
     }
@@ -422,6 +452,13 @@ impl Plugins {
     }
 
     /// What `vd.set_theme` and `vd.option` set.
+    /// `:set` / `O` (S-37 P0c): store a checked option value.
+    pub fn set_option(&self, name: &str, v: &str) {
+        if let Some(r) = reg(&self.lua) {
+            r.borrow_mut().options.apply(name, v);
+        }
+    }
+
     pub fn options(&self) -> Options {
         reg(&self.lua)
             .map(|r| r.borrow().options.clone())
@@ -658,78 +695,12 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set(
         "option",
         lua.create_function(|lua, (name, value): (String, String)| {
-            match name.as_str() {
-                "clipboard_copy_cmd" | "clipboard_paste_cmd" | "duckdb_cmd"
-                    if value.trim().is_empty() =>
-                {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: {name} is empty"
-                    )));
-                }
-                "clipboard_copy_cmd" => {
-                    registry(lua)?.borrow_mut().options.clipboard_copy_cmd = Some(value)
-                }
-                "clipboard_paste_cmd" => {
-                    registry(lua)?.borrow_mut().options.clipboard_paste_cmd = Some(value)
-                }
-                "duckdb_cmd" => registry(lua)?.borrow_mut().options.duckdb_cmd = Some(value),
-                "session_autosave" => {
-                    registry(lua)?.borrow_mut().options.no_autosave = match value.as_str() {
-                        "true" => false,
-                        "false" => true,
-                        _ => {
-                            return Err(mlua::Error::RuntimeError(
-                                "vd.option: session_autosave is \"true\" or \"false\"".into(),
-                            ));
-                        }
-                    }
-                }
-                "keymap" => match value.as_str() {
-                    "vim" => lua.load(VIM_PROFILE).set_name("vim profile").exec()?,
-                    "visidata" => {}
-                    _ => {
-                        return Err(mlua::Error::RuntimeError(
-                            "vd.option: keymap is \"vim\" or \"visidata\"".into(),
-                        ));
-                    }
-                },
-                "disp_float_fmt" => match float_fmt_digits(&value) {
-                    Some(d) => registry(lua)?.borrow_mut().options.float_digits = Some(d),
-                    None => {
-                        return Err(mlua::Error::RuntimeError(format!(
-                            "vd.option: disp_float_fmt is \"%.Nf\" or \"{{:.Nf}}\", N up to 15 (got {value:?})"
-                        )));
-                    }
-                },
-                "numeric_binning" => {
-                    registry(lua)?.borrow_mut().options.numeric_binning = parse_bool_option(&name, &value)
-                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
-                }
-                "disp_footer" => {
-                    registry(lua)?.borrow_mut().options.disp_footer = parse_bool_option(&name, &value)
-                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
-                }
-                "histogram_bins" => {
-                    registry(lua)?.borrow_mut().options.histogram_bins = parse_histogram_bins(&value)
-                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
-                }
-                "mouse" => {
-                    registry(lua)?.borrow_mut().options.mouse = match value.as_str() {
-                        "true" => true,
-                        "false" => false,
-                        _ => {
-                            return Err(mlua::Error::RuntimeError(
-                                "vd.option: mouse is \"true\" or \"false\"".into(),
-                            ));
-                        }
-                    }
-                }
-                _ => {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, disp_footer, duckdb_cmd, histogram_bins, keymap, mouse, numeric_binning, session_autosave)"
-                    )));
-                }
+            let v = crate::options::check(&name, &value)
+                .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?;
+            if name == "keymap" && v == "vim" {
+                lua.load(VIM_PROFILE).set_name("vim profile").exec()?;
             }
+            registry(lua)?.borrow_mut().options.apply(&name, &v);
             Ok(())
         })?,
     )?;
@@ -1256,6 +1227,35 @@ pub fn macros_path() -> Option<PathBuf> {
         return Some(crate::state_path("macros.lua"));
     }
     Some(default_config_path()?.with_file_name("macros.lua"))
+}
+
+/// Where `O`'s `z<C-s>` saves options: `options.lua` next to `init.lua`
+/// (a temp dir under `cfg!(test)`).
+pub fn options_path() -> Option<PathBuf> {
+    if cfg!(test) {
+        return Some(crate::state_path("options.lua"));
+    }
+    Some(default_config_path()?.with_file_name("options.lua"))
+}
+
+/// Save options to `path`: a `vd.option` line each, replacing one for the
+/// same option; other lines (hand edits) stay.
+pub fn save_options(path: &Path, opts: &[(String, String)]) -> std::io::Result<()> {
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    let prefix = |n: &str| format!("vd.option({}, ", lua_str(n));
+    let mut out: Vec<String> = old
+        .lines()
+        .filter(|l| !opts.iter().any(|(n, _)| l.starts_with(&prefix(n))))
+        .map(String::from)
+        .collect();
+    out.extend(
+        opts.iter()
+            .map(|(n, v)| format!("{}{})", prefix(n), lua_str(v))),
+    );
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, out.join("\n") + "\n")
 }
 
 /// The `vd.bind` line `m` writes for a macro on `keys`.
