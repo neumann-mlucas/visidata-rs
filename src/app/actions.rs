@@ -482,18 +482,25 @@ impl App {
             }
             Action::Refresh => self.refresh(),
             Action::HelpCommands => {
+                use crate::keymap::{Keymap, Layer, menu_path};
+                let defaults = Keymap::defaults();
+                let defaults = defaults.chords(Layer::Sheet);
                 let rows: Vec<_> = self
                     .keymap
-                    .chords(crate::keymap::Layer::Sheet)
+                    .chords(Layer::Sheet)
                     .iter()
                     .map(|c| {
                         let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
+                        let keys = keys.join(" ");
                         let run: Vec<String> = c.run.iter().filter_map(Action::to_ex).collect();
-                        vec![keys.join(" "), run.join(" ; "), c.desc.to_string()]
+                        // VisiData's menu, while the key still does what VisiData's does
+                        let stock = defaults.iter().any(|d| d.on == c.on && d.run == c.run);
+                        let menu = menu_path(&c.on).filter(|_| stock).unwrap_or_default();
+                        vec![keys, run.join(" ; "), c.desc.to_string(), menu.to_string()]
                     })
                     .collect();
                 let id = self.sheets.alloc_id();
-                let names = ["key", "action", "description"];
+                let names = ["key", "action", "description", "menu"];
                 self.sheets.push(Sheet::listing(id, "help", &names, &rows));
                 self.spawn_materialize();
             }

@@ -303,9 +303,36 @@ impl Keymap {
     }
 }
 
+/// VisiData's menu path (ending in its longname) of the command VisiData binds
+/// to `keys` (S-37 P0d). `src/menu.tsv` comes from `scripts/gen_menu.py`.
+pub fn menu_path(keys: &[Key]) -> Option<&'static str> {
+    include_str!("menu.tsv").lines().find_map(|l| {
+        let (k, path) = l.split_once('\t')?;
+        let k: Vec<Key> = k
+            .split(' ')
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .ok()?;
+        (k == keys).then_some(path)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_paths_name_parseable_keys() {
+        for l in include_str!("menu.tsv").lines() {
+            let (keys, path) = l.split_once('\t').unwrap();
+            assert!(keys.split(' ').all(|k| k.parse::<Key>().is_ok()), "{l}");
+            assert!(path.contains(" > "), "{l}");
+        }
+        assert_eq!(
+            menu_path(&[key("[")]),
+            Some("Column > Sort by > current column only > ascending > sort-asc")
+        );
+    }
 
     fn key(s: &str) -> Key {
         s.parse().unwrap()

@@ -86,7 +86,13 @@ Each part helps the TUI on its own and keeps ratatui and crossterm out of the co
     after it (as `macros.lua`, S-19). Hand edits to other lines stay.
   - `zO` (`options-sheet`, per-sheet overrides): later.
   - The GUI settings window reads the same table.
-- **P0d. Command catalog (1–2 d):**
+- **P0d. Command catalog (1–2 d):** shipped 2026-11-15, lean. As built: no new registry type.
+  Longname is `Action::NAMED` / `to_ex`, help is the chord's `desc`, keys come from the live
+  keymap, and the menu path is `keymap::menu_path(keys)`, read from `src/menu.tsv` (VisiData's
+  `addMenuItems` paths joined to its `addCommand`/`bindkey` keys by `scripts/gen_menu.py`; rerun
+  it when VisiData's menus change). The help sheet (`z<C-h>`) shows the path while a key keeps
+  its default action. The GUI menubar/palette build their tree from the same table when P2
+  starts; until then a catalog type has no second caller.
   - Per action: longname (`Action::NAMED` already has it), one-line help, menu path, default keys
     (from the keymap, so a `vd.bind` shows up).
   - Menu paths copy VisiData's tree from `addMenuItems` (`File > Save sheet`, `Column > Set

@@ -723,7 +723,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="dupsel"><td><code>:dupsel</code></td><td>The selected rows as a new sheet (<kbd>"</kbd>).</td></tr>
 <tr data-ex="reselect"><td><code>:reselect</code></td><td>Open the last visual range again. <code>:'&lt;,'&gt;</code> names its rows in a range.</td></tr>
 <tr data-ex="jumps"><td><code>:jumps</code></td><td>The jumplist: where the cursor was before each big jump (<kbd>g</kbd><kbd>g</kbd>, <kbd>G</kbd>, <code>:cursor</code>, <kbd>n</kbd>/<kbd>N</kbd>, <kbd>Enter</kbd>, <kbd>F</kbd>, <kbd>S</kbd>, <kbd>Ctrl-^</kbd>). <code>:jump-back</code> and <code>:jump-forward</code> walk it; bind them with <code>vd.bind</code>.</td></tr>
-<tr data-ex="help"><td><code>:help</code></td><td>A sheet of the key bindings (<kbd>z</kbd> <kbd>Ctrl-h</kbd>).</td></tr>
+<tr data-ex="help"><td><code>:help</code></td><td>A sheet of the key bindings (<kbd>z</kbd> <kbd>Ctrl-h</kbd>), with where VisiData's menu has each command.</td></tr>
 <tr data-ex="refresh"><td><code>:refresh</code></td><td>Rebuild a derived sheet from its parent as it is now (<kbd>Ctrl-r</kbd>).</td></tr>
 <tr data-ex="link"><td><code>:link</code>, <code>:unlink</code></td><td>Refresh the derived sheet by itself when you come back to it and its parent changed.</td></tr>
 <tr data-ex="hits"><td><code>:hits regex</code></td><td>A sheet of every cell of the view that matches (as <kbd>g</kbd><kbd>/</kbd>): <code>row</code>, <code>column</code>, <code>value</code> and the key columns, at most 100,000. <kbd>Enter</kbd> on a hit goes to that cell; the hit sheet stays open (<kbd>S</kbd> to come back).</td></tr>
@@ -951,7 +951,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="g q"><td><kbd>g</kbd><kbd>q</kbd></td><td>quit</td></tr>
 <tr data-keys="&lt;C-q&gt;"><td><kbd>Ctrl-q</kbd></td><td>quit</td></tr>
 <tr data-keys="&lt;C-r&gt;"><td><kbd>Ctrl-r</kbd></td><td>refresh a derived sheet from its parent</td></tr>
-<tr data-keys="z &lt;C-h&gt;"><td><kbd>z</kbd> <kbd>Ctrl-h</kbd></td><td>a sheet of the key bindings: key, action, description (<code>:help</code>)</td></tr>
+<tr data-keys="z &lt;C-h&gt;"><td><kbd>z</kbd> <kbd>Ctrl-h</kbd></td><td>a sheet of the key bindings: key, action, description, and VisiData's menu path for it (<code>Column &gt; Sort by &gt; … &gt; sort-asc</code>; empty for vdrs-only keys and keys you rebound) (<code>:help</code>)</td></tr>
 <tr data-keys="z &lt;F1&gt;"><td><kbd>z</kbd> <kbd>F1</kbd></td><td>the same</td></tr>
 <tr data-keys="z &lt;BS&gt;"><td><kbd>z</kbd> <kbd>Backspace</kbd></td><td>the same (terminals that send Backspace for Ctrl-h)</td></tr>
 <tr data-keys="&lt;C-^&gt;"><td><kbd>Ctrl-^</kbd></td><td>go to the previous sheet: the one under this one comes to the top; again goes back</td></tr>

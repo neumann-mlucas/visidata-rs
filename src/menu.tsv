@@ -1,0 +1,213 @@
+o	File > Open > input file/url > open-file
+g U	File > Reopen last closed > undo-last-quit
++	Column > Add aggregator > aggregate-col
+d	Edit > Delete > current row > delete-row
+z d	Edit > Delete > current cell > delete-cell
+<Del>	Edit > Delete > current cell > delete-cell
+g d	Edit > Delete > selected rows > delete-selected
+g z d	Edit > Delete > selected cells > delete-cells
+g <Del>	Edit > Delete > selected cells > delete-cells
+z y	Edit > Copy > to internal clipboard > current cell > copy-cell
+y	Edit > Copy > to internal clipboard > current row > copy-row
+g z y	Edit > Copy > to internal clipboard > selected cells > copy-cells
+g y	Edit > Copy > to internal clipboard > selected rows > copy-selected
+z Y	Edit > Copy > to system clipboard > current cell > syscopy-cell
+Y	Edit > Copy > to system clipboard > current row > syscopy-row
+g z Y	Edit > Copy > to system clipboard > selected cells > syscopy-cells
+g Y	Edit > Copy > to system clipboard > selected rows > syscopy-selected
+x	Edit > Cut > current row > cut-row
+g x	Edit > Cut > selected cells > cut-selected
+z x	Edit > Cut > current cell > cut-cell
+p	Edit > Paste > from internal clipboard > row after > paste-after
+P	Edit > Paste > from internal clipboard > row before > paste-before
+g z p	Edit > Paste > from internal clipboard > into selected cells > setcol-clipboard
+z p	Edit > Paste > from internal clipboard > into current cell > paste-cell
+z P	Edit > Paste > from system clipboard > cells at cursor > syspaste-cells
+g z P	Edit > Paste > from system clipboard > selected cells > syspaste-cells-selected
+D	View > Command log > this sheet > cmdlog-sheet
+z D	View > Command log > this sheet only > cmdlog-sheet-only
+g D	View > Command log > all commands > cmdlog-all
+<C-v>	Help > Version > show-version
+z =	Edit > Modify > current cell > Python expression > setcell-expr
+g =	Edit > Modify > selected cells > Python sequence > setcol-expr
+=	Column > Add column > Python expr > addcol-expr
+<A-+>	Column > Set precision > more > setcol-precision-more
+<A-->	Column > Set precision > less > setcol-precision-less
+(	Column > Expand > one level > expand-col
+z (	Column > Expand > to depth N > expand-col-depth
+g (	Column > Expand > all columns one level > expand-cols
+g z (	Column > Expand > all columns to depth > expand-cols-depth
+)	Column > Contract > one level > contract-col
+z )	Column > Contract > N levels > contract-col-depth
+g )	Column > Contract > all columns one level > contract-cols
+g z )	Column > Contract > all columns N levels > contract-cols-depth
+c	Column > Goto > by regex > go-col-regex
+z c	Column > Goto > by number > go-col-number
+i	Column > Add column > increment > addcol-incr
+g i	Edit > Modify > selected cells > increment > setcol-incr
+&	Data > Join > Top Two Sheets > choose jointype > join-sheets-top2
+g &	Data > Join > All Sheets > choose jointype > join-sheets-all
+-	Column > Hide > Hide > hide-col
+g -	Column > Hide > Hide uniform > hide-uniform-cols
+g v	Column > Hide > Unhide all > unhide-cols
+z -	Column > Resize > half width > resize-col-half
+_	Column > Resize > current column width to max > resize-col-max
+z _	Column > Resize > current column width to N > resize-col-input
+g _	Column > Resize > all columns width to max > resize-cols-max
+g z _	Column > Resize > all columns width to N > resize-cols-input
+z v	Row > Resize > height to N > resize-height-input
+g z v	Row > Resize > height to max > resize-height-max
+v	View > Toggle display > multiline > toggle-multiline
+M	Data > Melt > nonkey columns > melt
+g M	Data > Melt > nonkey columns by regex > melt-regex
+g O	File > Options > edit config file > open-config
+g *	Edit > Modify > selected cells > regex substitution > setcol-regex-subst
+;	Column > Add column > capture by regex > addcol-capture
+:	Column > Add column > split by regex > addcol-split
+*	Column > Add column > subst by regex > addcol-regex-subst
+|	Row > Select > by regex > current column > select-col-regex
+g |	Row > Select > by regex > all columns > select-cols-regex
+z <C-r>	File > Reload > rows only > reload-rows
+K	Edit > Slide > Row > up > slide-up
+<S-Up>	Edit > Slide > Row > up > slide-up
+z K	Edit > Slide > Row > up N > slide-up-n
+J	Edit > Slide > Row > down > slide-down
+<S-Down>	Edit > Slide > Row > down > slide-down
+z J	Edit > Slide > Row > down N > slide-down-n
+g K	Edit > Slide > Row > to top > slide-top
+g <S-Up>	Edit > Slide > Row > to top > slide-top
+g J	Edit > Slide > Row > to bottom > slide-bottom
+g <S-Down>	Edit > Slide > Row > to bottom > slide-bottom
+H	Edit > Slide > Column > left > slide-left
+<S-Left>	Edit > Slide > Column > left > slide-left
+z H	Edit > Slide > Column > left N > slide-left-n
+g H	Edit > Slide > Column > leftmost > slide-leftmost
+g <S-Left>	Edit > Slide > Column > leftmost > slide-leftmost
+L	Edit > Slide > Column > right > slide-right
+<S-Right>	Edit > Slide > Column > right > slide-right
+z L	Edit > Slide > Column > right N > slide-right-n
+g L	Edit > Slide > Column > rightmost > slide-rightmost
+g <S-Right>	Edit > Slide > Column > rightmost > slide-rightmost
+z $	Column > Type as > decimal > type-decimal
+F	Data > Frequency table > current column > freq-col
+g F	Data > Frequency table > key columns > freq-keys
+.	Plot > Graph > current column > plot-column
+g .	Plot > Graph > all numeric columns > plot-numerics
+g z <C-h>	Help > All commands > help-commands-all
+g <C-h>	Help > Quick reference > sysopen-help
+<F1>	Help > Quick reference > sysopen-help
+g <BS>	Help > Quick reference > sysopen-help
+z <C-h>	Help > Command list > help-commands
+z <F1>	Help > Command list > help-commands
+z <BS>	Help > Command list > help-commands
+m	System > Record macro > macro-record
+g m	System > Macros sheet > macro-sheet
+C	View > Columns > this sheet > columns-sheet
+g C	View > Columns > all sheets > columns-all
+z <C-s>	File > Save > changes to source > commit-sheet
+z a	Column > Add column > empty > one column > addcol-new
+g z a	Column > Add column > empty > multiple columns > addcol-bulk
+<C-^>	View > Other sheet > previous sheet > jump-prev
+g <C-^>	View > Other sheet > first sheet > jump-first
+g <Up>	Row > Goto > top > go-top
+<Home>	Row > Goto > top > go-top
+g g	Row > Goto > top > go-top
+g k	Row > Goto > top > go-top
+g <Down>	Row > Goto > bottom > go-bottom
+<End>	Row > Goto > bottom > go-bottom
+G	Row > Goto > bottom > go-bottom
+g j	Row > Goto > bottom > go-bottom
+<PgUp>	Row > Goto > previous > page > go-pageup
+<C-b>	Row > Goto > previous > page > go-pageup
+{	Row > Goto > previous > selected > go-prev-selected
+<PgDn>	Row > Goto > next > page > go-pagedown
+<C-f>	Row > Goto > next > page > go-pagedown
+z >	Row > Goto > next > null > go-next-null
+>	Row > Goto > next > value > go-next-value
+}	Row > Goto > next > selected > go-next-selected
+z r	Row > Goto > by number > go-row-number
+O	File > Options > all sheets > options-global
+z O	File > Options > this sheet > options-sheet
+W	Data > Pivot > pivot
+<CR>	Row > Dive into > open-row
+g <C-x>	System > Python > import library > import-python
+g <C-y>	System > Python > current sheet > pyobj-sheet
+<C-y>	System > Python > current row > pyobj-row
+z <C-y>	System > Python > current cell > pyobj-cell
+<C-x>	System > Python > expression > pyobj-expr
+^	Column > Rename > current column > rename-col
+z ^	Column > Rename > from selected cells > current column > rename-col-selected
+g ^	Column > Rename > from selected cells > unnamed columns > rename-cols-row
+g z ^	Column > Rename > from selected cells > all columns > rename-cols-selected
+<C-s>	File > Save > current sheet > save-sheet
+g <C-s>	File > Save > all sheets > save-all
+/	View > Search > current column > search-col
+g /	View > Search > visible columns > search-cols
+r	View > Search > key columns > search-keys
+z /	View > Search > by Python expr > search-expr
+n	View > Search > again > search-next
+?	View > Search backward > current column > searchr-col
+g ?	View > Search backward > visible columns > searchr-cols
+z ?	View > Search backward > by Python expr > searchr-expr
+N	View > Search backward > again > searchr-next
+s	Row > Select > current row > select-row
+g s	Row > Select > all rows > select-rows
+z s	Row > Select > from top > select-before
+g z s	Row > Select > to bottom > select-after
+z |	Row > Select > by Python expr > select-expr
+,	Row > Select > equal to current cell > select-equal-cell
+g ,	Row > Select > equal to current row > select-equal-row
+z {	Row > Select > from prev selected > select-to-prev-selected
+z }	Row > Select > to next selected > select-to-next-selected
+u	Row > Unselect > current row > unselect-row
+g u	Row > Unselect > all rows > unselect-rows
+z u	Row > Unselect > from top > unselect-before
+g z u	Row > Unselect > to bottom > unselect-after
+t	Row > Toggle select > current row > stoggle-row
+g t	Row > Toggle select > all rows > stoggle-rows
+z t	Row > Toggle select > from top > stoggle-before
+g z t	Row > Toggle select > to bottom > stoggle-after
+A	File > New > open-new
+"	File > Duplicate > selected rows by ref > dup-selected
+g "	File > Duplicate > all rows by ref > dup-rows
+z "	File > Duplicate > selected rows deep > dup-selected-deep
+g z "	File > Duplicate > all rows deep > dup-rows-deep
+<C-r>	File > Reload > rows and columns > reload-sheet
+q	File > Quit > top sheet > quit-sheet
+g q	File > Quit > all sheets > quit-all
+e	Edit > Modify > current cell > input > edit-cell
+g e	Edit > Modify > selected cells > from input > setcol-input
+`	View > Other sheet > source sheet > open-source
+<C-l>	View > Refresh screen > redraw
+z ~	Column > Type as > anytype > type-any
+~	Column > Type as > string > type-string
+#	Column > Type as > integer > type-int
+%	Column > Type as > float > type-float
+z #	Column > Type as > length > type-len
+!	Column > Key > toggle current column > key-col
+z !	Column > Key > unkey current column > key-col-off
+z ;	Column > Add column > shell > addcol-shell
+b	View > Sidebar > toggle > sidebar-toggle
+<C-g>	View > Sidebar > cycle > sidebar-cycle
+g b	View > Sidebar > open in new sheet > open-sidebar
+[	Column > Sort by > current column only > ascending > sort-asc
+]	Column > Sort by > current column only > descending > sort-desc
+g [	Column > Sort by > key columns > ascending > sort-keys-asc
+g ]	Column > Sort by > key columns > descending > sort-keys-desc
+Z	View > Split pane > in half > splitwin-half
+z Z	View > Split pane > in percent > splitwin-input
+g Z	View > Split pane > unsplit > splitwin-close
+g <Tab>	View > Split pane > swap panes > splitwin-swap-pane
+<Tab>	View > Split pane > goto other pane > splitwin-swap
+<C-p>	View > Statuses > open-statuses
+<C-e>	View > Errors > recent > error-recent
+g <C-e>	View > Errors > all > errors-all
+z <C-e>	View > Errors > in cell > error-cell
+<C-t>	System > Threads sheet > threads-all
+<C-_>	System > Toggle profiling > toggle-profile
+$	Column > Type as > dirty float > type-currency
+@	Column > Type as > date > type-date
+z %	Column > Type as > SI float > type-floatsi
+U	Edit > Undo > undo-last
+R	Edit > Redo > redo-last
+z U	Edit > Revise last input > undo-redo-input

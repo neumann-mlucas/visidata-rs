@@ -991,6 +991,10 @@ async fn help_sheet_jump_prev_and_the_refresh_guard() {
         "{t}"
     );
     assert!(t.contains("<C-^>|jump_prev|"), "{t}");
+    assert!(
+        t.contains("[|sort_asc|sort ascending by current column|Column > Sort by > current column only > ascending > sort-asc"),
+        "{t}"
+    );
     h.keys("q l l F").await; // freq(grp) on the base sheet
     let freq = h.app.sheets.active().name.clone();
     h.keys("<C-^>").await;
