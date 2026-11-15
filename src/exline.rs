@@ -305,6 +305,13 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 style: style.to_string(),
             }])
         }
+        "trust" => match rest.trim() {
+            "" => Ok(vec![Action::Trust { arg: None }]),
+            a @ ("view" | "off") => Ok(vec![Action::Trust {
+                arg: Some(a.to_string()),
+            }]),
+            _ => Err(ExError::Usage(":trust [view|off]")),
+        },
         "validate" => {
             const USAGE: &str = ":validate <column> [sql predicate]";
             let (column, pred) = first_arg(rest, USAGE)?;

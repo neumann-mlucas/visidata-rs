@@ -142,13 +142,56 @@ impl App {
         else {
             return;
         };
+        self.install_plugins(fresh, warning.unwrap_or_else(|| "init.lua reloaded".into()));
+    }
+
+    /// `:trust [view|off]` (S-40 B2).
+    pub(in crate::app) fn trust(&mut self, arg: Option<&str>) {
+        let Some((path, trusted)) = self.plugins.as_ref().and_then(|p| p.project_file()) else {
+            return self.fail("trust: no .vdrs.lua from here up to $HOME".into());
+        };
+        let path = path.to_path_buf();
+        if arg == Some("view") {
+            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| e.to_string());
+            let rows: Vec<Vec<String>> = text
+                .lines()
+                .enumerate()
+                .map(|(i, l)| vec![(i + 1).to_string(), l.to_string()])
+                .collect();
+            let id = self.sheets.alloc_id();
+            let name = path.display().to_string();
+            self.sheets
+                .push(Sheet::listing(id, &name, &["line", "text"], &rows));
+            return self.spawn_materialize();
+        }
+        let on = arg != Some("off");
+        if let Err(e) = crate::plugins::set_trust(&path, on) {
+            return self.fail(format!("trust: {}: {e}", path.display()));
+        }
+        if on == trusted {
+            let state = if on { "trusted" } else { "not trusted" };
+            self.toast = Some(format!("{}: {state}", path.display()));
+            return; // nothing to run or stop
+        }
+        let Some((fresh, warning)) = self.plugins.as_ref().map(|p| p.reload()) else {
+            return;
+        };
+        let note = match on {
+            true => format!("{} trusted and run", path.display()),
+            false => format!("{} no longer trusted", path.display()),
+        };
+        self.install_plugins(fresh, warning.filter(|_| on).unwrap_or(note));
+    }
+
+    /// A freshly loaded Lua host: its keys, theme, options in effect.
+    fn install_plugins(&mut self, fresh: crate::plugins::Plugins, toast: String) {
         self.plugins = Some(fresh);
         (self.keymap, self.theme) = keymap_and_theme(self.plugins.as_ref());
         self.clipboard = super::clipboard_for(self.plugins.as_ref());
         self.paste_cmd = super::paste_cmd_for(self.plugins.as_ref());
         crate::duckdb::set_cmd(self.plugins.as_ref().and_then(|p| p.options().duckdb_cmd));
         self.sheets.active_mut().state.widths_key = None; // renderers may have changed
-        self.toast = Some(warning.unwrap_or_else(|| "init.lua reloaded".into()));
+        self.toast = Some(toast);
         let paths = self.plugins.as_ref().and_then(|p| p.config_file());
         let paths = paths.map(|p| p.display().to_string());
         self.fire_event("reload", &[("paths", paths.unwrap_or_default())]);

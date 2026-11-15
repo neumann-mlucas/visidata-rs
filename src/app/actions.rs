@@ -1156,6 +1156,7 @@ impl App {
                 });
             }
             Action::Validations => self.toast = Some(self.sheets.active().validations_text()),
+            Action::Trust { arg } => self.trust(arg.as_deref()),
             Action::Handlers => {
                 let rows = self
                     .plugins

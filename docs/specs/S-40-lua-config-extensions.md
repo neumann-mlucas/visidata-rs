@@ -70,7 +70,13 @@ Tests: plugin unit tests (ids, `once`, `clear`, `vd.off`, glob on name vs path, 
 on `quit`); scenario: `:source` the same file twice, one handler fires; `enter` fires on `q` back
 to the parent sheet.
 
-## B. Project config `.vdrs.lua` (1.5–2 d)
+## B. Project config `.vdrs.lua` (1.5–2 d) — shipped 2026-11-15
+
+As built: load order is today's `init.lua`, `options.lua`, `macros.lua`, then `.vdrs.lua` (B3
+listed macros before options; the code ran options first since S-37 P0c and that stays). The
+project file is found once at start (`Plugins::load`, never under `cfg!(test)`); `:trust`
+reloads with the same files. Hot reload watches `init.lua` and `.vdrs.lua`, not `macros.lua` /
+`options.lua` (vdrs writes those itself). Renderers keep first-match order: they have no name.
 
 A project carries its own loaders, options and keys, merged over the global config.
 

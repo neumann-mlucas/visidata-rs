@@ -36,6 +36,9 @@ struct Registry {
     /// `vd.on` handlers (S-29, S-40 A), in registration order.
     handlers: Vec<Handler>,
     next_handler: i64,
+    /// The config file running now (`init.lua`, `.vdrs.lua`, …): where an
+    /// option was set, for `O` (S-40 B4).
+    loading: String,
 }
 
 /// A `vd.on` handler (S-40 A).
@@ -106,6 +109,8 @@ pub struct Options {
     pub disp_footer: bool,
     /// Every value set, as checked (S-37 P0c): what `O` shows.
     pub set: std::collections::BTreeMap<String, String>,
+    /// The file (or `:set`) each value in `set` came from (S-40 B4).
+    pub from: std::collections::BTreeMap<String, String>,
 }
 
 impl Options {
@@ -205,7 +210,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 16; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload
+pub const API_VERSION: i64 = 17; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -232,6 +237,8 @@ pub struct Plugins {
     lua: Lua,
     /// `init.lua` this host was loaded from and its mtime then (hot reload).
     config: Option<(PathBuf, Option<std::time::SystemTime>)>,
+    /// The project's `.vdrs.lua` (S-40 B), its mtime then, and whether it ran.
+    project: Option<(PathBuf, Option<std::time::SystemTime>, bool)>,
     /// Renderer results by (column, dtype, value): renderers run on the UI
     /// thread, so each distinct cell is rendered once, not every frame.
     rendered: RefCell<HashMap<(String, String, String), Option<Rendered>>>,
@@ -242,10 +249,52 @@ impl Plugins {
     /// a broken `init.lua` keeps everything registered before the error and the
     /// error comes back as a warning. Missing init.lua is the common case.
     pub fn load() -> (Self, Option<String>) {
-        Self::load_from(default_config_path())
+        // tests never pick up a `.vdrs.lua` from where they run
+        let project = match cfg!(test) {
+            true => None,
+            false => std::env::current_dir()
+                .ok()
+                .and_then(|cwd| find_project(&cwd, std::env::var_os("HOME").map(PathBuf::from))),
+        };
+        Self::load_with(default_config_path(), project)
     }
 
-    fn load_from(path: Option<PathBuf>) -> (Self, Option<String>) {
+    /// [`Self::load`] with `init.lua` at `path` and the project file `project`.
+    pub fn load_with(path: Option<PathBuf>, project: Option<PathBuf>) -> (Self, Option<String>) {
+        let (mut host, mut warn) = Self::load_from(path, project.as_deref());
+        let Some(p) = project else {
+            return (host, warn);
+        };
+        let mtime = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
+        let trusted = is_trusted(&p);
+        if trusted {
+            match std::fs::read_to_string(&p)
+                .map_err(|e| e.to_string())
+                .and_then(|src| host.exec(&src, ".vdrs.lua").map_err(|e| e.to_string()))
+            {
+                Ok(()) => {}
+                Err(e) => {
+                    warn =
+                        Some(warn.map_or(String::new(), |w| w + "; ") + &format!(".vdrs.lua: {e}"))
+                }
+            }
+        } else {
+            let msg = format!(
+                "{} not trusted: :trust to run it, :trust view to read it",
+                p.display()
+            );
+            warn = Some(warn.map_or(String::new(), |w| w + "; ") + &msg);
+        }
+        host.project = Some((p, mtime, trusted));
+        (host, warn)
+    }
+
+    /// The project `.vdrs.lua` found at start, and whether it ran.
+    pub fn project_file(&self) -> Option<(&Path, bool)> {
+        self.project.as_ref().map(|(p, _, t)| (p.as_path(), *t))
+    }
+
+    fn load_from(path: Option<PathBuf>, project: Option<&Path>) -> (Self, Option<String>) {
         let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
         let config = path.map(|p| {
             let m = mtime(&p);
@@ -259,6 +308,14 @@ impl Plugins {
             _ => None,
         };
         let host = Self::empty(config);
+        let global = host
+            .config
+            .as_ref()
+            .and_then(|(p, _)| p.parent().map(Path::to_path_buf));
+        let project = project.and_then(Path::parent).map(Path::to_path_buf);
+        if let Err(e) = host.set_dirs(global, project) {
+            return (host, Some(format!("package.path: {e}")));
+        }
         let err = src.and_then(|s| host.exec(&s, "init.lua").err());
         let mut warn = err.map(|e| format!("init.lua: {e}"));
         // options.lua (`O`, S-37 P0c) then macros.lua (S-19) sit next to
@@ -282,12 +339,37 @@ impl Plugins {
         Self {
             lua,
             config,
+            project: None,
             rendered: Default::default(),
         }
     }
 
+    /// `vd.config_dirs()`, and `require` from `<global>/lua` and
+    /// `<project>/.vdrs/lua` (K4).
+    fn set_dirs(&self, global: Option<PathBuf>, project: Option<PathBuf>) -> mlua::Result<()> {
+        let mut prefix = String::new();
+        if let Some(g) = &global {
+            prefix += &format!("{}/lua/?.lua;", g.display());
+        }
+        if let Some(p) = &project {
+            prefix += &format!("{}/.vdrs/lua/?.lua;", p.display());
+        }
+        let package: LuaTable = self.lua.globals().get("package")?;
+        let path: String = package.get("path")?;
+        package.set("path", prefix + &path)?;
+        self.lua.set_app_data(ConfigDirs { global, project });
+        Ok(())
+    }
+
     fn exec(&self, src: &str, name: &str) -> mlua::Result<()> {
-        self.lua.load(src).set_name(name).exec()
+        if let Ok(r) = registry(&self.lua) {
+            r.borrow_mut().loading = name.to_string();
+        }
+        let res = self.lua.load(src).set_name(name).exec();
+        if let Ok(r) = registry(&self.lua) {
+            r.borrow_mut().loading = ":set".into(); // what sets options from now on
+        }
+        res
     }
 
     /// Build with an explicit config string. Used by tests; errors on any Lua error.
@@ -300,9 +382,19 @@ impl Plugins {
     /// `init.lua` changed on disk (created, edited or deleted) since this host
     /// loaded it → a freshly loaded host plus its warning, if any.
     pub fn reload_if_changed(&self) -> Option<(Self, Option<String>)> {
-        let (path, loaded) = self.config.as_ref()?;
-        let now = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        (now != *loaded).then(|| Self::load_from(Some(path.clone())))
+        let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        let init = self.config.as_ref().is_some_and(|(p, m)| mtime(p) != *m);
+        let project = self
+            .project
+            .as_ref()
+            .is_some_and(|(p, m, _)| mtime(p) != *m);
+        (init || project).then(|| self.reload())
+    }
+
+    /// A fresh host from the same files (`:trust`).
+    pub fn reload(&self) -> (Self, Option<String>) {
+        let init = self.config.as_ref().map(|(p, _)| p.clone());
+        Self::load_with(init, self.project.as_ref().map(|(p, _, _)| p.clone()))
     }
 
     /// The aggregator `vd.register_aggregator` defined as `name`. `Send`: pivots
@@ -539,7 +631,9 @@ impl Plugins {
     /// `:set` / `O` (S-37 P0c): store a checked option value.
     pub fn set_option(&self, name: &str, v: &str) {
         if let Some(r) = reg(&self.lua) {
-            r.borrow_mut().options.apply(name, v);
+            let mut reg = r.borrow_mut();
+            reg.options.apply(name, v);
+            reg.options.from.insert(name.into(), ":set".into());
         }
     }
 
@@ -567,9 +661,11 @@ impl Plugins {
     pub fn resolve_loader(&self, path: &Path) -> Option<LoaderRule> {
         let ext = path.extension()?.to_str()?.to_ascii_lowercase();
         let reg = reg(&self.lua)?;
+        // the last registered wins: a project loader beats a global one (S-40 B3)
         reg.borrow()
             .loaders
             .iter()
+            .rev()
             .find(|r| r.extensions.iter().any(|e| e == &ext))
             .cloned()
     }
@@ -832,7 +928,10 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set(
         "register_aggregator",
         lua.create_function(|lua, (name, f): (String, LuaFunction)| {
-            registry(lua)?.borrow_mut().aggregators.push((name, f));
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            reg.aggregators.retain(|(n, _)| *n != name); // redefining replaces
+            reg.aggregators.push((name, f));
             Ok(())
         })?,
     )?;
@@ -876,8 +975,44 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             if name == "keymap" && v == "vim" {
                 lua.load(VIM_PROFILE).set_name("vim profile").exec()?;
             }
-            registry(lua)?.borrow_mut().options.apply(&name, &v);
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            reg.options.apply(&name, &v);
+            let from = reg.loading.clone();
+            reg.options.from.insert(name, from);
             Ok(())
+        })?,
+    )?;
+    vd.set(
+        "reset",
+        lua.create_function(|lua, ()| {
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            if reg.current.is_some() {
+                return Err(mlua::Error::RuntimeError(
+                    "vd.reset works at the top level of a config file, not in a function".into(),
+                ));
+            }
+            let loading = std::mem::take(&mut reg.loading);
+            *reg = Registry {
+                loading,
+                ..Default::default()
+            };
+            Ok(())
+        })?,
+    )?;
+    vd.set(
+        "config_dirs",
+        lua.create_function(|lua, ()| {
+            let t = lua.create_table()?;
+            if let Some(d) = lua.app_data_ref::<ConfigDirs>() {
+                t.set("global", d.global.as_ref().map(|p| p.display().to_string()))?;
+                t.set(
+                    "project",
+                    d.project.as_ref().map(|p| p.display().to_string()),
+                )?;
+            }
+            Ok(t)
         })?,
     )?;
     lua.globals().set("vd", vd)?;
@@ -1498,6 +1633,66 @@ fn lua_str(s: &str) -> String {
     out
 }
 
+/// `vd.config_dirs()`: the folders of `init.lua` and of the project file.
+struct ConfigDirs {
+    global: Option<PathBuf>,
+    project: Option<PathBuf>,
+}
+
+/// The first `.vdrs.lua` from `cwd` up (S-40 B1, K1). The walk stops at
+/// `home`, which is searched only when it is `cwd`.
+pub fn find_project(cwd: &Path, home: Option<PathBuf>) -> Option<PathBuf> {
+    for dir in cwd.ancestors() {
+        if home.as_deref() == Some(dir) && dir != cwd {
+            return None;
+        }
+        let f = dir.join(".vdrs.lua");
+        if f.is_file() {
+            return Some(f);
+        }
+        if home.as_deref() == Some(dir) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Where `:trust` keeps the bytes it trusted for `project`.
+fn trust_copy(project: &Path) -> PathBuf {
+    let abs = std::fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
+    let name: String = abs
+        .display()
+        .to_string()
+        .chars()
+        .map(|c| if c == '/' || c == '\\' { '%' } else { c })
+        .collect();
+    crate::state_path(&format!("trust/{name}"))
+}
+
+/// `project` runs: its bytes are the ones `:trust` saw (K2: any edit needs a
+/// new `:trust`).
+pub fn is_trusted(project: &Path) -> bool {
+    match (std::fs::read(project), std::fs::read(trust_copy(project))) {
+        (Ok(now), Ok(seen)) => now == seen,
+        _ => false,
+    }
+}
+
+/// `:trust` (`on`) / `:trust off` for `project`.
+pub fn set_trust(project: &Path, on: bool) -> std::io::Result<()> {
+    let copy = trust_copy(project);
+    if !on {
+        return match std::fs::remove_file(&copy) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            r => r,
+        };
+    }
+    if let Some(d) = copy.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    std::fs::write(copy, std::fs::read(project)?)
+}
+
 fn default_config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -1679,7 +1874,7 @@ mod tests {
             "vd.bind('sheet', 'x', 'goto_top')\nvd.set_theme('light')\nerror('boom')",
         )
         .unwrap();
-        let (p, warn) = Plugins::load_from(Some(init.clone()));
+        let (p, warn) = Plugins::load_from(Some(init.clone()), None);
         assert!(warn.unwrap().contains("boom"));
         let mut km = Keymap::defaults();
         p.apply_keymap(&mut km);
@@ -1783,7 +1978,7 @@ mod tests {
         save_macro(&path, &keys, &steps).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert_eq!(text.lines().count(), 2, "{text}");
-        let (p, warn) = Plugins::load_from(Some(dir.path().join("vdrs").join("init.lua")));
+        let (p, warn) = Plugins::load_from(Some(dir.path().join("vdrs").join("init.lua")), None);
         assert_eq!(warn, None);
         let mut km = Keymap::default();
         p.apply_keymap(&mut km);
@@ -2212,6 +2407,93 @@ mod tests {
             rows[0][1..],
             ["open", "logs", "*.log.csv /data/*.tsv", "false"]
         );
+    }
+
+    /// S-40 B1: the walk up stops at `$HOME`, which counts only when it is
+    /// where vdrs starts.
+    #[test]
+    fn project_file_walk_stops_at_home() {
+        let home = tempfile::tempdir().unwrap();
+        let deep = home.path().join("a/b");
+        std::fs::create_dir_all(&deep).unwrap();
+        let h = Some(home.path().to_path_buf());
+        std::fs::write(home.path().join(".vdrs.lua"), "").unwrap();
+        assert_eq!(find_project(&deep, h.clone()), None);
+        assert_eq!(
+            find_project(home.path(), h.clone()),
+            Some(home.path().join(".vdrs.lua"))
+        );
+        std::fs::write(home.path().join("a/.vdrs.lua"), "").unwrap();
+        assert_eq!(
+            find_project(&deep, h),
+            Some(home.path().join("a/.vdrs.lua"))
+        );
+    }
+
+    /// S-40 B2, B3: an untrusted file doesn't run; trusted, it runs after
+    /// init.lua (its option and loader win); an edit untrusts it; `vd.reset`
+    /// clears what init.lua set, and is refused inside a function.
+    #[test]
+    fn project_file_trust_and_merge_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let init = dir.path().join("init.lua");
+        std::fs::write(
+            &init,
+            r#"vd.option("histogram_bins", "3"); vd.option("mouse", "true")
+               vd.register_loader { extensions = "foo", open = function(p) return "global" end }"#,
+        )
+        .unwrap();
+        let project = dir.path().join(".vdrs.lua");
+        std::fs::write(
+            &project,
+            r#"vd.option("histogram_bins", "5")
+               vd.register_loader { extensions = "foo", open = function(p) return "project.csv" end }"#,
+        )
+        .unwrap();
+        let load = || Plugins::load_with(Some(init.clone()), Some(project.clone()));
+        let (p, warn) = load();
+        assert!(warn.unwrap().contains("not trusted: :trust"));
+        assert_eq!(p.options().histogram_bins, 3);
+        set_trust(&project, true).unwrap();
+        let (p, warn) = load();
+        assert_eq!(warn, None);
+        assert_eq!(p.project_file().map(|(_, t)| t), Some(true));
+        let o = p.options();
+        assert_eq!((o.histogram_bins, o.mouse), (5, true));
+        assert_eq!(o.from["histogram_bins"], ".vdrs.lua");
+        assert_eq!(o.from["mouse"], "init.lua");
+        let rule = p.resolve_loader(Path::new("x.foo")).unwrap();
+        match p.call_loader(&rule, Path::new("x.foo")).unwrap() {
+            LoaderOutput::Path(p) => assert_eq!(p, PathBuf::from("project.csv")),
+            LoaderOutput::Rows(_) => panic!("rows"),
+        }
+        std::fs::write(
+            &project,
+            "vd.reset()\nvd.bind('sheet', 'x', function() vd.reset() end)",
+        )
+        .unwrap();
+        let (p, warn) = load();
+        assert!(
+            warn.unwrap().contains("not trusted"),
+            "an edit needs :trust again"
+        );
+        assert_eq!(p.options().histogram_bins, 3);
+        set_trust(&project, true).unwrap();
+        let (p, warn) = load();
+        assert_eq!(warn, None);
+        assert!(!p.options().mouse, "vd.reset dropped init.lua's options");
+        assert!(p.resolve_loader(Path::new("x.foo")).is_none());
+        let ctx = SheetCtx {
+            name: "s",
+            row: 1,
+            col: 1,
+            column_names: vec![],
+            value: AnyValue::Null,
+        };
+        let e = p.call(0, &ctx, None).err().unwrap().to_string();
+        assert!(e.contains("top level"), "{e}");
+        set_trust(&project, false).unwrap();
+        assert!(!is_trusted(&project));
     }
 
     fn push_error(body: &str) -> String {

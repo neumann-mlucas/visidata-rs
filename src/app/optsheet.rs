@@ -14,9 +14,14 @@ impl App {
                     true => o.help.to_string(),
                     false => format!("{} (from the next start)", o.help),
                 };
+                let from = self
+                    .plugins
+                    .as_ref()
+                    .and_then(|p| p.options().from.get(o.name).cloned());
                 vec![
                     o.name.into(),
                     self.option_value(o.name),
+                    from.unwrap_or_else(|| "default".into()),
                     o.default.into(),
                     help,
                 ]
@@ -31,7 +36,7 @@ impl App {
         let mut sheet = Sheet::listing(
             id,
             "options",
-            &["option", "value", "default", "description"],
+            &["option", "value", "from", "default", "description"],
             &rows,
         );
         sheet.origin = Origin::Options;

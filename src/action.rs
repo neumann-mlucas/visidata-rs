@@ -328,6 +328,11 @@ pub enum Action {
     Validations,
     /// `:handlers` (S-40 A): a sheet of the `vd.on` handlers.
     Handlers,
+    /// `:trust [view|off]` (S-40 B): run the project's `.vdrs.lua` from now
+    /// on, show it, or stop trusting it.
+    Trust {
+        arg: Option<String>,
+    },
     SetCol {
         value: String,
     },
@@ -780,7 +785,7 @@ impl Action {
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
             SetNote { .. } | Color { .. } | NoColor { .. } | Validate { .. } => true,
-            Validations | Handlers => false,
+            Validations | Handlers | Trust { .. } => false,
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
@@ -1208,6 +1213,8 @@ impl Action {
             } => format!("scale {} {lo} {hi}", q(column)),
             DataBar { column } => format!("databar {}", q(column)),
             NoColor { column: None } => "nocolor".into(),
+            Trust { arg: None } => "trust".into(),
+            Trust { arg: Some(a) } => format!("trust {a}"),
             Validate { column, pred: None } => format!("validate {}", q(column)),
             Validate {
                 column,
@@ -1464,6 +1471,10 @@ mod tests {
             },
             DataBar { column: s("amt") },
             NoColor { column: None },
+            Trust { arg: None },
+            Trust {
+                arg: Some(s("view")),
+            },
             Validate {
                 column: s("qty"),
                 pred: Some(s("qty >= 0")),

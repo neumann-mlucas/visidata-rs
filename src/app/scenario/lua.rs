@@ -452,3 +452,43 @@ async fn enter_and_loaded_events_and_handlers_sheet() {
     assert!(t.contains("|enter|") && t.ends_with("|false\n"), "{t}");
     assert!(!t.contains("loaded"), "once: gone after it ran\n{t}");
 }
+
+/// S-40 B: an untrusted `.vdrs.lua` doesn't run and says so; `:trust` runs
+/// it (its key works); an edit makes it untrusted again on hot reload.
+#[tokio::test(flavor = "multi_thread")]
+async fn project_config_needs_trust() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join(".vdrs.lua");
+    std::fs::write(
+        &project,
+        r#"vd.bind("sheet", "<F9>", function() vd.toast("project key") end)"#,
+    )
+    .unwrap();
+    let mut h = Harness::new(3).await;
+    let (p, warn) = crate::plugins::Plugins::load_with(None, Some(project.clone()));
+    assert!(warn.unwrap().contains("not trusted"));
+    h.app.plugins = Some(p);
+    h.app.keymap = keymap_and_theme(h.app.plugins.as_ref()).0;
+    h.keys("<F9>").await;
+    assert_ne!(status(&h), "project key");
+    h.keys(":").await;
+    h.type_("trust").await;
+    assert!(status(&h).ends_with("trusted and run"), "{}", status(&h));
+    h.keys("<F9>").await;
+    assert_eq!(status(&h), "project key");
+    h.keys(":").await;
+    h.type_("trust view").await;
+    assert!(csv_text(h.app.sheets.active(), b'|').contains("vd.bind"));
+    h.keys("q").await;
+    std::fs::write(&project, "-- edited\n").unwrap();
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+    std::fs::File::options()
+        .write(true)
+        .open(&project)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    h.app.reload_plugins_if_changed();
+    h.pump().await;
+    assert!(status(&h).contains("not trusted: :trust"), "{}", status(&h));
+}

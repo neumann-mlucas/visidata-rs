@@ -75,6 +75,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     // anyhow!: OpenError's message already holds its source; `:#` would repeat it
     let loaded = plugins::open(plugins.as_ref(), &path, cli.format).map_err(|e| anyhow!("{e}"))?;
     if cli.headless {
+        if let Some(w) = &plugin_warning {
+            eprintln!("vdrs: {w}");
+        }
         print_headless(&loaded, cli.head)?;
         return Ok(ExitCode::SUCCESS);
     }
