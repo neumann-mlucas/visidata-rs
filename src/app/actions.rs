@@ -1139,6 +1139,16 @@ impl App {
                     pred,
                     style,
                 }),
+            Action::Validate { column, pred } => {
+                let warn = self.option_value("validation") == "warn";
+                let s = self.sheets.active_mut();
+                s.state.validation_warn = warn;
+                self.toast = Some(match s.set_validation(&column, pred.as_deref()) {
+                    Ok(note) => note,
+                    Err(e) => return self.fail(format!("validate: {e}")),
+                });
+            }
+            Action::Validations => self.toast = Some(self.sheets.active().validations_text()),
             Action::Scale { column, colors } => {
                 let colors = colors.unwrap_or_else(|| (SCALE_LOW.into(), SCALE_HIGH.into()));
                 self.scale(column, Some(colors))
@@ -2108,6 +2118,14 @@ impl App {
                 self.sheets.active_mut().state.widths_key = None;
             }
             "duckdb_cmd" => crate::duckdb::set_cmd(Some(v.clone())),
+            "validation" => {
+                let ids: Vec<_> = self.sheets.iter().map(|s| s.id).collect();
+                for id in ids {
+                    if let Some(s) = self.sheets.find_by_id_mut(id) {
+                        s.state.validation_warn = v == "warn";
+                    }
+                }
+            }
             "clipboard_copy_cmd" => self.clipboard = clipboard_for(self.plugins.as_ref()),
             "clipboard_paste_cmd" => self.paste_cmd = paste_cmd_for(self.plugins.as_ref()),
             _ => {}

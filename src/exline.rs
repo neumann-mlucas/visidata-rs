@@ -305,6 +305,15 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 style: style.to_string(),
             }])
         }
+        "validate" => {
+            const USAGE: &str = ":validate <column> [sql predicate]";
+            let (column, pred) = first_arg(rest, USAGE)?;
+            let pred = pred.trim();
+            Ok(vec![Action::Validate {
+                column,
+                pred: (!pred.is_empty()).then(|| pred.to_string()),
+            }])
+        }
         "scale" => {
             const USAGE: &str = ":scale <column> [low-color high-color]";
             match split_args(rest, USAGE)?.as_slice() {

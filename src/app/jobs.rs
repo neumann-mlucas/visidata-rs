@@ -337,6 +337,10 @@ impl App {
     }
 
     pub(super) fn spawn_materialize(&mut self) {
+        // every edit lands here: a warn-mode `:validate` note goes up (S-36 D)
+        if let Some(n) = self.sheets.active_mut().state.validation_note.take() {
+            self.toast = Some(n);
+        }
         self.spawn_materialize_for(self.sheets.active().id);
         self.spawn_count_if_stale();
     }

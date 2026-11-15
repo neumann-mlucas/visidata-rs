@@ -1,0 +1,10 @@
+:
+> validate amt amt > 2
+l l l
+e
+<C-u>
+> 1
+j
+e
+<C-u>
+> 5

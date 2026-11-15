@@ -197,8 +197,23 @@ and selection stats in the status line (S-30 C). Neither gives a total per colum
     changes. An edit to a cell updates it too.
   - Job test: a 1M-row view doesn't stall the UI.
 
-## D. Validation on edit (1.5–2 d)
+## D. Validation on edit (1.5–2 d) — shipped 2026-11-15
 
+As built (2026-11-15):
+
+- One check point: `Sheet::check_edit`, called by `insert_edit` (every column edit: `e`, `ge`,
+  `:setcol`, `g=`, `zp`/`gzp`, `:s`, session patches) and `add_rows`, after the plan is rebuilt
+  with the edit; a refusal puts the steps back. The rows checked are the step's own (`:s` with
+  no rows: all). Runs on the UI thread, not the S-33 job (ponytail note: move it if `:s` on a
+  big column shows up).
+- `NOT (pred)` with nulls counted as passing: an empty result never fails (Excel's "ignore
+  blank").
+- Failing cells are painted (red, underline) always, not only in warn mode, existing data
+  included: the window carries one more mark column per rule, after the `:color` ones.
+- Mode: `SheetState.validation_warn`, set from the `validation` option by `:validate` and by
+  `:set validation`; the warn toast comes up from `SheetState.validation_note` in
+  `spawn_materialize`.
+- Rename of a column a rule reads is refused (as `:color`), the rule's column follows a rename.
 - D1. **Command:**
   - `:validate <col> <sql predicate>`, e.g. `:validate qty qty >= 0` or
     `:validate status status IN ('open','done')`.

@@ -1249,3 +1249,51 @@ async fn number_fmtstr_shows_steps_groups_and_dives() {
     h.keys("g \"").await;
     assert!(h.screen().contains("1,000 pcs"), "{}", h.screen());
 }
+
+/// `:validate` (S-36 D): a failing `e` or `g=` is refused whole and leaves
+/// the cells; in warn mode it lands, with a toast and the cell marked.
+#[tokio::test(flavor = "multi_thread")]
+async fn validate_refuses_then_warns() {
+    let mut h = Harness::new(5).await; // amt 1.5, 3, 4.5, 6, 7.5
+    h.keys(":").await;
+    h.type_("validate amt amt >= 0").await;
+    assert!(
+        status(&h).contains(":select NOT (amt >= 0)"),
+        "{}",
+        status(&h)
+    );
+    let amts = |h: &Harness| -> Vec<String> {
+        let csv = view_csv(h);
+        csv.lines()
+            .skip(1)
+            .map(|l| l.rsplit(',').next().unwrap().to_string())
+            .collect()
+    };
+    h.keys("g l e <C-u>").await;
+    h.type_("-1").await;
+    assert_eq!(
+        status(&h),
+        "validate: amt fails amt >= 0 on row 1; edit refused"
+    );
+    assert_eq!(amts(&h)[0], "1.5");
+    // one bad row of five refuses the whole g=
+    h.keys("g s g =").await;
+    h.type_("amt - 3").await;
+    assert!(status(&h).contains("edit refused"), "{}", status(&h));
+    assert_eq!(amts(&h), ["1.5", "3.0", "4.5", "6.0", "7.5"]);
+    h.keys("g u").await;
+    // warn: the edit lands, the cell is marked
+    h.keys(":").await;
+    h.type_("set validation warn").await;
+    h.keys("e <C-u>").await;
+    h.type_("-1").await;
+    assert_eq!(status(&h), "validate: 1 amt cells fail amt >= 0");
+    assert_eq!(amts(&h)[0], "-1.0");
+    assert!(h.app.sheets.active().format_holds(0, 0));
+    h.keys(":").await;
+    h.type_("validations").await;
+    assert_eq!(status(&h), "amt: amt >= 0");
+    h.keys(":").await;
+    h.type_("validate amt").await;
+    assert_eq!(status(&h), "amt: no validation");
+}

@@ -23,6 +23,7 @@ mod tail;
 #[cfg(test)]
 mod tests;
 mod undo;
+mod validate;
 mod write;
 
 pub use columns::freq_aggregators;
@@ -32,6 +33,7 @@ pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
 pub use step::{ADDED_RID, LookupLink, POS, PlanStep, capture_fields};
 pub use undo::{Snapshot, UndoTree};
+pub use validate::Validation;
 pub use write::write_df_by_extension;
 
 pub type SheetId = u32;
@@ -97,6 +99,10 @@ pub struct SheetState {
     pub linked: bool,
     /// Plot sheets: what's in view and the cursor box (S-23 C3).
     pub plot: Option<PlotView>,
+    /// `validation` option is `warn` (S-36 D): failing edits land, with a note.
+    pub validation_warn: bool,
+    /// What a warn-mode check found, for the app to show.
+    pub validation_note: Option<String>,
 }
 
 /// A snapshot of the parent at derivation time, so later edits to the parent
@@ -496,6 +502,8 @@ pub struct View {
     pub formats: Vec<FormatRule>,
     /// `:scale` / `:databar` rules (S-27 B), painted over the `:color` ones.
     pub scales: Vec<ScaleRule>,
+    /// `:validate` rules (S-36 D), one per column.
+    pub validations: Vec<Validation>,
 }
 
 /// `:scale` / `:databar` on `column`; `range` is its min/max when the rule
@@ -549,6 +557,7 @@ impl Default for View {
             jump_bottom: false,
             formats: Vec::new(),
             scales: Vec::new(),
+            validations: Vec::new(),
         }
     }
 }
@@ -742,7 +751,7 @@ impl Sheet {
             Ok(r) => (r, df.drop(ROW_ID).unwrap_or(df)),
             Err(_) => (Vec::new(), df), // pre-built windows carry no ids
         };
-        let fmt: Vec<String> = (0..self.view.formats.len())
+        let fmt: Vec<String> = (0..self.view.formats.len() + self.view.validations.len())
             .map(|i| format!("{FMT_PREFIX}{i}"))
             .collect();
         self.state.window_fmt = fmt
@@ -915,9 +924,10 @@ impl Sheet {
         // the projection below keeps them: they're in the schema, not hidden
         if fmt {
             let base = lf.clone();
-            for (i, r) in self.view.formats.iter().enumerate() {
-                // a rule gone bad (its column dropped) paints nothing
-                let e = self.predicate(&base, &r.pred).unwrap_or(lit(false));
+            let rules = self.view.formats.iter();
+            // a rule gone bad (its column dropped) paints nothing
+            let rules = rules.map(|r| self.predicate(&base, &r.pred).unwrap_or(lit(false)));
+            for (i, e) in rules.chain(self.validation_marks(&base)).enumerate() {
                 lf = lf.with_column(e.alias(format!("{FMT_PREFIX}{i}")));
             }
         }
@@ -1256,6 +1266,11 @@ impl Sheet {
                 ":filter-expr reads {old}; clear it (:unfilter) first"
             ));
         }
+        if new != old && self.view.validations.iter().any(|v| reads(&v.pred)) {
+            return Err(format!(
+                "a :validate rule reads {old}; clear it (:validate {old}) first"
+            ));
+        }
         if new != old && self.view.formats.iter().any(|f| reads(&f.pred)) {
             return Err(format!(
                 "a :color rule reads {old}; clear it (:nocolor) first"
@@ -1282,7 +1297,8 @@ impl Sheet {
             .chain(v.filter.as_mut().map(|f| &mut f.column))
             .chain(v.sort.iter_mut().map(|k| &mut k.column))
             .chain(v.formats.iter_mut().filter_map(|f| f.column.as_mut()))
-            .chain(v.scales.iter_mut().map(|f| &mut f.column));
+            .chain(v.scales.iter_mut().map(|f| &mut f.column))
+            .chain(v.validations.iter_mut().map(|f| &mut f.column));
         for c in names.filter(|c| *c == old) {
             *c = new.to_string();
         }

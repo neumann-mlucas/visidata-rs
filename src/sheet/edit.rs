@@ -366,9 +366,21 @@ impl Sheet {
                 rows: Arc::new(rows),
             },
         );
-        if let Err(e) = self.rebuild_plan() {
+        let columns: Vec<String> = self
+            .view
+            .validations
+            .iter()
+            .map(|v| v.column.clone())
+            .collect();
+        let columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+        let checked = self
+            .rebuild_plan()
+            .map_err(|e| e.to_string())
+            .and_then(|()| self.check_edit(&columns, Some(&ids)));
+        if let Err(e) = checked {
             self.state.steps.remove(at);
-            return Err(e.to_string());
+            let _ = self.rebuild_plan();
+            return Err(e);
         }
         self.invalidate(Reason::Rows);
         Ok(ids)

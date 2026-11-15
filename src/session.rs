@@ -472,6 +472,12 @@ impl Block {
                 expr: Some(e.clone()),
             });
         }
+        for r in &v.validations {
+            self.ex(Action::Validate {
+                column: r.column.clone(),
+                pred: Some(r.pred.clone()),
+            });
+        }
         for f in &v.formats {
             self.ex(Action::Color {
                 column: f.column.clone(),

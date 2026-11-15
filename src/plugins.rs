@@ -155,7 +155,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 14; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer
+pub const API_VERSION: i64 = 15; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -1144,6 +1144,10 @@ pub fn default_init_lua() -> String {
          -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
          -- turns it on or off.\n\
          -- vd.option(\"disp_footer\", \"true\")\n\
+         \n\
+         -- An edit that fails a :validate rule: \"refuse\" (default) or \"warn\" (it\n\
+         -- lands, with a toast; failing cells show red either way).\n\
+         -- vd.option(\"validation\", \"warn\")\n\
          \n\
          -- Mouse: wheel moves the cursor, a click picks a cell. Default off, so the\n\
          -- terminal's own text selection keeps working.\n\

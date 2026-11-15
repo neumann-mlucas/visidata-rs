@@ -96,6 +96,13 @@ pub const OPTIONS: &[Opt] = &[
         live: true,
         help: "save the session on quit",
     },
+    Opt {
+        name: "validation",
+        kind: Kind::Choice(&["refuse", "warn"]),
+        default: "refuse",
+        live: true,
+        help: "an edit failing :validate: refused, or kept with a warning",
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static Opt> {

@@ -332,6 +332,16 @@ impl PlanStep {
         }
     }
 
+    /// The rows an edit writes; `None`: every row (or not an edit).
+    fn edited_rids(&self) -> PolarsResult<Option<Vec<u64>>> {
+        Ok(match self {
+            PlanStep::SetCol { rids, .. } | PlanStep::SetExpr { rids, .. } => Some(rids.to_vec()),
+            PlanStep::Replace { rids, .. } => rids.as_deref().map(<[u64]>::to_vec),
+            PlanStep::SetCells { patch, .. } => Some(rid_values(patch)?),
+            _ => None,
+        })
+    }
+
     pub fn is_edit(&self) -> bool {
         matches!(
             self,
@@ -495,6 +505,7 @@ impl Sheet {
     /// Unchanged on error; the undo step is the caller's.
     /// An expression edit also goes after the last writer of each column it reads.
     pub(super) fn insert_edit(&mut self, column: &str, step: PlanStep) -> PolarsResult<()> {
+        let rids = step.edited_rids()?;
         let at = std::iter::once(column.to_string())
             .chain(step.reads())
             .map(|c| insert_point(&self.state.steps, &c))
@@ -512,11 +523,16 @@ impl Sheet {
                 None
             }
         };
-        if let Err(e) = self.rebuild_plan() {
+        let checked = self.rebuild_plan().and_then(|()| {
+            self.check_edit(&[column], rids.as_deref())
+                .map_err(|e| PolarsError::ComputeError(e.into()))
+        });
+        if let Err(e) = checked {
             match undo {
                 Some(prev) => self.state.steps[at - 1] = prev,
                 None => drop(self.state.steps.remove(at)),
             }
+            self.rebuild_plan()?;
             return Err(e);
         }
         self.invalidate(Reason::Rows);

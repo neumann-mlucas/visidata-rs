@@ -218,7 +218,7 @@ impl SheetWidget<'_> {
 
         // `:color` rules (S-27); a bad style was refused when the rule was made.
         let no_color = self.no_color;
-        let rules: Vec<(usize, Option<&str>, Style)> = view
+        let mut rules: Vec<(usize, Option<&str>, Style)> = view
             .formats
             .iter()
             .enumerate()
@@ -227,6 +227,12 @@ impl SheetWidget<'_> {
                 Some((i, r.column.as_deref(), st))
             })
             .collect();
+        // then cells failing a `:validate` rule (S-36 D)
+        if let Ok(st) = crate::theme::parse_style("red,underline", no_color) {
+            let n = view.formats.len();
+            let marks = view.validations.iter().enumerate();
+            rules.extend(marks.map(|(j, v)| (n + j, Some(v.column.as_str()), st)));
+        }
         let scales: Vec<_> = view
             .scales
             .iter()

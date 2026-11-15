@@ -318,6 +318,14 @@ pub enum Action {
     NoColor {
         column: Option<String>,
     },
+    /// `:validate <col> [pred]` (S-36 D): edits of `column` must keep `pred`;
+    /// none clears it.
+    Validate {
+        column: String,
+        pred: Option<String>,
+    },
+    /// `:validations`: list the `:validate` rules.
+    Validations,
     SetCol {
         value: String,
     },
@@ -659,6 +667,7 @@ impl Action {
                 | Action::SetFilterExpr { .. }
                 | Action::Color { .. }
                 | Action::NoColor { .. }
+                | Action::Validate { .. }
                 | Action::ClearFilter
                 | Action::SortAsc
                 | Action::SortDesc
@@ -768,7 +777,8 @@ impl Action {
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
             StartSubstInput { .. } | StartNoteInput | Notes => false,
-            SetNote { .. } | Color { .. } | NoColor { .. } => true,
+            SetNote { .. } | Color { .. } | NoColor { .. } | Validate { .. } => true,
+            Validations => false,
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
@@ -1050,6 +1060,7 @@ impl Action {
         ("macro_sheet", MacroSheet),
         ("commit_sheet", CommitSheet),
         ("options_global", OptionsSheet),
+        ("validations", Validations),
         ("slide_left", SlideCol { by: -1 }),
         ("slide_right", SlideCol { by: 1 }),
         ("slide_leftmost", SlideCol { by: i64::MIN }),
@@ -1194,6 +1205,11 @@ impl Action {
             } => format!("scale {} {lo} {hi}", q(column)),
             DataBar { column } => format!("databar {}", q(column)),
             NoColor { column: None } => "nocolor".into(),
+            Validate { column, pred: None } => format!("validate {}", q(column)),
+            Validate {
+                column,
+                pred: Some(p),
+            } => format!("validate {} {p}", q(column)),
             NoColor { column: Some(c) } => format!("nocolor {}", q(c)),
             SetCol { value } => format!("setcol {}", q(value)),
             EditCell { value } => format!("edit {}", q(value)),
@@ -1445,6 +1461,14 @@ mod tests {
             },
             DataBar { column: s("amt") },
             NoColor { column: None },
+            Validate {
+                column: s("qty"),
+                pred: Some(s("qty >= 0")),
+            },
+            Validate {
+                column: s("two words"),
+                pred: None,
+            },
             NoColor {
                 column: Some(s("*")),
             },
