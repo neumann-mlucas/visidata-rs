@@ -1355,7 +1355,7 @@ mod tests {
         if std::env::var_os("VDRS_PRINT_INIT").is_some() {
             println!("{text}");
         }
-        let mut km = Keymap::empty();
+        let mut km = Keymap::default();
         Plugins::load_from_source(&text)
             .unwrap()
             .apply_keymap(&mut km);
@@ -1370,7 +1370,7 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let mut km = Keymap::empty();
+        let mut km = Keymap::default();
         Plugins::load_from_source(&live)
             .unwrap()
             .apply_keymap(&mut km);
@@ -1534,7 +1534,7 @@ mod tests {
             r#"vd.bind("sheet", "<F5>", { "goto_rightmost", ":filter region ^n", "open_freq_table" })"#,
         )
         .unwrap();
-        let mut km = Keymap::empty();
+        let mut km = Keymap::default();
         p.apply_keymap(&mut km);
         let run = &km.chords(Layer::Sheet)[0].run;
         assert_eq!(
@@ -1566,7 +1566,7 @@ mod tests {
         assert_eq!(text.lines().count(), 2, "{text}");
         let (p, warn) = Plugins::load_from(Some(dir.path().join("vdrs").join("init.lua")));
         assert_eq!(warn, None);
-        let mut km = Keymap::empty();
+        let mut km = Keymap::default();
         p.apply_keymap(&mut km);
         let chord = km
             .chords(Layer::Sheet)
