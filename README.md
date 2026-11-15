@@ -11,8 +11,8 @@ VisiData is open in one of my terminals most days. Treating everything as a
 sheet, with a frequency table one keystroke away, changed how I look at data,
 and nothing else in the terminal comes close. visidata-rs is not a fork. It
 rebuilds that tool in Rust: same keys, same behavior, different insides.
-VisiData's own test corpus is replayed against it: 71 of the 195 scripts it can
-address pass today.
+VisiData's own test corpus is replayed against it: about 70 of the 195 scripts
+it can address pass today (see `MIN_PASS` in `tests/vd_replay.rs`).
 
 The insides matter because that's where VisiData's open issues pile up:
 
