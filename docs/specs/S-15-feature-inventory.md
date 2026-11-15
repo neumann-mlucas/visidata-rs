@@ -33,8 +33,8 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
 | JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line |
 | JSON | `.json` | Polars `JsonReader` (eager) | array of records; a `.json` file holding JSON Lines is sniffed and read as JSONL |
-| Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), all cells as String (downstream `type-*` casts); empty header names preserved |
-| SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`, all columns as String, UTF-8-lossy decode (handles invalid-unicode TEXT) |
+| Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), a column whose cells are all numbers, all true/false or all dates loads with that type; a mixed column loads as text (S-24 R3); empty header names preserved |
+| SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`; a column holding only integers loads as integers, only numbers as floats, anything else as text, nothing lost (S-24 R3); UTF-8-lossy decode (handles invalid-unicode TEXT) |
 | DuckDB | `.duckdb`, `.ddb` | the `duckdb` program (`vd.option("duckdb_cmd")`), Parquet tempfiles | always VisiData's index (name, schema_name, table_type, rows, cols, keys, source); `<CR>` / `file:schema.table` opens one, typed; `:exec-sql` runs SQL in the file (last query's rows open, index reloads); `:save x.duckdb` = `CREATE OR REPLACE TABLE <sheet>` |
 | stdin | `-` | drained to tempfile, sniffed | csvlens-style fallback |
 | gzip | `*.gz` suffix (any case) | `flate2` → tempfile | one layer; format from the inner extension (`.json.gz`) or `--format` |
