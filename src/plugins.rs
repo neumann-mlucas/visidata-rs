@@ -57,6 +57,8 @@ pub struct Options {
     /// `vd.option("numeric_binning", true)` / `("histogram_bins", N)` (S-35 C1; 0 bins: ⌊√rows⌋).
     pub numeric_binning: bool,
     pub histogram_bins: usize,
+    /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
+    pub disp_footer: bool,
 }
 
 /// Events `vd.on` takes.
@@ -123,7 +125,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 13; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows
+pub const API_VERSION: i64 = 14; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -703,6 +705,10 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     registry(lua)?.borrow_mut().options.numeric_binning = parse_bool_option(&name, &value)
                         .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
                 }
+                "disp_footer" => {
+                    registry(lua)?.borrow_mut().options.disp_footer = parse_bool_option(&name, &value)
+                        .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
+                }
                 "histogram_bins" => {
                     registry(lua)?.borrow_mut().options.histogram_bins = parse_histogram_bins(&value)
                         .map_err(|e| mlua::Error::RuntimeError(format!("vd.option: {e}")))?
@@ -720,7 +726,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                 }
                 _ => {
                     return Err(mlua::Error::RuntimeError(format!(
-                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, duckdb_cmd, histogram_bins, keymap, mouse, numeric_binning, session_autosave)"
+                        "vd.option: unknown option {name} (clipboard_copy_cmd, clipboard_paste_cmd, disp_float_fmt, disp_footer, duckdb_cmd, histogram_bins, keymap, mouse, numeric_binning, session_autosave)"
                     )));
                 }
             }
@@ -1163,6 +1169,10 @@ pub fn default_init_lua() -> String {
          -- how many (0: the square root of the row count).\n\
          -- vd.option(\"numeric_binning\", \"true\")\n\
          -- vd.option(\"histogram_bins\", \"0\")\n\
+         \n\
+         -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
+         -- turns it on or off.\n\
+         -- vd.option(\"disp_footer\", \"true\")\n\
          \n\
          -- Mouse: wheel moves the cursor, a click picks a cell. Default off, so the\n\
          -- terminal's own text selection keeps working.\n\

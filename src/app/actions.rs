@@ -1032,6 +1032,10 @@ impl App {
                     Err(e) => e,
                 });
             }
+            Action::ToggleFooter => {
+                let on = (!self.theme.footer).to_string();
+                self.toast = Some(self.set_option("disp_footer", Some(&on)));
+            }
             Action::SetOption { name, value } => {
                 self.toast = Some(self.set_option(&name, value.as_deref()));
             }
@@ -2057,11 +2061,15 @@ impl App {
             ("histogram_bins", Some(v)) => {
                 crate::plugins::parse_histogram_bins(v).map(|n| t.histogram_bins = n)
             }
-            ("numeric_binning" | "histogram_bins", None) => Ok(()),
+            ("disp_footer", Some(v)) => {
+                crate::plugins::parse_bool_option(name, v).map(|b| t.footer = b)
+            }
+            ("numeric_binning" | "histogram_bins" | "disp_footer", None) => Ok(()),
             _ => return format!(":set: {name} is set in init.lua (vd.option)"),
         };
         match res {
             Ok(()) if name == "numeric_binning" => format!("{name}={}", t.numeric_binning),
+            Ok(()) if name == "disp_footer" => format!("{name}={}", t.footer),
             Ok(()) => format!("{name}={}", t.histogram_bins),
             Err(e) => format!(":set: {e}"),
         }

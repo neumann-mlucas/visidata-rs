@@ -162,6 +162,11 @@ impl App {
                 self.spawn_materialize();
             }
             // jobs finish out of order: keep only the latest ask's answer
+            Ok(JobDone::Footer { key, totals }) => {
+                if self.footer_asked.as_ref() == Some(&key) {
+                    self.footer = Some((key, totals));
+                }
+            }
             Ok(JobDone::SelStats { key, stats }) => {
                 if self.sel_stats_asked.as_ref() == Some(&key) {
                     self.sel_stats = Some((key, stats));

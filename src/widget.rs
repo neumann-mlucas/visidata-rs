@@ -150,19 +150,8 @@ impl SheetWidget<'_> {
         let row_start = view.row_offset;
         let row_end = (row_start + data_height).min(df.height());
 
-        // Column layout: frozen + scrolled
         let frozen = view.frozen_left.min(cols.len());
-        // (column, x): every frozen one, then scrolled ones up to the edge.
-        let scroll_start = (frozen + view.col_offset).min(cols.len());
-        let mut visible: Vec<(usize, u16)> = Vec::with_capacity(cols.len());
-        let mut cur = area.x;
-        for i in (0..frozen).chain(scroll_start..cols.len()) {
-            visible.push((i, cur));
-            cur = cur.saturating_add(widths[i] + Self::CELL_PAD);
-            if i >= frozen && cur >= area.x + area.width {
-                break;
-            }
-        }
+        let visible = visible_columns(view, widths, area);
 
         // Header: name + dim dtype badge, or the sort arrow while sorted by it
         buf.set_style(
@@ -525,6 +514,75 @@ fn paint_run(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style)
     if x < max_x {
         // Width-aware: wide chars take two cells and never straddle the edge.
         buf.set_stringn(x, y, text, (max_x - x) as usize, style);
+    }
+}
+
+/// (column, x) of each column on screen in `area`: every frozen one, then
+/// scrolled ones up to the edge. `widths` has one entry per window column.
+pub fn visible_columns(view: &View, widths: &[u16], area: Rect) -> Vec<(usize, u16)> {
+    let n = widths.len();
+    let frozen = view.frozen_left.min(n);
+    let scroll_start = (frozen + view.col_offset).min(n);
+    let mut visible: Vec<(usize, u16)> = Vec::with_capacity(n);
+    let mut cur = area.x;
+    for i in (0..frozen).chain(scroll_start..n) {
+        visible.push((i, cur));
+        cur = cur.saturating_add(widths[i] + SheetWidget::CELL_PAD);
+        if i >= frozen && cur >= area.x + area.width {
+            break;
+        }
+    }
+    visible
+}
+
+/// `:footer` (S-36 C): `totals` under their columns of `df`, laid out as the
+/// table above; `Σ` and the row count where the first column has none.
+pub fn paint_footer(
+    buf: &mut Buffer,
+    area: Rect,
+    view: &View,
+    df: &DataFrame,
+    widths: &[u16],
+    theme: &Theme,
+    (rows, totals): (u64, &[(String, String)]),
+) {
+    let style = Style::default()
+        .fg(theme.header_fg)
+        .bg(theme.header_bg)
+        .add_modifier(Modifier::BOLD);
+    buf.set_style(area, style);
+    if widths.len() != df.width() {
+        return;
+    }
+    let cols = df.get_column_names();
+    let visible = visible_columns(view, widths, area);
+    let total = |ci: usize| totals.iter().find(|(c, _)| c == cols[ci].as_str());
+    // (x, column width, text): a total fits its column, else it runs right
+    // up to the next one, as the row count label does
+    let mut items: Vec<(u16, u16, String)> = Vec::new();
+    for (slot, &(ci, x)) in visible.iter().enumerate() {
+        match total(ci) {
+            Some((_, t)) => items.push((x, widths[ci], t.clone())),
+            None if slot == 0 => items.push((x, 0, format!("Σ {}", crate::sheet::grouped(rows)))),
+            None => {}
+        }
+    }
+    let end = area.x + area.width;
+    for (i, (x, w, text)) in items.iter().enumerate() {
+        let room = items.get(i + 1).map_or(end, |n| n.0).saturating_sub(*x);
+        let tw = text.width() as u16;
+        match tw <= *w {
+            true => paint_cell(buf, *x, area.y, *w, text, style, true),
+            false => paint_cell(
+                buf,
+                *x,
+                area.y,
+                room.saturating_sub(1).max(1),
+                text,
+                style,
+                false,
+            ),
+        }
     }
 }
 

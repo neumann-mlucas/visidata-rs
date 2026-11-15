@@ -828,3 +828,45 @@ async fn open_cell_file_missing_says_so() {
     assert_eq!(status(&h), "file /no/such/file.csv does not exist");
     assert_eq!(h.app.sheets.len(), 1);
 }
+
+/// S-36 C: `:footer` shows each `+` aggregator over the filtered view under
+/// its column, in its number format; a filter or an edit updates it.
+#[tokio::test(flavor = "multi_thread")]
+async fn footer_totals_follow_filter_and_edits() {
+    let mut h = csv(b"k,amt\na,1000\nb,2500.5\nc,3\n").await;
+    let footer = |h: &Harness| h.screen().lines().nth(10).unwrap_or_default().to_string();
+    h.keys("l +").await;
+    h.type_("sum max").await;
+    h.keys(":").await;
+    h.type_("footer").await;
+    assert_eq!(status(&h), "disp_footer=true");
+    assert!(footer(&h).contains("Σ 3 "), "{}", h.screen());
+    assert!(
+        footer(&h).contains("sum 3,503.5 · max 2,500.5"),
+        "{}",
+        h.screen()
+    );
+    h.keys(":").await;
+    h.type_("fmtstr {:,.0f}").await;
+    assert!(
+        footer(&h).contains("sum 3,504 · max 2,500"),
+        "{}",
+        h.screen()
+    );
+    h.keys("h :").await;
+    h.type_("filter k [ab]").await;
+    assert!(
+        footer(&h).contains("Σ 2 ") && footer(&h).contains("sum 3,500"),
+        "{}",
+        h.screen()
+    );
+    h.keys("l e <C-u>").await;
+    h.type_("10").await;
+    assert!(footer(&h).contains("sum 2,510"), "{}", h.screen());
+    // the cursor still reaches the last row above it
+    h.keys("G").await;
+    assert!(title(&h).contains("row 2/2"), "{}", title(&h));
+    h.keys(":").await;
+    h.type_("footer").await;
+    assert!(!h.screen().contains("Σ"), "{}", h.screen());
+}

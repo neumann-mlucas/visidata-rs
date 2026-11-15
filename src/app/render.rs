@@ -99,6 +99,21 @@ impl App {
                 (t, b, Some((rows(theirs), sp.other)))
             }
         };
+        // `:footer` (S-36 C): the table's last row holds the totals
+        let (sheet_area, footer_area) = match self.footer_key().is_some() && sheet_area.height > 2 {
+            true => (
+                Rect {
+                    height: sheet_area.height - 1,
+                    ..sheet_area
+                },
+                Some(Rect {
+                    y: sheet_area.y + sheet_area.height - 1,
+                    height: 1,
+                    ..sheet_area
+                }),
+            ),
+            false => (sheet_area, None),
+        };
         self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
         self.viewport_cols = sheet_area.width;
         self.sheet_area = sheet_area;
@@ -160,6 +175,27 @@ impl App {
         };
         let noted = notes.map(|_| &noted as crate::widget::Noted);
         self.draw_sheet(f, sheet_area, s, render, noted);
+        if let (Some(area), Some(df)) = (footer_area, s.window()) {
+            // last totals while new ones are on their way, dim
+            let fresh = self.current_footer();
+            let mine = format!("{}|", s.id);
+            let stale = self.footer.as_ref().filter(|(k, _)| k.starts_with(&mine));
+            let shown = fresh.or(stale.map(|(_, f)| f));
+            let (rows, totals) = shown.map_or((0, &[][..]), |(n, t)| (*n, t.as_slice()));
+            crate::widget::paint_footer(
+                f.buffer_mut(),
+                area,
+                &s.view,
+                df,
+                &s.state.widths,
+                &self.theme,
+                (rows, totals),
+            );
+            if fresh.is_none() {
+                f.buffer_mut()
+                    .set_style(area, Style::default().add_modifier(Modifier::DIM));
+            }
+        }
         // Rows from the old window, while a slow new one is on its way.
         let s = self.sheets.active();
         if !s.is_loaded() && self.spin().is_some() {

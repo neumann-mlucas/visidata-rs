@@ -150,7 +150,15 @@ refused (`Sheet::set_fmtstr`, `src/sheet/builders.rs`).
   - scenario: `:fmtstr {:,.0f}`, then the cell text, then `Alt++` gives `{:,.1f}`.
   - golden: `fmtstr-number`.
 
-## C. Totals footer (1.5 d)
+## C. Totals footer (1.5 d) — shipped 2026-11-15
+
+As built: `Action::ToggleFooter` (`:footer`, named `footer`) flips `disp_footer` (`vd.option`,
+`:set`; api 14). `Sheet::footer_totals` aggregates `freq_aggregators` over `view_plan()` in a
+`totals` job keyed by sheet, revision, filter, aggregators and formats; the row under the table
+lays out as the columns above (`widget::visible_columns`). A total wider than its column runs
+right up to the next total. The label is `Σ <rows>` (no "rows": key columns are narrow). Stale
+totals of the same sheet show dim while the job runs. Lua aggregators aren't `+` aggregators, so
+none show. Not built: a debounce for `:tail` growth (each 2 s tick at most one job).
 
 Excel puts a totals row under the table. vdrs has `+` aggregators per column (`View.aggregators`)
 and selection stats in the status line (S-30 C). Neither gives a total per column on screen.

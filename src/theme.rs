@@ -54,6 +54,8 @@ pub struct Theme {
     /// bins numbers into `histogram_bins` ranges (0: ⌊√rows⌋).
     pub numeric_binning: bool,
     pub histogram_bins: usize,
+    /// `disp_footer`, `:footer` (S-36 C): a totals row under the table.
+    pub footer: bool,
 }
 
 impl Theme {
@@ -94,6 +96,7 @@ impl Theme {
             float_digits: None,
             numeric_binning: false,
             histogram_bins: 0,
+            footer: false,
         }
     }
 
@@ -135,6 +138,7 @@ impl Theme {
             float_digits: None,
             numeric_binning: false,
             histogram_bins: 0,
+            footer: false,
         }
     }
 

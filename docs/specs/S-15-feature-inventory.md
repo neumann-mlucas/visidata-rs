@@ -203,6 +203,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Runtime options | `:set numeric_binning true`, `:set histogram_bins N` | `Theme` fields for this run; sessions write them before each `F`; `init.lua` reload resets them (S-38 A) |
 | Date format | columns sheet `fmtstr`, `:fmtstr [fmt]` | `View.fmtstrs` (column, strftime); display via Polars `strftime`; `F` groups and dives by the formatted text; export `dt.strftime` / `strftime` (S-35 C2) |
 | Number format | columns sheet `fmtstr`, `:fmtstr {:,.2f}` | `View.fmtstrs` (column, fmtstr), `src/numfmt.rs`: Python `{:,.2f}` `{:_d}` `{:.1%}` `${:,.2f}` `{:.2f} kg` `{:e}`, C `%d` `%e`; ints too. `Alt++`/`Alt+-` change its `.N`. `F` groups and dives by the text when the user set a format or precision (K3); export `map_elements(fmt.format)` / DuckDB `format` / `printf` (S-36 B) |
+| Totals footer | `:footer`, `disp_footer` (`vd.option`, `:set`) | a row under the table: each column's `+` aggregators over the filtered view in its number format, `Σ` row count; `totals` job keyed by revision/filter/aggregators/formats (S-36 C) |
 | Inherited attributes | `"` `g"` `g'` dedupe, freq dive | copies keep the parent's `type_casts`, `aggregators`, `:color` / `:scale` rules for the columns they have (S-31 C) |
 | Derive | `:derive name = <SQL expr>` | Polars `sql_expr` on the base plan; validated against the schema |
 | SQL | `:sql <query>` | Polars SQL; `self` = view, `s<id>` = other open sheets; result collected once (background) so row order is fixed |

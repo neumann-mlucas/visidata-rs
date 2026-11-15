@@ -58,6 +58,7 @@ impl Harness {
         loop {
             self.app.fire_push_hooks();
             self.app.ask_sel_stats();
+            self.app.ask_footer();
             self.app.follow_link();
             self.app.feed_other_pane();
             self.app.pump_macro();

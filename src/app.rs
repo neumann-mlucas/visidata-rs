@@ -279,6 +279,11 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// `:footer` totals (S-36 C).
+    Footer {
+        key: String,
+        totals: Footer,
+    },
     /// Selection stats for the status line (S-30 C).
     SelStats {
         key: StatsKey,
@@ -510,6 +515,9 @@ struct Split {
 /// so a changed selection is always a different `Arc`.
 // ponytail: a toggle copies the whole set once while stats are held; add a
 // selection generation counter if that shows on huge selections.
+/// The view's row count, and each column's aggregator text (S-36 C).
+type Footer = (u64, Vec<(String, String)>);
+
 #[derive(Clone, Debug)]
 struct StatsKey(SheetId, Arc<std::collections::BTreeSet<u64>>, String, u64);
 
@@ -563,6 +571,9 @@ pub struct App {
     /// Status-line stats of the selection (S-30 C), and what was last asked.
     sel_stats: Option<(StatsKey, Vec<(&'static str, String)>)>,
     sel_stats_asked: Option<StatsKey>,
+    /// `:footer` (S-36 C): totals for a footer key, and the one last asked.
+    footer: Option<(String, Footer)>,
+    footer_asked: Option<String>,
     /// `Z` (S-23 B): the second pane, if split.
     split: Option<Split>,
     /// Cell notes by source file, read when first shown (S-30 B).
@@ -661,6 +672,8 @@ impl App {
             hook_born: Vec::new(),
             sel_stats: None,
             sel_stats_asked: None,
+            footer: None,
+            footer_asked: None,
             link_seen: None,
             notes: Default::default(),
             split: None,
@@ -761,6 +774,7 @@ impl App {
             }
             dirty |= self.fire_push_hooks();
             self.ask_sel_stats();
+            self.ask_footer();
             self.follow_link();
             self.feed_other_pane();
             if !self.macro_queue.is_empty() && self.idle() {
@@ -853,6 +867,50 @@ impl App {
             self.current_column_name()?,
             s.revision(),
         ))
+    }
+
+    /// What the footer's totals depend on; `None`: no footer.
+    fn footer_key(&self) -> Option<String> {
+        let s = self.sheets.active();
+        if !self.theme.footer || matches!(s.origin, Origin::Plot { .. } | Origin::Bars { .. }) {
+            return None;
+        }
+        let v = &s.view;
+        Some(format!(
+            "{}|{}|{}|{:?}|{:?}|{:?}",
+            s.id,
+            s.revision(),
+            s.count_key(),
+            v.aggregators,
+            v.fmtstrs,
+            v.precision
+        ))
+    }
+
+    /// The footer's totals, recomputed in the background when they change.
+    fn ask_footer(&mut self) {
+        let Some(key) = self.footer_key() else {
+            return;
+        };
+        let have = self.footer.as_ref().map(|(k, _)| k);
+        if have == Some(&key) || self.footer_asked.as_ref() == Some(&key) {
+            return;
+        }
+        self.footer_asked = Some(key.clone());
+        let sheet = self.sheets.active().clone();
+        self.spawn_job("totals", move || {
+            let totals = sheet.footer_totals().map_err(|e| e.to_string())?;
+            Ok(JobDone::Footer { key, totals })
+        });
+    }
+
+    /// The totals on screen now, if they're up to date.
+    fn current_footer(&self) -> Option<&Footer> {
+        let key = self.footer_key()?;
+        self.footer
+            .as_ref()
+            .filter(|(k, _)| *k == key)
+            .map(|(_, f)| f)
     }
 
     /// The selection's stats for the status line, once per selection and
@@ -1226,6 +1284,7 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme = o.theme.unwrap_or(theme);
         theme.float_digits = o.float_digits;
         (theme.numeric_binning, theme.histogram_bins) = (o.numeric_binning, o.histogram_bins);
+        theme.footer = o.disp_footer;
     }
     (keymap, theme)
 }

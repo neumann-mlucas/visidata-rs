@@ -105,6 +105,8 @@ pub enum Action {
     TogglePlanPanel,
     /// `b`: open the sidebar on its last page, or close it.
     ToggleSidebar,
+    /// `:footer` (S-36 C): the totals row on or off (`disp_footer`).
+    ToggleFooter,
     /// `Ctrl+G`: next page (column → cell → help → plan), opening it.
     CycleSidebar,
     /// `:sidebar <page>`.
@@ -756,7 +758,7 @@ impl Action {
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
-            SetOption { .. } => false,
+            SetOption { .. } | ToggleFooter => false,
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
@@ -1029,6 +1031,7 @@ impl Action {
         ("start_capture_input", StartCaptureInput),
         ("precision_more", PrecisionMore),
         ("precision_less", PrecisionLess),
+        ("footer", ToggleFooter),
         ("slide_left", SlideCol { by: -1 }),
         ("slide_right", SlideCol { by: 1 }),
         ("slide_leftmost", SlideCol { by: i64::MIN }),

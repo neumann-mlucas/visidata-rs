@@ -51,6 +51,12 @@ pub fn agg_expr(column: &str, agg: &str) -> Expr {
     e.alias(agg_name(column, agg))
 }
 
+/// An int with its digits grouped: `-1,234`.
+fn grouped_i(v: i64) -> String {
+    let sign = if v < 0 { "-" } else { "" };
+    format!("{sign}{}", crate::sheet::grouped(v.unsigned_abs()))
+}
+
 /// VisiData's `aggname`: `{column}_{agg}`.
 pub fn agg_name(column: &str, agg: &str) -> String {
     format!("{column}_{agg}")
@@ -79,6 +85,47 @@ pub fn freq_aggregators(parent: &Sheet) -> Vec<(String, String)> {
 }
 
 impl Sheet {
+    /// `:footer` (S-36 C): the view's row count, and per column its `+`
+    /// aggregators over every row of the filtered view (`sum 1,234 · avg 7`),
+    /// in the column's number format when it has one.
+    pub fn footer_totals(&self) -> PolarsResult<(u64, Vec<(String, String)>)> {
+        const N: &str = "\u{1f}rows";
+        let aggs = freq_aggregators(self);
+        let exprs: Vec<Expr> = std::iter::once(len().alias(N))
+            .chain(aggs.iter().map(|(c, a)| agg_expr(c, a)))
+            .collect();
+        let df = self.view_plan().select(exprs).collect()?;
+        let rows = df
+            .column(N)?
+            .cast(&DataType::UInt64)?
+            .u64()?
+            .get(0)
+            .unwrap_or(0);
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (c, a) in &aggs {
+            let v = df.column(&agg_name(c, a))?.get(0)?;
+            let fmt = self
+                .num_fmt(c)
+                .filter(|_| !matches!(a.as_str(), "count" | "distinct"));
+            let text = match (&v, fmt) {
+                (AnyValue::Null, _) => "·".to_string(),
+                (v, Some(f)) if v.is_integer() => f.int(v.extract::<i64>().unwrap_or_default()),
+                (v, Some(f)) => f.float(v.extract::<f64>().unwrap_or(f64::NAN)),
+                (v, None) if v.is_integer() => grouped_i(v.extract::<i64>().unwrap_or_default()),
+                (v, None) => match v.extract::<f64>() {
+                    Some(f) if v.dtype().is_float() => crate::sheet::stat_num(f),
+                    _ => crate::sheet::any_text(v),
+                },
+            };
+            let item = format!("{a} {text}");
+            match out.iter_mut().find(|(n, _)| n == c) {
+                Some((_, t)) => *t = format!("{t} · {item}"),
+                None => out.push((c.clone(), item)),
+            }
+        }
+        Ok((rows, out))
+    }
+
     /// The columns sheet's `aggregators` cell: space-separated names for
     /// `column`, replacing its list. Unchanged on error.
     pub fn set_aggregators(&mut self, column: &str, names: &str) -> Result<(), String> {
