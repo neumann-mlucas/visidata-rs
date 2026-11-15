@@ -9,24 +9,33 @@ impl App {
         f: impl FnOnce(&crate::plugins::Plugins, &crate::plugins::SheetCtx) -> R,
     ) -> Option<R> {
         let p = self.plugins.as_ref()?;
-        let s = self.sheets.active();
-        let v = &s.view;
-        let df = s.window();
-        let ctx = crate::plugins::SheetCtx {
-            name: &s.name,
-            row: v.window_offset + v.row_cursor as u64 + 1,
-            col: v.col_cursor + 1,
-            column_names: df.map_or_else(Vec::new, |df| {
-                df.get_column_names()
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect()
-            }),
-            value: df
-                .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
-                .unwrap_or(AnyValue::Null),
+        Some(f(p, &sheet_ctx(self.sheets.active())))
+    }
+
+    /// `ctx` of a `vd.statusline` / `vd.titlebar` function drawing `s`.
+    pub(super) fn bar_ctx<'a>(&'a self, s: &'a Sheet, pane: u8) -> crate::plugins::BarCtx<'a> {
+        let mode = match () {
+            _ if self.input.is_some() => "input",
+            _ if self.confirm.is_some() => "confirm",
+            _ if self.live_visual().is_some() => "visual",
+            _ if s.state.plot.is_some() => "plot",
+            _ => "normal",
         };
-        Some(f(p, &ctx))
+        crate::plugins::BarCtx {
+            sheet: sheet_ctx(s),
+            mode,
+            rows: s.row_count(),
+            selected: s.view.selected.len(),
+            jobs: self.busy.iter().map(|j| j.label).collect(),
+            pane,
+            message: self.toast.as_deref(),
+            keys: self
+                .pending
+                .iter()
+                .map(|k| k.to_string())
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
     }
 
     /// Run `event`'s `vd.on` handlers on the active sheet; their `vd.exec`
@@ -246,5 +255,25 @@ impl App {
         if !out.toasts.is_empty() {
             self.toast = Some(out.toasts.join(" · "));
         }
+    }
+}
+
+/// `vd.sheet()` of `s`.
+fn sheet_ctx(s: &Sheet) -> crate::plugins::SheetCtx<'_> {
+    let v = &s.view;
+    let df = s.window();
+    crate::plugins::SheetCtx {
+        name: &s.name,
+        row: v.window_offset + v.row_cursor as u64 + 1,
+        col: v.col_cursor + 1,
+        column_names: df.map_or_else(Vec::new, |df| {
+            df.get_column_names()
+                .iter()
+                .map(|n| n.to_string())
+                .collect()
+        }),
+        value: df
+            .and_then(|df| df.columns().get(v.col_cursor)?.get(v.row_cursor).ok())
+            .unwrap_or(AnyValue::Null),
     }
 }

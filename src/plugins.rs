@@ -16,6 +16,9 @@ use crate::widget::Rendered;
 use polars::prelude::{AnyValue, Column, DataFrame, DataType, NamedFrom, Series};
 use ratatui::style::Style;
 
+mod bars;
+pub use bars::{Bar, BarCtx, compose};
+
 #[derive(Default, Clone)]
 struct Registry {
     patches: Vec<KeymapPatch>,
@@ -39,6 +42,9 @@ struct Registry {
     /// The config file running now (`init.lua`, `.vdrs.lua`, …): where an
     /// option was set, for `O` (S-40 B4).
     loading: String,
+    /// `vd.statusline` / `vd.titlebar` (S-40 D), by `Bar`.
+    bars: [bars::BarSlot; 2],
+    bar_error: Option<String>,
 }
 
 /// A `vd.on` handler (S-40 A).
@@ -162,6 +168,7 @@ pub struct LuaOutput {
 }
 
 /// What a `vd.bind` function sees through `vd.sheet()`.
+#[derive(Debug)]
 pub struct SheetCtx<'a> {
     pub name: &'a str,
     /// 1-based row in the view, 1-based column.
@@ -213,7 +220,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 19; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table
+pub const API_VERSION: i64 = 20; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table; 20: vd.statusline, vd.titlebar, vd.bar
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -1127,6 +1134,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
             Ok(())
         })?,
     )?;
+    bars::install(lua, &vd)?;
     vd.set(
         "set_theme",
         lua.create_function(|lua, spec: LuaValue| {

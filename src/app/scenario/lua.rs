@@ -545,3 +545,34 @@ async fn theme_table_colours_the_status_line() {
     let last = buf.area.height - 1;
     assert_eq!(buf[(0, last)].bg, ratatui::style::Color::Rgb(16, 32, 48));
 }
+
+/// S-40 D: a `vd.statusline` draws the idle line (selection count after `s`);
+/// a prompt still owns it. `vd.titlebar` draws the title.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_statusline_and_titlebar() {
+    let mut h = with_lua(
+        3,
+        r#"vd.statusline(function(ctx)
+             return { left = { "SEL ", ctx.selected }, right = { ctx.mode } }
+           end)
+           vd.titlebar(function(ctx)
+             return { left = { "T:", ctx.sheet.name }, right = vd.bar.titlebar(ctx).right }
+           end)"#,
+    )
+    .await;
+    h.keys("s").await;
+    let screen = h.screen();
+    let lines: Vec<&str> = screen.lines().collect();
+    let last = lines.last().unwrap();
+    assert!(
+        last.starts_with("SEL 1") && last.trim_end().ends_with("normal"),
+        "{last}"
+    );
+    assert!(
+        lines[0].starts_with("T:") && lines[0].contains("row 2/3"),
+        "{}",
+        lines[0]
+    );
+    h.keys(":").await;
+    assert!(!h.screen().lines().last().unwrap().starts_with("SEL"));
+}

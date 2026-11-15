@@ -211,7 +211,9 @@ the loader); scenario: open a `.cvsv` fixture, the table list shows three blocks
 `F` on a column; CLI test for `--format cvsv`; unit tests for the order (named beats
 pattern beats extension's built-in reader, project pattern beats global).
 
-## D. Title bar and status line from Lua (1.5–2 d)
+## D. Title bar and status line from Lua (1.5–2 d) — shipped 2026-11-15
+
+As built (`src/plugins/bars.rs`): `pane` is 1 for the focused pane, 2 for the other one of a split; `mode` adds `confirm` and `plot`; segments may be numbers. The built-in bars reach Lua as hidden `ctx._statusline` / `ctx._titlebar` fields that `vd.bar.*` return; the built-in status line has everything on `left`. The cache key is the Debug text of `ctx` plus the built-in bar, so a spinning title bar (spinner chip) calls the function each redraw. The 5 ms limit is 1 s under `cfg!(test)`. A failed call redraws at once with the reason. `vd.api_version` 20.
 
 Two shapes were weighed:
 

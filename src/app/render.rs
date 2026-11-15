@@ -1,6 +1,7 @@
 //! Drawing the screen: title bar, sheet, status line, sidebar, panes, which-key popup, pivot preview.
 
 use super::*;
+use crate::plugins::Bar;
 
 impl App {
     pub(super) fn draw<B: ratatui::backend::Backend>(
@@ -15,10 +16,18 @@ impl App {
         self.working_since = working.then(|| self.working_since.unwrap_or_else(Instant::now));
         self.drawn_spin = self.spin();
         self.refresh_sidebar_stats();
-        term.draw(|f| {
-            self.render(f);
-            crate::theme::downgrade(f.buffer_mut(), self.color, &self.theme);
-        })?;
+        // A `vd.statusline` that just failed: draw again with the built-in
+        // bar and the reason on it.
+        for _ in 0..2 {
+            term.draw(|f| {
+                self.render(f);
+                crate::theme::downgrade(f.buffer_mut(), self.color, &self.theme);
+            })?;
+            match self.plugins.as_ref().and_then(|p| p.take_bar_error()) {
+                Some(e) => self.toast = Some(e),
+                None => break,
+            }
+        }
         Ok(())
     }
 
@@ -142,7 +151,7 @@ impl App {
             let Some(s) = self.sheets.iter().find(|s| s.id == id) else {
                 return;
             };
-            self.render_titlebar(f, title, s);
+            self.render_titlebar(f, title, s, 2);
             self.draw_sheet(f, table, s, render, None);
             // the unfocused pane is dim
             f.buffer_mut().set_style(
@@ -153,7 +162,7 @@ impl App {
                 Style::default().add_modifier(Modifier::DIM),
             );
         }
-        self.render_titlebar(f, title_area, self.sheets.active());
+        self.render_titlebar(f, title_area, self.sheets.active(), 1);
         let s = self.sheets.active();
         let notes = self
             .notes_path()
@@ -407,7 +416,13 @@ impl App {
 
     /// `name | kind · what shapes the view …| column | row`. The position
     /// on the right always shows; the name gives up its head, the chips their tail.
-    pub(super) fn render_titlebar(&self, f: &mut ratatui::Frame<'_>, area: Rect, s: &Sheet) {
+    pub(super) fn render_titlebar(
+        &self,
+        f: &mut ratatui::Frame<'_>,
+        area: Rect,
+        s: &Sheet,
+        pane: u8,
+    ) {
         let View {
             row_cursor,
             col_cursor,
@@ -484,16 +499,38 @@ impl App {
         let name = format!(" {} ", truncate_head(&s.name, name_room));
         let chips = fit(&chips, room.saturating_sub(name.width()));
         let th = &self.theme;
-        let line = Line::from(vec![
+        let left = [
             Span::styled(name, th.titlebar_left()),
             Span::styled(chips, th.titlebar_mid()),
+        ];
+        let right = [
             Span::styled(column, th.titlebar_mid().add_modifier(Modifier::BOLD)),
             Span::styled(position, th.titlebar_right()),
-        ]);
-        f.render_widget(Paragraph::new(line), area);
+        ];
+        let line = match self.lua_bar(Bar::Title, s, pane, (&left, &right), area.width) {
+            Some(line) => line,
+            None => Line::from_iter(left.into_iter().chain(right)),
+        };
+        f.render_widget(Paragraph::new(line).style(th.titlebar_mid()), area);
+    }
+
+    /// The bar a `vd.statusline` / `vd.titlebar` function draws, if any.
+    fn lua_bar(
+        &self,
+        bar: Bar,
+        s: &Sheet,
+        pane: u8,
+        builtin: (&[Span<'_>], &[Span<'_>]),
+        width: u16,
+    ) -> Option<Line<'static>> {
+        let p = self.plugins.as_ref().filter(|p| p.has_bar(bar))?;
+        let (left, right) = p.bar(bar, &self.bar_ctx(s, pane), builtin)?;
+        Some(crate::plugins::compose(left, right, width))
     }
 
     pub(super) fn render_statusbar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
+        // Prompts and messages own the line; a `vd.statusline` draws the rest.
+        let owned = self.input.is_some() || self.confirm.is_some() || self.toast.is_some();
         let text = match (
             &self.input,
             self.confirm
@@ -589,7 +626,18 @@ impl App {
                 ),
             },
         };
-        let mut text = text;
+        let mut text = match owned {
+            true => text,
+            false => self
+                .lua_bar(
+                    Bar::Status,
+                    self.sheets.active(),
+                    1,
+                    (&text.spans, &[]),
+                    area.width,
+                )
+                .unwrap_or(text),
+        };
         if self.recording.is_some() && self.input.is_none() {
             let rec = Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD));
             text.spans.insert(0, rec);
