@@ -498,7 +498,7 @@ b("U", "unselect_row")               -- default: undo
 vd.unbind("sheet", "R")              -- default: redo
 b("x", "cut_cell")                   -- default: cut row
 b("H", "screen_top")                 -- default: slide column left
-b("M", "screen_middle")              -- default: melt
+b("M", "screen_middle")              -- default: unbound (:melt)
 b("L", "screen_bottom")              -- default: slide column right
 b({"z", "t"}, "scroll_top")
 b({"z", "b"}, "scroll_bottom")
