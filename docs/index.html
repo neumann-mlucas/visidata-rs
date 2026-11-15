@@ -56,6 +56,8 @@ th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--
 th { background: var(--panel); color: var(--muted); font: 600 .75rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 td:first-child { white-space: nowrap; }
 .scroll { overflow-x: auto; }
+#keytable tr.kgroup th { background: none; color: var(--amber); padding-top: 1.4rem; border-bottom: 2px solid var(--line); }
+.notice { margin: -.75rem 0 1.75rem; padding: .5rem .8rem; border-left: 3px solid var(--amber); background: var(--panel); border-radius: 0 6px 6px 0; font-size: .92rem; color: var(--muted); }
 #keyfilter { width: 100%; max-width: 22rem; padding: .5rem .7rem; border: 1px solid var(--kbd-line); border-radius: 6px; background: var(--kbd-bg); color: var(--fg); font: inherit; }
 
 /* Terminal screens: rendered from the app by the golden tests (src/app/golden.rs). */
@@ -150,6 +152,7 @@ td:first-child { white-space: nowrap; }
 <h1>Explore tables in your terminal.</h1>
 <p class="lede">vdrs (visidata-rs) is a modal terminal data explorer. It reads CSV, Parquet, JSON, Excel and SQLite through Polars, shows them in a keyboard-driven table, and lets you sort, filter, pivot, join and query without leaving the terminal. If you know VisiData, most keys will feel familiar.</p>
 <p class="cta"><a href="#install">Install</a><a href="#tour">First session</a><a href="#keys">All keys</a><a href="https://github.com/neumann-mlucas/visidata-rs">GitHub</a></p>
+<p class="notice">Keys changed on 2026-11-14 to match VisiData (<kbd>s</kbd> now selects; <kbd>z</kbd><kbd>s</kbd> <kbd>z</kbd><kbd>c</kbd> <kbd>z</kbd><kbd>o</kbd> <kbd>Ctrl-v</kbd> moved): <a href="#breaking">see changed keys</a>.</p>
 <!-- golden:docs-hero -->
 <pre class="screen" role="img" aria-label="vdrs terminal screen"><span class="l"><span style="background:#7aa2f7;color:#161822;font-weight:700"> sales.csv </span><span style="background:#24283b;color:#a9b1d6"> csv · sort price▼                                            </span><span style="background:#24283b;color:#a9b1d6;font-weight:700"> price 5/5 </span><span style="background:#414868;color:#c0caf5;font-weight:700"> row 1/300 · 0% </span></span><span class="l"><span style="background:#1e2130;color:#7aa2f7;font-weight:700"> id</span><span style="background:#1e2130;color:#565f89;font-weight:700"> i</span><span style="background:#1e2130"> </span><span style="background:#1e2130;color:#7aa2f7;font-weight:700">date</span><span style="background:#1e2130;color:#565f89;font-weight:700"> date</span><span style="background:#1e2130;color:#7aa2f7;font-weight:700"> </span><span style="background:#1e2130"> </span><span style="background:#1e2130;color:#7aa2f7;font-weight:700">region</span><span style="background:#1e2130;color:#565f89;font-weight:700"> str</span><span style="background:#1e2130;color:#7aa2f7;font-weight:700"> </span><span style="background:#1e2130"> </span><span style="background:#1e2130;color:#7aa2f7;font-weight:700"> qty</span><span style="background:#1e2130;color:#565f89;font-weight:700"> i</span><span style="background:#1e2130"> </span><span style="background:#e0af68;color:#161822;font-weight:700"> price ▼</span><span style="background:#1e2130">                                                        </span></span><span class="l"><span style="background:#333b5b;color:#e6e9f5;font-weight:700"> 3477</span><span style="background:#333b5b"> </span><span style="background:#333b5b;color:#e6e9f5;font-weight:700">2024-01-16</span><span style="background:#333b5b"> </span><span style="background:#333b5b;color:#e6e9f5;font-weight:700">south      </span><span style="background:#333b5b"> </span><span style="background:#333b5b;color:#e6e9f5;font-weight:700">     1</span><span style="background:#333b5b"> </span><span style="background:#e0af68;color:#161822;font-weight:700"> 1299.72</span><span style="background:#333b5b">                                                        </span></span><span class="l"><span style="background:#1a1c28;color:#7dcfff"> 5119</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#bb9af7">2024-12-25</span><span style="background:#1a1c28"> north       </span><span style="background:#1a1c28;color:#7dcfff">     4</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#e0af68">  1296.7</span><span style="background:#1a1c28">                                                        </span></span><span class="l"><span style="color:#7dcfff"> 9373</span> <span style="color:#bb9af7">2024-02-08</span> north       <span style="color:#7dcfff">     1</span> <span style="color:#e0af68"> 1294.58</span>                                                        </span><span class="l"><span style="background:#1a1c28;color:#7dcfff">15814</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#bb9af7">2024-06-23</span><span style="background:#1a1c28"> west        </span><span style="background:#1a1c28;color:#7dcfff">     4</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#e0af68"> 1293.02</span><span style="background:#1a1c28">                                                        </span></span><span class="l"><span style="color:#7dcfff"> 6440</span> <span style="color:#bb9af7">2024-06-18</span> north       <span style="color:#7dcfff">     1</span> <span style="color:#e0af68"> 1285.12</span>                                                        </span><span class="l"><span style="background:#1a1c28;color:#7dcfff">33826</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#bb9af7">2024-04-05</span><span style="background:#1a1c28"> east        </span><span style="background:#1a1c28;color:#7dcfff">     2</span><span style="background:#1a1c28"> </span><span style="background:#1a1c28;color:#e0af68"> 1284.71</span><span style="background:#1a1c28">                                                        </span></span><span class="l"><span style="color:#7dcfff">19436</span> <span style="color:#bb9af7">2024-07-19</span> south       <span style="color:#7dcfff">     5</span> <span style="color:#e0af68"> 1273.52</span>                                                        </span><span class="l"><span style="background:#24283b;color:#a9b1d6"> hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q   </span></span></pre>
 <!-- /golden -->
@@ -736,6 +739,7 @@ print(t3.collect())</code></pre>
 <p><input id="keyfilter" type="search" placeholder="Filter keys…" aria-label="Filter the key table"></p>
 <div class="scroll"><table id="keytable">
 <tr><th>Keys</th><th>Action</th></tr>
+<tr class="kgroup"><th colspan="2">Move</th></tr>
 <tr data-keys="j"><td><kbd>j</kbd></td><td>down</td></tr>
 <tr data-keys="k"><td><kbd>k</kbd></td><td>up</td></tr>
 <tr data-keys="h"><td><kbd>h</kbd></td><td>left</td></tr>
@@ -756,6 +760,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="0"><td><kbd>0</kbd></td><td>first column</td></tr>
 <tr data-keys="g l"><td><kbd>g</kbd><kbd>l</kbd></td><td>last column</td></tr>
 <tr data-keys="z c"><td><kbd>z</kbd><kbd>c</kbd></td><td>go to column number (0-based, negative from the end)</td></tr>
+<tr class="kgroup"><th colspan="2">Columns &amp; types</th></tr>
 <tr data-keys="_"><td><kbd>_</kbd></td><td>toggle the column between full and default width; plot: zoom to fit</td></tr>
 <tr data-keys="z n"><td><kbd>z</kbd><kbd>n</kbd></td><td>note on this cell (empty deletes)</td></tr>
 <tr data-keys="-"><td><kbd>-</kbd></td><td>hide column</td></tr>
@@ -769,6 +774,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="~"><td><kbd>~</kbd></td><td>type: text</td></tr>
 <tr data-keys="@"><td><kbd>@</kbd></td><td>type: date</td></tr>
 <tr data-keys="$"><td><kbd>$</kbd></td><td>type: currency</td></tr>
+<tr class="kgroup"><th colspan="2">Search &amp; filter</th></tr>
 <tr data-keys="/"><td><kbd>/</kbd></td><td>search the current column (regex, ignores case)</td></tr>
 <tr data-keys="?"><td><kbd>?</kbd></td><td>search the current column backward</td></tr>
 <tr data-keys="g /"><td><kbd>g</kbd><kbd>/</kbd></td><td>search all columns</td></tr>
@@ -779,6 +785,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="N"><td><kbd>N</kbd></td><td>previous match</td></tr>
 <tr data-keys="g z |"><td><kbd>g</kbd><kbd>z</kbd><kbd>|</kbd></td><td>filter current column by regex</td></tr>
 <tr data-keys="z f"><td><kbd>z</kbd><kbd>f</kbd></td><td>clear filter</td></tr>
+<tr class="kgroup"><th colspan="2">Select</th></tr>
 <tr data-keys="s"><td><kbd>s</kbd></td><td>select row, cursor down</td></tr>
 <tr data-keys="t"><td><kbd>t</kbd></td><td>toggle row selection, cursor down</td></tr>
 <tr data-keys="u"><td><kbd>u</kbd></td><td>unselect row, cursor down</td></tr>
@@ -790,9 +797,11 @@ print(t3.collect())</code></pre>
 <tr data-keys="z |"><td><kbd>z</kbd><kbd>|</kbd></td><td>select rows where a SQL condition holds (<code>:select</code>)</td></tr>
 <tr data-keys="z \"><td><kbd>z</kbd><kbd>\</kbd></td><td>unselect rows where a SQL condition holds (<code>:unselect</code>)</td></tr>
 <tr data-keys=","><td><kbd>,</kbd></td><td>select rows equal to this cell</td></tr>
+<tr class="kgroup"><th colspan="2">Copies of the sheet</th></tr>
 <tr data-keys="&quot;"><td><kbd>"</kbd></td><td>sheet of selected rows</td></tr>
 <tr data-keys="g &quot;"><td><kbd>g</kbd><kbd>"</kbd></td><td>copy of this sheet</td></tr>
 <tr data-keys="g '"><td><kbd>g</kbd><kbd>'</kbd></td><td>frozen copy of this sheet</td></tr>
+<tr class="kgroup"><th colspan="2">Build columns</th></tr>
 <tr data-keys="&lt;A-+&gt;"><td><kbd>Alt</kbd><kbd>+</kbd></td><td>one more decimal in this float column</td></tr>
 <tr data-keys="&lt;A--&gt;"><td><kbd>Alt</kbd><kbd>-</kbd></td><td>one fewer decimal in this float column</td></tr>
 <tr data-keys="z a"><td><kbd>z</kbd><kbd>a</kbd></td><td>add an empty column</td></tr>
@@ -800,6 +809,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="g i"><td><kbd>g</kbd><kbd>i</kbd></td><td>number the selected rows</td></tr>
 <tr data-keys="f"><td><kbd>f</kbd></td><td>fill empty cells from above</td></tr>
 <tr data-keys=";"><td><kbd>;</kbd></td><td>add a column of regex captures</td></tr>
+<tr class="kgroup"><th colspan="2">Sort &amp; summarize</th></tr>
 <tr data-keys="["><td><kbd>[</kbd></td><td>sort ascending</td></tr>
 <tr data-keys="]"><td><kbd>]</kbd></td><td>sort descending</td></tr>
 <tr data-keys="F"><td><kbd>F</kbd></td><td>frequency table</td></tr>
@@ -808,6 +818,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="g +"><td><kbd>g</kbd><kbd>+</kbd></td><td>columns sheet: add aggregators to selected columns</td></tr>
 <tr data-keys="I"><td><kbd>I</kbd></td><td>describe columns</td></tr>
 <tr data-keys="W"><td><kbd>W</kbd></td><td>pivot: key columns × current column</td></tr>
+<tr class="kgroup"><th colspan="2">Columns sheet</th></tr>
 <tr data-keys="C"><td><kbd>C</kbd></td><td>open the columns sheet</td></tr>
 <tr data-keys="g C"><td><kbd>g</kbd><kbd>C</kbd></td><td>open the columns of all sheets</td></tr>
 <tr data-keys="g !"><td><kbd>g</kbd><kbd>!</kbd></td><td>columns sheet: key selected columns</td></tr>
@@ -817,12 +828,14 @@ print(t3.collect())</code></pre>
 <tr data-keys="g ~"><td><kbd>g</kbd><kbd>~</kbd></td><td>columns sheet: selected columns text</td></tr>
 <tr data-keys="g @"><td><kbd>g</kbd><kbd>@</kbd></td><td>columns sheet: selected columns date</td></tr>
 <tr data-keys="g $"><td><kbd>g</kbd><kbd>$</kbd></td><td>columns sheet: selected columns currency</td></tr>
+<tr class="kgroup"><th colspan="2">Nested data</th></tr>
 <tr data-keys="("><td><kbd>(</kbd></td><td>expand struct column into a column per field</td></tr>
 <tr data-keys="z ("><td><kbd>z</kbd><kbd>(</kbd></td><td>expand struct column N levels deep</td></tr>
 <tr data-keys="g ("><td><kbd>g</kbd><kbd>(</kbd></td><td>expand every visible struct column</td></tr>
 <tr data-keys="g z ("><td><kbd>g</kbd><kbd>z</kbd><kbd>(</kbd></td><td>expand every visible struct column N levels deep</td></tr>
 <tr data-keys=")"><td><kbd>)</kbd></td><td>fold expanded columns back into their struct</td></tr>
 <tr data-keys="z M"><td><kbd>z</kbd><kbd>M</kbd></td><td>open a row per item of the current column's lists</td></tr>
+<tr class="kgroup"><th colspan="2">Sheets &amp; panes</th></tr>
 <tr data-keys="D"><td><kbd>D</kbd></td><td>diff with a file</td></tr>
 <tr data-keys="S"><td><kbd>S</kbd></td><td>list open sheets</td></tr>
 <tr data-keys="Z"><td><kbd>Z</kbd></td><td>split: the sheet under this one in a second pane</td></tr>
@@ -831,6 +844,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="g &lt;Tab&gt;"><td><kbd>g</kbd><kbd>Tab</kbd></td><td>swap the panes</td></tr>
 <tr data-keys="&lt;CR&gt;"><td><kbd>Enter</kbd></td><td>open row: sheet list → that sheet; frequency table → matching rows; worksheet/table list → that one</td></tr>
 <tr data-keys="g &lt;CR&gt;"><td><kbd>g</kbd><kbd>Enter</kbd></td><td>frequency table: rows of all selected values</td></tr>
+<tr class="kgroup"><th colspan="2">Copy, paste &amp; delete</th></tr>
 <tr data-keys="y"><td><kbd>y</kbd></td><td>copy current row</td></tr>
 <tr data-keys="g y"><td><kbd>g</kbd><kbd>y</kbd></td><td>copy selected rows</td></tr>
 <tr data-keys="z y"><td><kbd>z</kbd><kbd>y</kbd></td><td>copy current cell</td></tr>
@@ -856,19 +870,23 @@ print(t3.collect())</code></pre>
 <tr data-keys="g Y"><td><kbd>g</kbd><kbd>Y</kbd></td><td>copy selected rows to the system clipboard</td></tr>
 <tr data-keys="z Y"><td><kbd>z</kbd><kbd>Y</kbd></td><td>copy current cell to the system clipboard</td></tr>
 <tr data-keys="g z Y"><td><kbd>g</kbd><kbd>z</kbd><kbd>Y</kbd></td><td>copy current column of selected rows to the system clipboard, one value per line</td></tr>
+<tr class="kgroup"><th colspan="2">Edit &amp; undo</th></tr>
 <tr data-keys="e"><td><kbd>e</kbd></td><td>edit current cell</td></tr>
 <tr data-keys="g e"><td><kbd>g</kbd><kbd>e</kbd></td><td>set current column of selected rows</td></tr>
 <tr data-keys="g ="><td><kbd>g</kbd><kbd>=</kbd></td><td>set current column of selected rows to SQL expression</td></tr>
 <tr data-keys="U"><td><kbd>U</kbd></td><td>undo</td></tr>
 <tr data-keys="R"><td><kbd>R</kbd></td><td>redo</td></tr>
+<tr class="kgroup"><th colspan="2">Sidebar &amp; commands</th></tr>
 <tr data-keys="b"><td><kbd>b</kbd></td><td>toggle sidebar</td></tr>
 <tr data-keys="&lt;C-g&gt;"><td><kbd>Ctrl-g</kbd></td><td>sidebar: next page (column, cell, help, plan)</td></tr>
 <tr data-keys=":"><td><kbd>:</kbd></td><td>ex command</td></tr>
 <tr data-keys="&lt;Space&gt;"><td><kbd>Space</kbd></td><td>ex command (run any command by name)</td></tr>
+<tr class="kgroup"><th colspan="2">Derive &amp; replace</th></tr>
 <tr data-keys="="><td><kbd>=</kbd></td><td>new column from a SQL expression (<code>:derive</code>)</td></tr>
 <tr data-keys="*"><td><kbd>*</kbd></td><td>new column: regex replace of this one</td></tr>
 <tr data-keys="g *"><td><kbd>g</kbd><kbd>*</kbd></td><td>regex replace in selected rows</td></tr>
 <tr data-keys="g z *"><td><kbd>g</kbd><kbd>z</kbd><kbd>*</kbd></td><td>regex replace in selected rows, every column</td></tr>
+<tr class="kgroup"><th colspan="2">Plot &amp; slide</th></tr>
 <tr data-keys="."><td><kbd>.</kbd></td><td>plot this column against the key column</td></tr>
 <tr data-keys="g ."><td><kbd>g</kbd><kbd>.</kbd></td><td>plot the numeric columns against the key column</td></tr>
 <tr data-keys="H"><td><kbd>H</kbd></td><td>slide the column left (plot: thinner cursor box)</td></tr>
@@ -880,6 +898,7 @@ print(t3.collect())</code></pre>
 <tr data-keys="J"><td><kbd>J</kbd></td><td>plot: taller cursor box</td></tr>
 <tr data-keys="K"><td><kbd>K</kbd></td><td>plot: shorter cursor box</td></tr>
 <tr data-keys="z z"><td><kbd>z</kbd><kbd>z</kbd></td><td>scroll the cursor row to the middle (VisiData <code>scroll-middle</code>); plot: zoom to the cursor box</td></tr>
+<tr class="kgroup"><th colspan="2">Macros, quit &amp; the rest</th></tr>
 <tr data-keys="m"><td><kbd>m</kbd></td><td>record a macro / stop and bind it</td></tr>
 <tr data-keys="q"><td><kbd>q</kbd></td><td>close sheet (quit on the last)</td></tr>
 <tr data-keys="g q"><td><kbd>g</kbd><kbd>q</kbd></td><td>quit</td></tr>
@@ -1149,9 +1168,16 @@ for (const rec of document.querySelectorAll(".rec")) {
 // Filter the key table as you type (matches keys and descriptions).
 const box = document.getElementById("keyfilter");
 const rows = [...document.querySelectorAll("#keytable tr[data-keys]")];
+const groupRows = [...document.querySelectorAll("#keytable tr.kgroup")];
 box.addEventListener("input", () => {
   const q = box.value.trim().toLowerCase();
   for (const r of rows) r.hidden = q !== "" && !r.textContent.toLowerCase().includes(q) && !r.dataset.keys.toLowerCase().includes(q);
+  // a group heading shows while any of its keys does
+  for (const h of groupRows) {
+    let r = h.nextElementSibling, any = false;
+    while (r && !r.classList.contains("kgroup")) { any ||= !r.hidden; r = r.nextElementSibling; }
+    h.hidden = !any;
+  }
 });
 </script>
 </body>
