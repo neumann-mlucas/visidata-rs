@@ -824,8 +824,14 @@ impl App {
             Action::UnselectAll => {
                 self.sheets.active_mut().view.selected = Default::default();
             }
-            Action::StartSelectInput => self.start_input(Prompt::Select),
-            Action::SelectByRegex { regex } => self.select_by_regex(&regex),
+            Action::StartSelectInput { unselect, all } => {
+                self.start_input(Prompt::Select { unselect, all })
+            }
+            Action::SelectByRegex {
+                regex,
+                unselect,
+                all,
+            } => self.select_by_regex(&regex, unselect, all),
             Action::SelectExpr { expr, unselect } => self.select_by_expr(expr, unselect),
             Action::DupSelected => self.open_dup_selected(),
             Action::CopyRow | Action::CopySelected | Action::CopyCell | Action::CopyCells => {
@@ -2041,7 +2047,7 @@ impl App {
     }
 
     /// The active sheet's visible columns, in screen order.
-    fn visible_cols(&self) -> Vec<String> {
+    pub(super) fn visible_cols(&self) -> Vec<String> {
         let s = self.sheets.active();
         s.view_plan()
             .collect_schema()

@@ -126,12 +126,19 @@ pub enum Action {
     UnselectRow,
     SelectAll,
     UnselectAll,
+    /// `|` `\` `g|` `g\`: rows whose cursor column (`all`: any visible
+    /// column) matches `regex`, selected or (`unselect`) unselected.
     SelectByRegex {
         regex: String,
+        unselect: bool,
+        all: bool,
     },
-    StartSelectInput, // `|` → prompt for regex
-    SelectEqualCell,  // `,` → rows whose current column equals the cursor cell
-    DupSelected,      // `"` → new sheet with selected rows only
+    StartSelectInput {
+        unselect: bool,
+        all: bool,
+    },
+    SelectEqualCell, // `,` → rows whose current column equals the cursor cell
+    DupSelected,     // `"` → new sheet with selected rows only
     /// `:select` / `:unselect` / `z|` / `z\`: rows where a SQL predicate holds (S-21).
     SelectExpr {
         expr: String,
@@ -813,7 +820,7 @@ impl Action {
             | StartSelectExprInput { .. }
             | StartFilterInput
             | StartExInput
-            | StartSelectInput
+            | StartSelectInput { .. }
             | StartDiffInput
             | StartRenameColInput
             | StartEditInput
@@ -956,7 +963,10 @@ impl Action {
         ("unselect_row", UnselectRow),
         ("select_all", SelectAll),
         ("unselect_all", UnselectAll),
-        ("start_select_input", StartSelectInput),
+        ("start_select_input", StartSelectInput { unselect: false, all: false }),
+        ("start_unselect_input", StartSelectInput { unselect: true, all: false }),
+        ("start_select_cols_input", StartSelectInput { unselect: false, all: true }),
+        ("start_unselect_cols_input", StartSelectInput { unselect: true, all: true }),
         ("dup_selected", DupSelected),
         ("dup_sheet", DupSheet),
         ("select_equal_cell", SelectEqualCell),
@@ -1590,7 +1600,14 @@ mod tests {
             let back = crate::exline::parse(&ex).unwrap_or_else(|e| panic!("{ex}: {e}"));
             assert_eq!(back, vec![a], "{ex}");
         }
-        for none in [SelectByRegex { regex: s("x") }, Lua(0)] {
+        for none in [
+            SelectByRegex {
+                regex: s("x"),
+                unselect: false,
+                all: false,
+            },
+            Lua(0),
+        ] {
             assert_eq!(none.to_ex(), None, "{none:?}");
         }
     }

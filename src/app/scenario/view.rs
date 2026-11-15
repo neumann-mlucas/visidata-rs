@@ -303,7 +303,11 @@ async fn repeat_does_not_reopen_a_prompt() {
     h.type_("x").await;
     assert_eq!(
         h.app.last_action,
-        Some(vec![Action::SelectByRegex { regex: "x".into() }])
+        Some(vec![Action::SelectByRegex {
+            regex: "x".into(),
+            unselect: false,
+            all: false
+        }])
     );
     h.keys(":").await; // `.` plots (VisiData); repeat is `:repeat-last`
     h.type_("repeat-last").await;
@@ -936,4 +940,27 @@ async fn options_sheet_sets_now_and_commits() {
     h.keys(":").await;
     h.type_("set histogram_bins").await;
     assert_eq!(status(&h), "histogram_bins=0");
+}
+
+/// S-41 A: `\\` unselects by regex on the cursor column, `g|` / `g\\` match
+/// any visible column.
+#[tokio::test(flavor = "multi_thread")]
+async fn regex_select_any_column() {
+    let mut h = csv(b"a,b\nX1,y\nz,x2\nq,q\n").await;
+    let sel = |h: &Harness| h.app.sheets.active().view.selected.len();
+    h.keys("g |").await;
+    h.type_("x").await;
+    assert_eq!(sel(&h), 2, "{}", status(&h));
+    h.keys("\\").await;
+    h.type_("1").await;
+    assert_eq!(sel(&h), 1, "{}", status(&h));
+    h.keys("g |").await;
+    h.type_("q").await;
+    h.keys("g \\").await;
+    h.type_("2|q").await;
+    assert_eq!(sel(&h), 0, "{}", status(&h));
+    h.keys("-").await; // hidden columns don't match
+    h.keys("g |").await;
+    h.type_("x1").await; // matches the hidden X1 only, ignoring case
+    assert_eq!(sel(&h), 0, "{}", status(&h));
 }

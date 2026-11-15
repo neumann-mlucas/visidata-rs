@@ -443,7 +443,13 @@ impl App {
                     mode,
                 }]);
             }
-            Prompt::Select => self.dispatch_sequence(vec![Action::SelectByRegex { regex: text }]),
+            Prompt::Select { unselect, all } => {
+                self.dispatch_sequence(vec![Action::SelectByRegex {
+                    regex: text,
+                    unselect,
+                    all,
+                }])
+            }
             Prompt::Rename => self.dispatch_sequence(vec![Action::RenameCol { new_name: text }]),
             Prompt::Diff => {
                 let keys = self.sheets.active().view.keys.clone();

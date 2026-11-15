@@ -45,23 +45,37 @@ impl App {
         });
     }
 
-    /// Select view rows whose current-column text matches `pat` (whole view).
-    pub(super) fn select_by_regex(&mut self, pat: &str) {
+    /// Select (or unselect) view rows whose current-column text, or (`all`)
+    /// any visible column's, matches `pat` (whole view).
+    pub(super) fn select_by_regex(&mut self, pat: &str, unselect: bool, all: bool) {
         if let Err(e) = regex::Regex::new(pat) {
             self.toast = Some(format!("bad regex: {e}"));
             return;
         }
-        let Some(column) = self.current_column_name() else {
-            return;
+        let columns = match all {
+            true => self.visible_cols(),
+            false => self.current_column_name().into_iter().collect(),
         };
+        if columns.is_empty() {
+            return;
+        }
         let sheet = self.sheets.active().clone();
         let pat = pat.to_string();
         self.spawn_job("select", move || {
             let rids = sheet
-                .rows_matching(&column, &pat)
+                .rids_matching_any(&columns, &pat)
                 .map_err(|e| e.to_string())?;
-            let note = format!("selected {} rows matching /{pat}", rids.len());
-            Ok(JobDone::Select { rids, note })
+            let n = rids.len();
+            Ok(match unselect {
+                true => JobDone::Unselect {
+                    rids,
+                    note: format!("unselected {n} rows matching /{pat}"),
+                },
+                false => JobDone::Select {
+                    rids,
+                    note: format!("selected {n} rows matching /{pat}"),
+                },
+            })
         });
     }
 

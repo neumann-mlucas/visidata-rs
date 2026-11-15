@@ -158,7 +158,7 @@ load-msgpackz	SKIP runtime: open-file ../visidata/sample_data/test.msgpackz: unk
 load-numpy	SKIP runtime: open-file ../visidata/sample_data/goog.npy: unknown format for ../visidata/sample_data/goog.npy
 load-ods	PASS
 load-pandas	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
-load-pandas-2	SKIP select-cols-regex
+load-pandas-2	PASS
 load-pandas-3	SKIP runtime: open-file ../visidata/sample_data/co3.stata: unknown format for ../visidata/sample_data/co3.stata
 load-parquet	PASS
 load-parquet-geo	SKIP serialize: datatype ext[geoarrow.wkb] cannot be written to CSV

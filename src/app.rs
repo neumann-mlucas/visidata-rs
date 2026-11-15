@@ -359,7 +359,11 @@ enum Prompt {
     },
     Filter,
     Ex,
-    Select,
+    /// `|` `\` `g|` `g\`.
+    Select {
+        unselect: bool,
+        all: bool,
+    },
     Rename,
     Diff,
     /// `e`, prefilled with the cell.
@@ -489,7 +493,22 @@ impl Prompt {
             Prompt::SelectExpr { unselect: true } => "unselect by expr: ",
             Prompt::Filter => "filter: ",
             Prompt::Ex => ":",
-            Prompt::Select => "select: ",
+            Prompt::Select {
+                unselect: false,
+                all: false,
+            } => "select: ",
+            Prompt::Select {
+                unselect: true,
+                all: false,
+            } => "unselect: ",
+            Prompt::Select {
+                unselect: false,
+                all: true,
+            } => "select (any column): ",
+            Prompt::Select {
+                unselect: true,
+                all: true,
+            } => "unselect (any column): ",
             Prompt::Rename => "rename: ",
             Prompt::Diff => "diff with: ",
             Prompt::Edit => "edit: ",

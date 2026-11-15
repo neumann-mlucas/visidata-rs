@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 71;
+const MIN_PASS: usize = 72;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -945,8 +945,33 @@ impl Replay {
             "select-row" => self.toggle_single(&r.row, true, false),
             "unselect-row" => self.toggle_single(&r.row, false, false),
             "stoggle-row" => self.toggle_single(&r.row, false, true),
-            "select-col-regex" => self.select_regex(&r.col, &r.input),
-            "unselect-col-regex" => self.unselect_regex(&r.col, &r.input),
+            "select-col-regex"
+            | "unselect-col-regex"
+            | "select-cols-regex"
+            | "unselect-cols-regex" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let cols: Vec<String> = match r.longname.ends_with("cols-regex") {
+                    true => s
+                        .view_plan()
+                        .collect_schema()
+                        .map_err(|e| Runtime(e.to_string()))?
+                        .iter_names()
+                        .map(|n| n.to_string())
+                        .collect(),
+                    false => vec![r.col.clone()],
+                };
+                let rids = s
+                    .rids_matching_any(&cols, &r.input)
+                    .map_err(|e| Runtime(e.to_string()))?;
+                let sel = Arc::make_mut(&mut s.view.selected);
+                match r.longname.starts_with("select") {
+                    true => sel.extend(rids),
+                    false => rids.iter().for_each(|i| {
+                        sel.remove(i);
+                    }),
+                }
+                Ok(())
+            }
             "select-equal-cell" => self.select_equal_cell(&r.col, &r.row),
             "dup-selected" => self.dup_selected(),
             // `ge` (gang mode) sets the col for every selected row; `e` single-row.
@@ -1255,36 +1280,6 @@ impl Replay {
 
     fn unselect_all(&mut self) -> Result<(), StepErr> {
         self.current_slot_mut()?.sheet.view.selected = Default::default();
-        Ok(())
-    }
-
-    fn select_regex(&mut self, col_name: &str, pattern: &str) -> Result<(), StepErr> {
-        self.apply_regex(col_name, pattern, true)
-    }
-    fn unselect_regex(&mut self, col_name: &str, pattern: &str) -> Result<(), StepErr> {
-        self.apply_regex(col_name, pattern, false)
-    }
-
-    fn apply_regex(&mut self, col_name: &str, pattern: &str, add: bool) -> Result<(), StepErr> {
-        let s = &mut self.current_slot_mut()?.sheet;
-        let re = regex::Regex::new(pattern).map_err(|e| StepErr::Runtime(e.to_string()))?;
-        let df = s
-            .data_plan()
-            .collect()
-            .map_err(|e| StepErr::Runtime(e.to_string()))?;
-        let col = df
-            .column(col_name)
-            .map_err(|e| StepErr::Runtime(e.to_string()))?;
-        for i in 0..col.len() {
-            let val = col.get(i).map(|v| av_display(&v)).unwrap_or_default();
-            if re.is_match(&val) {
-                if add {
-                    Arc::make_mut(&mut s.view.selected).insert(i as u64);
-                } else {
-                    Arc::make_mut(&mut s.view.selected).remove(&(i as u64));
-                }
-            }
-        }
         Ok(())
     }
 

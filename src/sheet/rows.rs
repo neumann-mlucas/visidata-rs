@@ -63,6 +63,28 @@ impl Sheet {
         self.rids_matching(column, pattern, false)
     }
 
+    /// Row ids of view rows where any of `columns` (as text) matches
+    /// `pattern`, ignoring case (VisiData's `regex_flags` default `I`).
+    pub fn rids_matching_any(&self, columns: &[String], pattern: &str) -> PolarsResult<Vec<u64>> {
+        let pattern = format!("(?i){pattern}");
+        let hit = |c: &String| {
+            col(c.as_str())
+                .cast(DataType::String)
+                .str()
+                .contains(lit(pattern.as_str()), true)
+                .fill_null(lit(false))
+        };
+        let Some(m) = columns.iter().map(hit).reduce(|a, b| a.or(b)) else {
+            return Ok(Vec::new());
+        };
+        let df = self
+            .filtered_plan(true)
+            .filter(m)
+            .select([col(ROW_ID)])
+            .collect()?;
+        rid_values(&df)
+    }
+
     /// `rows_matching`, or (`invert`, `:v`) the rows that don't match, empty
     /// cells among them.
     pub fn rids_matching(

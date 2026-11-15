@@ -112,8 +112,8 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SelectRow` / `ToggleSelectRow` / `UnselectRow` | `s` / `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan); cursor moves down after, as VisiData |
 | `SelectBefore` / `UnselectBefore` | `zs` / `zu` | rows from the top to the cursor; background job |
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
-| `SelectByRegex { regex }` | — | regex over current col, whole view |
-| `StartSelectInput` → prompt | `\|` | — |
+| `SelectByRegex { regex, unselect, all }` | — | regex (case-insensitive, VisiData's `regex_flags` `I`) over the current col, or any visible col (`all`); whole view; `Sheet::rids_matching_any` (S-41 A) |
+| `StartSelectInput { unselect, all }` → prompt | `\|` `\\` `g\|` `g\\` | — |
 | `SelectExpr { expr, unselect }` | `z\|` / `z\\` (prompt) | `:select <pred>` / `:unselect <pred>`: rows where a SQL predicate holds; background job |
 | `DupSelected` | `"` | new sheet filtered to selected rows via `Sheet::dup_selected_from` |
 | `CopyRow` / `CopySelected` / `CopyCell` / `CopyCells` | `y` / `gy` / `zy` / `gzy` | register (`App.register`, one per app): cursor row / selected rows in view order (every column, hidden too, typed) / cursor cell / current column of selected rows; background job; over 10M cells refused (S-18 A) |
