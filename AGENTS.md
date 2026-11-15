@@ -25,3 +25,16 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
   `exline::history_path`, `paste_cmd_for`).
 - A `vd_replay` count drop can stay green: read the `vd_replay:` line.
   Regenerate `tests/vd_replay/triage.txt` with `VDRS_REPLAY_TRIAGE=1`.
+
+## Docs
+
+- `docs/index.html` is the user guide, pulled into tests by `include_str!`:
+  `keymap.rs` `user_guide_documents_every_default_key` (a `data-keys` row per
+  default chord), `action.rs` `user_guide_lists_every_action_name`
+  (`<code>name</code>` per `Action::NAMED`), `exline.rs`
+  `user_guide_commands_exist` (every `data-ex` parses) and
+  `user_guide_examples_parse` (every concrete `<code>:cmd</code>` parses).
+  `plugins.rs` also loads its Lua blocks.
+- Screens between `<!-- golden:docs-* -->` and `<!-- /golden -->` come from
+  `tests/golden/docs-*` via `UPDATE_GOLDEN=1`. Never hand-edit them.
+- A user-visible change updates the guide prose and S-15 in the same commit.
