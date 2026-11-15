@@ -157,9 +157,9 @@ impl Sheet {
                 let dt = self.view_plan().collect_schema().ok();
                 if !dt
                     .and_then(|s| s.get(column).cloned())
-                    .is_some_and(|d| matches!(d, DataType::Date | DataType::Datetime(..)))
+                    .is_some_and(|d| d.is_temporal() || d.is_primitive_numeric())
                 {
-                    self.view.date_fmts.retain(|(c, _)| c != column);
+                    self.view.fmtstrs.retain(|(c, _)| c != column);
                 }
                 return Ok(());
             }
@@ -251,7 +251,7 @@ impl Sheet {
                         .find(|(c, _)| *c == n)
                         .map(|(_, d)| format!("%.{d}f"))
                         .or_else(|| {
-                            let f = v.date_fmts.iter().rev().find(|(c, _)| *c == n);
+                            let f = v.fmtstrs.iter().rev().find(|(c, _)| *c == n);
                             f.map(|(_, f)| f.clone())
                         }),
                 );

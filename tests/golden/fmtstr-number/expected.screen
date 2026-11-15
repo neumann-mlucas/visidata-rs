@@ -1,0 +1,12 @@
+ tests/golden/fmtstr-number/input.csv  csv                                   qty 3/3  row 1/5 · 20%
+name str        amt f         qty i
+a           $1,234.50     1_200 pcs
+b              $-0.25         7 pcs
+c                   · 1_000_000 pcs
+d         $100,000.00        -3 pcs
+e               $0.00        12 pcs
+
+
+
+
+qty: {:_d} pcs

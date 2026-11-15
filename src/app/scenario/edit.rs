@@ -1155,9 +1155,10 @@ async fn date_fmtstr_shows_groups_and_dives() {
     assert!(rows(&h).starts_with("2024-01-05 "), "{}", h.screen());
     h.keys("l :").await;
     h.type_("fmtstr %Y").await;
-    assert_eq!(
-        status(&h),
-        "fmtstr: v is i (float, date or datetime columns only)"
+    assert!(
+        status(&h).starts_with("fmtstr: \"%Y\" isn't supported"),
+        "{}",
+        status(&h)
     );
     // a cast to text drops the fmtstr: `F` counts the text
     h.keys("h :").await;
@@ -1205,8 +1206,46 @@ async fn sorted_columns_sheet_rebuild_keeps_cursor() {
 async fn stale_date_fmtstr_yields_to_float_precision() {
     let mut h = csv(b"x\n1.5\n").await;
     let s = h.app.sheets.active_mut();
-    s.view.date_fmts.push(("x".into(), "%Y".into()));
+    s.view.fmtstrs.push(("x".into(), "%Y".into()));
     h.keys(":").await;
     h.type_("precision 3").await;
     assert!(h.screen().contains("1.500"), "{}", h.screen());
+}
+
+/// S-36 B: a number fmtstr changes the text, `Alt++` its decimals (K2), `F`
+/// groups by the text (K3) and `<CR>` opens the rows that read it.
+#[tokio::test(flavor = "multi_thread")]
+async fn number_fmtstr_shows_steps_groups_and_dives() {
+    let mut h = csv(b"x,n\n1234.5,1\n1234.4,2\n7.25,1000\n").await;
+    let rows = |h: &Harness| h.screen().lines().nth(2).unwrap_or_default().to_string();
+    h.keys(":").await;
+    h.type_("fmtstr {:,.0f}").await;
+    assert!(rows(&h).contains("1,234"), "{}", h.screen());
+    h.keys("<A-+>").await;
+    assert!(rows(&h).contains("1,234.5"), "{}", h.screen());
+    assert_eq!(h.app.sheets.active().view.fmtstrs[0].1, "{:,.1f}");
+    h.keys("<A-->").await;
+    h.keys("F").await;
+    assert!(h.screen().contains("1,234 "), "{}", h.screen());
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 2, "{}", h.screen());
+    h.keys("<CR>").await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h));
+    // ints take formats; `d` on a float doesn't fit
+    h.keys("q q :").await;
+    h.type_("fmtstr {:,d}").await;
+    assert!(status(&h).contains("is for integers"), "{}", status(&h));
+    h.keys("l :").await;
+    h.type_("fmtstr {:,d} pcs").await;
+    assert!(h.screen().contains("1,000 pcs"), "{}", h.screen());
+    h.keys("<A-+>").await;
+    assert!(status(&h).contains("has no decimals"), "{}", status(&h));
+    // a session restores it, and the copy keeps it
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(script.contains("fmtstr {:,d} pcs"), "{script}");
+    h.keys("g \"").await;
+    assert!(h.screen().contains("1,000 pcs"), "{}", h.screen());
 }

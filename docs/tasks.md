@@ -83,7 +83,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 26. - [x] S-32 A/B/C — float precision `Alt++` / `Alt+-`, `:precision`, `disp_float_fmt`; replay formats typed floats (1.5–2.5 d) — done 2026-11-12; replay PASS=62
 27. - [ ] S-37 P0a/P0b — own `Key` code and `Style` types; crossterm/ratatui only at the edges (2 d)
 28. - [ ] S-37 P0c/P0d — options registry + `O` options sheet (`options.lua`, `z<C-s>`); command catalog with VisiData's menu paths (3–5 d)
-29. - [ ] S-36 B — number formats: `{:,.2f}`, `{:.1%}`, `%d`, literal text; ints take `fmtstr`; `F` groups by a set format (1.5–2 d)
+29. - [x] S-36 B — number formats: `{:,.2f}`, `{:.1%}`, `%d`, literal text; ints take `fmtstr`; `F` groups by a set format (1.5–2 d)
 30. - [ ] S-36 E — macros sheet `gm` / `:macros`: list, delete, rebind, edit steps (1.5–2 d)
 31. - [ ] S-36 C — totals footer `:footer` / `disp_footer` from `+` aggregators (1.5 d)
 32. - [ ] S-36 A — `:lookup` columns from another sheet, live as `:link` (2.5–3 d)

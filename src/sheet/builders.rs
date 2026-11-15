@@ -190,12 +190,7 @@ impl Sheet {
             .filter(|(c, _)| has(c))
             .cloned()
             .collect();
-        v.date_fmts = p
-            .date_fmts
-            .iter()
-            .filter(|(c, _)| has(c))
-            .cloned()
-            .collect();
+        v.fmtstrs = p.fmtstrs.iter().filter(|(c, _)| has(c)).cloned().collect();
         v.order = p.order.iter().filter(|c| has(c)).cloned().collect();
         v.scales = p
             .scales
@@ -221,8 +216,9 @@ impl Sheet {
             .ok_or_else(|| format!("no column {column}"))?;
         let fmt = fmt.trim();
         let dated = matches!(dtype, DataType::Date | DataType::Datetime(..));
-        if fmt.is_empty() || dated {
-            self.view.date_fmts.retain(|(c, _)| c != column);
+        let number = dtype.is_primitive_numeric();
+        if fmt.is_empty() || dated || number {
+            self.view.fmtstrs.retain(|(c, _)| c != column);
             self.state.widths_key = None;
         }
         if fmt.is_empty() {
@@ -231,15 +227,26 @@ impl Sheet {
             }
             return Ok(format!("{column}: default format"));
         }
-        if dtype.is_float() {
-            let d = crate::plugins::float_fmt_digits(fmt)
-                .ok_or_else(|| format!("fmtstr: {fmt:?} isn't %.Nf or {{:.Nf}}"))?;
-            self.set_precision(column, Some(d), 0, 2)?;
-            return Ok(format!("{column}: {d} decimals"));
+        if number {
+            if let Some(d) = crate::plugins::float_fmt_digits(fmt).filter(|_| dtype.is_float()) {
+                self.set_precision(column, Some(d), 0, 2)?;
+                return Ok(format!("{column}: {d} decimals"));
+            }
+            let f = crate::numfmt::NumFmt::parse(fmt)?;
+            if dtype.is_float() && !f.fits_float() {
+                return Err(format!(
+                    "fmtstr: {fmt:?} is for integers ({column} is float)"
+                ));
+            }
+            self.view.precision.retain(|(c, _)| c != column);
+            self.view
+                .fmtstrs
+                .push((column.to_string(), fmt.to_string()));
+            return Ok(format!("{column}: {fmt}"));
         }
         if !dated {
             return Err(format!(
-                "fmtstr: {column} is {} (float, date or datetime columns only)",
+                "fmtstr: {column} is {} (number, date or datetime columns only)",
                 crate::widget::dtype_badge(&dtype)
             ));
         }
@@ -255,9 +262,18 @@ impl Sheet {
             return Err(format!("fmtstr: {fmt:?} isn't a strftime format"));
         }
         self.view
-            .date_fmts
+            .fmtstrs
             .push((column.to_string(), fmt.to_string()));
         Ok(format!("{column}: {fmt}"))
+    }
+
+    /// A number format the user set on `column` (K3): its rich `fmtstr`, else
+    /// its precision as `%.Nf`. `disp_float_fmt` isn't one.
+    pub fn num_fmt(&self, column: &str) -> Option<crate::numfmt::NumFmt> {
+        crate::sheet::num_fmt_of(&self.view, column).filter(|_| {
+            self.view_dtype(column)
+                .is_some_and(|d| d.is_primitive_numeric())
+        })
     }
 
     /// `Alt++` / `Alt+-` (`delta` ±1) and `:precision` (`set`): the decimals
@@ -273,6 +289,33 @@ impl Sheet {
         let dtype = self
             .view_dtype(column)
             .ok_or_else(|| format!("no column {column}"))?;
+        // a rich number format: change its decimals (K2)
+        let rich = (self.view.fmtstrs.iter().rposition(|(c, _)| c == column))
+            .filter(|_| dtype.is_primitive_numeric())
+            .and_then(|i| {
+                Some((
+                    i,
+                    crate::numfmt::NumFmt::parse(&self.view.fmtstrs[i].1).ok()?,
+                ))
+            });
+        if let Some((i, f)) = rich {
+            let cur = f
+                .digits()
+                .ok_or_else(|| format!("precision: {} has no decimals", f.text()))?;
+            let new = match (set, delta) {
+                (Some(d), _) => d,
+                (None, 0) => {
+                    self.view.fmtstrs.remove(i);
+                    self.state.widths_key = None;
+                    return Ok(None);
+                }
+                (None, d) => cur.saturating_add_signed(d),
+            };
+            let f = f.with_digits(new);
+            self.view.fmtstrs[i].1 = f.text();
+            self.state.widths_key = None;
+            return Ok(f.digits());
+        }
         if !matches!(dtype, DataType::Float32 | DataType::Float64) {
             return Err(format!(
                 "precision: {column} is {} (float columns only)",

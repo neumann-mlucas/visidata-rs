@@ -1,0 +1,6 @@
+l
+:
+> fmtstr ${:,.2f}
+l
+:
+> fmtstr {:_d} pcs

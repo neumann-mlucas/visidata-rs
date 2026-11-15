@@ -410,23 +410,43 @@ impl Script {
         let errs = matches!(l.how, Derivation::Describe);
         let p = self.view_with(&l.parent, rid, errs)?;
         let py = self.lang == Lang::Py;
-        // a date `fmtstr` groups freq by the text it shows (S-35 C2)
-        let fmt = match &l.how {
-            Derivation::Freq { column, .. } => l.parent.date_fmt(column).map(|f| (column, f)),
-            _ => None,
+        // a date `fmtstr` or a set number format groups freq by the text it
+        // shows (S-35 C2, S-36 B)
+        let (fmt, num) = match &l.how {
+            Derivation::Freq { column, bins: None } => (
+                l.parent.date_fmt(column).map(|f| (column, f)),
+                l.parent.num_fmt(column).map(|n| (column, n)),
+            ),
+            _ => (None, None),
         };
-        let p = match fmt {
-            Some((c, f)) if py => format!(
-                "{p}.with_columns(pl.col({c}).dt.strftime({f}))",
-                c = py_str(c),
-                f = py_str(f)
-            ),
-            Some((c, f)) => format!(
-                "(SELECT * REPLACE (strftime({c}, {f}) AS {c}) FROM {p})",
-                c = q_ident(c),
-                f = q_str(f)
-            ),
-            None => p,
+        let p = match (fmt, num) {
+            (None, Some((c, n))) if py => {
+                format!(
+                    "{p}.with_columns({}.alias({c}))",
+                    n.py(&py_str(c)),
+                    c = py_str(c)
+                )
+            }
+            (None, Some((c, n))) => {
+                format!(
+                    "(SELECT * REPLACE ({} AS {c}) FROM {p})",
+                    n.sql(&q_ident(c)),
+                    c = q_ident(c)
+                )
+            }
+            (fmt, _) => match fmt {
+                Some((c, f)) if py => format!(
+                    "{p}.with_columns(pl.col({c}).dt.strftime({f}))",
+                    c = py_str(c),
+                    f = py_str(f)
+                ),
+                Some((c, f)) => format!(
+                    "(SELECT * REPLACE (strftime({c}, {f}) AS {c}) FROM {p})",
+                    c = q_ident(c),
+                    f = q_str(f)
+                ),
+                None => p,
+            },
         };
         Ok(match &l.how {
             Derivation::Copy if py => p,
@@ -619,6 +639,7 @@ impl Script {
                     let k = match key {
                         DiveKey::Value => format!("pl.col({c})"),
                         DiveKey::Fmt(f) => format!("pl.col({c}).dt.strftime({})", py_str(f)),
+                        DiveKey::Num(f) => num_fmt(f)?.py(&c),
                         DiveKey::Bin { min, width, n } => py_bin_index(&c, *min, *width, *n),
                     };
                     let or_null = if null {
@@ -636,6 +657,7 @@ impl Script {
                     let k = match key {
                         DiveKey::Value => c.clone(),
                         DiveKey::Fmt(f) => format!("strftime({c}, {})", q_str(f)),
+                        DiveKey::Num(f) => num_fmt(f)?.sql(&c),
                         DiveKey::Bin { min, width, n } => sql_bin_index(&c, *min, *width, *n),
                     };
                     let mut w = if list.is_empty() {
@@ -2382,6 +2404,11 @@ fn duckdb_table(part: Option<&str>) -> Result<String, String> {
     let part = part.ok_or("export: an :exec-sql result can't be re-read")?;
     let (schema, table) = part.split_once('.').unwrap_or(("main", part));
     Ok(format!("{}.{}", q_ident(schema), q_ident(table)))
+}
+
+/// A number fmtstr a sheet kept; it parsed when set.
+fn num_fmt(f: &str) -> Result<crate::numfmt::NumFmt, String> {
+    crate::numfmt::NumFmt::parse(f)
 }
 
 #[cfg(test)]

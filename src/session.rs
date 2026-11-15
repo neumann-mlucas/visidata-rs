@@ -111,7 +111,7 @@ fn same_state(then: &Sheet, now: &Sheet) -> bool {
         && a.hidden == b.hidden
         && a.keys == b.keys
         && a.order == b.order
-        && a.date_fmts == b.date_fmts
+        && a.fmtstrs == b.fmtstrs
 }
 
 /// A freq dive (`<CR>` on a frequency row) whose freq sheet is `below`.
@@ -445,7 +445,7 @@ impl Block {
             self.col(column);
             self.ex(Action::SetPrecision { digits: Some(*d) });
         }
-        for (column, fmt) in &v.date_fmts {
+        for (column, fmt) in &v.fmtstrs {
             self.col(column);
             self.ex(Action::SetFmtstr { fmt: fmt.clone() });
         }

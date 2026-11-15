@@ -202,6 +202,8 @@ pub enum DiveKey {
     Value,
     /// The text a date `fmtstr` shows (S-35 C2).
     Fmt(String),
+    /// The text a number format shows (S-36 B, K3): its fmtstr.
+    Num(String),
     /// The [`Binning::Ranges`] bin index.
     Bin {
         min: f64,
@@ -216,6 +218,10 @@ impl DiveKey {
         let e = match self {
             DiveKey::Value => col(column),
             DiveKey::Fmt(f) => col(column).dt().strftime(f),
+            DiveKey::Num(f) => match crate::numfmt::NumFmt::parse(f) {
+                Ok(n) => n.text_expr(col(column)),
+                Err(_) => col(column),
+            },
             DiveKey::Bin { min, width, n } => Binning::index(*min, *width, *n, column),
         };
         e.cast(DataType::String)
@@ -463,9 +469,9 @@ pub struct View {
     pub aggregators: Vec<(String, String)>,
     /// `Alt++` / `Alt+-`, `:precision` (S-32): decimals a float column shows.
     pub precision: Vec<(String, u8)>,
-    /// `fmtstr` on a date or datetime column (S-35 C2): its strftime format,
-    /// for display and `F` groups.
-    pub date_fmts: Vec<(String, String)>,
+    /// `fmtstr`: a date or datetime column's strftime format (S-35 C2), or a
+    /// number column's format (S-36 B, `numfmt`); for display and `F` groups.
+    pub fmtstrs: Vec<(String, String)>,
     /// `H` `L` `gH` `gL`, `:order` (S-34): non-key columns in display order;
     /// columns not named here follow in plan order.
     pub order: Vec<String>,
@@ -528,7 +534,7 @@ impl Default for View {
             type_casts: Vec::new(),
             aggregators: Vec::new(),
             precision: Vec::new(),
-            date_fmts: Vec::new(),
+            fmtstrs: Vec::new(),
             order: Vec::new(),
             colname_ctr: 0,
             total_rows: None,
@@ -1263,7 +1269,7 @@ impl Sheet {
             .chain(v.type_casts.iter_mut().map(|(c, _)| c))
             .chain(v.aggregators.iter_mut().map(|(c, _)| c))
             .chain(v.precision.iter_mut().map(|(c, _)| c))
-            .chain(v.date_fmts.iter_mut().map(|(c, _)| c))
+            .chain(v.fmtstrs.iter_mut().map(|(c, _)| c))
             .chain(v.order.iter_mut());
         let names = names
             .chain(v.filter.as_mut().map(|f| &mut f.column))
@@ -1280,7 +1286,7 @@ impl Sheet {
     /// A date `fmtstr` outlives only a cast to another date type.
     pub fn set_type_cast(&mut self, name: String, dt: DataType) {
         if !matches!(dt, DataType::Date | DataType::Datetime(..)) {
-            self.view.date_fmts.retain(|(c, _)| *c != name);
+            self.view.fmtstrs.retain(|(c, _)| *c != name);
         }
         match self.view.type_casts.iter_mut().find(|(c, _)| *c == name) {
             Some(entry) => entry.1 = dt,
@@ -1508,9 +1514,24 @@ pub fn key_text(df: &DataFrame, keys: &[String], r: usize) -> Vec<String> {
         .collect()
 }
 
+/// [`Sheet::num_fmt`] from the view alone, whatever the column's type.
+pub fn num_fmt_of(view: &View, column: &str) -> Option<crate::numfmt::NumFmt> {
+    let rich = view.fmtstrs.iter().rev().find(|(c, _)| c == column);
+    match rich.map(|(_, f)| crate::numfmt::NumFmt::parse(f)) {
+        Some(Ok(f)) => Some(f),
+        Some(Err(_)) => None, // a date's strftime
+        None => view
+            .precision
+            .iter()
+            .rev()
+            .find(|(c, _)| c == column)
+            .map(|(_, d)| crate::numfmt::NumFmt::fixed(*d)),
+    }
+}
+
 /// [`Sheet::date_fmt`] from the view alone (the widget draws from it).
 pub fn date_fmt_of<'a>(view: &'a View, column: &str) -> Option<&'a str> {
-    let f = view.date_fmts.iter().rev().find(|(c, _)| c == column);
+    let f = view.fmtstrs.iter().rev().find(|(c, _)| c == column);
     let cast = view.type_casts.iter().rev().find(|(c, _)| c == column);
     match (f, cast) {
         (Some((_, f)), _) => Some(f.as_str()),

@@ -546,11 +546,13 @@ pub fn float_digits(view: &View, theme: &Theme, column: &str) -> Option<u8> {
 
 /// How a column's cells read: as typed, floats at N decimals (S-32), or
 /// dates in a strftime format (S-35 C2).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum CellFmt<'a> {
     Plain,
     Digits(u8),
     Strftime(&'a str),
+    /// A number `fmtstr` (S-36 B).
+    Number(crate::numfmt::NumFmt),
 }
 
 /// [`float_digits`], else the column's date `fmtstr` (a date column's only:
@@ -558,6 +560,13 @@ pub enum CellFmt<'a> {
 pub fn cell_fmt<'a>(view: &'a View, theme: &Theme, column: &Column) -> CellFmt<'a> {
     let name = column.name().as_str();
     let dated = column.dtype().is_temporal();
+    let rich = view.fmtstrs.iter().rev().find(|(c, _)| c == name);
+    if let Some(f) = rich
+        .filter(|_| column.dtype().is_primitive_numeric())
+        .and_then(|(_, f)| crate::numfmt::NumFmt::parse(f).ok())
+    {
+        return CellFmt::Number(f);
+    }
     match (
         float_digits(view, theme, name),
         crate::sheet::date_fmt_of(view, name).filter(|_| dated),
@@ -587,7 +596,7 @@ struct ColText<'a> {
 
 impl<'a> ColText<'a> {
     fn new(c: &Column, fmt: CellFmt<'a>) -> Self {
-        let dated = match fmt {
+        let dated = match &fmt {
             CellFmt::Strftime(f) => {
                 let s = c.as_materialized_series();
                 match s.dtype() {
@@ -603,13 +612,21 @@ impl<'a> ColText<'a> {
 
     /// Row `i`'s text, `av` its value.
     fn cell(&self, av: &AnyValue, i: usize) -> (String, DtypeHint) {
-        match (av, self.fmt) {
+        match (av, &self.fmt) {
             (AnyValue::Float64(f), CellFmt::Digits(d)) => {
-                (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+                (format!("{f:.*}", *d as usize), DtypeHint::Numeric)
             }
             (AnyValue::Float32(f), CellFmt::Digits(d)) => {
-                (format!("{f:.*}", d as usize), DtypeHint::Numeric)
+                (format!("{f:.*}", *d as usize), DtypeHint::Numeric)
             }
+            (AnyValue::Float64(_) | AnyValue::Float32(_), CellFmt::Number(n)) => (
+                n.float(av.extract::<f64>().unwrap_or(f64::NAN)),
+                DtypeHint::Numeric,
+            ),
+            (v, CellFmt::Number(n)) if v.is_integer() => match v.extract::<i64>() {
+                Some(i) => (n.int(i), DtypeHint::Numeric),
+                None => display_av_with_hint(av),
+            },
             (AnyValue::Date(_) | AnyValue::Datetime(..), CellFmt::Strftime(_)) => {
                 match self.dated.as_ref().and_then(|t| t.get(i)) {
                     Some(t) => (printable(t), DtypeHint::Date),

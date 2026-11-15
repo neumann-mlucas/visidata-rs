@@ -24,10 +24,12 @@ impl Sheet {
             .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
             .collect();
         let base = parent.view_plan();
-        // a date `fmtstr` groups by the text it shows (S-35 C2)
-        let key = match parent.date_fmt(col_name) {
-            Some(f) => col(col_name).dt().strftime(f).alias(col_name),
-            None => col(col_name),
+        // a date `fmtstr` or a number format the user set groups by the text
+        // it shows (S-35 C2, S-36 B K3)
+        let key = match (parent.date_fmt(col_name), parent.num_fmt(col_name)) {
+            (Some(f), _) => col(col_name).dt().strftime(f).alias(col_name),
+            (None, Some(n)) => n.text_expr(col(col_name)).alias(col_name),
+            (None, None) => col(col_name),
         };
         let grouped = match &bins {
             None => base.group_by_stable([key]).agg(exprs),
@@ -320,10 +322,13 @@ impl Sheet {
                 width: *width,
                 n: *n,
             },
-            Derivation::Freq { column, .. } => l
-                .parent
-                .date_fmt(column)
-                .map_or(DiveKey::Value, |f| DiveKey::Fmt(f.into())),
+            Derivation::Freq { column, .. } => match l.parent.date_fmt(column) {
+                Some(f) => DiveKey::Fmt(f.into()),
+                None => l
+                    .parent
+                    .num_fmt(column)
+                    .map_or(DiveKey::Value, |n| DiveKey::Num(n.text())),
+            },
             Derivation::Values { .. } if matches!(l.parent.origin, Origin::Freq { .. }) => {
                 l.parent.freq_dive_key()
             }

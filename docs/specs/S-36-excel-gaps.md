@@ -78,7 +78,20 @@ the sheet they're on.
     value. A cycle is refused. Their sheet closed: values stay, toast.
   - golden: `lookup` with export round trips; session restore.
 
-## B. Number formats: thousands separators, %, currency text, freq groups (1.5–2 d)
+## B. Number formats: thousands separators, %, currency text, freq groups (1.5–2 d) — shipped 2026-11-15
+
+Refined at the start (2026-11-15):
+
+- Storage: no `View.num_fmts`. `View.date_fmts` became `View.fmtstrs`, holding a date's strftime
+  or a number's fmtstr by column type, so rename, drop, refresh, copies (S-31) and sessions
+  carry number formats with no new code. A plain `%.Nf` still goes to `View.precision`.
+- Formatter `src/numfmt.rs`: Rust's `{:.N}` / `{:.Ne}` round as Python's `format` does (exact,
+  ties to even), checked against Python 3 output; `e` exponents rewritten to `e+06`.
+- `F` (K3) groups by the text through a Polars `map` UDF (`NumFmt::text_expr`); `DiveKey::Num`
+  dives by it. Export: Python `map_elements(lambda v: fmt.format(v))` (`fmt % v` for C style),
+  DuckDB fmtlib `format` (it takes `{:,.2f}`; `%` scaled by hand) or `printf`, values cast to
+  `DOUBLE` / truncated `BIGINT` first. Same texts in all three (golden `freq-fmtstr-number`).
+- `%x` and `{}` with no type on a float: not supported (refused). `{:,}` on an int is `{:,d}`.
 
 Today `fmtstr` on a float takes only `%.Nf` / `{:.Nf}` (routed to S-32 precision). Ints are
 refused (`Sheet::set_fmtstr`, `src/sheet/builders.rs`).
