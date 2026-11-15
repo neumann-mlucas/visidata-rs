@@ -45,6 +45,10 @@ struct Registry {
     /// `vd.statusline` / `vd.titlebar` (S-40 D), by `Bar`.
     bars: [bars::BarSlot; 2],
     bar_error: Option<String>,
+    /// `vd.register_page` sidebar pages (S-40 E), and the last page drawn:
+    /// (name + Debug text of its input, lines).
+    pages: Vec<(String, LuaFunction)>,
+    page_cache: Option<(String, Vec<ratatui::text::Line<'static>>)>,
 }
 
 /// A `vd.on` handler (S-40 A).
@@ -220,7 +224,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 20; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table; 20: vd.statusline, vd.titlebar, vd.bar
+pub const API_VERSION: i64 = 21; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table; 20: vd.statusline, vd.titlebar, vd.bar; 21: vd.register_page
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {

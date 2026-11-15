@@ -2,6 +2,7 @@
 //! status line and the title bar from segments.
 
 use super::*;
+use crate::action::SidebarPage;
 use ratatui::text::{Line, Span};
 
 /// Which bar a Lua function draws.
@@ -89,6 +90,24 @@ pub(super) fn install(lua: &Lua, vd: &LuaTable) -> mlua::Result<()> {
         )?;
     }
     vd.set("bar", builtin)?;
+    vd.set(
+        "register_page",
+        lua.create_function(|lua, spec: LuaTable| {
+            let name: String = spec.get("name")?;
+            let render: LuaFunction = spec.get("render")?;
+            if SidebarPage::parse(&name) != Some(SidebarPage::Lua(name.clone())) {
+                return Err(mlua::Error::RuntimeError(format!(
+                    "vd.register_page: {name:?} is a built-in page or empty"
+                )));
+            }
+            let r = registry(lua)?;
+            let mut reg = r.borrow_mut();
+            reg.pages.retain(|(n, _)| *n != name); // redefining replaces
+            reg.pages.push((name, render));
+            reg.page_cache = None;
+            Ok(())
+        })?,
+    )?;
     Ok(())
 }
 
@@ -152,6 +171,45 @@ impl Plugins {
         reg.bars[bar as usize].broken = true;
         reg.bar_error.get_or_insert(err);
         None
+    }
+
+    /// `vd.register_page` names, in registration order.
+    pub fn page_names(&self) -> Vec<String> {
+        reg(&self.lua).map_or_else(Vec::new, |r| {
+            r.borrow().pages.iter().map(|(n, _)| n.clone()).collect()
+        })
+    }
+
+    /// Lines of the Lua sidebar page `name`: its `render(ctx)` with
+    /// `ctx.cell` = `cell`, cached until the input changes. Err: its error.
+    pub fn page(&self, name: &str, ctx: &BarCtx, cell: &str) -> Result<Vec<Line<'static>>, String> {
+        let r = reg(&self.lua).ok_or("no Lua")?;
+        let key = format!("{name}{ctx:?}{cell}");
+        let f = {
+            let reg = r.borrow();
+            if let Some((k, lines)) = &reg.page_cache
+                && *k == key
+            {
+                return Ok(lines.clone());
+            }
+            let page = reg.pages.iter().find(|(n, _)| n == name);
+            page.ok_or(format!("no sidebar page {name}"))?.1.clone()
+        };
+        let lines = self
+            .bar_ctx(Bar::Status, ctx, (&[], &[]))
+            .and_then(|t| {
+                t.set("cell", cell)?;
+                f.call::<LuaValue>(t)
+            })
+            .and_then(|v| page_lines(&v))
+            .map_err(|e| {
+                format!(
+                    "{name}: {}",
+                    e.to_string().lines().next().unwrap_or_default()
+                )
+            })?;
+        r.borrow_mut().page_cache = Some((key, lines.clone()));
+        Ok(lines)
     }
 
     /// Why a bar function was dropped, once.
@@ -225,24 +283,46 @@ fn span_table(lua: &Lua, s: &Span<'_>) -> mlua::Result<LuaTable> {
 
 /// A side's segments: strings (or numbers) and `{ text, fg, … }` tables.
 fn segments(v: &LuaValue) -> mlua::Result<Vec<Span<'static>>> {
-    let t = match v {
-        LuaValue::Nil => return Ok(Vec::new()),
-        LuaValue::Table(t) => t,
-        _ => return Err(mlua::Error::RuntimeError("left/right must be lists".into())),
+    match v {
+        LuaValue::Nil => Ok(Vec::new()),
+        LuaValue::Table(t) => t
+            .sequence_values::<LuaValue>()
+            .map(|s| segment(s?))
+            .collect(),
+        _ => Err(mlua::Error::RuntimeError("left/right must be lists".into())),
+    }
+}
+
+/// A string, a number or a `{ text, fg, … }` table as a span.
+fn segment(v: LuaValue) -> mlua::Result<Span<'static>> {
+    match v {
+        LuaValue::String(s) => Ok(Span::raw(s.to_str()?.to_string())),
+        LuaValue::Integer(n) => Ok(Span::raw(n.to_string())),
+        LuaValue::Number(n) => Ok(Span::raw(n.to_string())),
+        LuaValue::Table(t) => {
+            let r = styled(&t);
+            Ok(Span::styled(r.text.unwrap_or_default(), r.style))
+        }
+        other => Err(mlua::Error::RuntimeError(format!(
+            "a segment is a string or a table, not {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// A page's lines: each a segment, or a list of segments.
+fn page_lines(v: &LuaValue) -> mlua::Result<Vec<Line<'static>>> {
+    let LuaValue::Table(t) = v else {
+        return Err(mlua::Error::RuntimeError(
+            "render must return a list of lines".into(),
+        ));
     };
     t.sequence_values::<LuaValue>()
-        .map(|seg| match seg? {
-            LuaValue::String(s) => Ok(Span::raw(s.to_str()?.to_string())),
-            LuaValue::Integer(n) => Ok(Span::raw(n.to_string())),
-            LuaValue::Number(n) => Ok(Span::raw(n.to_string())),
-            LuaValue::Table(t) => {
-                let r = styled(&t);
-                Ok(Span::styled(r.text.unwrap_or_default(), r.style))
+        .map(|line| match line? {
+            LuaValue::Table(t) if !t.contains_key("text")? => {
+                Ok(Line::from(segments(&LuaValue::Table(t))?))
             }
-            other => Err(mlua::Error::RuntimeError(format!(
-                "a segment is a string or a table, not {}",
-                other.type_name()
-            ))),
+            v => Ok(Line::from(segment(v)?)),
         })
         .collect()
 }

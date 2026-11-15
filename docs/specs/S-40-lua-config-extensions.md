@@ -266,7 +266,9 @@ other colours, not other content.
 Tests: unit (patch over `dark` and `light`, unknown key refused); scenario: the status line's
 background on the `TestBackend` screen.
 
-## E. Sidebar pages from Lua (1 d)
+## E. Sidebar pages from Lua (1 d) — shipped 2026-11-15
+
+As built: `:sidebar <name>` parses any word as `SidebarPage::Lua` (pages come and go with `init.lua`), so a typo is refused at dispatch with the page list instead of a usage line. A line may also be one segment table. Built-in names are refused by `vd.register_page`; registering a name again replaces it. Errors show on the page (no fallback needed: nothing else owns it). One page's last result is cached. `vd.api_version` 21.
 
 ```lua
 vd.register_page { name = "atoms", render = function(ctx)

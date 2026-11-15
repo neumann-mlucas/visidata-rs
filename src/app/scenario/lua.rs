@@ -576,3 +576,35 @@ async fn lua_statusline_and_titlebar() {
     h.keys(":").await;
     assert!(!h.screen().lines().last().unwrap().starts_with("SEL"));
 }
+
+/// S-40 E: `<C-g>` reaches a `vd.register_page` page after the built-in
+/// ones; it shows the cursor cell and follows the cursor.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_sidebar_page() {
+    let mut h = with_lua(
+        3,
+        r#"vd.register_page { name = "atoms", render = function(ctx)
+             return { "cell=" .. ctx.cell, { text = "warn", fg = "red" }, { "row ", ctx.row } }
+           end }"#,
+    )
+    .await;
+    h.keys("l <C-g> <C-g> <C-g> <C-g>").await;
+    assert_eq!(h.app.sidebar, Some(SidebarPage::Plan));
+    h.keys("<C-g>").await;
+    let scr = h.screen();
+    assert!(
+        scr.contains(" atoms ") && scr.contains("cell=name_1"),
+        "{scr}"
+    );
+    assert!(scr.contains("warn") && scr.contains("row 1"), "{scr}");
+    h.keys("j").await;
+    assert!(h.screen().contains("cell=name_2"), "{}", h.screen());
+    h.keys("<C-g>").await; // back to the first page
+    assert_eq!(h.app.sidebar, Some(SidebarPage::Column));
+    h.keys(":").await;
+    h.type_("sidebar atoms").await;
+    assert_eq!(h.app.sidebar, Some(SidebarPage::Lua("atoms".into())));
+    h.keys(":").await;
+    h.type_("sidebar nope").await;
+    assert!(status(&h).contains("plan-opt, atoms)"), "{}", status(&h));
+}

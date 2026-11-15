@@ -915,14 +915,39 @@ impl App {
             Action::ToggleSidebar => {
                 self.sidebar = match self.sidebar {
                     Some(_) => None,
-                    None => Some(self.sidebar_page),
+                    None => Some(self.sidebar_page.clone()),
                 };
             }
             Action::CycleSidebar => {
-                let page = self.sidebar.map_or(self.sidebar_page, SidebarPage::next);
-                (self.sidebar, self.sidebar_page) = (Some(page), page);
+                let lua = self
+                    .plugins
+                    .as_ref()
+                    .map_or_else(Vec::new, |p| p.page_names());
+                let page = match &self.sidebar {
+                    Some(p) => p.next(&lua),
+                    None => self.sidebar_page.clone(),
+                };
+                (self.sidebar, self.sidebar_page) = (Some(page.clone()), page);
             }
-            Action::ShowSidebar { page } => (self.sidebar, self.sidebar_page) = (Some(page), page),
+            Action::ShowSidebar { page } => {
+                let lua = self
+                    .plugins
+                    .as_ref()
+                    .map_or_else(Vec::new, |p| p.page_names());
+                match &page {
+                    SidebarPage::Lua(n) if !lua.contains(n) => {
+                        let names = ["column", "cell", "help", "plan", "plan-opt"]
+                            .map(String::from)
+                            .into_iter()
+                            .chain(lua);
+                        self.toast = Some(format!(
+                            "no sidebar page {n} ({})",
+                            names.collect::<Vec<_>>().join(", ")
+                        ));
+                    }
+                    _ => (self.sidebar, self.sidebar_page) = (Some(page.clone()), page),
+                }
+            }
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
             Action::Lookup {
                 source,

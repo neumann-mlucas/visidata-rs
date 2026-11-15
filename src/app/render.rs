@@ -291,34 +291,42 @@ impl App {
     }
 
     pub(super) fn render_sidebar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
-        let Some(page) = self.sidebar else { return };
+        let Some(page) = &self.sidebar else { return };
         let s = self.sheets.active();
         let column = self.current_column_name().unwrap_or_default();
         let err = |e: PolarsError| format!("<error>: {e}");
-        let (title, text) = match page {
+        let cell = || match s.cursor_value(&column) {
+            Some(v) if !v.is_null() => crate::sheet::any_text(&v),
+            Some(_) => "null".into(),
+            None => String::new(),
+        };
+        let (title, text): (String, ratatui::text::Text<'static>) = match page {
             SidebarPage::Plan => (
                 "plan".into(),
-                s.window_plan().describe_plan().unwrap_or_else(err),
+                s.window_plan().describe_plan().unwrap_or_else(err).into(),
             ),
             SidebarPage::PlanOpt => (
                 "plan (opt)".into(),
                 s.window_plan()
                     .describe_optimized_plan()
-                    .unwrap_or_else(err),
+                    .unwrap_or_else(err)
+                    .into(),
             ),
-            SidebarPage::Column => (format!("column: {column}"), self.column_page()),
+            SidebarPage::Column => (format!("column: {column}"), self.column_page().into()),
+            SidebarPage::Lua(name) => {
+                let lines = self.plugins.as_ref().map(|p| {
+                    p.page(name, &self.bar_ctx(s, 1), &cell())
+                        .unwrap_or_else(|e| vec![Line::from(e)])
+                });
+                (name.clone(), lines.unwrap_or_default().into())
+            }
             SidebarPage::Cell => {
-                let v = s.cursor_value(&column);
-                let text = match v {
-                    Some(v) if !v.is_null() => crate::sheet::any_text(&v),
-                    Some(_) => "null".into(),
-                    None => String::new(),
-                };
+                let text = cell();
                 let text = match self.cursor_note() {
                     Some(n) => format!("{text}\n\nnote: {}", n.text),
                     None => text,
                 };
-                (format!("cell: {column}"), text)
+                (format!("cell: {column}"), text.into())
             }
             SidebarPage::Help => {
                 let lines: Vec<String> = self
@@ -330,7 +338,7 @@ impl App {
                         format!("{:>6}  {}", keys.join(" "), c.desc)
                     })
                     .collect();
-                ("help".into(), lines.join("\n"))
+                ("help".into(), lines.join("\n").into())
             }
         };
         let block = ratatui::widgets::Block::default()

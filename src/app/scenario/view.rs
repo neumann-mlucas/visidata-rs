@@ -429,7 +429,11 @@ async fn sidebar_pages() {
     assert_eq!(h.app.sidebar, Some(SidebarPage::Cell));
     h.keys(":").await;
     h.type_("sidebar nope").await;
-    assert!(status(&h).contains("usage: sidebar"), "{}", status(&h));
+    assert!(
+        status(&h).contains("no sidebar page nope (column, cell"),
+        "{}",
+        status(&h)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

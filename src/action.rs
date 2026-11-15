@@ -621,7 +621,7 @@ pub enum SubstMode {
 }
 
 /// What the sidebar shows (S-23 A).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarPage {
     /// Stats of the cursor column (one row of `I`).
     Column,
@@ -632,11 +632,14 @@ pub enum SidebarPage {
     /// The query plan; `PlanOpt` after the optimizer.
     Plan,
     PlanOpt,
+    /// A `vd.register_page` page (S-40 E), by name.
+    Lua(String),
 }
 
 impl SidebarPage {
-    pub fn name(self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
+            Self::Lua(name) => name,
             Self::Column => "column",
             Self::Cell => "cell",
             Self::Help => "help",
@@ -652,17 +655,24 @@ impl SidebarPage {
             "help" => Self::Help,
             "plan" => Self::Plan,
             "plan-opt" | "optimized" => Self::PlanOpt,
-            _ => return None,
+            "" => return None,
+            // a Lua page: checked when it opens, as pages come and go with init.lua
+            name => Self::Lua(name.to_string()),
         })
     }
 
-    /// `Ctrl+G` order.
-    pub fn next(self) -> Self {
+    /// `Ctrl+G` order: the built-in pages, then `lua` (registration order).
+    pub fn next(&self, lua: &[String]) -> Self {
+        let pos = |n: &String| lua.iter().position(|l| l == n);
         match self {
             Self::Column => Self::Cell,
             Self::Cell => Self::Help,
             Self::Help => Self::Plan,
-            Self::Plan | Self::PlanOpt => Self::Column,
+            Self::Plan | Self::PlanOpt => lua.first().cloned().map_or(Self::Column, Self::Lua),
+            Self::Lua(n) => pos(n)
+                .and_then(|i| lua.get(i + 1))
+                .cloned()
+                .map_or(Self::Column, Self::Lua),
         }
     }
 }
@@ -1402,6 +1412,9 @@ mod tests {
             },
             ShowSidebar {
                 page: SidebarPage::PlanOpt,
+            },
+            ShowSidebar {
+                page: SidebarPage::Lua(s("atoms")),
             },
             SelectExpr {
                 expr: s("amt > 3"),

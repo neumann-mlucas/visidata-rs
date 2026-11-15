@@ -366,7 +366,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "sidebar" if rest.is_empty() => Ok(vec![Action::ToggleSidebar]),
         "sidebar" => crate::action::SidebarPage::parse(rest)
             .map(|page| vec![Action::ShowSidebar { page }])
-            .ok_or(ExError::Usage("sidebar [column|cell|help|plan|plan-opt]")),
+            .ok_or(ExError::Usage(
+                "sidebar [column|cell|help|plan|plan-opt|<lua page>]",
+            )),
         "describe" => Ok(vec![Action::Describe]),
         "undo" => Ok(vec![Action::Undo]),
         "redo" => Ok(vec![Action::Redo]),
