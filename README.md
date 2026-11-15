@@ -67,6 +67,9 @@ The install compiles Polars with release optimizations: expect a long build (abo
 vdrs data.parquet          # TUI
 vdrs --headless data.csv   # schema + first rows, no TUI
 cat data.csv | vdrs -      # stdin, format sniffed
+vdrs data/                 # every *.parquet in a directory, as one table
+vdrs book.xlsx:Sheet2      # one worksheet
+vdrs -S monday.vdrs        # restore a session (:mksession)
 ```
 
 Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON

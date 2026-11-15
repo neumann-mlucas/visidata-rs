@@ -175,6 +175,8 @@ td:first-child { white-space: nowrap; }
 <h2 id="open">Opening data</h2>
 <pre><code>vdrs sales.parquet                 # open in the TUI
 vdrs data/                         # every *.parquet file in a directory, as one table
+vdrs book.xlsx:Sheet2              # one worksheet (or app.db:users, one table)
+vdrs -S monday.vdrs                # restore a session saved with :mksession
 cat events.jsonl | vdrs -          # read stdin; format is sniffed
 vdrs --format tsv export.txt       # force a format when the extension is wrong
 vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
