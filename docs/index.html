@@ -972,6 +972,7 @@ print(t3.collect())</code></pre>
 
 <h2 id="lua">Lua configuration</h2>
 <p>vdrs runs <code>$XDG_CONFIG_HOME/vdrs/init.lua</code> (usually <code>~/.config/vdrs/init.lua</code>) at startup. The first time the TUI starts without one, vdrs writes it with every default binding listed but commented out: uncomment a line to change it. Defaults you leave commented keep following new releases. Saving the file while vdrs runs reloads it within about two seconds. If it has an error, everything registered before the error still applies and the error is shown in the status line.</p>
+<p><strong>Security:</strong> Lua isn't sandboxed. <code>init.lua</code> and <code>macros.lua</code> run with your full user permissions (files, <code>os.execute</code>, …), so only put code there you trust.</p>
 <pre><code>-- ~/.config/vdrs/init.lua
 vd.set_theme("light")                               -- "dark" (default) or "light"
 vd.option("clipboard_copy_cmd", "wl-copy")          -- what Y / gY / zY / gzY pipe to

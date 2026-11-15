@@ -39,7 +39,7 @@ vd.push_sheet { name?, columns, rows }      -- api_version 3
 vd.pop_sheet()                                             -- since 0.3.0
 
 -- config
-vd.sandbox = true  -- default; set false to re-enable os.*, io.*  -- since 0.3.0
+vd.sandbox = true  -- planned (S-16), not built: Lua runs unsandboxed today; set false to re-enable os.*, io.*
 
 -- coroutines (lands when first plugin needs it)
 vd.co(fn) -> coroutine                                     -- since ?.?
