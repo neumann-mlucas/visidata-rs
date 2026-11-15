@@ -1,6 +1,6 @@
 # S-39 — Sources that aren't files: Lua tables, then `trait Source`
 
-Status: **drafted 2026-11-14**. A is small; B waits for a plugin that needs it.
+Status: **A shipped 2026-11-15** (api 13). B waits for a plugin that needs it.
 Depends on: S-10 (Lua loaders), S-18 B (`vd.push_sheet`'s `sheet_from_lua`), S-29 (sessions),
 Phase 4 (`:tail`).
 
@@ -45,12 +45,14 @@ end }
 - `plugins::open` turns a table into a `DataFrame` with `sheet_from_lua` and returns
   `LoadedSource::from_df(kind, display_name, path, df)` (already used for `:exec-sql`). The rows
   are in memory, so background jobs scan the in-memory frame; no Lua runs off the Lua thread.
-- `:export`: the frame has no file to read. The script starts with a comment and a placeholder
-  `pl.DataFrame` / `VALUES` of the rows when there are under 10 000 of them, else a
-  `# not exported: rows from Lua loader <name>` line. (To decide: or always refuse.)
-- Sessions: reopen by path, as today. The loader runs again, so a session shows the rows the
-  source has now, not the saved ones. That's what reopening a file does too.
-- `:tail`, `^R`: `^R` runs the loader again; `:tail` refuses, as it does for loaders now.
+- `:export`: the frame has no file to read. **Decided 2026-11-15: refuse**, with "rows came
+  from a Lua loader; :save them and export the file". An inline `VALUES` copy is a script that
+  only replays a snapshot; `:save` + export says that honestly.
+- Sessions: reopen the file the user opened (`display_name`), so the loader runs again and shows
+  the rows the source has now. Found in discovery: path loaders wrote the loader's *tempfile* into
+  sessions; `LoadedSource::via_loader` fixes both.
+- `:tail` refuses, as it does for loaders now. `^R` doesn't reload file sheets at all today (it
+  rederives derived sheets), so nothing to do here.
 - Size: about 0.5 d (the `open` result match, the export placeholder, tests, guide, Lua API
   version bump).
 

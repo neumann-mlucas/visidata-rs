@@ -300,6 +300,9 @@ pub struct LoadedSource {
     pub display_name: String,
     pub path: Option<PathBuf>,
     pub lazy: LazyFrame,
+    /// Opened through a Lua loader: `display_name` is the file the user opened
+    /// (`path` is what the loader wrote, or none when it returned rows).
+    pub via_loader: bool,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -317,6 +320,7 @@ impl LoadedSource {
             display_name,
             path,
             lazy: df.lazy(),
+            via_loader: false,
             _tempfile: None,
         }
     }
@@ -328,6 +332,7 @@ impl LoadedSource {
             display_name: String::new(),
             path: None,
             lazy: DataFrame::empty().lazy(),
+            via_loader: false,
             _tempfile: None,
         }
     }
@@ -376,6 +381,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         display_name: dir.display().to_string(),
         path: Some(dir.to_owned()),
         lazy,
+        via_loader: false,
         _tempfile: None,
     })
 }
@@ -413,6 +419,7 @@ pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSour
         display_name: format!("{}:{part}", path.display()),
         path: Some(path.to_owned()),
         lazy,
+        via_loader: false,
         _tempfile: tempfile,
     })
 }
@@ -551,6 +558,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         display_name,
         path: Some(path.to_owned()),
         lazy,
+        via_loader: false,
         _tempfile: tempfile,
     })
 }
@@ -778,6 +786,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         display_name: "<stdin>".to_string(),
         path: None,
         lazy,
+        via_loader: false,
         _tempfile: Some(tmp),
     })
 }

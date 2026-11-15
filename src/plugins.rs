@@ -123,7 +123,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 12; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options
+pub const API_VERSION: i64 = 13; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {
@@ -138,6 +138,12 @@ struct KeymapPatch {
 pub struct LoaderRule {
     pub extensions: Vec<String>,
     pub open: LuaFunction,
+}
+
+/// What a loader's `open` gave back.
+pub enum LoaderOutput {
+    Path(PathBuf),
+    Rows(DataFrame),
 }
 
 pub struct Plugins {
@@ -445,14 +451,19 @@ impl Plugins {
             .cloned()
     }
 
-    /// Call a loader's `open(path)` and return the path it emitted. The Lua side
-    /// is expected to parse `src_path`, convert into a format we scan natively
-    /// (CSV/TSV/Parquet/Arrow/Jsonl), and return the destination path. Tempfile
-    /// cleanup is the plugin's responsibility — typically via `os.tmpname()`.
-    pub fn call_loader(&self, rule: &LoaderRule, src_path: &Path) -> mlua::Result<PathBuf> {
+    /// Call a loader's `open(path)`. It returns the path of a file it wrote in a
+    /// format we scan natively (the plugin owns that tempfile), or the rows
+    /// themselves as a `{ columns, rows }` table (S-39 A).
+    pub fn call_loader(&self, rule: &LoaderRule, src_path: &Path) -> mlua::Result<LoaderOutput> {
         let s = src_path.to_string_lossy().into_owned();
-        let out: String = rule.open.call(s)?;
-        Ok(PathBuf::from(out))
+        match rule.open.call::<LuaValue>(s)? {
+            LuaValue::String(p) => Ok(LoaderOutput::Path(PathBuf::from(p.to_str()?.to_string()))),
+            LuaValue::Table(t) => Ok(LoaderOutput::Rows(sheet_from_lua(&t, "loader open")?.1)),
+            other => Err(mlua::Error::RuntimeError(format!(
+                "loader open must return a path or a {{ columns, rows }} table, not {}",
+                other.type_name()
+            ))),
+        }
     }
 }
 
@@ -464,11 +475,18 @@ pub fn open(
     fmt: Option<SourceKind>,
 ) -> Result<LoadedSource, OpenError> {
     if let Some((p, rule)) = plugins.and_then(|p| Some((p, p.resolve_loader(Path::new(path))?))) {
-        let converted = p
+        let out = p
             .call_loader(&rule, Path::new(path))
             .map_err(|e| OpenError::Plugin(e.to_string()))?;
-        let mut loaded = crate::reader::open(converted.as_os_str(), fmt)?;
-        loaded.display_name = path.to_string_lossy().into_owned(); // what the user opened
+        let shown = path.to_string_lossy().into_owned(); // what the user opened
+        let mut loaded = match out {
+            LoaderOutput::Path(converted) => crate::reader::open(converted.as_os_str(), fmt)?,
+            LoaderOutput::Rows(df) => {
+                LoadedSource::from_df(SourceKind::Csv, shown.clone(), None, df)
+            }
+        };
+        loaded.display_name = shown;
+        loaded.via_loader = true;
         return Ok(loaded);
     }
     crate::reader::open(path, fmt)
@@ -591,7 +609,7 @@ fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
                     "vd.push_sheet works inside a vd.bind, vd.command or vd.on function".into(),
                 ));
             }
-            let sheet = sheet_from_lua(&spec)?;
+            let sheet = sheet_from_lua(&spec, "vd.push_sheet")?;
             r.borrow_mut().pushed.push(sheet);
             Ok(())
         })?,
@@ -862,13 +880,9 @@ fn unbind_fn(lua: &Lua, (layer_s, keys_val): (String, LuaValue)) -> mlua::Result
 /// `vd.register_loader { name = "...", extensions = {"...", ...}, open = fn(path) end }`
 /// (`name` is accepted and unused).
 ///
-/// `open(path)` must return a path string pointing at a file in a format we scan
-/// natively (CSV/TSV/Parquet/Arrow/Jsonl). The plugin owns the tempfile lifecycle.
-///
-/// Returning a DataFrame directly from Lua is intentionally **not supported** —
-/// it would require marshalling Lua tables → Polars Series with per-value type
-/// inference. Heavy-dep formats (SPSS, pcap, …) belong in `vdrs-ext-*` Rust crates
-/// per the S-09 extension ADR; everything else can convert to CSV in Lua.
+/// `open(path)` returns a path to a file in a format we scan natively (the
+/// plugin owns that tempfile), or a `{ columns, rows }` table as `vd.push_sheet`
+/// takes. Heavy-dep or huge formats belong in `vdrs-ext-*` Rust crates (S-09).
 fn register_loader_fn(lua: &Lua, spec: LuaTable) -> mlua::Result<()> {
     let open: LuaFunction = spec.get("open")?;
     let extensions: Vec<String> = strings(spec.get("extensions")?, "extensions")?
@@ -947,8 +961,8 @@ fn array_len(t: &LuaTable) -> Result<usize, String> {
 
 /// `{ name?, columns = {…}, rows = { {…}, … } }` → a DataFrame. Per column:
 /// all integers → i64, numbers → f64, all booleans → bool, else text; nil = null.
-fn sheet_from_lua(spec: &LuaTable) -> mlua::Result<(String, DataFrame)> {
-    let bad = |m: String| mlua::Error::RuntimeError(format!("vd.push_sheet: {m}"));
+fn sheet_from_lua(spec: &LuaTable, who: &str) -> mlua::Result<(String, DataFrame)> {
+    let bad = |m: String| mlua::Error::RuntimeError(format!("{who}: {m}"));
     let table = |key: &str| match spec.get::<LuaValue>(key)? {
         LuaValue::Table(t) => Ok(t),
         other => Err(bad(format!(
@@ -1654,7 +1668,51 @@ mod tests {
         .unwrap();
         let rule = p.resolve_loader(Path::new("input.mylog")).unwrap();
         let out = p.call_loader(&rule, Path::new("input.mylog")).unwrap();
-        assert_eq!(out, PathBuf::from("input.mylog.csv"));
+        assert!(matches!(out, LoaderOutput::Path(p) if p == Path::new("input.mylog.csv")));
+    }
+
+    #[test]
+    fn loader_may_return_rows_with_types() {
+        let p = Plugins::load_from_source(
+            r#"vd.register_loader { name = "pods", extensions = "pods", open = function(path)
+                 return { columns = {"name", "ready", "n"},
+                          rows = { {path, true, 1}, {"db", false, nil} } }
+               end }"#,
+        )
+        .unwrap();
+        let loaded = open(Some(&p), "x.pods".as_ref(), None).unwrap();
+        assert!(loaded.via_loader && loaded.path.is_none());
+        assert_eq!(loaded.display_name, "x.pods");
+        let df = loaded.lazy.collect().unwrap();
+        let dtypes: Vec<_> = df.dtypes();
+        assert_eq!(
+            dtypes,
+            [DataType::String, DataType::Boolean, DataType::Int64]
+        );
+        assert_eq!(
+            df.column("name").unwrap().str().unwrap().get(0),
+            Some("x.pods")
+        );
+        assert_eq!(df.column("n").unwrap().null_count(), 1);
+        // a bad table names the loader, not vd.push_sheet
+        let bad = Plugins::load_from_source(
+            r#"vd.register_loader { extensions = "bad", open = function() return { rows = {} } end }"#,
+        )
+        .unwrap();
+        let err = open(Some(&bad), "x.bad".as_ref(), None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("loader open: columns"), "{err}");
+        let num = Plugins::load_from_source(
+            r#"vd.register_loader { extensions = "num", open = function() return 3 end }"#,
+        )
+        .unwrap();
+        let err = open(Some(&num), "x.num".as_ref(), None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("path or a { columns, rows } table"), "{err}");
     }
 
     #[test]
@@ -1703,7 +1761,9 @@ mod tests {
         );
         let p = Plugins::load_from_source(&src).unwrap();
         let rule = p.resolve_loader(&input_path).unwrap();
-        let got = p.call_loader(&rule, &input_path).unwrap();
+        let LoaderOutput::Path(got) = p.call_loader(&rule, &input_path).unwrap() else {
+            panic!("expected a path")
+        };
         assert_eq!(got, out_path);
 
         let loaded = crate::reader::open(got.as_os_str(), None).unwrap();

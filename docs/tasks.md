@@ -7,7 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
-- [ ] S-39 A — a Lua loader may return rows (0.5 d); B `trait Source` when a live source needs it
+- [x] S-39 A — a Lua loader may return rows (api 13, 2026-11-15); B `trait Source` when a live source needs it
 - [ ] S-40 — Lua config: A `vd.augroup` / `vd.off` / `pattern` / `once` + events `tick` `enter` `loaded` `reload` (1–1.5 d); B project `.vdrs.lua` with `:trust`, merge order, `vd.reset()` (1.5–2 d); C multi-sheet loaders; loader by name (`--format`/`-f`), `patterns` (2 d, after S-39 A); D `vd.statusline` / `vd.titlebar` (1.5–2 d); G `vd.set_theme(table)` (0.5 d); E Lua sidebar pages (1 d); F guide recipes with open-format fixtures: cvsv, PDB, FASTA, access log; `vd.reset()` documented
 - [ ] Deferred 2026-11-12: deep plans overflow the stack in debug builds (16 MiB runtime threads for now); merge consecutive column steps into one plan node (1–1.5 d)
 

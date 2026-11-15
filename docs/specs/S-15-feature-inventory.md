@@ -332,7 +332,7 @@ vd.register_loader {
 
 Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEFORE `reader::open()`. First rule whose extensions list contains the path's extension (case-insensitive) wins; its `open(path)` is called and its string return is handed to the native reader.
 
-**By design NOT supported**: loaders returning data from Lua. They return a path; Lua tables → `Series` (per-column inference, `vd.push_sheet`) is only for small results built in a binding. Formats that can't convert to CSV/TSV/Parquet/Arrow/Jsonl in Lua belong in a `vdrs-ext-<fmt>` Rust crate per S-09 extension ADR.
+**Rows from Lua (api 13, S-39 A)**: `open` may return a `{ columns, rows }` table (the `vd.push_sheet` shape, typed per column) instead of a path. The sheet is in memory (`LoadedSource::via_loader`, no path); sessions reopen the original file through the loader (path loaders too, not the tempfile they wrote); `:export` refuses with a reason. Big or heavy-dep formats belong in a `vdrs-ext-<fmt>` Rust crate per S-09.
 
 **Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
 

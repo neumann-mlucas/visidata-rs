@@ -278,11 +278,10 @@ impl Script {
         if s.source.path.is_none() && empty() {
             return self.empty_source(s); // `A`: rows come from its steps
         }
-        let path = s
-            .source
-            .path
-            .as_deref()
-            .ok_or("export: sheet has no source file (stdin?)")?;
+        let path = s.source.path.as_deref().ok_or(match s.source.via_loader {
+            true => "export: rows came from a Lua loader; :save them and export the file",
+            false => "export: sheet has no source file (stdin?)",
+        })?;
         let shown = path.display().to_string();
         // `book.xlsx:Sheet2` / `app.db:users` opened one part of the file
         let part = s.source.display_name.strip_prefix(&format!("{shown}:"));

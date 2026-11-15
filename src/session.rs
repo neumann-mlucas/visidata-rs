@@ -212,7 +212,11 @@ impl Block {
 
     /// A sheet read from a file; false: it can't be reopened.
     fn root(&mut self, s: &Sheet) -> bool {
-        let path = s.source.path.as_deref().map(abs);
+        // a Lua loader runs again on the file the user opened, not on what it wrote
+        let path = match s.source.via_loader {
+            true => Some(abs(Path::new(&s.source.display_name))),
+            false => s.source.path.as_deref().map(abs),
+        };
         match (&s.origin, path) {
             (Origin::File | Origin::Parts { .. }, Some(path)) => {
                 self.ex(Action::Open { path });

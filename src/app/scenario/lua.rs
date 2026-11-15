@@ -382,3 +382,47 @@ async fn lua_renderer_styles_cells_under_color_rules() {
         "the renderer's bold stays"
     );
 }
+
+/// S-39 A: a loader returns rows; `F` runs on them in a job, a session reopens
+/// the file through the loader, and `:export` refuses with a reason.
+#[tokio::test(flavor = "multi_thread")]
+async fn loader_rows_open_freq_and_session_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let pods = dir.path().join("x.pods");
+    std::fs::write(&pods, "").unwrap();
+    let lua = r#"vd.register_loader { extensions = "pods", open = function(p)
+        return { columns = {"name", "ready"}, rows = { {"api", true}, {"db", false}, {"web", true} } }
+      end }"#;
+    let mut h = Harness::new(1).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.keys(":").await;
+    h.type_(&format!("open {}", pods.display())).await;
+    assert!(
+        title(&h).contains("x.pods") && title(&h).contains("row 1/3"),
+        "{}",
+        title(&h)
+    );
+    h.keys("l F").await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 2, "{}", h.screen());
+    h.keys("q :").await;
+    h.type_(&format!("export {}", dir.path().join("x.py").display()))
+        .await;
+    assert!(status(&h).contains("Lua loader"), "{}", status(&h));
+    let path = dir.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        script.contains(&format!("open {}", pods.display())),
+        "{script}"
+    );
+    let mut r = Harness::new(1).await;
+    r.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    r.app.source(&path.display().to_string(), false);
+    r.pump().await;
+    assert!(
+        title(&r).contains("x.pods") && title(&r).contains("row 1/3"),
+        "{}",
+        r.screen()
+    );
+}
