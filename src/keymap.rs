@@ -52,6 +52,17 @@ impl Keymap {
         }
     }
 
+    /// Drop the binding of `on` that wins (the last), returning it; an
+    /// earlier one (a default) wins again.
+    pub fn remove_last(&mut self, layer: Layer, on: &[Key]) -> Option<Chord> {
+        let v = match layer {
+            Layer::Sheet => &mut self.sheet,
+            Layer::Input => &mut self.input,
+        };
+        let i = v.iter().rposition(|c| c.on == on)?;
+        Some(v.remove(i))
+    }
+
     /// Resolve a key sequence against a layer. `pending` is what the user typed
     /// so far (empty on a fresh chord); `next` is the latest key.
     pub fn resolve(&self, layer: Layer, pending: &[Key], next: Key) -> Dispatch {
@@ -245,6 +256,8 @@ impl Keymap {
             ch(".", PlotColumn, "plot this column against the key column"),
             ch("g .", PlotNumerics, "plot the numeric columns against the key column"),
             ch("m", ToggleMacroRecord, "record macro / stop"),
+            ch("g m", MacroSheet, "macros sheet: d deletes, e rebinds, z Ctrl-s commits"),
+            ch("z <C-s>", CommitSheet, "commit the sheet's pending changes (macros sheet)"),
             ch("*", StartSubstInput { mode: crate::action::SubstMode::NewColumn }, "new column: regex replace of this one"),
             ch("g *", StartSubstInput { mode: crate::action::SubstMode::Selected }, "regex replace in selected rows"),
             ch("g z *", StartSubstInput { mode: crate::action::SubstMode::SelectedAll }, "regex replace in selected rows, all columns"),

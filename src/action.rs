@@ -107,6 +107,10 @@ pub enum Action {
     ToggleSidebar,
     /// `:footer` (S-36 C): the totals row on or off (`disp_footer`).
     ToggleFooter,
+    /// `gm` (S-36 E): the macros sheet.
+    MacroSheet,
+    /// `z<C-s>`: commit a sheet's pending changes (the macros sheet's).
+    CommitSheet,
     /// `Ctrl+G`: next page (column → cell → help → plan), opening it.
     CycleSidebar,
     /// `:sidebar <page>`.
@@ -758,7 +762,7 @@ impl Action {
             StartAddColInput | StartCaptureInput => false,
             AddCol { .. } | AddColIncr | SetColIncr | SetColFill | Capture { .. } => true,
             PrecisionMore | PrecisionLess | SetPrecision { .. } | SetFmtstr { .. } => false,
-            SetOption { .. } | ToggleFooter => false,
+            SetOption { .. } | ToggleFooter | MacroSheet | CommitSheet => false,
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
@@ -1032,6 +1036,8 @@ impl Action {
         ("precision_more", PrecisionMore),
         ("precision_less", PrecisionLess),
         ("footer", ToggleFooter),
+        ("macro_sheet", MacroSheet),
+        ("commit_sheet", CommitSheet),
         ("slide_left", SlideCol { by: -1 }),
         ("slide_right", SlideCol { by: 1 }),
         ("slide_leftmost", SlideCol { by: i64::MIN }),

@@ -42,6 +42,7 @@ mod golden;
 mod hooks;
 mod input;
 mod jobs;
+mod macros;
 #[cfg(test)]
 mod monkey;
 mod render;
@@ -574,6 +575,8 @@ pub struct App {
     /// `:footer` (S-36 C): totals for a footer key, and the one last asked.
     footer: Option<(String, Footer)>,
     footer_asked: Option<String>,
+    /// `gm` (S-36 E): changes marked on the macros sheet, not committed yet.
+    macro_edits: Vec<macros::MacroEdit>,
     /// `Z` (S-23 B): the second pane, if split.
     split: Option<Split>,
     /// Cell notes by source file, read when first shown (S-30 B).
@@ -674,6 +677,7 @@ impl App {
             sel_stats_asked: None,
             footer: None,
             footer_asked: None,
+            macro_edits: Vec::new(),
             link_seen: None,
             notes: Default::default(),
             split: None,

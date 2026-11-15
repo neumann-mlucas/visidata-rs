@@ -101,6 +101,9 @@ impl App {
         {
             return;
         }
+        if matches!(self.sheets.active().origin, Origin::Macros) && self.macros_dispatch(&action) {
+            return;
+        }
         if matches!(self.sheets.active().origin, Origin::Plot { .. }) && self.plot_dispatch(&action)
         {
             return;
@@ -141,7 +144,8 @@ impl App {
         }
         match action {
             Action::Quit => {
-                let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum();
+                let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum::<usize>()
+                    + self.macro_edits.len();
                 if n == 0 {
                     self.quit = true;
                 } else {
@@ -154,7 +158,11 @@ impl App {
             Action::CancelAllJobs => self.cancel_jobs(true),
             Action::PopSheet => {
                 let s = self.sheets.active();
-                match s.unsaved_edits() {
+                let pending = match s.origin {
+                    Origin::Macros => self.macro_edits.len(),
+                    _ => 0,
+                };
+                match s.unsaved_edits() + pending {
                     0 => self.pop_sheet(),
                     n => {
                         let q = format!("discard {} to {}?", edits(n), s.name);
@@ -1032,6 +1040,10 @@ impl App {
                     Err(e) => e,
                 });
             }
+            Action::MacroSheet => self.open_macros(),
+            Action::CommitSheet => {
+                self.toast = Some("commit-sheet: nothing to commit on this sheet".into())
+            }
             Action::ToggleFooter => {
                 let on = (!self.theme.footer).to_string();
                 self.toast = Some(self.set_option("disp_footer", Some(&on)));
@@ -1881,6 +1893,9 @@ impl App {
 
     pub(super) fn pop_sheet(&mut self) {
         let popped_id = self.sheets.active().id;
+        if matches!(self.sheets.active().origin, Origin::Macros) {
+            self.macro_edits.clear(); // not committed: dropped
+        }
         if self.sheets.pop() {
             // the pane's last sheet: the other pane fills the screen
             if self

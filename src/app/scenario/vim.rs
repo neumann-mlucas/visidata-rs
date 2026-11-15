@@ -508,3 +508,75 @@ async fn vim_huge_operator_count_saturates() {
         h.screen()
     );
 }
+
+/// S-36 E: `gm` lists macros; `d` and `e` only mark (still bound, file as
+/// it was), `q` asks first, `z<C-s>` commits: unbound, rebound, file lines
+/// changed and a hand-written line kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn macros_sheet_marks_then_commits() {
+    let path = crate::plugins::macros_path().unwrap();
+    let _ = std::fs::remove_file(&path);
+    let mut h = Harness::new(30).await;
+    h.keys("m l l F q m").await;
+    h.type_("<F5>").await;
+    h.keys("m l m").await;
+    h.type_("<F6>").await;
+    let mut text = std::fs::read_to_string(&path).unwrap();
+    text.insert_str(0, "-- by hand\n");
+    std::fs::write(&path, &text).unwrap();
+    // one from init.lua: listed, read-only
+    h.app.keymap.append(
+        Layer::Sheet,
+        Chord {
+            on: vec!["<F8>".parse().unwrap()],
+            run: vec![Action::Macro(vec![Action::GotoTop])],
+            desc: "mine".into(),
+        },
+    );
+    h.keys("g m").await;
+    assert!(title(&h).contains("macros"), "{}", title(&h));
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 3, "{}", h.screen());
+    assert!(
+        h.screen()
+            .contains("<F5>      3          cursor_right macros.lua"),
+        "{}",
+        h.screen()
+    );
+    h.keys("d").await; // <F5>
+    assert!(h.screen().contains("delete"), "{}", h.screen());
+    h.keys("j e <C-u>").await;
+    h.type_("<F7>").await;
+    assert!(h.screen().contains("bind <F7>"), "{}", h.screen());
+    h.keys("j d").await;
+    assert!(status(&h).contains("init.lua"), "{}", status(&h));
+    // nothing changed yet
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    let bound = |h: &Harness, k: &str| {
+        let on: Vec<Key> = vec![k.parse().unwrap()];
+        h.app.keymap.chords(Layer::Sheet).iter().any(|c| c.on == on)
+    };
+    assert!(bound(&h, "<F5>") && !bound(&h, "<F7>"));
+    h.keys("q").await;
+    assert!(status(&h).contains("discard 2"), "{}", status(&h));
+    h.keys("n").await;
+    assert!(title(&h).contains("macros"), "{}", title(&h));
+    // Enter: the macro's steps
+    h.keys("g g <CR>").await;
+    assert!(h.screen().contains("open_freq_table"), "{}", h.screen());
+    h.keys("q z <C-s>").await;
+    assert_eq!(status(&h), "macros: 2 committed");
+    assert!(!bound(&h, "<F5>") && bound(&h, "<F7>") && !bound(&h, "<F6>"));
+    let now = std::fs::read_to_string(&path).unwrap();
+    assert!(now.starts_with("-- by hand\n"), "{now}");
+    assert!(
+        !now.contains("<F5>") && !now.contains("<F6>") && now.contains("<F7>"),
+        "{now}"
+    );
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 2, "{}", h.screen());
+    h.keys("q").await; // nothing pending: no question
+    assert!(!title(&h).contains("macros"), "{}", title(&h));
+    h.keys("g h <F7>").await; // the rebound macro still runs
+    assert!(title(&h).contains(" 2/4"), "{}", title(&h));
+}

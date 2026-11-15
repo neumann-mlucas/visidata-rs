@@ -208,7 +208,17 @@ and selection stats in the status line (S-30 C). Neither gives a total per colum
     on 3 selected rows with one bad is refused whole. Warn mode lets the edit through and styles
     the cell.
 
-## E. Macros sheet `gm` (1.5–2 d)
+## E. Macros sheet `gm` (1.5–2 d) — shipped 2026-11-15
+
+As built (`src/app/macros.rs`): rows from the keymap (a sheet chord running one `Action::Macro`,
+the binding that wins for its keys), `source` = `macros.lua` when that file has a line for the
+keys (`plugins::macro_prefix`), else `init.lua` (read-only). Marks live in `App::macro_edits`
+and show in a `change` column; `z<C-s>` (`commit_sheet`) unbinds (`Keymap::remove_last`, so a
+default under it wins again) or rebinds and rewrites the lines (`plugins::remove_macro`,
+`save_macro`). Cut from v1: editing and deleting single steps (`Enter` lists them read-only;
+recording again on the same keys replaces a macro, so a second deferred layer isn't worth it
+until asked). `z<C-s>` elsewhere toasts; it is VisiData's `commit-sheet`, so S-37 P0c's options
+sheet reuses it. No replay case uses `macro-sheet`.
 
 VisiData `gm` (`macro-sheet`, `visidata/macros.py`): an index of macros.
 

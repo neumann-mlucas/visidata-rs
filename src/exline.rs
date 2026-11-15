@@ -313,6 +313,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }
         "uniform" | "hide-uniform" => Ok(vec![Action::HideUniform]),
         "dup" => Ok(vec![Action::DupSheet]),
+        "macros" => Ok(vec![Action::MacroSheet]),
         "plan" => Ok(vec![Action::TogglePlanPanel]),
         "sidebar" if rest.is_empty() => Ok(vec![Action::ToggleSidebar]),
         "sidebar" => crate::action::SidebarPage::parse(rest)

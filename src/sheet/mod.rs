@@ -313,6 +313,8 @@ pub enum Origin {
     },
     /// A text listing vdrs made: `z<C-h>` bindings, `:jumps`.
     Listing,
+    /// `gm` (S-36 E): a row per macro binding; `d`/`e` mark, `z<C-s>` commits.
+    Macros,
     /// `g"` / `:dup`: copy of `parent`'s view.
     Copy {
         parent: SheetId,
@@ -351,6 +353,7 @@ impl Origin {
             Origin::Describe { .. } => "describe",
             Origin::Lua { .. } => "lua",
             Origin::Listing => "list",
+            Origin::Macros => "macros",
             Origin::Copy { .. } => "copy",
             Origin::Parts { .. } => "parts",
             Origin::Join { .. } => "join",

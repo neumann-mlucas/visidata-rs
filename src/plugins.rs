@@ -1272,14 +1272,31 @@ pub fn macro_line(keys: &[Key], steps: &[String]) -> String {
 /// lines (hand edits) stay.
 pub fn save_macro(path: &Path, keys: &[Key], steps: &[String]) -> std::io::Result<()> {
     let line = macro_line(keys, steps);
-    let prefix = &line[..line.find("}, {").map_or(line.len(), |i| i + 3)];
+    let prefix = macro_prefix(keys);
     let old = std::fs::read_to_string(path).unwrap_or_default();
-    let mut out: Vec<&str> = old.lines().filter(|l| !l.starts_with(prefix)).collect();
+    let mut out: Vec<&str> = old.lines().filter(|l| !l.starts_with(&prefix)).collect();
     out.push(&line);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(path, out.join("\n") + "\n")
+}
+
+/// The start of the line `m` writes for a macro on `keys`, up to its steps.
+pub fn macro_prefix(keys: &[Key]) -> String {
+    let line = macro_line(keys, &[]);
+    line[..line.find("}, {").map_or(line.len(), |i| i + 3)].to_string()
+}
+
+/// Drop the macro on `keys` from `path` (`gm`, S-36 E); other lines stay.
+pub fn remove_macro(path: &Path, keys: &[Key]) -> std::io::Result<()> {
+    let prefix = macro_prefix(keys);
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    let out: Vec<&str> = old.lines().filter(|l| !l.starts_with(&prefix)).collect();
+    std::fs::write(
+        path,
+        out.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
 }
 
 /// A Lua string literal.
