@@ -1140,7 +1140,8 @@ pub fn default_init_lua() -> String {
          -- .duckdb files: the DuckDB program vdrs runs. Default: duckdb on PATH.\n\
          -- vd.option(\"duckdb_cmd\", \"/usr/local/bin/duckdb\")\n\
          \n\
-         -- Keys: \"visidata\" (default) or \"vim\" (hjkl motions, counts, operators, visual).\n\
+         -- Keys: \"visidata\" (default) or \"vim\": rebinds the keys where vim and VisiData\n\
+         -- disagree (u undo, d/y/c operators, q macros, m/' marks, w/b/e cell motions).\n\
          -- vd.option(\"keymap\", \"vim\")\n\
          \n\
          -- Decimals of every float column (\"%.Nf\" or \"{{:.Nf}}\"). Default: shortest\n\
