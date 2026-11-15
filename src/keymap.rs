@@ -147,6 +147,7 @@ impl Keymap {
             ch("?", StartSearchInput { all_columns: false, backward: true }, "search current column backward"),
             ch("g /", StartSearchInput { all_columns: true, backward: false }, "search all columns"),
             ch("g ?", StartSearchInput { all_columns: true, backward: true }, "search all columns backward"),
+            ch("r", StartSearchKeysInput, "search the key columns (regex)"),
             ch("z /", StartSearchExprInput { backward: false }, "search by SQL predicate"),
             ch("z ?", StartSearchExprInput { backward: true }, "search by SQL predicate backward"),
             ch("n", SearchNext, "next match"),

@@ -342,7 +342,10 @@ impl App {
         {
             return;
         }
-        let search = matches!(prompt, Prompt::Search { .. } | Prompt::SearchExpr { .. });
+        let search = matches!(
+            prompt,
+            Prompt::Search { .. } | Prompt::SearchExpr { .. } | Prompt::SearchKeys
+        );
         if let Some(rec) = self.recording.as_mut().filter(|_| search) {
             rec.refused.push("search".into());
             self.toast = Some("not recorded (no ex form): search".into());
@@ -361,13 +364,22 @@ impl App {
                     all_columns,
                     backward,
                     expr: false,
+                    keys: false,
                 });
             }
+            Prompt::SearchKeys => self.start_search(SearchState {
+                pattern: text,
+                all_columns: false,
+                backward: false,
+                expr: false,
+                keys: true,
+            }),
             Prompt::SearchExpr { backward } => self.start_search(SearchState {
                 pattern: text,
                 all_columns: false,
                 backward,
                 expr: true,
+                keys: false,
             }),
             Prompt::Derive => {
                 let (name, expr) = derive_input(&text, |n| self.sheets.active().has_column(n));

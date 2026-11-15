@@ -155,12 +155,12 @@ impl Sheet {
     }
 
     /// Rows of the full view where `pattern` (regex, case-insensitive, as
-    /// VisiData) matches `column`, or any visible column when `None`, as
-    /// `(view row, first matching column)`, in view order.
+    /// VisiData) matches one of `columns`, or any visible column when `None`,
+    /// as `(view row, first matching column)`, in view order.
     pub fn search_hits(
         &self,
         pattern: &str,
-        column: Option<&str>,
+        columns: Option<&[String]>,
     ) -> PolarsResult<Vec<(u64, usize)>> {
         let plan = self.view_plan();
         let names: Vec<String> = plan
@@ -170,7 +170,7 @@ impl Sheet {
             .map(|n| n.to_string())
             .collect();
         let searched: Vec<usize> = (0..names.len())
-            .filter(|&i| column.is_none_or(|c| names[i] == c))
+            .filter(|&i| columns.is_none_or(|c| c.contains(&names[i])))
             .collect();
         if searched.is_empty() {
             return Ok(Vec::new());

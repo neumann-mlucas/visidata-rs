@@ -988,3 +988,23 @@ async fn select_to_next_and_prev_selected() {
     h.keys("g g s G z {").await;
     assert_eq!(sel(&h).len(), 7, "{}", status(&h));
 }
+
+/// S-41 C: `r` searches the key columns (the first visible column without
+/// keys) and keeps the cursor column; `n` repeats it.
+#[tokio::test(flavor = "multi_thread")]
+async fn search_keys_keeps_the_column() {
+    let mut h = csv(b"id,k,v\n1,a,b\n2,b,a\n3,b,c\n").await;
+    let pos = |h: &Harness| {
+        let v = &h.app.sheets.active().view;
+        (v.window_offset + v.row_cursor as u64, v.col_cursor)
+    };
+    h.keys("l l r").await; // no keys: the first column
+    h.type_("3").await;
+    assert_eq!(pos(&h), (2, 2), "{}", status(&h));
+    h.keys("h !").await; // key k: it moves to the front (k, id, v)
+    h.keys("g g l r").await;
+    h.type_("B").await;
+    assert_eq!(pos(&h), (1, 1), "{}", status(&h));
+    h.keys("n").await;
+    assert_eq!(pos(&h), (2, 1), "{}", status(&h));
+}

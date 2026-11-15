@@ -94,7 +94,7 @@ issue3022-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 issue3103	SKIP addcol-shell
 issue3146-paste	SKIP runtime: read-only: ../visidata/tests/data1.tsv_columns is derived
 issue3146-vds	SKIP runtime: save: unknown extension '.vds'
-issue3163	SKIP search-keys
+issue3163	SKIP runtime: "edited" doesn't fit Key (i64)
 issue3174-deepcopy-append	PASS
 issue3174-deepcopy-concat	PASS
 issue3174-deepcopy-full	PASS

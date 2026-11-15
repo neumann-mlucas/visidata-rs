@@ -371,6 +371,8 @@ pub enum Action {
         all_columns: bool,
         backward: bool,
     },
+    /// `r` (VisiData search-keys): regex over the key columns.
+    StartSearchKeysInput,
     /// `z/` / `z?`: search by SQL predicate.
     StartSearchExprInput {
         backward: bool,
@@ -821,6 +823,7 @@ impl Action {
             Scale { .. } | DataBar { .. } => true,
             OpenSheetSwitcher => false,
             StartSearchInput { .. }
+            | StartSearchKeysInput
             | StartSearchExprInput { .. }
             | StartDeriveInput
             | StartSelectExprInput { .. }
@@ -931,6 +934,7 @@ impl Action {
         ("start_searchr_input", StartSearchInput { all_columns: false, backward: true }),
         ("start_search_all_input", StartSearchInput { all_columns: true, backward: false }),
         ("start_searchr_all_input", StartSearchInput { all_columns: true, backward: true }),
+        ("start_search_keys_input", StartSearchKeysInput),
         ("start_search_expr_input", StartSearchExprInput { backward: false }),
         ("start_searchr_expr_input", StartSearchExprInput { backward: true }),
         ("start_derive_input", StartDeriveInput),

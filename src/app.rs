@@ -351,6 +351,8 @@ enum Prompt {
     SearchExpr {
         backward: bool,
     },
+    /// `r`: the key columns.
+    SearchKeys,
     /// `=`.
     Derive,
     /// `z|` `z\`.
@@ -487,6 +489,7 @@ impl Prompt {
                 (true, true) => "g?",
             },
             Prompt::SearchExpr { backward: false } => "search by expr: ",
+            Prompt::SearchKeys => "row key: ",
             Prompt::SearchExpr { backward: true } => "searchr by expr: ",
             Prompt::Derive => "new column expr= ",
             Prompt::SelectExpr { unselect: false } => "select by expr: ",

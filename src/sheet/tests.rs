@@ -341,9 +341,13 @@ fn search_hits_scan_full_view_in_view_order() {
     assert_eq!(s.search_hits("3", None).unwrap(), vec![(2, 1)]);
     assert!(s.search_hits("zzz", None).unwrap().is_empty());
     // one column, regex (VisiData `/`)
-    assert!(s.search_hits("3", Some("name")).unwrap().is_empty());
+    assert!(
+        s.search_hits("3", Some(&["name".into()]))
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
-        s.search_hits("^(b|c)", Some("name")).unwrap(),
+        s.search_hits("^(b|c)", Some(&["name".into()])).unwrap(),
         vec![(0, 0), (1, 0)]
     );
 }

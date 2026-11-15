@@ -340,6 +340,7 @@ impl App {
                 all_columns,
                 backward,
             }),
+            Action::StartSearchKeysInput => self.start_input(Prompt::SearchKeys),
             Action::StartSearchExprInput { backward } => {
                 self.start_input(Prompt::SearchExpr { backward })
             }
@@ -641,6 +642,7 @@ impl App {
                     all_columns: false,
                     backward,
                     expr: false,
+                    keys: false,
                 });
             }
             Action::Reselect => match self.last_visual {
@@ -1624,9 +1626,21 @@ impl App {
         let backward = st.backward != reverse;
         let cur = s.view.window_offset + s.view.row_cursor as u64;
         let cur_col = s.view.col_cursor;
-        let column = (!st.all_columns && !st.expr)
-            .then(|| self.current_column_name())
-            .flatten();
+        let columns: Option<Vec<String>> = match () {
+            _ if st.keys => {
+                let visible = self.visible_cols();
+                let keys: Vec<String> = (s.view.keys.iter())
+                    .filter(|k| visible.contains(k))
+                    .cloned()
+                    .collect();
+                Some(match keys.is_empty() {
+                    true => visible.into_iter().take(1).collect(),
+                    false => keys,
+                })
+            }
+            _ if st.all_columns || st.expr => None,
+            _ => Some(self.current_column_name().into_iter().collect()),
+        };
         let sheet = s.clone();
         // ponytail: full scan per n/N; cache hits per (pattern, view) if big files lag.
         self.spawn_job("search", move || {
@@ -1634,9 +1648,13 @@ impl App {
                 let rows = sheet.expr_hits(&st.pattern)?;
                 rows.into_iter().map(|r| (r, cur_col)).collect()
             } else {
-                sheet
-                    .search_hits(&st.pattern, column.as_deref())
-                    .map_err(|e| e.to_string())?
+                let hits = sheet
+                    .search_hits(&st.pattern, columns.as_deref())
+                    .map_err(|e| e.to_string())?;
+                match st.keys {
+                    true => hits.into_iter().map(|(r, _)| (r, cur_col)).collect(),
+                    false => hits,
+                }
             };
             let next = if backward {
                 hits.iter().rev().find(|(r, _)| *r < cur).or(hits.last())

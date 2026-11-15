@@ -572,6 +572,9 @@ pub struct SearchState {
     pub backward: bool,
     /// `z/` / `z?`: `pattern` is a SQL predicate (S-21).
     pub expr: bool,
+    /// `r` (S-41 C): the key columns (the first visible column without
+    /// keys); the cursor column stays.
+    pub keys: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

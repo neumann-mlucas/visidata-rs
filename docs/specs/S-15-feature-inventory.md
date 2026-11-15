@@ -90,6 +90,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `ClearFilter` | `zf` | `:unfilter` | — |
 | `SearchNext` / `SearchPrev` | `n` / `N` | — | next hit in the search's direction / against it, whole view, wrapping |
 | `StartSearchInput { all_columns, backward }` | `/` `?` / `g/` `g?` | — | case-insensitive regex in the cursor column (at each `n`) / every visible column (VisiData search-col / search-cols) |
+| `StartSearchKeysInput` | `r` | — | the same regex over the visible key columns (the first visible column without keys), forward; `n`/`N` repeat; the cursor column stays (VisiData search-keys, S-41 C) |
 | `StartSearchExprInput { backward }` | `z/` / `z?` | — | next row where a SQL predicate holds (hidden columns allowed) |
 
 Selections key on row ids (position in the base plan), so they survive sort and filter.

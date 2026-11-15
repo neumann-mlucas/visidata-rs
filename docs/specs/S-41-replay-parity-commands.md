@@ -1,6 +1,6 @@
 # S-41 — VisiData commands the replay corpus is blocked on
 
-Status: **drafted 2026-11-15**; A, B shipped 2026-11-15.
+Status: **drafted 2026-11-15**; A–C shipped 2026-11-15.
 Depends on: S-25 P0 (replay harness), S-33 (background selection jobs).
 
 ## 1. Today
@@ -32,6 +32,10 @@ keymap; the vim profile is unchanged.
   `select-col-regex` / `unselect-col-regex` code (case-sensitive, row index as row id) is gone:
   all four longnames go through `rids_matching_any`. load-pandas-2 passes (72).
 - **B**: one background job over the sorted view's row ids. select-to-selected passes (73).
+- **C**: `SearchState.keys`; `search_hits` takes a column list. issue3163 now stops later, at
+  `edit-cell edited` on `Key`: vdrs reads `Key` as i64 and refuses text (VisiData reads text),
+  the typed-reads difference of S-25 P2. No new pass. The replay's `hide-col` now moves its
+  cursor to the next visible column, as VisiData does.
 
 ## 3. Out of scope
 

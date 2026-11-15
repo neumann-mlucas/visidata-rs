@@ -883,11 +883,25 @@ impl Replay {
                 s.rename_col(&r.col, &r.input).map_err(Runtime)
             }
             "hide-col" => {
-                self.current_slot_mut()?
-                    .sheet
-                    .view
-                    .hidden
-                    .insert(r.col.clone());
+                let visible = |s: &Sheet| -> Vec<String> {
+                    s.view_plan()
+                        .collect_schema()
+                        .map(|sc| sc.iter_names().map(|n| n.to_string()).collect())
+                        .unwrap_or_default()
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                let at = visible(s).iter().position(|c| *c == r.col);
+                s.view.hidden.insert(r.col.clone());
+                // VisiData's cursor keeps its screen position: the next visible
+                // column (the last when it was the last); none left → stays
+                let after = visible(s);
+                if let (Some(at), Some(cursor), Some(cur)) =
+                    (at, self.cursor.as_mut(), self.current)
+                    && let Some(next) = after.get(at.min(after.len().saturating_sub(1)))
+                    && let Some(pos) = cursor.get_mut(&cur)
+                {
+                    pos.0 = next.clone();
+                }
                 Ok(())
             }
             "key-col" => {
@@ -945,6 +959,34 @@ impl Replay {
             "select-row" => self.toggle_single(&r.row, true, false),
             "unselect-row" => self.toggle_single(&r.row, false, false),
             "stoggle-row" => self.toggle_single(&r.row, false, true),
+            // `r`: the next row whose key columns (first visible column without
+            // keys) match; moves only the row cursor
+            "search-keys" => {
+                let s = &self.current_slot()?.sheet;
+                let rt = |e: PolarsError| Runtime(e.to_string());
+                let visible: Vec<String> = (s.view_plan().collect_schema().map_err(rt)?)
+                    .iter_names()
+                    .map(|n| n.to_string())
+                    .collect();
+                let keys: Vec<String> = (s.view.keys.iter())
+                    .filter(|k| visible.contains(k))
+                    .cloned()
+                    .collect();
+                let cols = match keys.is_empty() {
+                    true => visible.into_iter().take(1).collect(),
+                    false => keys,
+                };
+                let hits = s.search_hits(&r.input, Some(&cols)).map_err(rt)?;
+                let at: u64 = r.row.parse().unwrap_or(0);
+                let next = hits.iter().find(|(h, _)| *h > at).or(hits.first());
+                if let (Some((row, _)), Some(cursor), Some(cur)) =
+                    (next, self.cursor.as_mut(), self.current)
+                    && let Some(pos) = cursor.get_mut(&cur)
+                {
+                    pos.1 = row.to_string();
+                }
+                Ok(())
+            }
             "select-to-next-selected" | "select-to-prev-selected" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 let rid = view_rid(s, &r.row)?;
