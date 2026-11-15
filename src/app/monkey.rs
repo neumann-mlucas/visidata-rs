@@ -10,7 +10,7 @@ const KEYS: &[&str] = &[
     "g d", "x", "y", "z y", "z p", "g z p", "z x", "z d", "a", "p", "A", "z P", "U", "R",
     "U", // history-heavy (S-20)
     "Z", "g Z", "<Tab>", "g <Tab>", "<C-r>", // panes, refresh (S-23 B, S-30 A)
-    "V", "<C-v>", "<Esc>", // visual (S-26 C)
+    "V", "<C-v>", "<Esc>", // visual rows (S-26 C); <C-v> is show-version
 ];
 
 /// Prompt openers paired with what to type; a tenth of the steps use these.
@@ -27,6 +27,7 @@ const PROMPTS: &[(&str, &str)] = &[
     (":", "type currency"),
     (":", "earlier 2"),
     (":", "later"),
+    (":", "visual-block"), // <C-v> no longer reaches it (VisiData keys)
 ];
 
 fn next(state: &mut u64) -> usize {
