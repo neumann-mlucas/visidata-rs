@@ -719,7 +719,7 @@ print(t3.collect())</code></pre>
 <p>Any key in either keymap can be changed with <a href="#lua"><code>vd.bind</code></a>. Commands that lost their default key keep an ex command: <code>:freeze</code>, <code>:unfreeze</code>, <code>:unsort</code>, <code>:visual-block</code>.</p>
 <h3 id="breaking">Changed keys (2026-11-14)</h3>
 <p>These default keys now mean what they mean in VisiData. If you used the old meaning, use the replacement or switch to the vim profile, which keeps most of them.</p>
-<div class="table-wrap"><table>
+<div class="scroll"><table>
 <tr><th>Key</th><th>Was</th><th>Now (VisiData)</th><th>Old meaning now on</th></tr>
 <tr><td><kbd>s</kbd></td><td>toggle row selection</td><td>select row, cursor down</td><td><kbd>t</kbd> (toggle)</td></tr>
 <tr><td><kbd>t</kbd>, <kbd>u</kbd></td><td>toggle / unselect, cursor stays</td><td>same, then cursor down</td><td>—</td></tr>
@@ -902,7 +902,7 @@ print(t3.collect())</code></pre>
 <h3 id="vim">The vim profile</h3>
 <p><code>vd.option("keymap", "vim")</code> in <code>init.lua</code> applies these bindings over the defaults. They are ordinary <code>vd.bind</code> calls, so later lines of your <code>init.lua</code> can change them. In a prompt, <kbd>Esc</kbd> enters normal mode (<kbd>h l w b e 0 $ x dw cw D C i a A I u</kbd>); <kbd>Esc</kbd> again cancels, <kbd>Enter</kbd> submits from either mode.</p>
 <p><kbd>d</kbd>, <kbd>y</kbd> and <kbd>c</kbd> wait for what they act on: the same key again (<kbd>d</kbd><kbd>d</kbd> the row), a motion (<kbd>d</kbd><kbd>j</kbd> two rows, <kbd>2</kbd><kbd>d</kbd><kbd>3</kbd><kbd>j</kbd> seven, <kbd>d</kbd><kbd>G</kbd> to the end, <kbd>d</kbd><kbd>}</kbd> to the next value), or <kbd>i</kbd> and an object: <kbd>r</kbd> the row, <kbd>s</kbd> the selection, <kbd>c</kbd> the column's cells, <kbd>v</kbd> the run of equal values around the cursor, <kbd>b</kbd> the block of non-empty cells. On <kbd>c</kbd>, <kbd>v</kbd> and <kbd>b</kbd>, <kbd>d</kbd> and <kbd>y</kbd> cut or copy the cells, not whole rows. <kbd>.</kbd> repeats the last one. <kbd>Esc</kbd> cancels.</p>
-<div class="table-wrap"><table>
+<div class="scroll"><table>
 <tr><th>Key</th><th>Action</th><th>Instead of</th></tr>
 <tr data-vim-keys="."><td><kbd>.</kbd></td><td><code>repeat_last</code></td><td></td></tr>
 <tr data-vim-keys="$"><td><kbd>$</kbd></td><td><code>goto_rightmost</code></td><td>default: currency cast</td></tr>
@@ -1027,7 +1027,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 
 <h3>vd.on(event, fn)</h3>
 <p>Run <code>fn(sheet)</code> on an event; several handlers per event run in the order registered, and an error in one is shown in the status line without stopping the others. <code>sheet</code> is what <code>vd.sheet()</code> returns, plus fields per event:</p>
-<div class="table-wrap"><table>
+<div class="scroll"><table>
 <tr><th>Event</th><th>Fires</th><th>Extra fields</th></tr>
 <tr><td><code>"open"</code></td><td>A sheet read from a file is on top, its first rows loaded.</td><td><code>path</code>, <code>format</code></td></tr>
 <tr><td><code>"push"</code></td><td>Any new sheet is on top (files and derived sheets).</td><td><code>path</code>, <code>format</code>, <code>origin</code> (<code>"file"</code>, <code>"freq"</code>, <code>"join"</code>, …)</td></tr>
