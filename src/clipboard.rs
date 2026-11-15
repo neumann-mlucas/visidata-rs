@@ -133,18 +133,9 @@ pub fn read(argv: &[String]) -> Result<String, String> {
 /// Pasted text as lines of tab-separated fields, as VisiData's
 /// `pasteFromClipboard`: `\r\n` endings and the final newline don't count.
 pub fn fields(text: &str) -> Vec<Vec<String>> {
-    let text = text.trim_end_matches(['\n', '\r']);
-    if text.is_empty() {
-        return Vec::new();
-    }
-    text.split('\n')
-        .map(|l| {
-            l.strip_suffix('\r')
-                .unwrap_or(l)
-                .split('\t')
-                .map(String::from)
-                .collect()
-        })
+    text.trim_end_matches(['\n', '\r'])
+        .lines()
+        .map(|l| l.split('\t').map(String::from).collect())
         .collect()
 }
 
@@ -298,6 +289,11 @@ mod tests {
         assert_eq!(fields("one"), [["one"]]);
         assert_eq!(fields("a\tb\r\n\tc\n\n"), [vec!["a", "b"], vec!["", "c"]]);
         assert_eq!(fields("a\tb\nc"), [vec!["a", "b"], vec!["c"]]); // ragged
+        assert_eq!(fields("\r\n\n"), Vec::<Vec<String>>::new());
+        assert_eq!(fields("a\n"), [["a"]]);
+        assert_eq!(fields("\t\t"), [["", "", ""]]); // empty fields
+        assert_eq!(fields("a\r\r\nb\rc"), [vec!["a\r"], vec!["b\rc"]]); // one \r per \n
+        assert_eq!(fields("a\n\nb"), [vec!["a"], vec![""], vec!["b"]]); // inner blank line
         // CSV only without tabs; quotes keep commas and newlines
         assert_eq!(
             table("x,\"a, \"\"b\"\"\"\r\n\"l1\nl2\",\n"),
