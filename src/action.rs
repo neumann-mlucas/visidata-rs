@@ -273,6 +273,14 @@ pub enum Action {
         name: String,
         expr: String,
     },
+    /// `:lookup` (S-36 A): columns of `source` (a sheet or file) matched by
+    /// `key` = their `their_key`; `cols`: (their column, new name).
+    Lookup {
+        source: String,
+        key: String,
+        their_key: String,
+        cols: Vec<(String, String)>,
+    },
     Sql {
         query: String,
     },
@@ -824,6 +832,7 @@ impl Action {
             | Lua(_)
             | LuaCommand { .. }
             | Join { .. }
+            | Lookup { .. }
             | Derive { .. }
             | Sql { .. }
             | SetCol { .. }
@@ -1136,6 +1145,32 @@ impl Action {
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
             Derive { name, expr } if !name.contains('=') => format!("derive {} = {expr}", q(name)),
+            Lookup {
+                source,
+                key,
+                their_key,
+                cols,
+            } if !key.contains('=')
+                && cols
+                    .iter()
+                    .all(|(c, n)| !c.contains('=') && !n.contains('=')) =>
+            {
+                let key = match key == their_key {
+                    true => key.clone(),
+                    false => format!("{key}={their_key}"),
+                };
+                let cols: Vec<String> = cols
+                    .iter()
+                    .map(|(c, n)| {
+                        if c == n {
+                            c.clone()
+                        } else {
+                            format!("{n}={c}")
+                        }
+                    })
+                    .collect();
+                format!("lookup {} {} {}", q(source), q(&key), q(&list(&cols)?))
+            }
             Sql { query } => format!("sql {query}"),
             ExecSql { sql } => format!("exec-sql {sql}"),
             SetExpr { expr } => format!("setexpr {expr}"),
@@ -1362,6 +1397,18 @@ mod tests {
             Derive {
                 name: s("dbl"),
                 expr: s("amt * 2"),
+            },
+            Lookup {
+                source: s("b.csv"),
+                key: s("id"),
+                their_key: s("id"),
+                cols: vec![(s("price"), s("price"))],
+            },
+            Lookup {
+                source: s("other sheet"),
+                key: s("sku"),
+                their_key: s("item id"),
+                cols: vec![(s("price"), s("unit price")), (s("qty"), s("qty"))],
             },
             Derive {
                 name: s("two words"),

@@ -394,6 +394,18 @@ impl Block {
                     }),
                     Err(e) => self.note(&format!("{} cells in {column} ({e})", patch.height())),
                 },
+                // ponytail: restored as a snapshot; the live link (A4) is lost
+                PlanStep::Lookup {
+                    name, key, table, ..
+                } => match self.sidecar(n, table) {
+                    Ok(path) => self.ex(Action::Lookup {
+                        source: path,
+                        key: key.clone(),
+                        their_key: "__k".into(),
+                        cols: vec![("__v".into(), name.clone())],
+                    }),
+                    Err(e) => self.note(&format!("lookup {name} ({e})")),
+                },
                 PlanStep::AddRows { rows } => match self.sidecar(n, rows) {
                     Ok(path) => self.ex(Action::Patch { column: None, path }),
                     Err(e) => self.note(&format!("{} added rows ({e})", rows.height())),

@@ -281,6 +281,14 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// `:lookup` steps for the job's sheet, new columns after `at` (S-36 A).
+    Lookup {
+        steps: Vec<crate::sheet::PlanStep>,
+        at: Option<String>,
+        note: Option<String>,
+    },
+    /// Live lookups' fresh tables for the job's sheet (S-36 A4).
+    LookupRefresh(Vec<crate::sheet::PlanStep>),
     /// `:footer` totals (S-36 C).
     Footer {
         key: String,
@@ -1134,6 +1142,8 @@ impl App {
             return;
         }
         self.link_seen = Some(s.id);
+        self.follow_lookups();
+        let s = self.sheets.active();
         if !s.state.linked {
             return;
         }

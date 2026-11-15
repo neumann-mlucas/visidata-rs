@@ -1713,6 +1713,27 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             py_str(expr),
             c = py_str(column)
         ),
+        PlanStep::Lookup {
+            name, key, table, ..
+        } => {
+            let (keys, vals, dtype) = lookup_lists(table);
+            let keys: Vec<String> = keys.iter().map(|k| py_str(k)).collect();
+            let vals: Vec<String> = vals
+                .iter()
+                .map(|v| v.as_deref().map_or("None".into(), py_str))
+                .collect();
+            let v = format!(
+                "pl.col({}).cast(pl.Utf8).replace_strict([{}], [{}], default=None, return_dtype=pl.Utf8)",
+                py_str(key),
+                keys.join(", "),
+                vals.join(", ")
+            );
+            format!(
+                "{t} = {t}.with_columns({}.alias({}))",
+                py_from_text(&v, &dtype),
+                py_str(name)
+            )
+        }
         PlanStep::SetCells { column, patch } => {
             let (rids, vals) = patch_lists(patch);
             let vals: Vec<String> = vals
@@ -1738,6 +1759,24 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             )
         }
     }
+}
+
+/// A `Lookup` table as key texts and value texts (null = None).
+fn lookup_lists(table: &DataFrame) -> (Vec<String>, Vec<Option<String>>, DataType) {
+    let texts = |c: &str| {
+        table
+            .column(c)
+            .and_then(crate::sheet::column_texts)
+            .unwrap_or_default()
+    };
+    let keys = texts("__k")
+        .into_iter()
+        .map(Option::unwrap_or_default)
+        .collect();
+    let dtype = table
+        .column("__v")
+        .map_or(DataType::String, |c| c.dtype().clone());
+    (keys, texts("__v"), dtype)
 }
 
 /// A `SetCells` patch as row ids and value texts (null = None).
@@ -1869,6 +1908,34 @@ fn sql_step(q: String, step: &PlanStep) -> String {
                 ids.join(", "),
                 sql_dtype(dtype),
                 c = q_ident(column)
+            )
+        }
+        PlanStep::Lookup {
+            name, key, table, ..
+        } => {
+            let (keys, vals, dtype) = lookup_lists(table);
+            let (n, t) = (q_ident(name), sql_dtype(&dtype));
+            if keys.is_empty() {
+                return format!("SELECT *, CAST(NULL AS {t}) AS {n} FROM ({q})");
+            }
+            let rows: Vec<String> = keys
+                .iter()
+                .zip(&vals)
+                .map(|(k, v)| {
+                    format!(
+                        "({}, {})",
+                        q_str(k),
+                        v.as_deref().map_or("NULL".into(), q_str)
+                    )
+                })
+                .collect();
+            format!(
+                // a join doesn't keep row order: number the rows, sort back
+                "SELECT * EXCLUDE (__k, __v, __ord), TRY_CAST(__v AS {t}) AS {n} \
+                 FROM (SELECT *, row_number() OVER () AS __ord FROM ({q})) \
+                 LEFT JOIN (VALUES {}) AS __l(__k, __v) ON CAST({} AS VARCHAR) = __l.__k ORDER BY __ord",
+                rows.join(", "),
+                q_ident(key)
             )
         }
         PlanStep::SetCells { column, patch } => {

@@ -1044,3 +1044,62 @@ async fn copies_keep_the_parents_widths() {
     assert!(title(&h).contains("selected (1 rows)"), "{}", title(&h));
     assert_eq!(widths(&h), parent);
 }
+
+/// `:lookup` (S-36 A): their first match per key lands after the cursor;
+/// the value follows a key edit and an edit of their sheet; a cycle is
+/// refused; their sheet closed, the values stay.
+#[tokio::test(flavor = "multi_thread")]
+async fn lookup_follows_keys_and_their_sheet() {
+    let mut h = Harness::new(4).await; // id 1..4
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("p.csv");
+    std::fs::write(&path, "id,price\n1,10\n2,20\n2,99\n4,40\n").unwrap();
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    let theirs = h.app.sheets.active().id;
+    let mine = h.app.sheets.iter().find(|s| s.id != theirs).unwrap().id;
+    h.keys("S <CR>").await;
+    assert_eq!(h.app.sheets.active().id, mine);
+    h.keys(":").await;
+    h.type_(&format!("lookup #{theirs} id price")).await;
+    assert_eq!(status(&h), "lookup: 1 rows repeat a id; first match kept");
+    assert_eq!(h.current_column(), "price");
+    let prices = |h: &Harness| -> Vec<String> {
+        view_csv(h)
+            .lines()
+            .skip(1)
+            .map(|l| l.split(',').nth(1).unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(prices(&h), ["10", "20", "", "40"]);
+    // key 3 → 4: the value follows
+    h.keys("j j h e <C-u>").await;
+    h.type_("4").await;
+    assert_eq!(prices(&h), ["10", "20", "40", "40"]);
+    // their price of 1 → 11, then back here: the lookup catches up
+    h.app.sheets.switch_to(theirs);
+    h.pump().await;
+    h.keys("g g l e <C-u>").await;
+    h.type_("11").await;
+    h.keys("S <CR>").await;
+    assert_eq!(h.app.sheets.active().id, mine);
+    assert_eq!(prices(&h)[0], "11");
+    // theirs looking up mine would be a cycle
+    h.app.sheets.switch_to(theirs);
+    h.pump().await;
+    h.keys(":").await;
+    h.type_(&format!("lookup #{mine} id name")).await;
+    assert!(status(&h).contains("looks up this sheet"), "{}", status(&h));
+    // their sheet closed: values kept, link frozen
+    h.keys("q y").await; // discard their edit
+    assert_eq!(h.app.sheets.active().id, mine);
+    assert!(
+        status(&h).contains("price keep their values"),
+        "{}",
+        status(&h)
+    );
+    assert_eq!(prices(&h), ["11", "20", "40", "40"]);
+    // one undo takes the column away
+    h.keys("U U").await;
+    assert!(!view_csv(&h).starts_with("id,price"), "{}", view_csv(&h));
+}

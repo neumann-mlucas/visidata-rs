@@ -25,7 +25,22 @@ Checked 2026-11-14:
 - The only new cross-sheet edge in this spec is A (lookups), which is live the way `:link` is (A4).
 - Doc task: the guide should say "derived columns follow edits" in one place, next to `:derive`.
 
-## A. Lookup columns: XLOOKUP (2.5–3 d)
+## A. Lookup columns: XLOOKUP (2.5–3 d) — shipped 2026-11-15
+
+As built (2026-11-15), where it differs from the draft below:
+
+- Syntax `:lookup <src> <key>[=<theirkey>] [<name>=]<col>[,…]`: `name=col` instead of `col as name`,
+  so the argument splits like `:join`'s and reads as `key=theirkey` does (mine on the left).
+- One `PlanStep::Lookup { name, key, table, link }` per column, a column step, so `apply_steps`
+  batches it. `table`: `__k` (their key as text, nulls dropped, first match) and `__v`. Keys
+  compare as text on both sides (`1` and `1.0` don't match; known ceiling).
+- `link: Option<LookupLink { sheet, their_key, column, stamp }>`; stamp = their `plan_key()` plus
+  their undo state, so a cell edit there counts. `follow_lookups` runs when the sheet becomes
+  active (with `follow_link`). No `⟳!` title marker and no parent-first chain refresh yet.
+- File sheets only (`editable()`), as other edits.
+- Sessions: the table goes to a parquet sidecar and restores as `:lookup <sidecar> key=__k
+  name=__v`, a snapshot; the link isn't restored. Export: always the inline table (Polars
+  `replace_strict`, DuckDB `LEFT JOIN (VALUES …)` sorted back), also for live lookups.
 
 Today `:join <sheet> <keys> extend` gives a new sheet. Excel users want the looked-up column on
 the sheet they're on.

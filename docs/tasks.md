@@ -86,7 +86,7 @@ Cross-spec dependencies: `vd.option` (S-18 B) blocks S-23 options, S-25 P6, S-26
 29. - [x] S-36 B — number formats: `{:,.2f}`, `{:.1%}`, `%d`, literal text; ints take `fmtstr`; `F` groups by a set format (1.5–2 d)
 30. - [x] S-36 E — macros sheet `gm` / `:macros`: list, delete, rebind, edit steps (1.5–2 d)
 31. - [x] S-36 C — totals footer `:footer` / `disp_footer` from `+` aggregators (1.5 d)
-32. - [ ] S-36 A — `:lookup` columns from another sheet, live as `:link` (2.5–3 d)
+32. - [x] S-36 A — `:lookup` columns from another sheet, live as `:link` (2.5–3 d)
 33. - [ ] S-36 D — `:validate` predicates checked on edits (1.5–2 d)
 
 Evidence-gated, any time: S-25 P6 options subset (after S-18 B), S-25 P7 cheap formats (each a yes/no vs direction §7), S-21 C0 → C Python subset, S-16 (rest of the S-10 Lua API) when a Lua user asks, S-24 R5 release binaries when the alpha is finished (not before). S-36 F named views when someone asks to switch views of one sheet. S-37 P1–P3 (GUI) once a GUI is decided.

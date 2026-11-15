@@ -206,6 +206,37 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }
             Ok(vec![Action::Join { source, keys, how }])
         }
+        "lookup" => {
+            const USAGE: &str = ":lookup <sheet|file> <key>[=<theirkey>] [<name>=]<col>[,…]";
+            let [source, key, cols] = split_args(rest, USAGE)?
+                .try_into()
+                .map_err(|_| ExError::Usage(USAGE))?;
+            let pair = |s: &str| match s.split_once('=') {
+                Some((a, b)) => (a.trim().to_string(), b.trim().to_string()),
+                None => (s.trim().to_string(), s.trim().to_string()),
+            };
+            let (key, their_key) = pair(&key);
+            let cols: Vec<(String, String)> = comma_list(&cols)
+                .iter()
+                .map(|c| {
+                    let (name, col) = pair(c);
+                    (col, name)
+                })
+                .collect();
+            if key.is_empty()
+                || their_key.is_empty()
+                || cols.is_empty()
+                || cols.iter().any(|(c, n)| c.is_empty() || n.is_empty())
+            {
+                return Err(ExError::Usage(USAGE));
+            }
+            Ok(vec![Action::Lookup {
+                source,
+                key,
+                their_key,
+                cols,
+            }])
+        }
         "derive" => {
             const USAGE: &str = ":derive <name> = <sql expression>";
             let (name, expr) = rest.split_once('=').ok_or(ExError::Usage(USAGE))?;

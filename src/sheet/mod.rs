@@ -12,6 +12,7 @@ pub(crate) mod columns;
 mod derive;
 mod diff;
 mod edit;
+mod lookup;
 mod meta;
 mod nested;
 mod plot;
@@ -29,7 +30,7 @@ pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, pivot_prefixes};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
-pub use step::{ADDED_RID, POS, PlanStep, capture_fields};
+pub use step::{ADDED_RID, LookupLink, POS, PlanStep, capture_fields};
 pub use undo::{Snapshot, UndoTree};
 pub use write::write_df_by_extension;
 

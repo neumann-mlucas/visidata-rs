@@ -87,6 +87,25 @@ pub enum PlanStep {
         pattern: String,
         name: String,
     },
+    /// `:lookup` (S-36 A): new column `name` = `table`'s `__v` where its
+    /// `__k` (text, unique) equals `key`'s value as text; null without a
+    /// match. `link`: where `table` came from, for refreshing it (A4).
+    Lookup {
+        name: String,
+        key: String,
+        table: Arc<DataFrame>,
+        link: Option<LookupLink>,
+    },
+}
+
+/// A live lookup's source: `column` of sheet `sheet` by `their_key`, as
+/// collected when that sheet's [`Sheet::lookup_stamp`] was `stamp`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LookupLink {
+    pub sheet: SheetId,
+    pub their_key: String,
+    pub column: String,
+    pub stamp: String,
 }
 
 /// First id of an added row; source rows' ids are positions, far below.
@@ -162,7 +181,9 @@ impl PlanStep {
             | PlanStep::SetCells { column, .. }
             | PlanStep::Replace { column, .. }
             | PlanStep::Json { column, .. } => Some(column),
-            PlanStep::Derive { name, .. } | PlanStep::Capture { name, .. } => Some(name),
+            PlanStep::Derive { name, .. }
+            | PlanStep::Capture { name, .. }
+            | PlanStep::Lookup { name, .. } => Some(name),
             PlanStep::Rename { .. }
             | PlanStep::DeleteRows { .. }
             | PlanStep::AddRows { .. }
@@ -226,6 +247,17 @@ impl PlanStep {
                 }
             }
             PlanStep::Json { dtype, .. } => current.str().json_decode(dtype.clone()),
+            PlanStep::Lookup { key, table, .. } => {
+                let keys = table.column("__k")?.as_materialized_series().clone();
+                let vals = table.column("__v")?.as_materialized_series().clone();
+                let dtype = vals.dtype().clone();
+                col(key.as_str()).cast(DataType::String).replace_strict(
+                    lit(keys),
+                    lit(vals),
+                    Some(lit(NULL).cast(dtype.clone())),
+                    Some(dtype),
+                )
+            }
             PlanStep::Capture {
                 column, pattern, ..
             } => {
@@ -282,7 +314,7 @@ impl PlanStep {
 
 impl PlanStep {
     /// The column this step writes, if any (S-18 §2.2).
-    fn writes(&self) -> Option<&str> {
+    pub(super) fn writes(&self) -> Option<&str> {
         match self {
             PlanStep::Rename { new, .. } => Some(new),
             PlanStep::Currency { column }
@@ -291,7 +323,9 @@ impl PlanStep {
             | PlanStep::SetExpr { column, .. }
             | PlanStep::Replace { column, .. }
             | PlanStep::SetCells { column, .. } => Some(column),
-            PlanStep::Derive { name, .. } | PlanStep::Capture { name, .. } => Some(name),
+            PlanStep::Derive { name, .. }
+            | PlanStep::Capture { name, .. }
+            | PlanStep::Lookup { name, .. } => Some(name),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } | PlanStep::Expand { .. } => {
                 None
             }
@@ -406,6 +440,7 @@ impl PlanStep {
             PlanStep::Capture {
                 column, pattern, ..
             } => format!("capture {column} {pattern}"),
+            PlanStep::Lookup { name, key, .. } => format!("lookup {name} by {key}"),
         }
     }
 
@@ -421,6 +456,7 @@ impl PlanStep {
                         .collect()
                 })
                 .unwrap_or_default(),
+            PlanStep::Lookup { key, .. } => vec![key.clone()],
             _ => Vec::new(),
         }
     }

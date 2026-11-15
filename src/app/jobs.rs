@@ -249,6 +249,39 @@ impl App {
                     s.view.scales.push(rule);
                 }
             }
+            Ok(JobDone::Lookup { steps, at, note }) => {
+                let active = self.sheets.active().id == sheet_id;
+                let Some(s) = self.sheets.find_by_id_mut(sheet_id) else {
+                    return;
+                };
+                match s.add_lookups(steps) {
+                    Ok(new) => {
+                        if let Err(e) = s.place_cols(&new, at.as_deref()) {
+                            self.toast = Some(e);
+                        }
+                        if let Some(n) = note {
+                            self.toast = Some(n);
+                        }
+                        if active {
+                            if let Some(first) = new.first() {
+                                self.goto_column(first);
+                            }
+                            self.spawn_materialize();
+                        }
+                    }
+                    Err(e) => self.fail(format!("lookup: {e}")),
+                }
+            }
+            Ok(JobDone::LookupRefresh(steps)) => {
+                let active = self.sheets.active().id == sheet_id;
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    match s.refresh_lookups(steps) {
+                        Ok(()) if active => self.spawn_materialize(),
+                        Ok(()) => {}
+                        Err(e) => self.toast = Some(format!("lookup: {e}")),
+                    }
+                }
+            }
             Ok(JobDone::Hide(cols)) => {
                 if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
                     self.toast = Some(format!("hid {} uniform columns", cols.len()));

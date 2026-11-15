@@ -1,6 +1,7 @@
 //! Opening, saving and exporting: files, tails, joins, SQL, `:source`.
 
 use super::*;
+use crate::sheet::PlanStep;
 
 /// An ex script's steps, and the missing files whose blocks were skipped.
 fn source_steps(text: &str, exists: impl Fn(&str) -> bool) -> (Vec<Action>, Vec<String>) {
@@ -262,39 +263,192 @@ impl App {
             Ok(JobDone::PushSheet(Box::new(s)))
         });
     }
+}
 
-    /// `:join` source: `#<id>` or the exact name of an open sheet, else a file.
-    pub(super) fn open_join(&mut self, source: &str, keys: &[String], how: &str) {
+/// Another sheet a command reads: open already, or a file to read in its job.
+pub(in crate::app) enum Other {
+    Open(Box<Sheet>),
+    File(String, Option<Box<crate::reader::LoadedSource>>),
+}
+
+impl Other {
+    /// The sheet; a file is read now (call it in the job).
+    pub(in crate::app) fn sheet(self) -> Result<Sheet, String> {
+        Ok(match self {
+            Other::Open(s) => *s,
+            Other::File(_, Some(l)) => Sheet::from_source(0, *l),
+            Other::File(path, None) => {
+                let l = crate::reader::open(path.as_ref(), None);
+                Sheet::from_source(0, l.map_err(|e| e.to_string())?)
+            }
+        })
+    }
+}
+
+impl App {
+    /// `:join` / `:lookup` source: `#<id>` or the exact name of an open
+    /// sheet, else a file (through a Lua loader when one claims it). `None`:
+    /// the loader failed, with a toast.
+    pub(in crate::app) fn other_sheet(&mut self, label: &str, source: &str) -> Option<Other> {
         let active = self.sheets.active().id;
-        let open_sheet = self
-            .sheets
-            .summaries()
-            .find(|(id, name, _)| {
-                *id != active
-                    && (*name == source || source.strip_prefix('#') == Some(&id.to_string()))
-            })
-            .map(|(id, _, _)| id);
-        let right = open_sheet.and_then(|id| Some(self.sheets.find_by_id_mut(id)?.clone()));
-        let opened = match right {
-            Some(_) => Ok(None), // already open: no file to read
-            None => self.open_with_loader("join", source),
+        let open = self.sheets.iter().find(|s| {
+            s.id != active
+                && (s.name == source || source.strip_prefix('#') == Some(&s.id.to_string()))
+        });
+        if let Some(s) = open {
+            return Some(Other::Open(Box::new(s.clone())));
+        }
+        let opened = self.open_with_loader(label, source).ok()?;
+        Some(Other::File(source.to_string(), opened.map(Box::new)))
+    }
+
+    pub(super) fn open_join(&mut self, source: &str, keys: &[String], how: &str) {
+        let Some(right) = self.other_sheet("join", source) else {
+            return;
         };
-        let Ok(opened) = opened else { return };
         let id = self.sheets.alloc_id();
         let left = self.sheets.active().clone();
-        let (source, keys, how) = (source.to_string(), keys.to_vec(), how.to_string());
+        let (keys, how) = (keys.to_vec(), how.to_string());
         self.spawn_job("join", move || {
-            let right = match (right, opened) {
-                (Some(sheet), _) => sheet,
-                (None, Some(l)) => Sheet::from_source(0, l),
-                (None, None) => {
-                    let l = crate::reader::open(source.as_ref(), None);
-                    Sheet::from_source(0, l.map_err(|e| e.to_string())?)
-                }
-            };
+            let right = right.sheet()?;
             let mut s = Sheet::join_from(&left, id, &right, &keys, &how)?;
             s.plan = s.plan.clone().collect().map_err(|e| e.to_string())?.lazy();
             Ok(JobDone::PushSheet(Box::new(s)))
+        });
+    }
+
+    /// `:lookup` (S-36 A): `cols` (their column, new name) of `source` by
+    /// `key` = their `their_key`, after the cursor column. An open sheet stays
+    /// linked (A4); a file is a snapshot.
+    pub(super) fn lookup(
+        &mut self,
+        source: &str,
+        key: &str,
+        their_key: &str,
+        cols: &[(String, String)],
+    ) {
+        let me = self.sheets.active();
+        if let Err(e) = me.editable() {
+            return self.fail(format!("lookup: {e}"));
+        }
+        if !me.has_column(key) {
+            return self.fail(format!("lookup: no column {key}"));
+        }
+        let Some(other) = self.other_sheet("lookup", source) else {
+            return;
+        };
+        if let Other::Open(s) = &other
+            && self.lookup_reaches(s.id, self.sheets.active().id)
+        {
+            return self.fail(format!("lookup: {} looks up this sheet", s.name));
+        }
+        let at = self.current_column_name();
+        let (key, their_key, cols) = (key.to_string(), their_key.to_string(), cols.to_vec());
+        self.spawn_job("lookup", move || {
+            let live = matches!(other, Other::Open(_));
+            let their = other.sheet()?;
+            let stamp = their.lookup_stamp();
+            let mut steps = Vec::new();
+            let mut dups = 0;
+            for (column, name) in cols {
+                let (table, d) = their
+                    .lookup_table(&their_key, &column)
+                    .map_err(|e| format!("lookup: {e}"))?;
+                dups = d;
+                steps.push(PlanStep::Lookup {
+                    name,
+                    key: key.clone(),
+                    table: Arc::new(table),
+                    link: live.then(|| crate::sheet::LookupLink {
+                        sheet: their.id,
+                        their_key: their_key.clone(),
+                        column,
+                        stamp: stamp.clone(),
+                    }),
+                });
+            }
+            let note = (dups > 0)
+                .then(|| format!("lookup: {dups} rows repeat a {their_key}; first match kept"));
+            Ok(JobDone::Lookup { steps, at, note })
+        });
+    }
+
+    /// Some chain of live lookups from sheet `from` reads sheet `to`.
+    fn lookup_reaches(&self, from: SheetId, to: SheetId) -> bool {
+        let mut todo = vec![from];
+        let mut seen = Vec::new();
+        while let Some(id) = todo.pop() {
+            if id == to {
+                return true;
+            }
+            if seen.contains(&id) {
+                continue;
+            }
+            seen.push(id);
+            if let Some(s) = self.sheets.iter().find(|s| s.id == id) {
+                todo.extend(s.lookup_sources());
+            }
+        }
+        false
+    }
+
+    /// The active sheet's live lookups catch up with their sheets (A4): a
+    /// changed one is collected again in a job, a closed one keeps its values.
+    pub(in crate::app) fn follow_lookups(&mut self) {
+        let s = self.sheets.active();
+        let ids: Vec<SheetId> = s.lookup_sources().collect();
+        if ids.is_empty() {
+            return;
+        }
+        let gone: Vec<SheetId> = ids
+            .iter()
+            .copied()
+            .filter(|id| !self.sheets.iter().any(|o| o.id == *id))
+            .collect();
+        if !gone.is_empty() {
+            let names = self.sheets.active_mut().freeze_lookups(&gone);
+            self.toast = Some(format!(
+                "lookup: source sheet closed; {} keep their values",
+                names.join(", ")
+            ));
+        }
+        let mut stale = Vec::new();
+        for step in &self.sheets.active().state.steps {
+            let PlanStep::Lookup { link: Some(l), .. } = step else {
+                continue;
+            };
+            let Some(src) = self.sheets.iter().find(|o| o.id == l.sheet) else {
+                continue;
+            };
+            if src.lookup_stamp() != l.stamp {
+                stale.push((step.clone(), src.clone()));
+            }
+        }
+        if stale.is_empty() {
+            return;
+        }
+        self.spawn_job("lookup", move || {
+            let mut fresh = Vec::new();
+            for (step, src) in stale {
+                let PlanStep::Lookup {
+                    name,
+                    key,
+                    link: Some(mut l),
+                    ..
+                } = step
+                else {
+                    continue;
+                };
+                let (table, _) = src.lookup_table(&l.their_key, &l.column)?;
+                l.stamp = src.lookup_stamp();
+                fresh.push(PlanStep::Lookup {
+                    name,
+                    key,
+                    table: Arc::new(table),
+                    link: Some(l),
+                });
+            }
+            Ok(JobDone::LookupRefresh(fresh))
         });
     }
 

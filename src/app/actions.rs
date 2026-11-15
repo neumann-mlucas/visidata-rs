@@ -917,6 +917,12 @@ impl App {
             }
             Action::ShowSidebar { page } => (self.sidebar, self.sidebar_page) = (Some(page), page),
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
+            Action::Lookup {
+                source,
+                key,
+                their_key,
+                cols,
+            } => self.lookup(&source, &key, &their_key, &cols),
             Action::StartAddColInput | Action::StartCaptureInput => {
                 match self.sheets.active().editable() {
                     Err(e) => self.toast = Some(e),
