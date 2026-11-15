@@ -609,10 +609,7 @@ impl App {
             }
             Action::SearchCell { backward } => {
                 let s = self.sheets.active();
-                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
-                    return;
-                };
-                let Ok(v) = df.column(&column).and_then(|c| c.get(s.view.row_cursor)) else {
+                let Some(v) = self.current_column_name().and_then(|c| s.cursor_value(&c)) else {
                     return;
                 };
                 let text = crate::sheet::any_text(&v);
@@ -1061,20 +1058,15 @@ impl App {
                     self.toast = Some(e);
                     return;
                 }
-                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
-                    return;
-                };
-                let text = df
-                    .column(&column)
-                    .and_then(|c| c.get(s.view.row_cursor))
-                    .map(|v| {
-                        if v.is_null() {
-                            String::new()
-                        } else {
-                            crate::sheet::any_text(&v)
-                        }
-                    });
-                let Ok(text) = text else {
+                let text = self.current_column_name().and_then(|c| s.cursor_value(&c));
+                let text = text.map(|v| {
+                    if v.is_null() {
+                        String::new()
+                    } else {
+                        crate::sheet::any_text(&v)
+                    }
+                });
+                let Some(text) = text else {
                     return; // empty view
                 };
                 self.start_input(Prompt::Edit);
@@ -1308,11 +1300,7 @@ impl App {
                 let Some(column) = self.current_column_name() else {
                     return;
                 };
-                let Some(value) = s
-                    .window()
-                    .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok())
-                    .map(|v| v.into_static())
-                else {
+                let Some(value) = s.cursor_value(&column).map(|v| v.into_static()) else {
                     return;
                 };
                 let sheet = s.clone();
@@ -1354,7 +1342,7 @@ impl App {
                 let s = self.sheets.active();
                 let path = self
                     .current_column_name()
-                    .and_then(|c| s.window()?.column(&c).ok()?.get(s.view.row_cursor).ok())
+                    .and_then(|c| s.cursor_value(&c))
                     .filter(|v| !v.is_null())
                     .map(|v| crate::sheet::any_text(&v))
                     .unwrap_or_default();
@@ -1739,8 +1727,7 @@ impl App {
                 let parent = *parent;
                 let s = self.sheets.active();
                 let state = s
-                    .window()
-                    .and_then(|df| df.column("state").ok()?.get(s.view.row_cursor).ok())
+                    .cursor_value("state")
                     .and_then(|v| v.try_extract::<u64>().ok());
                 let Some(state) = state else { return };
                 self.sheets.pop();
@@ -1757,17 +1744,11 @@ impl App {
             Origin::Hits { parent } => {
                 let parent = *parent;
                 let s = self.sheets.active();
-                let cell = s.window().and_then(|df| {
-                    let r = df
-                        .column("row")
-                        .ok()?
-                        .get(s.view.row_cursor)
-                        .ok()?
-                        .try_extract::<u64>()
-                        .ok()?;
-                    let c = df.column("column").ok()?.get(s.view.row_cursor).ok()?;
-                    Some((r, c.get_str()?.to_string()))
-                });
+                let row = s
+                    .cursor_value("row")
+                    .and_then(|v| v.try_extract::<u64>().ok());
+                let column = s.cursor_value("column");
+                let cell = row.zip(column.as_ref().and_then(|v| v.get_str()).map(String::from));
                 let Some((row, column)) = cell else { return };
                 if !self.sheets.switch_to(parent) {
                     self.toast = Some("hits: that sheet was closed".into());

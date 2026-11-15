@@ -281,8 +281,7 @@ impl App {
         };
         let s = self.sheets.active();
         let text = s
-            .window()
-            .and_then(|df| df.column(&field).ok()?.get(s.view.row_cursor).ok())
+            .cursor_value(&field)
             .map(|v| {
                 if v.is_null() {
                     String::new()
