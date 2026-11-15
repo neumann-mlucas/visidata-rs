@@ -1,6 +1,6 @@
 # S-15 — Feature inventory (what `visidata-rs` actually ships)
 
-Status: **landed 2026-10-16**; keys re-aligned with VisiData 2026-11-08 (S-26 phase 0, S-21 A); re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of that day, §3.11 the 2026-11-07 additions. Planned work: `../tasks.md` roadmap.
+Status: **landed 2026-10-16**; keys re-aligned with VisiData 2026-11-08 (S-26 phase 0, S-21 A) and 2026-11-14 (S-26 §0 sweep: `s t u zs zu zc zo _ g% <C-v>`); re-verified against `Keymap::defaults()` / `exline::parse` on 2026-11-05; §3.10 lists the open-features pass of that day, §3.11 the 2026-11-07 additions. Planned work: `../tasks.md` roadmap.
 
 User-facing reference: [`docs/index.html`](../index.html) (GitHub Pages). Unit tests fail if it misses a default key binding or documents an ex command that doesn't exist. This is the authoritative list of what the `vdrs` binary and companion crate expose. Update when a user-visible surface changes.
 Phase: n/a (cross-cutting documentation)
@@ -55,15 +55,17 @@ Full enum: `src/action.rs`. Grouped by category:
 | `CursorLeft`, `CursorRight` | `h`, `l` | col ±1 |
 | `PageDown`, `PageUp` | `<C-f>`/`<C-d>`/`<PgDn>`, `<C-b>`/`<C-u>`/`<PgUp>` | one screen of rows |
 | `GotoTop`, `GotoBottom` | `gg`, `G` | first/last row of the whole view (G waits for the background row count) |
+| `GotoLeftmost`, `GotoRightmost` | `gh` or `0`, `gl` | first/last column |
+| `StartGoColInput` | `zc` | prompt for a column number: 0-based, negative from the end, clamped with a toast (VisiData `go-col-number`) |
 
 All vertical moves go through `App::goto_row`, which re-centres the 1024-row window when the target is outside it. The title shows `row N/total` (1-based; `?` while counting).
-| `GotoLeftmost`, `GotoRightmost` | `gh` or `0`, `gl` | first/last column |
 
 ### 3.2 Column meta (data-affecting via `View` state, not plan mutation)
 
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
-| `FreezeColumn` / `UnfreezeAll` | `zs` / `zc` | — | pin cols up to the cursor to the left of the viewport |
+| `FreezeColumn` / `UnfreezeAll` | vim profile `zs` / `zc` | `:freeze` / `:unfreeze` | pin cols up to the cursor to the left of the viewport |
+| `ResizeColMax` | `_` | — | toggle the column between full width (widest loaded value) and default (VisiData `resize-col-max`); on a plot `_` zooms to fit |
 | `HideCol` / `UnhideAll` | `-` / `gv` | `:hide` / `:unhide` | View.hidden set |
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |
@@ -73,7 +75,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | `TypeCastJson` | — | `:type json` | `PlanStep::Json`: `str.json_decode` with the type inferred from every value (S-22 C); export: `str.json_decode(dtype)` / DuckDB `from_json(c, structure)` |
 | `ExpandCol { depth }` / `StartExpandDepthInput` / `ExpandCols { depth }` | `(` / `z(` `gz(` / `g(` | `:expand-col` … | `PlanStep::Expand`: struct fields as `col.field` columns right after the struct (depth 0 = all the way; taken names get `_2`), struct hidden; one undo step; `(` on an expanded struct only shows its columns again (S-22 A) |
 | `OpenColumns` / `OpenColumnsAll` | `C` / `gC` | `:columns-sheet` `:columns-all` | `Origin::Columns`: a row per column (hidden too) `name width type value aggregators sortorder key` (`gC`: `sheet` first); `e` on name/width/type/value/aggregators, `d` / `g-` `gd` hide, `Enter` freq, `U`/`R` write back to the listed sheet(s), one undo step per sheet (S-25 P3) |
-| `KeySelected { on }` / `TypeSelected { name }` | `g!` `gz!` / `g#` `g%` `g~` `g@` `g$` | `:key-selected` … | columns sheet only: key / unkey / cast the selected rows' columns |
+| `KeySelected { on }` / `TypeSelected { name }` | `g!` `gz!` / `g#` `g%` `g~` `g@` `g$` | `:key-selected` … | columns sheet only: key / unkey / cast the selected rows' columns; elsewhere `g%` opens `:precision ` (VisiData `setcol-precision-input`) |
 | `StartAggregateInput { memo, selected }` → `AggregateCol` / `MemoAggregate` / `AggregateCols` | `+` / `z+` / `g+` | — | `View.aggregators` `(column, agg)`: `F` adds `{col}_{agg}` columns in view column order and hides percent/histogram; `z+` toasts `col_agg=v` over selected (or all) rows; `g+` on the columns sheet: selected rows, or every visible non-key column; export: freq lineage emits the same aggs (S-25 P4) |
 | `ContractCol` | `)` | `:contract-col` | view only: hide the struct's columns, show the struct, cursor onto it |
 | `UnfurlCol` | `zM` | `:unfurl-col` | derived sheet `unfurl(col): parent`, `Origin::Unfurl` / `Derivation::Unfurl`: `col_key` (position / field) + `col_value` in the column's place; empty list drops its row, null keeps it as item 0; struct values text when field types differ (S-22 B) |
@@ -83,7 +85,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
 | `SortAsc` / `SortDesc` | `[` / `]` | `:sort [+-]<col>` | adds/updates current col as a sort key (multi-col) |
-| `ClearSort` | `zo` | `:unsort` | drop sort state |
+| `ClearSort` | vim profile `zo` | `:unsort` | drop sort state |
 | `FilterCurrentColumn { regex }` / `SetFilter { column, regex }` | `gz\|` (prompts) | `:filter <col> <regex>` | regex over the column's text (any dtype); bad regex / unknown column rejected with a toast |
 | `ClearFilter` | `zf` | `:unfilter` | — |
 | `SearchNext` / `SearchPrev` | `n` / `N` | — | next hit in the search's direction / against it, whole view, wrapping |
@@ -101,12 +103,14 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot` |
 | `Diff { path, keys }` | — | `:diff <path> [key1,key2,...]` | schema diff or full outer join flagging only_a/only_b/changed |
 | `Tail { path, follow }` | — | `:tail <path> [--follow\|-f]` | 2s tick re-reads; auto-scroll when at bottom |
+| `OpenCellFile` | `zo` | — | open the cursor cell's text as a path (`Open`; VisiData `open-cell-file`) |
 
 ### 3.5 Selection
 
 | Action | Key | Semantics |
 |---|---|---|
-| `ToggleSelectRow` / `UnselectRow` | `s` or `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan) |
+| `SelectRow` / `ToggleSelectRow` / `UnselectRow` | `s` / `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan); cursor moves down after, as VisiData |
+| `SelectBefore` / `UnselectBefore` | `zs` / `zu` | rows from the top to the cursor; background job |
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
 | `SelectByRegex { regex }` | — | regex over current col, whole view |
 | `StartSelectInput` → prompt | `\|` | — |
@@ -137,11 +141,12 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | Vim profile | `vd.option("keymap", "vim")` | `plugins::VIM_PROFILE`: `vd.bind` patches over the defaults (guide table synced by test); new actions `HalfPage`, `ScreenRow`, `ScrollTo`, `CellMotion`, `ValueChange` (loaded rows), `SearchCell` (`^value$`) (S-26 D1) |
 | Marks, `q` macros | vim `m{a-z}` `'{a-z}` `q{a-z}` `@{a-z}` `@@` | `App.awaiting: Await` names the next key; `App.marks` (view positions, like the jumplist); `App.macros` (ex steps, session only) replay via `Action::Macro` (S-26 D4) |
 | Prompt normal mode | vim `Esc` in a prompt | `LineEdit` normal mode: `h l w b e 0 $ x dw cw D C i a A I u`; input-layer `input_normal`; `Esc` again cancels (S-26 E) |
-| Visual | `V` rows, `<C-v>` block, `Esc`; `:reselect`; `'<,'>` | `App.visual` (anchor + cursor, view rows); verbs `s u y d x e " :` → `run_ranged` (`e`/`:` prefill `:'<,'>`); block `-` hides its columns (undoable); highlighted reverse; status line `-- VISUAL --` (S-26 C) |
+| Visual | `V` rows, `:visual-block` (vim profile `<C-v>`) block, `Esc`; `:reselect`; `'<,'>` | `App.visual` (anchor + cursor, view rows); verbs `s u y d x e " :` → `run_ranged` (`e`/`:` prefill `:'<,'>`); block `-` hides its columns (undoable); highlighted reverse; status line `-- VISUAL --` (S-26 C) |
 | Ex ranges | `:A,B cmd` (`5`, `.`, `$`), `:% cmd`, `:g/re/cmd`, `:v/re/cmd`, `:g/col=re/`, `:g{pred}cmd`, `:A,B normal keys` | `exline::ranged` → a job resolves row ids (`rids_in_rows`, `rids_matching`, `rids_where`) → `cmd` runs with them as the selection (`DeleteRow`/`CopyRow`/`CutRow`/`SysCopyRow` → selected forms; `:d` `:y`); the user's selection comes back less what `cmd` unselected, in undo states too; no cmd = select; `:normal` types keys per row, loaded window only, 10k max (S-26 B) |
 | `JumpBack` / `JumpForward` / `Jumps` | `:jump-back` `:jump-forward` `:jumps` (vim profile `<C-o>` `<C-i>`) | jumplist of (sheet, view row, column) recorded before `gg G :cursor n N <C-^> Enter F S`; back from the newest first adds the current place; a new jump drops what was ahead; 100 kept (S-26 A7) |
 | mouse | `vd.option("mouse", "true")` | `EnableMouseCapture`; wheel = 3 rows; click = cell, header click = column (`widget::column_at`) (S-26 A9) |
 | keyboard protocol | — | kitty `DISAMBIGUATE_ESCAPE_CODES` pushed at start / after `<C-z>`, popped on exit, suspend, panic (S-26 A6) |
+| `ShowVersion` | `<C-v>` | toast `vdrs <version>` (VisiData `show-version`) |
 | `Suspend` | `<C-z>` | leave raw mode + alt screen, `kill -TSTP` self, take the terminal back on `SIGCONT` (unix; full redraw without a cursor query) (S-26 A3) |
 
 ### 3.7 Plan panel
@@ -233,7 +238,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 
 ## 4. Keymap
 
-Entry: `src/keymap.rs`. Model: linear vec of `Chord { on: Vec<Key>, run: Vec<Action>, desc: &'static str }` per `Layer` (`Sheet`, `Input`). Resolution: first-match; incomplete prefix → `Dispatch::Pending(vec)` which status bar echoes as the which-key hint.
+Entry: `src/keymap.rs`. Model: linear vec of `Chord { on: Vec<Key>, run: Vec<Action>, desc: &'static str }` per `Layer` (`Sheet`, `Input`). Resolution: last declaration wins (so `vd.bind` shadows a default); incomplete prefix → `Dispatch::Pending(vec)` which status bar echoes as the which-key hint.
 
 **Count prefix**: digit-first-keystroke resolves to `App.pending_count` which is then baked into cursor/scroll Actions on next match (`3j` = 3-step `CursorDown`).
 
