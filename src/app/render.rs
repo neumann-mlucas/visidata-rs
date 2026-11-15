@@ -261,9 +261,7 @@ impl App {
             ),
             SidebarPage::Column => (format!("column: {column}"), self.column_page()),
             SidebarPage::Cell => {
-                let v = s
-                    .window()
-                    .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok());
+                let v = s.cursor_value(&column);
                 let text = match v {
                     Some(v) if !v.is_null() => crate::sheet::any_text(&v),
                     Some(_) => "null".into(),

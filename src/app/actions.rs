@@ -192,18 +192,10 @@ impl App {
                     }
                 }
             }
-            Action::CursorDown { count } => {
-                self.move_cursor_rows(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
-            }
-            Action::CursorUp { count } => {
-                self.move_cursor_rows(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
-            }
-            Action::CursorLeft { count } => {
-                self.move_cursor_cols(-(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)))
-            }
-            Action::CursorRight { count } => {
-                self.move_cursor_cols(isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX))
-            }
+            Action::CursorDown { count } => self.move_cursor_rows(steps(count)),
+            Action::CursorUp { count } => self.move_cursor_rows(-steps(count)),
+            Action::CursorLeft { count } => self.move_cursor_cols(-steps(count)),
+            Action::CursorRight { count } => self.move_cursor_cols(steps(count)),
             Action::PageDown => self.page(1),
             Action::PageUp => self.page(-1),
             Action::GotoTop => {
@@ -617,10 +609,7 @@ impl App {
             }
             Action::SearchCell { backward } => {
                 let s = self.sheets.active();
-                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
-                    return;
-                };
-                let Ok(v) = df.column(&column).and_then(|c| c.get(s.view.row_cursor)) else {
+                let Some(v) = self.current_column_name().and_then(|c| s.cursor_value(&c)) else {
                     return;
                 };
                 let text = crate::sheet::any_text(&v);
@@ -1069,20 +1058,15 @@ impl App {
                     self.toast = Some(e);
                     return;
                 }
-                let (Some(column), Some(df)) = (self.current_column_name(), s.window()) else {
-                    return;
-                };
-                let text = df
-                    .column(&column)
-                    .and_then(|c| c.get(s.view.row_cursor))
-                    .map(|v| {
-                        if v.is_null() {
-                            String::new()
-                        } else {
-                            crate::sheet::any_text(&v)
-                        }
-                    });
-                let Ok(text) = text else {
+                let text = self.current_column_name().and_then(|c| s.cursor_value(&c));
+                let text = text.map(|v| {
+                    if v.is_null() {
+                        String::new()
+                    } else {
+                        crate::sheet::any_text(&v)
+                    }
+                });
+                let Some(text) = text else {
                     return; // empty view
                 };
                 self.start_input(Prompt::Edit);
@@ -1315,11 +1299,7 @@ impl App {
                 let Some(column) = self.current_column_name() else {
                     return;
                 };
-                let Some(value) = s
-                    .window()
-                    .and_then(|df| df.column(&column).ok()?.get(s.view.row_cursor).ok())
-                    .map(|v| v.into_static())
-                else {
+                let Some(value) = s.cursor_value(&column).map(|v| v.into_static()) else {
                     return;
                 };
                 let sheet = s.clone();
@@ -1748,8 +1728,7 @@ impl App {
                 let parent = *parent;
                 let s = self.sheets.active();
                 let state = s
-                    .window()
-                    .and_then(|df| df.column("state").ok()?.get(s.view.row_cursor).ok())
+                    .cursor_value("state")
                     .and_then(|v| v.try_extract::<u64>().ok());
                 let Some(state) = state else { return };
                 self.sheets.pop();
@@ -1766,17 +1745,11 @@ impl App {
             Origin::Hits { parent } => {
                 let parent = *parent;
                 let s = self.sheets.active();
-                let cell = s.window().and_then(|df| {
-                    let r = df
-                        .column("row")
-                        .ok()?
-                        .get(s.view.row_cursor)
-                        .ok()?
-                        .try_extract::<u64>()
-                        .ok()?;
-                    let c = df.column("column").ok()?.get(s.view.row_cursor).ok()?;
-                    Some((r, c.get_str()?.to_string()))
-                });
+                let row = s
+                    .cursor_value("row")
+                    .and_then(|v| v.try_extract::<u64>().ok());
+                let column = s.cursor_value("column");
+                let cell = row.zip(column.as_ref().and_then(|v| v.get_str()).map(String::from));
                 let Some((row, column)) = cell else { return };
                 if !self.sheets.switch_to(parent) {
                     self.toast = Some("hits: that sheet was closed".into());
@@ -1850,11 +1823,7 @@ impl App {
         }
         let plan = s.plan.clone();
         let key = s.freq_dive_key();
-        // the freq sheet itself, not rows picked from it (`rows_with_values`)
-        let own_rids = matches!(
-            s.state.lineage.as_deref().map(|l| &l.how),
-            Some(crate::sheet::Derivation::Freq { .. })
-        );
+        let own_rids = s.is_freq();
         use crate::sheet::{Binning, DiveKey};
         let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
             self.toast = Some("dive: parent sheet was closed".into());
@@ -2117,6 +2086,11 @@ impl App {
         self.sheets.push(child);
         self.spawn_materialize();
     }
+}
+
+/// A motion count as signed steps; no count is one.
+fn steps(count: Option<usize>) -> isize {
+    isize::try_from(count.unwrap_or(1)).unwrap_or(isize::MAX)
 }
 
 /// `3 edits`.

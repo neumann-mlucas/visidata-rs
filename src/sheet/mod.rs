@@ -647,6 +647,15 @@ impl Sheet {
         self.window.as_ref()
     }
 
+    /// `column`'s value on the cursor row of the window.
+    pub fn cursor_value(&self, column: &str) -> Option<AnyValue<'_>> {
+        self.window()?
+            .column(column)
+            .ok()?
+            .get(self.view.row_cursor)
+            .ok()
+    }
+
     /// [`ROW_ID`] of each `window` row (empty for pre-built windows).
     pub fn window_rids(&self) -> &[u64] {
         &self.state.window_rids

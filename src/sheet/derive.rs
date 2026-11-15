@@ -329,6 +329,12 @@ impl Sheet {
         }
     }
 
+    /// A freq sheet itself, not rows picked from one (`rows_with_values`).
+    pub fn is_freq(&self) -> bool {
+        let how = self.state.lineage.as_deref().map(|l| &l.how);
+        matches!(how, Some(Derivation::Freq { .. }))
+    }
+
     /// Freq dive: `parent`'s rows whose `column`'s `key` (as text, the way the
     /// freq sheet grouped them) is one of `values` (None matches null).
     pub fn rows_with_values(
