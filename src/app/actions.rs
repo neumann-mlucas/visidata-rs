@@ -289,8 +289,18 @@ impl App {
                 let Some(c) = self.current_column_name() else {
                     return self.push_type_cast(DataType::Date);
                 };
-                let dt = crate::sheet::date_cast_type(self.sheets.active(), &c);
-                self.push_type_cast(dt)
+                let s = self.sheets.active();
+                let dt = crate::sheet::date_cast_type(s, &c);
+                let all = s
+                    .row_count()
+                    .zip(s.window())
+                    .is_some_and(|(n, w)| n <= w.height() as u64);
+                self.push_type_cast(dt.clone());
+                if dt == DataType::Date && !all {
+                    self.toast = Some(format!(
+                        "{c}: no time in the loaded rows, cast to date; `:type datetime` keeps later times"
+                    ));
+                }
             }
             Action::TypeCastDateAs { time: true } => {
                 self.push_type_cast(DataType::Datetime(TimeUnit::Microseconds, None))
@@ -479,13 +489,7 @@ impl App {
                 let s = self.sheets.active();
                 let row = s.view.window_offset + s.view.row_cursor as u64;
                 let col = s.view.col_cursor;
-                self.visual = Some(Visual {
-                    sheet: s.id,
-                    row,
-                    col,
-                    end: (row, col),
-                    block,
-                });
+                self.visual = Some(Visual::new(s, row, col, (row, col), block));
             }
             Action::RegisterPrefix => self.awaiting = Some(crate::app::Await::Register),
             Action::SetMark => self.awaiting = Some(crate::app::Await::SetMark),
@@ -621,7 +625,7 @@ impl App {
                 });
             }
             Action::Reselect => match self.last_visual {
-                Some(v) if v.sheet == self.sheets.active().id => {
+                Some(v) if v.on(self.sheets.active()) => {
                     self.goto_row(v.end.0);
                     self.sheets.active_mut().view.col_cursor = v.end.1;
                     self.visual = Some(v);
@@ -1851,7 +1855,8 @@ impl App {
                         .filter_map(|r| vals.get(*r as usize).ok())
                         .map(|v| (!v.is_null()).then(|| crate::sheet::any_text(&v)));
                     match &key {
-                        // ponytail: a repeated label (narrow bins) picks its first bin
+                        // ponytail: a repeated label (narrow bins) picks its first bin;
+                        // dive by bin index instead of label if narrow bins matter
                         DiveKey::Bin { min, width, n } => {
                             let labels = Binning::labels(*min, *width, *n);
                             texts

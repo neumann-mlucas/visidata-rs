@@ -1313,7 +1313,9 @@ pub const TIME_OF_DAY: &str = r"(?:T| +)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?
 /// What `@` casts to: `Datetime[μs]` when the loaded rows of text `column`
 /// hold a time (VisiData's date keeps it, S-38 C), a datetime column stays
 /// one, else `Date`. ponytail: decides from the loaded window (dispatch reads
-/// nothing more, S-33 D6); a time only in later rows is dropped.
+/// nothing more, S-33 D6); a time only in later rows is dropped, and `@` warns
+/// when rows weren't all loaded. Scan the view in a job (`scan_edit`) if the
+/// warning gets hit.
 pub fn date_cast_type(s: &Sheet, column: &str) -> DataType {
     let base = s.plan.clone().collect_schema().ok();
     let base = base.and_then(|b| b.get(column).cloned());

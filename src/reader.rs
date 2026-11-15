@@ -568,6 +568,7 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             return scan(path, SourceKind::Jsonl);
         }
         // ponytail: eager read; JSON arrays can't be streamed by Polars' lazy reader.
+        // Rewrite to JSONL in a tempfile first if a big array stalls the open.
         SourceKind::Json => JsonReader::new(std::fs::File::open(path)?)
             .with_json_format(JsonFormat::Json)
             .finish()?
@@ -762,6 +763,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
     if buf.is_empty() {
         return Err(OpenError::EmptyStdin);
     }
+    let buf = gunzip_if_gz(buf)?;
     tmp.write_all(&buf)?;
     tmp.flush()?;
     let kind = match format_override {
@@ -778,14 +780,29 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
     })
 }
 
-/// Dumb header-byte sniff: parquet magic, otherwise count tabs-vs-commas on the first line.
-/// ponytail: naive heuristic, swap to `infer` crate if users complain.
-fn sniff_format(buf: &[u8]) -> SourceKind {
-    if buf.starts_with(b"PAR1") {
-        return SourceKind::Parquet;
+/// Gzip (`\x1f\x8b`) stdin is decompressed, then sniffed as its content.
+fn gunzip_if_gz(buf: Vec<u8>) -> io::Result<Vec<u8>> {
+    if !buf.starts_with(b"\x1f\x8b") {
+        return Ok(buf);
     }
-    if buf.starts_with(b"ARROW1") {
-        return SourceKind::Arrow;
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(&buf[..]).read_to_end(&mut out)?;
+    Ok(out)
+}
+
+/// Dumb header-byte sniff: the magic of a binary format read here, otherwise
+/// JSON's first byte or tabs-vs-commas on the first line.
+/// ponytail: any zip is taken for xlsx (the only zip format read); swap to
+/// the `infer` crate when another one is supported.
+fn sniff_format(buf: &[u8]) -> SourceKind {
+    let magic: [(&[u8], SourceKind); 4] = [
+        (b"PAR1", SourceKind::Parquet),
+        (b"ARROW1", SourceKind::Arrow),
+        (b"PK\x03\x04", SourceKind::Xlsx),
+        (b"SQLite format 3\0", SourceKind::Sqlite),
+    ];
+    if let Some((_, k)) = magic.iter().find(|(m, _)| buf.starts_with(m)) {
+        return *k;
     }
     let first = buf.split(|b| *b == b'\n').next().unwrap_or(&[]);
     let trimmed = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
@@ -911,6 +928,14 @@ mod tests {
         assert_eq!(sniff_format(b"a\tb\tc\n1\t2\t3"), SourceKind::Tsv);
         assert_eq!(sniff_format(b"{\"a\":1}\n"), SourceKind::Jsonl);
         assert_eq!(sniff_format(b"[{\"a\":1}]"), SourceKind::Json);
+        assert_eq!(sniff_format(b"ARROW1\0\0"), SourceKind::Arrow);
+        assert_eq!(sniff_format(b"PK\x03\x04,,,"), SourceKind::Xlsx);
+        assert_eq!(sniff_format(b"SQLite format 3\0,"), SourceKind::Sqlite);
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(b"a\tb\n1\t2\n").unwrap();
+        let plain = gunzip_if_gz(gz.finish().unwrap()).unwrap();
+        assert_eq!(sniff_format(&plain), SourceKind::Tsv);
+        assert_eq!(gunzip_if_gz(b"a,b".to_vec()).unwrap(), b"a,b");
     }
 
     #[test]

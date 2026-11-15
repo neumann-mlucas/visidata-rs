@@ -568,6 +568,23 @@ async fn session_keeps_new_columns_and_date_types() {
     );
 }
 
+/// `@` picks date or datetime from the loaded rows; past them it says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn date_cast_warns_when_rows_are_not_all_loaded() {
+    let mut h = csv(b"t\n2018-07-03\n").await;
+    h.keys("@").await;
+    assert_eq!(h.app.toast, None);
+    let mut big = String::from("t\n");
+    for _ in 0..crate::sheet::DEFAULT_WINDOW_ROWS + 1 {
+        big.push_str("2018-07-03\n");
+    }
+    big.push_str("2018-07-03 10:05\n");
+    let mut h = csv(big.as_bytes()).await;
+    h.keys("@").await;
+    let toast = h.app.toast.clone().unwrap_or_default();
+    assert!(toast.contains("no time in the loaded rows"), "{toast:?}");
+}
+
 /// `[` on a columns sheet reorders its sheet's columns, as VisiData; `U` on
 /// the sheet undoes it (S-34 A4).
 #[tokio::test(flavor = "multi_thread")]
