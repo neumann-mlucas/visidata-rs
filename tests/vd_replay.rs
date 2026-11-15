@@ -2314,17 +2314,6 @@ fn json_and_csv_goldens_read_as_tsv() {
 
 #[test]
 fn vd_replay_corpus() {
-    // Every step is a plan node; a file with ~20 added columns nests the
-    // plan past a test thread's 2 MiB when Polars collects it in debug.
-    std::thread::Builder::new()
-        .stack_size(64 << 20)
-        .spawn(replay_corpus)
-        .unwrap()
-        .join()
-        .unwrap();
-}
-
-fn replay_corpus() {
     let corpus = Path::new(CORPUS);
     if !corpus.exists() {
         eprintln!(

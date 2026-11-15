@@ -80,8 +80,7 @@ impl Sheet {
         self.checkpoint();
         // replay the edits; a bad step fails the whole plan's schema, so check
         // once and only then go step by step
-        let all = (self.state.steps.iter())
-            .try_fold(fresh.plan.clone(), |p, step| step.apply(p))
+        let all = super::step::apply_steps(fresh.plan.clone(), &self.state.steps)
             .and_then(|mut p| p.collect_schema().map(|s| (p, s)));
         let schema = match all {
             Ok((p, s)) => {

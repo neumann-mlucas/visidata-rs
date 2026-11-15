@@ -142,10 +142,7 @@ impl Sheet {
                 )
                 .drop(cols([POS]));
         }
-        for step in &self.state.steps {
-            plan = step.apply(plan)?;
-        }
-        self.plan = plan;
+        self.plan = super::step::apply_steps(plan, &self.state.steps)?;
         Ok(())
     }
 

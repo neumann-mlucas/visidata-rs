@@ -94,104 +94,140 @@ pub const ADDED_RID: u64 = 1 << 62;
 /// Position key column of added rows (source rows: their id).
 pub const POS: &str = "__vdrs_pos";
 
-/// `when(row ∈ rids).then(v).otherwise(column)`: the edit steps' row mask,
-/// on the [`ROW_ID`] column source sheets carry.
-fn on_rows(plan: LazyFrame, column: &str, rids: &[u64], v: Expr) -> LazyFrame {
-    plan.with_column(
-        when(rid_in(rids))
-            .then(v)
-            .otherwise(col(column))
-            .alias(column),
-    )
+/// `steps` on top of `plan`. Polars recurses once per plan node, and in a
+/// debug build about 30 chained `with_column`s overflow a 2 MiB stack, so a
+/// run of column steps goes into one `with_columns`: a step joins the run
+/// unless it reads a column the run writes, and an edit of a column the run
+/// already writes wraps that column's expression (nested expressions are
+/// cheap, 1600 deep is fine).
+pub(super) fn apply_steps(mut plan: LazyFrame, steps: &[PlanStep]) -> PolarsResult<LazyFrame> {
+    let mut run: Vec<(String, Expr)> = Vec::new();
+    let flush = |plan: LazyFrame, run: &mut Vec<(String, Expr)>| match run.is_empty() {
+        true => plan,
+        false => plan.with_columns(
+            std::mem::take(run)
+                .into_iter()
+                .map(|(n, e)| e.alias(n))
+                .collect::<Vec<_>>(),
+        ),
+    };
+    for step in steps {
+        let Some(target) = step.column_target() else {
+            plan = step.apply(flush(plan, &mut run))?;
+            continue;
+        };
+        // what it reads apart from the target's value so far, which the run supplies
+        let own = step.column_value(col(CURRENT))?;
+        let clash = reads(&own).is_none_or(|r| r.iter().any(|c| run.iter().any(|(n, _)| n == c)));
+        if clash {
+            plan = flush(plan, &mut run);
+        }
+        let current = run
+            .iter()
+            .find(|(n, _)| n == target)
+            .map_or_else(|| col(target), |(_, e)| e.clone());
+        let e = step.column_value(current)?;
+        match run.iter_mut().find(|(n, _)| n == target) {
+            Some(slot) => slot.1 = e,
+            None => run.push((target.to_string(), e)),
+        }
+    }
+    Ok(flush(plan, &mut run))
+}
+
+/// Stands for a column step's target in [`apply_steps`]; never a real column.
+const CURRENT: &str = "\0vdrs_current";
+
+/// The columns `e` reads; None when it selects them some other way (a pattern).
+fn reads(e: &Expr) -> Option<Vec<PlSmallStr>> {
+    let mut out = Vec::new();
+    for node in e {
+        match node {
+            Expr::Column(n) => out.push(n.clone()),
+            Expr::Selector(_) => return None,
+            _ => {}
+        }
+    }
+    Some(out)
 }
 
 impl PlanStep {
-    /// This edit on top of `plan`. The one definition: edits run through here
-    /// when made and again when `:tail` swaps in a grown base table.
-    pub(super) fn apply(&self, plan: LazyFrame) -> PolarsResult<LazyFrame> {
+    /// The one column a column step sets, from the columns before it: such a
+    /// step is `with_column(column_value(col(target)))`.
+    fn column_target(&self) -> Option<&str> {
+        match self {
+            PlanStep::Currency { column }
+            | PlanStep::SetCol { column, .. }
+            | PlanStep::SetExpr { column, .. }
+            | PlanStep::SetCells { column, .. }
+            | PlanStep::Replace { column, .. }
+            | PlanStep::Json { column, .. } => Some(column),
+            PlanStep::Derive { name, .. } | PlanStep::Capture { name, .. } => Some(name),
+            PlanStep::Rename { .. }
+            | PlanStep::DeleteRows { .. }
+            | PlanStep::AddRows { .. }
+            | PlanStep::Expand { .. } => None,
+        }
+    }
+
+    /// A column step's new value of its target, whose value so far is `current`.
+    fn column_value(&self, current: Expr) -> PolarsResult<Expr> {
+        let on_rows =
+            |rids: &[u64], v: Expr, current: Expr| when(rid_in(rids)).then(v).otherwise(current);
         Ok(match self {
-            PlanStep::Rename { old, new } => plan.rename([old.as_str()], [new.as_str()], true),
-            PlanStep::Currency { column } => plan.with_columns([col(column.as_str())
+            PlanStep::Currency { .. } => current
                 .cast(DataType::String)
                 .str()
                 .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
-                .cast(DataType::Float64)
-                .alias(column.as_str())]),
-            PlanStep::Derive { name, expr, .. } => {
-                plan.with_column(polars::sql::sql_expr(expr)?.alias(name.as_str()))
-            }
+                .cast(DataType::Float64),
+            PlanStep::Derive { expr, .. } => polars::sql::sql_expr(expr)?,
             PlanStep::SetCol {
-                column,
-                value,
-                dtype,
-                rids,
+                value, dtype, rids, ..
             } => on_rows(
-                plan,
-                column,
                 rids,
                 match value {
                     Some(v) if *dtype == DataType::Boolean => lit(v == "true"),
                     Some(v) => lit(v.to_string()).strict_cast(dtype.clone()),
                     None => lit(Null {}).cast(dtype.clone()),
                 },
+                current,
             ),
             PlanStep::SetExpr {
-                column,
-                expr,
-                dtype,
-                rids,
+                expr, dtype, rids, ..
             } => on_rows(
-                plan,
-                column,
                 rids,
                 polars::sql::sql_expr(expr)?.cast(dtype.clone()),
+                current,
             ),
             // A value lookup, not a join: a join per pasted or numbered
             // column nests the plan until collecting it overflows the stack.
-            PlanStep::SetCells { column, patch } => {
+            PlanStep::SetCells { patch, .. } => {
                 let rids = patch.column(ROW_ID)?.as_materialized_series().clone();
                 let vals = patch.column("__vdrs_v")?.as_materialized_series().clone();
                 let dtype = vals.dtype().clone();
-                plan.with_column(
-                    col(ROW_ID)
-                        .replace_strict(
-                            lit(rids),
-                            lit(vals),
-                            Some(col(column.as_str())),
-                            Some(dtype),
-                        )
-                        .alias(column.as_str()),
-                )
+                col(ROW_ID).replace_strict(lit(rids), lit(vals), Some(current), Some(dtype))
             }
             PlanStep::Replace {
-                column,
                 pattern,
                 replacement,
                 all,
                 rids,
+                ..
             } => {
-                let s = col(column.as_str()).str();
+                let s = current.clone().str();
                 let (p, r) = (lit(pattern.as_str()), lit(replacement.as_str()));
                 let v = match all {
                     true => s.replace_all(p, r, false),
                     false => s.replace(p, r, false),
                 };
                 match rids {
-                    Some(rids) => on_rows(plan, column, rids, v),
-                    None => plan.with_column(v.alias(column.as_str())),
+                    Some(rids) => on_rows(rids, v, current),
+                    None => v,
                 }
             }
-            PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => plan,
-            PlanStep::Json { column, dtype } => plan.with_column(
-                col(column.as_str())
-                    .str()
-                    .json_decode(dtype.clone())
-                    .alias(column.as_str()),
-            ),
+            PlanStep::Json { dtype, .. } => current.str().json_decode(dtype.clone()),
             PlanStep::Capture {
-                column,
-                pattern,
-                name,
+                column, pattern, ..
             } => {
                 let text = col(column.as_str()).cast(DataType::String);
                 let fields = capture_fields(pattern)?
@@ -201,13 +237,25 @@ impl PlanStep {
                         let p = lit(pattern.as_str());
                         text.clone().str().extract(p, i + 1).alias(f)
                     });
-                plan.with_column(
-                    when(text.clone().str().contains(lit(pattern.as_str()), true))
-                        .then(as_struct(fields.collect()))
-                        .otherwise(lit(NULL))
-                        .alias(name.as_str()),
-                )
+                when(text.clone().str().contains(lit(pattern.as_str()), true))
+                    .then(as_struct(fields.collect()))
+                    .otherwise(lit(NULL))
             }
+            PlanStep::Rename { .. }
+            | PlanStep::DeleteRows { .. }
+            | PlanStep::AddRows { .. }
+            | PlanStep::Expand { .. } => unreachable!("not a column step"),
+        })
+    }
+
+    /// This edit on top of `plan`. The one definition: edits run through here
+    /// when made and again when `:tail` swaps in a grown base table.
+    pub(super) fn apply(&self, plan: LazyFrame) -> PolarsResult<LazyFrame> {
+        if let Some(t) = self.column_target() {
+            return Ok(plan.with_column(self.column_value(col(t))?.alias(t)));
+        }
+        Ok(match self {
+            PlanStep::Rename { old, new } => plan.rename([old.as_str()], [new.as_str()], true),
             PlanStep::Expand {
                 column,
                 fields,
@@ -227,6 +275,7 @@ impl PlanStep {
                         .collect::<Vec<_>>(),
                 )
             }
+            _ => plan, // DeleteRows, AddRows: see their docs
         })
     }
 }
@@ -473,8 +522,20 @@ impl Sheet {
 
     /// Bake `step` into the plan and remember it for `:export` and `:tail`.
     pub fn apply_step(&mut self, step: PlanStep) -> PolarsResult<()> {
-        self.plan = step.apply(self.plan.clone())?;
-        self.state.steps.push(step);
+        match self.editable() {
+            // rebuilt so the step joins the run of column steps before it
+            Ok(()) => {
+                self.state.steps.push(step);
+                if let Err(e) = self.rebuild_plan() {
+                    self.state.steps.pop();
+                    return Err(e);
+                }
+            }
+            Err(_) => {
+                self.plan = step.apply(self.plan.clone())?;
+                self.state.steps.push(step);
+            }
+        }
         self.invalidate(Reason::Rows); // a filter on the column may match differently
         Ok(())
     }
@@ -483,6 +544,68 @@ impl Sheet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hundreds of column steps collect on a 2 MiB stack in a debug build,
+    /// and the batched plan gives what applying them one by one gives.
+    #[test]
+    fn many_column_steps_batch_into_few_nodes() {
+        let set = |c: &str, v: &str, r: u64| PlanStep::SetCol {
+            column: c.into(),
+            value: Some(v.into()),
+            dtype: DataType::String,
+            rids: Arc::from([r]),
+        };
+        let derive = |n: &str, e: &str| PlanStep::Derive {
+            name: n.into(),
+            expr: e.into(),
+            replaces: false,
+        };
+        let mut steps = vec![
+            derive("c", "n + 1"),
+            set("name", "x", 0),
+            derive("d", "c * 2"), // reads c: a new run
+            set("name", "y", 0),
+            PlanStep::Replace {
+                column: "name".into(),
+                pattern: "y".into(),
+                replacement: "z".into(),
+                all: true,
+                rids: None,
+            },
+            PlanStep::Rename {
+                old: "d".into(),
+                new: "e".into(),
+            },
+            set("name", "w", 1),
+        ];
+        for i in 0..200 {
+            steps.push(derive(&format!("k{i}"), "n"));
+            steps.push(set("name", &format!("v{i}"), 2));
+        }
+        let base = || {
+            df!("name" => ["a", "b", "c"], "n" => [1i64, 2, 3], ROW_ID => [0u64, 1, 2])
+                .unwrap()
+                .lazy()
+        };
+        let one_by_one = steps.iter().try_fold(base(), |p, s| s.apply(p)).unwrap();
+        let batched = apply_steps(base(), &steps).unwrap();
+        let got = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || batched.collect().unwrap())
+            .unwrap()
+            .join()
+            .unwrap();
+        let want = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || one_by_one.collect().unwrap())
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(got, want);
+        let names: Vec<_> = got.column("name").unwrap().str().unwrap().iter().collect();
+        assert_eq!(names, [Some("z"), Some("w"), Some("v199")]);
+        assert_eq!(got.column("e").unwrap().i64().unwrap().get(0), Some(4));
+    }
 
     #[test]
     fn insert_point_follows_the_last_writer() {
