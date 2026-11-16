@@ -64,11 +64,14 @@ struct Frame {
 
 /// The case's `init.lua`, applied as the app applies the user's.
 fn apply_init(dir: &Path, h: &mut Harness) {
-    let Ok(src) = std::fs::read_to_string(dir.join("init.lua")) else {
-        return;
-    };
-    let p = crate::plugins::Plugins::load_from_source(&src).expect("case init.lua loads");
-    (h.app.keymap, h.app.theme) = keymap_and_theme(Some(&p));
+    if let Some(p) = case_init(dir) {
+        (h.app.keymap, h.app.theme) = keymap_and_theme(Some(&p));
+    }
+}
+
+fn case_init(dir: &Path) -> Option<crate::plugins::Plugins> {
+    let src = std::fs::read_to_string(dir.join("init.lua")).ok()?;
+    Some(crate::plugins::Plugins::load_from_source(&src).expect("case init.lua loads"))
 }
 
 async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
@@ -83,6 +86,9 @@ async fn play(dir: &Path) -> (Harness, Vec<Frame>) {
             .find(|p| p.exists())
             .expect("case has an input file")
     };
+    // the file opens under the case's options, as `main` loads config first
+    // (reader options are global: a case without init.lua resets them)
+    keymap_and_theme(case_init(dir).as_ref());
     let mut loaded = crate::reader::open(input.as_os_str(), None).unwrap();
     if docs {
         // as if run from docs/fixtures: `vdrs sales.csv`

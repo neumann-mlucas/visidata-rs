@@ -35,12 +35,11 @@ VisiData to make a golden, then replayed by vdrs (`vd_replay_local` in
 - Melt: `Variable`/`Value`, row-major, nulls dropped, index columns stay keys.
 - Pivot `W`: absent pair counts 0; the null/empty value column is `''`.
 - Pivot edits: key columns only.
+- `csv_skipinitialspace` (S-48) unquarantined `cast-date` and `cast-float`.
 - Replay: bools print `False`; `%.2f` float display; append column order is the sheet's own.
 
 ## Quarantined
 
-- `cast-date`, `cast-float`: VisiData's `csv_skipinitialspace` (default on) strips
-  leading blanks; vdrs keeps them. Open: add the option.
 - `cast-int`, `cast-describe`: failed casts are VisiData errors that keep their
   text; vdrs casts them to null.
 - `join-extend`: VisiData repeats the first match for duplicate keys.

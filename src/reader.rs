@@ -325,6 +325,9 @@ pub struct LoadedSource {
     pub parts: Vec<(String, std::sync::Arc<LoadedSource>)>,
     /// Rows read as column names (option `header`, S-43 A); 1 by default.
     pub header: usize,
+    /// A CSV whose text cells and names lost their leading blanks
+    /// (option `csv_skipinitialspace`, S-48).
+    pub stripped: bool,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -345,6 +348,7 @@ impl LoadedSource {
             via_loader: false,
             parts: Vec::new(),
             header: 1,
+            stripped: false,
             _tempfile: None,
         }
     }
@@ -359,6 +363,7 @@ impl LoadedSource {
             via_loader: false,
             parts: Vec::new(),
             header: 1,
+            stripped: false,
             _tempfile: None,
         }
     }
@@ -426,6 +431,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         via_loader: false,
         parts: Vec::new(),
         header: 1,
+        stripped: false,
         _tempfile: None,
     })
 }
@@ -490,6 +496,7 @@ pub fn open_part_with(
         via_loader: false,
         parts: Vec::new(),
         header,
+        stripped: false,
         _tempfile: tempfile,
     })
 }
@@ -636,7 +643,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         }
     }
     let real_path = tempfile.as_ref().map_or(path, |t| t.path());
-    let (lazy, real_kind) = scan(real_path, kind, header)?;
+    let (lazy, real_kind, stripped) = scan(real_path, kind, header)?;
     let display_name = path.display().to_string();
     Ok(LoadedSource {
         kind: real_kind,
@@ -646,6 +653,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         via_loader: false,
         parts: Vec::new(),
         header,
+        stripped,
         _tempfile: tempfile,
     })
 }
@@ -708,16 +716,21 @@ fn clean_json_lines(
     Ok(Some(tmp))
 }
 
-/// Build the plan for a file of a known kind. Returns the kind actually used:
-/// `Json` falls back to `Jsonl` when the file isn't a JSON array.
+/// Build the plan for a file of a known kind. Returns the kind actually used
+/// (`Json` falls back to `Jsonl` when the file isn't a JSON array) and
+/// whether leading blanks were stripped (`csv_skipinitialspace`).
 fn scan(
     path: &Path,
     kind: SourceKind,
     header: usize,
-) -> Result<(LazyFrame, SourceKind), OpenError> {
+) -> Result<(LazyFrame, SourceKind, bool), OpenError> {
     let lazy = match kind {
-        SourceKind::Csv => scan_csv(path, b',', header)?,
-        SourceKind::Tsv => scan_csv(path, b'\t', header)?,
+        // VisiData's option is the csv loader's: not tsv
+        SourceKind::Csv => {
+            let (lazy, stripped) = scan_csv(path, b',', header, skipinitialspace())?;
+            return Ok((lazy, kind, stripped));
+        }
+        SourceKind::Tsv => scan_csv(path, b'\t', header, false)?.0,
         SourceKind::Parquet => LazyFrame::scan_parquet(pl_path(path)?, ScanArgsParquet::default())?,
         SourceKind::Arrow => {
             LazyFrame::scan_ipc(pl_path(path)?, Default::default(), Default::default())?
@@ -748,7 +761,21 @@ fn scan(
             .lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
     };
-    Ok((lazy, kind))
+    Ok((lazy, kind, false))
+}
+
+/// Option `csv_skipinitialspace` off (VisiData's default is on). Global as
+/// `duckdb_cmd`: opens read it wherever they start.
+static KEEP_INITIAL_SPACE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Set option `csv_skipinitialspace` for later CSV opens.
+pub fn set_skipinitialspace(on: bool) {
+    KEEP_INITIAL_SPACE.store(!on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn skipinitialspace() -> bool {
+    !KEEP_INITIAL_SPACE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// CSVs at most this big have every row inspected for column types.
@@ -826,15 +853,39 @@ fn csv_reader(path: &Path, sep: u8, header: usize) -> PolarsResult<LazyCsvReader
         .with_encoding(CsvEncoding::LossyUtf8))
 }
 
-/// Scan a CSV under `csv_schema`'s types.
-fn scan_csv(path: &Path, sep: u8, header: usize) -> Result<LazyFrame, OpenError> {
+/// Scan a CSV under `csv_schema`'s types. With `skip` (`csv_skipinitialspace`)
+/// leading blanks leave text cells and names, as Python's `skipinitialspace`;
+/// the bool says whether there were any.
+// ponytail: a stripped column stays text (" 5" isn't inferred as a number);
+// re-infer after stripping if typed columns with blanks matter.
+fn scan_csv(
+    path: &Path,
+    sep: u8,
+    header: usize,
+    skip: bool,
+) -> Result<(LazyFrame, bool), OpenError> {
+    let (schema, padded) = csv_schema(path, sep, header)?;
     let lazy = csv_reader(path, sep, header)?
         .with_try_parse_dates(true)
-        .with_schema(Some(csv_schema(path, sep, header)?))
+        .with_schema(Some(schema.clone()))
         .with_infer_schema_length(Some(0)) // or each new plan infers again
         .finish()?;
+    let stripped = skip && padded;
+    let lazy = match stripped {
+        true => {
+            let text: Vec<Expr> = schema
+                .iter()
+                .filter(|(_, d)| **d == DataType::String)
+                .map(|(n, _)| col(n.clone()).str().strip_chars_start(lit(" ")))
+                .collect();
+            let old: Vec<String> = schema.iter_names().map(|n| n.to_string()).collect();
+            let new = unique_headers(old.iter().map(|n| n.trim_start_matches(' ').to_string()));
+            lazy.with_columns(text).rename(old, new, true)
+        }
+        false => lazy,
+    };
     if header <= 1 {
-        return Ok(lazy);
+        return Ok((lazy, stripped));
     }
     // the first `header` rows, as text, name the columns
     let head = CsvReadOptions::default()
@@ -864,7 +915,7 @@ fn scan_csv(path: &Path, sep: u8, header: usize) -> Result<LazyFrame, OpenError>
         .map(|n| n.to_string())
         .collect();
     let new = header_names(&rows, old.len());
-    Ok(lazy.rename(old, new, true))
+    Ok((lazy.rename(old, new, true), stripped))
 }
 
 /// A cell as text, null empty.
@@ -896,16 +947,18 @@ pub(crate) fn header_names(rows: &[Vec<String>], width: usize) -> Vec<String> {
 /// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
 /// and Polars would guess day-first, so other layouts stay text until `@`.
 /// Integers written with a leading zero (`082053`: zip codes, ids) stay text,
-/// so no digit is lost (S-24 R4).
-fn csv_schema(path: &Path, sep: u8, header: usize) -> Result<SchemaRef, OpenError> {
+/// so no digit is lost (S-24 R4). The bool: a name or text cell starts with
+/// a blank (`csv_skipinitialspace` strips it; only the inferred rows count).
+fn csv_schema(path: &Path, sep: u8, header: usize) -> Result<(SchemaRef, bool), OpenError> {
     let mut schema = (*csv_reader(path, sep, header)?.finish()?.collect_schema()?).clone();
+    let mut padded = schema.iter_names().any(|n| n.starts_with(' '));
     let checked: Vec<Expr> = schema
         .iter()
         .filter(|(_, d)| **d == DataType::String || d.is_integer())
         .map(|(n, _)| col(n.clone()))
         .collect();
     if checked.is_empty() {
-        return Ok(Arc::new(schema));
+        return Ok((Arc::new(schema), padded));
     }
     // The same rows inference saw, as text. Polars' date inference costs
     // 10-40x plain inference per cell, so it only names the type here: every
@@ -933,6 +986,11 @@ fn csv_schema(path: &Path, sep: u8, header: usize) -> Result<SchemaRef, OpenErro
         })
         .collect()?;
     for c in values.columns() {
+        if schema.get(c.name()) == Some(&DataType::String)
+            && c.str()?.iter().flatten().any(|v| v.starts_with(' '))
+        {
+            padded = true;
+        }
         if schema.get(c.name()).is_some_and(DataType::is_integer) {
             if zero_padded(c.str()?) {
                 schema.set_dtype(c.name(), DataType::String);
@@ -946,7 +1004,7 @@ fn csv_schema(path: &Path, sep: u8, header: usize) -> Result<SchemaRef, OpenErro
             schema.set_dtype(c.name(), dtype);
         }
     }
-    Ok(Arc::new(schema))
+    Ok((Arc::new(schema), padded))
 }
 
 /// The date type Polars gives these ISO strings, if all of them parse as it.
@@ -996,7 +1054,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         Some(k) => k,
         None => sniff_format(&buf),
     };
-    let (lazy, kind) = scan(tmp.path(), kind, 1)?;
+    let (lazy, kind, stripped) = scan(tmp.path(), kind, 1)?;
     Ok(LoadedSource {
         kind,
         display_name: "<stdin>".to_string(),
@@ -1005,6 +1063,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         via_loader: false,
         parts: Vec::new(),
         header: 1,
+        stripped,
         _tempfile: Some(tmp),
     })
 }

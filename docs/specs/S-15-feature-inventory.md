@@ -27,7 +27,7 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 
 | Format | Extensions | Backend | Behavior |
 |---|---|---|---|
-| CSV | `.csv` | Polars `LazyCsvReader` | first row = header |
+| CSV | `.csv` | Polars `LazyCsvReader` | first row = header; option `csv_skipinitialspace` (default on, VisiData's) strips leading blanks from names and text cells when inference saw any (`LoadedSource.stripped`; export strips too; S-48) |
 | TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header |
 | Parquet | `.parquet`, `.pq` | Polars `scan_parquet` | native lazy |
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |

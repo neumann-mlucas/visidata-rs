@@ -1332,6 +1332,8 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme.unfurl_empty = o.unfurl_empty;
         theme.header = o.header.unwrap_or(1);
     }
+    // reader global (as duckdb_cmd): every app and config reload sets it
+    crate::reader::set_skipinitialspace(!plugins.is_some_and(|p| p.options().csv_keep_space));
     (keymap, theme)
 }
 

@@ -2286,6 +2286,7 @@ impl App {
                 self.sheets.active_mut().state.widths_key = None;
             }
             "duckdb_cmd" => crate::duckdb::set_cmd(Some(v.clone())),
+            "csv_skipinitialspace" => crate::reader::set_skipinitialspace(v == "true"),
             "validation" => {
                 let ids: Vec<_> = self.sheets.iter().map(|s| s.id).collect();
                 for id in ids {

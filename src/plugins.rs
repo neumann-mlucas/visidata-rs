@@ -122,6 +122,8 @@ pub struct Options {
     pub incr_base: Option<u64>,
     /// `vd.option("unfurl_empty", true)` (S-42 C).
     pub unfurl_empty: bool,
+    /// `vd.option("csv_skipinitialspace", false)` (S-48): CSV cells keep leading blanks.
+    pub csv_keep_space: bool,
     /// `vd.option("header", N)` (S-43 A): rows read as column names; None: 1.
     pub header: Option<usize>,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
@@ -147,6 +149,7 @@ impl Options {
             "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => self.incr_base = v.parse().ok(),
             "unfurl_empty" => self.unfurl_empty = on,
+            "csv_skipinitialspace" => self.csv_keep_space = !on,
             "header" => self.header = v.parse().ok(),
             "mouse" => self.mouse = on,
             _ => {} // keymap: applied when set (the vim profile's binds)
@@ -1689,6 +1692,9 @@ pub fn default_init_lua() -> String {
          \n\
          -- .duckdb files: the DuckDB program vdrs runs. Default: duckdb on PATH.\n\
          -- vd.option(\"duckdb_cmd\", \"/usr/local/bin/duckdb\")\n\
+         \n\
+         -- .csv files: drop blanks at the start of each cell and name (VisiData's).\n\
+         -- vd.option(\"csv_skipinitialspace\", \"true\")\n\
          \n\
          -- Keys: \"visidata\" (default) or \"vim\": rebinds the keys where vim and VisiData\n\
          -- disagree (u undo, d/y/c operators, q macros, m/' marks, w/b/e cell motions).\n\

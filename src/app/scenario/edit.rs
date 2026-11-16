@@ -1457,3 +1457,29 @@ async fn freeze_col_adds_a_copy() {
     h.keys("U").await;
     assert_eq!(view_csv(&h), "a,b\n1.0,x\n2.0,y\n");
 }
+
+/// S-48: a `.csv` drops the blanks after each comma (VisiData's
+/// `csv_skipinitialspace`); `:set csv_skipinitialspace false` keeps them.
+#[tokio::test(flavor = "multi_thread")]
+async fn csv_skipinitialspace_set_off_keeps_blanks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("spaced.csv");
+    std::fs::write(&path, "id, name\n1, ann\n").unwrap();
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    assert!(
+        view_csv(&h).starts_with("id,name\n1,ann\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys(":").await;
+    h.type_("set csv_skipinitialspace false").await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    assert!(
+        view_csv(&h).starts_with("id, name\n1, ann\n"),
+        "{}",
+        view_csv(&h)
+    );
+}

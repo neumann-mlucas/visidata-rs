@@ -41,6 +41,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "program that prints the system clipboard; default: detected",
     },
     Opt {
+        name: "csv_skipinitialspace",
+        kind: Kind::Bool,
+        default: "true",
+        live: true,
+        help: "later .csv opens drop blanks at the start of each cell and name",
+    },
+    Opt {
         name: "disp_float_fmt",
         kind: Kind::FloatFmt,
         default: "",

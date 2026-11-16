@@ -315,10 +315,10 @@ impl Script {
                     .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
                 Ok(match (kind, gz) {
                     (SourceKind::Csv | SourceKind::Tsv, false) => {
-                        format!("pl.scan_csv({p}{})", py_csv_args(s)?)
+                        format!("pl.scan_csv({p}{}){}", py_csv_args(s)?, py_strip(s))
                     }
                     (SourceKind::Csv | SourceKind::Tsv, true) => {
-                        format!("pl.read_csv({p}{}).lazy()", py_csv_args(s)?)
+                        format!("pl.read_csv({p}{}).lazy(){}", py_csv_args(s)?, py_strip(s))
                     }
                     (SourceKind::Parquet, _) => format!("pl.scan_parquet({p})"),
                     (SourceKind::Arrow, _) => format!("pl.scan_ipc({p})"),
@@ -388,7 +388,15 @@ impl Script {
                             ));
                         }
                         let quoted: Vec<String> = names.iter().map(|n| q_str(n)).collect();
-                        let cols: Vec<String> = names.iter().map(|n| q_ident(n)).collect();
+                        // csv_skipinitialspace (S-48): text cells without leading blanks
+                        let cols: Vec<String> = names
+                            .iter()
+                            .zip(schema.iter_values())
+                            .map(|(n, d)| match s.source.stripped && *d == DataType::String {
+                                true => format!("ltrim({c}, ' ') AS {c}", c = q_ident(n)),
+                                false => q_ident(n),
+                            })
+                            .collect();
                         format!(
                             "SELECT {} FROM read_csv_auto({p}, names = [{}]{})",
                             cols.join(", "),
@@ -2284,11 +2292,24 @@ fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
         .collect())
 }
 
+/// csv_skipinitialspace (S-48): text cells without leading blanks.
+fn py_strip(s: &Sheet) -> &'static str {
+    match s.source.stripped {
+        true => ".with_columns(pl.col(pl.String).str.strip_chars_start(\" \"))",
+        false => "",
+    }
+}
+
 /// `pl.scan_csv` arguments matching how vdrs read this file.
 fn py_csv_args(s: &Sheet) -> Result<String, String> {
     let mut args =
         ", infer_schema_length=None, truncate_ragged_lines=True, encoding=\"utf8-lossy\""
             .to_string();
+    if s.source.stripped {
+        // the names without their blanks
+        let names: Vec<String> = csv_columns(s)?.iter_names().map(|n| py_str(n)).collect();
+        args += &format!(", new_columns=[{}]", names.join(", "));
+    }
     if s.kind == SourceKind::Tsv {
         args += ", separator=\"\\t\"";
     }

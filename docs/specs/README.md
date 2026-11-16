@@ -52,6 +52,7 @@ File naming: `S-NN-slug.md`.
 | S-45 | Edits on derived sheets, join write-back | S-18, S-30 A | **shipped 2026-11-16** → [`S-45-derived-edits.md`](S-45-derived-edits.md) |
 | S-46 | More VisiData commands (`'`, `gF`, `z<CR>`, …) | S-25, S-34, S-35 | **A shipped 2026-11-16, B draft** → [`S-46-more-commands.md`](S-46-more-commands.md) |
 | S-47 | Local replay corpus (`tests/vd_local`) | S-14 | **shipped 2026-11-16** → [`S-47-local-replay-corpus.md`](S-47-local-replay-corpus.md) |
+| S-48 | Option `csv_skipinitialspace` | S-43, S-47 | **shipped 2026-11-16** → [`S-48-csv-skipinitialspace.md`](S-48-csv-skipinitialspace.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

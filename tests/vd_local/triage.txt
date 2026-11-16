@@ -2,9 +2,9 @@
 # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
 aggregators-float	PASS
 aggregators-int	PASS
-cast-date	FAIL line 3: want="30.0\t2\t2024-02-01" got="30.0\t2.0\t2024-02-01"
+cast-date	PASS
 cast-describe	FAIL line 2: want="i\t2\t0\t3\t1\t-5\t4\t0\t1\t0.00\t4.58" got="i\t3\t0\t2\t1\t1\t4\t5.00\t2.5\t2.50\t2.12"
-cast-float	FAIL line 2: want="1\t1.50\t2024-01-05" got="1\t1.5\t2024-01-05"
+cast-float	PASS
 cast-int	FAIL line 3: want="30.0\t2\t2024/02/01" got="\t2.0\t2024/02/01"
 header-0-rename	PASS
 header-2	PASS
