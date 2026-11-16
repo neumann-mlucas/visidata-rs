@@ -13,7 +13,7 @@ append	PASS
 avg-nulls	PASS
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	PASS
-column-copy	SKIP freeze-col
+column-copy	SKIP runtime: cannot locate row 'Robert Armstrong' (keys=[])
 column-name-__name__	PASS
 column-name-_fields	PASS
 column-name-length	PASS
@@ -58,9 +58,9 @@ freq-error	UNTESTABLE addcol-expr
 freq-fmtstr	PASS
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
-freqtbl-nested-dive-selected	SKIP dive-selected
+freqtbl-nested-dive-selected	PASS
 freqtbl-openrow	PASS
-frozen-attrs	SKIP freeze-col
+frozen-attrs	PASS
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr
 getitem	SKIP runtime: cannot locate row 'geolocation' (keys=[])

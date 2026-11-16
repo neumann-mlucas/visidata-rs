@@ -272,11 +272,13 @@ impl Sheet {
             .keys
             .iter()
             .filter_map(|k| schema.get(k).map(|d| (k, d)));
-        let rest = schema
-            .iter()
-            .filter(|(n, _)| !self.view.keys.iter().any(|k| k == n.as_str()));
+        // the rest in display order (S-34 `order`, a new column's place)
+        let rest = self
+            .display_order()
+            .into_iter()
+            .filter_map(|n| schema.get(&n).map(|d| (n, d.clone())));
         keys.map(|(n, d)| (n.clone(), d.clone()))
-            .chain(rest.map(|(n, d)| (n.to_string(), d.clone())))
+            .chain(rest)
             .collect()
     }
 

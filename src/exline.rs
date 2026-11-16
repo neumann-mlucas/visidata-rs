@@ -76,6 +76,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }
         "unsort" | "clear-sort" => Ok(vec![Action::ClearSort]),
         "freeze" => Ok(vec![Action::FreezeColumn]),
+        "freeze-col" => Ok(vec![Action::FreezeCol]),
         "unfreeze" => Ok(vec![Action::UnfreezeAll]),
         "ls" | "sheets" => Ok(vec![Action::OpenSheetSwitcher]),
         "pivot" => {
@@ -649,6 +650,7 @@ pub const COMMANDS: &[&str] = &[
     "filter-expr",
     "filter",
     "freeze",
+    "freeze-col",
     "color",
     "nocolor",
     "help",

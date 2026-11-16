@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 94;
+const MIN_PASS: usize = 96;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -292,6 +292,12 @@ impl Replay {
 
     /// `open-row` on a duckdb index: the row's table (`キname` or a row number).
     fn open_index_row(&mut self, row: &str) -> Result<(), StepErr> {
+        self.freq_dive(Some(row))
+    }
+
+    /// `open-row` on a freq sheet (`row`), or `dive-selected` (`None`): the
+    /// source rows with those rows' values, as `<CR>` / `g<CR>`.
+    fn freq_dive(&mut self, row: Option<&str>) -> Result<(), StepErr> {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
         if let Origin::Freq { parent, column } = s.origin.clone() {
@@ -303,16 +309,25 @@ impl Replay {
                 .collect()
                 .map_err(|e| Runtime(e.to_string()))?;
             let vals = &vals.columns()[0];
-            let i = match row.strip_prefix('キ') {
-                Some(v) => (0..vals.len()).find(|&i| {
-                    vals.get(i)
-                        .is_ok_and(|a| a.str_value().trim_matches('"') == v)
-                }),
-                None => row.parse().ok(),
+            let rows: Vec<usize> = match row {
+                // the freq sheet's row ids are its rows
+                None => s.view.selected.iter().map(|&r| r as usize).collect(),
+                Some(row) => vec![
+                    match row.strip_prefix('キ') {
+                        Some(v) => (0..vals.len()).find(|&i| {
+                            vals.get(i)
+                                .is_ok_and(|a| a.str_value().trim_matches('"') == v)
+                        }),
+                        None => row.parse().ok(),
+                    }
+                    .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?,
+                ],
+            };
+            let mut picked = Vec::new();
+            for i in rows {
+                let v = vals.get(i).map_err(|e| Runtime(e.to_string()))?;
+                picked.push((!v.is_null()).then(|| visidata_rs::sheet::any_text(&v)));
             }
-            .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
-            let v = vals.get(i).map_err(|e| Runtime(e.to_string()))?;
-            let picked = vec![(!v.is_null()).then(|| visidata_rs::sheet::any_text(&v))];
             let p = self
                 .loaded
                 .iter()
@@ -329,11 +344,14 @@ impl Replay {
             let name = format!(
                 "{}_{}",
                 self.current_slot()?.name,
-                row.trim_start_matches('キ')
+                row.map_or("selected", |r| r.trim_start_matches('キ'))
             );
             self.push_sheet(name, sheet);
             return Ok(());
         }
+        let Some(row) = row else {
+            return Err(Runtime("dive-selected: not a freq sheet".into()));
+        };
         let Origin::Parts { path, kind } = s.origin.clone() else {
             // xlsx/sqlite open their first part directly; `キname` names another
             let (Some(name), Some(path)) = (row.strip_prefix('キ'), s.source.path.clone()) else {
@@ -998,6 +1016,12 @@ impl Replay {
                 }
                 Ok(())
             }
+            "freeze-col" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let name = s.freeze_col(&r.col).map_err(Runtime)?;
+                s.place_col(&name, Some(&r.col)).map_err(Runtime)?;
+                Ok(())
+            }
             "rename-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 s.rename_col(&r.col, &r.input).map_err(Runtime)
@@ -1394,6 +1418,7 @@ impl Replay {
             // For VisiData's columns-sheet / other meta-sheet workflows, this
             // is wrong but we skip those tests elsewhere.
             "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
+            "dive-selected" => self.freq_dive(None),
             // on the sheets stack: go to that sheet
             "dive-row" | "open-row" => {
                 let name = r.row.strip_prefix('キ').unwrap_or(&r.row);
@@ -2256,14 +2281,24 @@ impl Replay {
             let v = &s.view;
             let df = s.data_plan().collect().map_err(err)?;
             let view = s.view_plan().collect().map_err(err)?;
-            let texts: Vec<String> = match view.column(name).or_else(|_| df.column(name)) {
-                Ok(c) => (0..c.len())
-                    .map(|i| c.get(i).map(|a| av_display(&a)).unwrap_or_default())
-                    .collect(),
-                Err(_) => Vec::new(),
+            let texts_of = |name: &str| -> Vec<String> {
+                match view.column(name).or_else(|_| df.column(name)) {
+                    Ok(c) => (0..c.len())
+                        .map(|i| c.get(i).map(|a| av_display(&a)).unwrap_or_default())
+                        .collect(),
+                    Err(_) => Vec::new(),
+                }
             };
-            let width = texts.iter().map(|t| t.chars().count()).max().unwrap_or(0);
-            let width = width.max(name.chars().count()) + 2;
+            let measure = |name: &str| {
+                let width = texts_of(name).iter().map(|t| t.chars().count()).max();
+                width.unwrap_or(0).max(name.chars().count()) + 2
+            };
+            let texts = texts_of(name);
+            // `'`'s copy keeps its column's width (VisiData copies the column)
+            let width = match name.strip_suffix("_frozen") {
+                Some(base) if view.column(base).is_ok() => measure(base),
+                _ => measure(name),
+            };
             // a copy (`"`, `g"`) keeps its parent's column widths (S-38 B)
             let parent_width = match s.state.lineage.as_deref() {
                 Some(l) if matches!(l.how, Derivation::Copy | Derivation::Rids(_)) => {

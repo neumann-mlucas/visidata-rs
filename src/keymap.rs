@@ -136,6 +136,7 @@ impl Keymap {
             ch("!", KeyCol, "toggle current column as key"),
             ch("z !", UnkeyAll, "unset all keys"),
             ch("^", StartRenameColInput, "rename current column"),
+            ch("'", FreezeCol, "add a frozen copy of the current column"),
             ch(
                 "z ^",
                 RenameColsFromRows { all: false, overwrite: true },

@@ -17,6 +17,36 @@ impl Sheet {
         self.derive(name, "CAST(NULL AS VARCHAR)")
     }
 
+    /// `'` (VisiData `freeze-col`, S-46 A): `<column>_frozen`, a copy of
+    /// `column` with its type, aggregators and format. Its name.
+    // ponytail: a `Derive` copy, so an edit of `column` placed before it (no
+    // earlier writer) shows in the copy; VisiData's keeps the old values
+    pub fn freeze_col(&mut self, column: &str) -> Result<String, String> {
+        let name = format!("{column}_frozen");
+        if self.has_column(&name) {
+            return Err(format!("column already exists: {name}"));
+        }
+        self.derive(&name, &format!("\"{}\"", column.replace('"', "\"\"")))?;
+        fn copy<T: Clone>(l: &mut Vec<(String, T)>, from: &str, to: &str) {
+            let found: Vec<T> = l
+                .iter()
+                .filter(|(c, _)| c == from)
+                .map(|(_, x)| x.clone())
+                .collect();
+            l.extend(found.into_iter().map(|x| (to.to_string(), x)));
+        }
+        // as wide as the original, as VisiData's copy keeps its width
+        let at = self.window().and_then(|w| w.get_column_index(column));
+        if let Some(&w) = at.and_then(|i| self.state.widths.get(i)) {
+            self.state.width_floor.insert(name.clone(), w);
+        }
+        let v = &mut self.view;
+        copy(&mut v.type_casts, column, &name);
+        copy(&mut v.aggregators, column, &name);
+        copy(&mut v.fmtstrs, column, &name);
+        Ok(name)
+    }
+
     /// `i` / `:addcol-incr`: a new int column numbering the view's rows
     /// base, base + 1, … in view order; rows the filter hides stay null. Its name.
     pub fn add_incr_col(&mut self, base: u64) -> Result<String, String> {

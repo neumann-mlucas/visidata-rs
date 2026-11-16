@@ -22,6 +22,9 @@ pub enum Action {
     GotoLeftmost,
     GotoRightmost,
     FreezeColumn,
+    /// `'` (VisiData `freeze-col`, S-46 A): a `<col>_frozen` copy of the
+    /// current column after it, with its type, aggregators and format.
+    FreezeCol,
     UnfreezeAll,
     /// `zs` (VisiData select-before): select rows from the top to the cursor.
     SelectBefore,
@@ -865,6 +868,7 @@ impl Action {
             | GotoLeftmost
             | GotoRightmost => true,
             FreezeColumn
+            | FreezeCol
             | UnfreezeAll
             | HideCol
             | UnhideAll
@@ -934,6 +938,7 @@ impl Action {
         ("goto_leftmost", GotoLeftmost),
         ("goto_rightmost", GotoRightmost),
         ("freeze_column", FreezeColumn),
+        ("freeze_col", FreezeCol),
         ("unfreeze_all", UnfreezeAll),
         ("hide_col", HideCol),
         ("unhide_all", UnhideAll),

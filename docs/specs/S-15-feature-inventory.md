@@ -73,6 +73,7 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
 | `FreezeColumn` / `UnfreezeAll` | vim profile `zs` / `zc` | `:freeze` / `:unfreeze` | pin cols up to the cursor to the left of the viewport |
+| `FreezeCol` | `'` | `:freeze-col` | VisiData `freeze-col`: `<col>_frozen` after the column, a `Derive` copy with its type casts, aggregators, fmtstr and width (`Sheet::freeze_col`, S-46 A) |
 | `ResizeColMax` | `_` | — | toggle the column between full width (widest loaded value) and default (VisiData `resize-col-max`); on a plot `_` zooms to fit |
 | `HideCol` / `UnhideAll` | `-` / `gv` | `:hide` / `:unhide` | View.hidden set |
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |

@@ -1223,7 +1223,13 @@ async fn sorted_columns_sheet_rebuild_keeps_cursor() {
     h.keys("g g").await;
     h.keys("e <C-u>").await;
     h.type_("z").await; // rename c, the cursor row
-    assert_eq!(h.app.rid_at_cursor(), Some(2), "{}", h.screen());
+    let name = h
+        .app
+        .sheets
+        .active()
+        .cursor_value("name")
+        .map(|v| crate::sheet::any_text(&v));
+    assert_eq!(name.as_deref(), Some("z"), "{}", h.screen());
 }
 
 /// A date fmtstr left on a column that's now a float (a refresh changed its
@@ -1437,4 +1443,17 @@ async fn edits_on_a_join_write_back() {
     assert_eq!(view_csv(&h), "id,v\n1,a\n2,b\n");
     h.keys("l F e").await;
     assert!(status(&h).starts_with("read-only"), "{}", status(&h));
+}
+
+/// S-46 A: `'` adds `<col>_frozen` after the current column, with its type;
+/// `U` takes it away.
+#[tokio::test(flavor = "multi_thread")]
+async fn freeze_col_adds_a_copy() {
+    let mut h = csv(b"a,b\n1,x\n2,y\n").await;
+    h.keys("% '").await;
+    assert_eq!(status(&h), "added a_frozen");
+    assert_eq!(h.current_column(), "a_frozen");
+    assert_eq!(view_csv(&h), "a,a_frozen,b\n1.0,1.0,x\n2.0,2.0,y\n");
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "a,b\n1.0,x\n2.0,y\n");
 }

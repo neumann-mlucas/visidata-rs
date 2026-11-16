@@ -235,6 +235,16 @@ impl App {
                 }
             }
             Action::UnfreezeAll => self.sheets.active_mut().view.frozen_left = 0,
+            Action::FreezeCol => {
+                let Some(c) = self.current_column_name() else {
+                    return;
+                };
+                let done = self.sheets.active_mut().freeze_col(&c).map(|name| {
+                    self.place_new_column(&name, Some(&c));
+                    format!("added {name}")
+                });
+                self.edit_done(done, "freeze-col: ");
+            }
             Action::HideCol => {
                 if let Some(c) = self.current_column_name() {
                     self.sheets.active_mut().view.hidden.insert(c);
