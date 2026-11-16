@@ -7,7 +7,7 @@ use super::*;
 impl Sheet {
     /// `za` / `:addcol`: an empty text column `name`.
     pub fn add_empty_col(&mut self, name: &str) -> Result<(), String> {
-        self.editable()?;
+        self.make_editable()?;
         if name.trim().is_empty() {
             return Err("addcol: a column needs a name".into());
         }
@@ -65,7 +65,7 @@ impl Sheet {
     /// [`Self::add_incr_col`] with the view's row ids and their numbers
     /// already worked out (S-33).
     pub fn add_incr_col_with(&mut self, rids: Vec<u64>, nums: Vec<i64>) -> Result<String, String> {
-        self.editable()?;
+        self.make_editable()?;
         let before = self.snapshot();
         let name = self.next_colname();
         let made = self
@@ -102,7 +102,7 @@ impl Sheet {
         rids: Vec<u64>,
         base: u64,
     ) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
@@ -160,7 +160,7 @@ impl Sheet {
         ids: Vec<u64>,
         filled: Series,
     ) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         let n = ids.len();
         if n == 0 {
             return Ok(0);
@@ -174,7 +174,7 @@ impl Sheet {
     /// `;` / `:capture`: a struct column `<column>_re` of `pattern`'s
     /// groups (`(` expands it). Its name.
     pub fn capture(&mut self, column: &str, pattern: &str) -> Result<String, String> {
-        self.editable()?;
+        self.make_editable()?;
         capture_fields(pattern).map_err(|e| e.to_string())?;
         let name = format!("{column}_re");
         if self.has_column(&name) {

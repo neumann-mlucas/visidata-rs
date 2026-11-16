@@ -81,6 +81,8 @@ Dates: ISO only in v1 (`2024-01-31`); the lenient `@` layouts are a follow-up.
 
 ### 2.5 Which sheets are editable (D3: source sheets only)
 
+> Superseded in part by S-45: pivot, melt, unfurl, `:sql`, join and Lua sheets take edits too.
+
 Only sheets read from a source take edits: a file opened from the command line or `:open`-like paths,
 a `:tail`, a part of an xlsx/sqlite file, and `A` (open-new). Derived sheets (freq, describe, pivot,
 join, `:sql`, diff, selected rows, `:dup`, dedupe, the sheet list) refuse every edit key with

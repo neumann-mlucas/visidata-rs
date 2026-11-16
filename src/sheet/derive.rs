@@ -747,118 +747,8 @@ impl Sheet {
         keys: &[String],
         how: &str,
     ) -> Result<Self, String> {
-        let l = left.view_plan();
-        let (right, right_name) = (right_sheet.view_plan(), right_sheet.name.as_str());
-        let tag =
-            |p: LazyFrame, name: &str| p.with_column(lit(name.to_string()).alias("origin_sheet"));
-        let plan = if how == "append" {
-            let args = UnionArgs {
-                to_supertypes: true,
-                diagonal: true,
-                ..Default::default()
-            };
-            concat([tag(l, &left.name), tag(right, right_name)], args).map_err(|e| e.to_string())?
-        } else if how == "concat" {
-            let names = |p: &LazyFrame| -> Result<Vec<String>, String> {
-                let schema = p.clone().collect_schema().map_err(|e| e.to_string())?;
-                Ok(schema.iter_names().map(|n| n.to_string()).collect())
-            };
-            let (ln, rn) = (names(&l)?, names(&right)?);
-            if ln.len() != rn.len() {
-                return Err(format!(
-                    "concat: {} has {} columns, {right_name} has {}",
-                    left.name,
-                    ln.len(),
-                    rn.len()
-                ));
-            }
-            let renamed = right.select(
-                rn.iter()
-                    .zip(&ln)
-                    .map(|(r, l)| col(r.as_str()).alias(l.as_str()))
-                    .collect::<Vec<_>>(),
-            );
-            let args = UnionArgs {
-                to_supertypes: true,
-                ..Default::default()
-            };
-            concat([tag(l, &left.name), tag(renamed, right_name)], args)
-                .map_err(|e| e.to_string())?
-        } else {
-            let jt = match how {
-                "inner" => JoinType::Inner,
-                "left" | "extend" => JoinType::Left,
-                "full" | "merge" => JoinType::Full,
-                other => return Err(format!("unknown join type: {other}")),
-            };
-            let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-            let mut args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
-            args.maintain_order = MaintainOrderJoin::LeftRight;
-            // VisiData's order: keys as first seen (left rows, then right-only
-            // keys), each key's rows together, left row then right row. Pivots
-            // of the join then order their columns the same way every run.
-            let numbered = |p: LazyFrame, row: &str, first: &str| -> Result<LazyFrame, String> {
-                let min = col(row).cast(DataType::Int64).min();
-                let min = min.over(on.clone()).map_err(|e| e.to_string())?;
-                Ok(p.with_row_index(row, None).with_column(min.alias(first)))
-            };
-            let right = if how == "extend" {
-                let names: Vec<String> = right
-                    .clone()
-                    .collect_schema()
-                    .map_err(|e| e.to_string())?
-                    .iter_names()
-                    .filter(|n| !keys.iter().any(|k| k == n.as_str()))
-                    .map(|n| n.to_string())
-                    .collect();
-                let to: Vec<String> = names
-                    .iter()
-                    .map(|n| format!("{}_{n}", extend_prefix(right_sheet)))
-                    .collect();
-                right.rename(names, to, true)
-            } else {
-                right
-            };
-            let l = numbered(l, JL, JLK)?;
-            let right = numbered(right, JR, JRK)?;
-            let mut joined = l
-                .join(right, on.clone(), on, args)
-                .sort_by_exprs(
-                    [
-                        col(JLK).fill_null(col(JRK) + lit(JOIN_RIGHT_KEYS)),
-                        col(JL),
-                        col(JR),
-                    ],
-                    SortMultipleOptions::default()
-                        .with_nulls_last(true)
-                        .with_maintain_order(true),
-                )
-                .drop(cols([JL, JLK, JR, JRK]));
-            if how == "merge" {
-                // Polars suffixes colliding right columns `_right`; fold them in.
-                let names: Vec<String> = joined
-                    .collect_schema()
-                    .map_err(|e| e.to_string())?
-                    .iter_names()
-                    .map(|n| n.to_string())
-                    .collect();
-                let dups: Vec<&str> = names
-                    .iter()
-                    .filter_map(|n| n.strip_suffix("_right"))
-                    .filter(|base| names.iter().any(|n| n == base))
-                    .collect();
-                let merged: Vec<Expr> = dups
-                    .iter()
-                    .map(|b| {
-                        let r = format!("{b}_right");
-                        col(r.as_str()).fill_null(col(*b)).alias(*b)
-                    })
-                    .collect();
-                let drop: Vec<String> = dups.iter().map(|b| format!("{b}_right")).collect();
-                joined = joined.with_columns(merged).drop(cols(drop));
-            }
-            joined
-        };
+        let plan = join_plan(left, right_sheet, keys, how, false)?;
+        let right_name = right_sheet.name.as_str();
         let mut joined = Sheet::child(
             left,
             id,
@@ -882,6 +772,55 @@ impl Sheet {
             joined.view.hidden.insert("origin_sheet".into());
         }
         Ok(joined)
+    }
+
+    /// A join's source rows (S-45 B), from its lineage: for each of its rows,
+    /// the left and right sheets' row ids, and which of their columns it
+    /// shows. `None` for an append or concat, or a sheet that isn't a join.
+    pub(super) fn join_sources(&self) -> Result<Option<JoinSources>, String> {
+        let Some(Lineage {
+            parent,
+            how: Derivation::Join { right, keys, how },
+        }) = self.state.lineage.as_deref()
+        else {
+            return Ok(None);
+        };
+        if how == "append" || how == "concat" {
+            return Ok(None);
+        }
+        let df = join_plan(parent, right, keys, how, true)?
+            .select([col(LRID), col(RRID)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let ids = |c: &str| -> Result<Vec<Option<u64>>, String> {
+            let c = df.column(c).and_then(|c| c.cast(&DataType::UInt64));
+            Ok(c.map_err(|e| e.to_string())?
+                .u64()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .collect())
+        };
+        let names = |s: &Sheet| -> Result<Vec<String>, String> {
+            let schema = s.view_plan().collect_schema().map_err(|e| e.to_string())?;
+            Ok(schema.iter_names().map(|n| n.to_string()).collect())
+        };
+        let mut right_cols: Vec<(String, String)> =
+            names(right)?.into_iter().map(|n| (n.clone(), n)).collect();
+        if how == "extend" {
+            let prefix = extend_prefix(right);
+            for (shown, n) in &mut right_cols {
+                if !keys.contains(n) {
+                    *shown = format!("{prefix}_{n}");
+                }
+            }
+        }
+        Ok(Some(JoinSources {
+            left: parent.id,
+            right: right.id,
+            left_cols: names(parent)?.into_iter().map(|n| (n.clone(), n)).collect(),
+            right_cols,
+            rows: ids(LRID)?.into_iter().zip(ids(RRID)?).collect(),
+        }))
     }
 
     /// Build an unpivot (melt) sheet. `on` = columns to unpivot; `index` = keep columns.
@@ -1014,4 +953,145 @@ fn err_keys_of(parent: &Sheet, keys: &[String]) -> LazyFrame {
         ),
         false => lf,
     }
+}
+
+/// [`Sheet::join_from`]'s rows. `rids`: plus each side's row id, [`LRID`]
+/// and [`RRID`] (S-45 B).
+fn join_plan(
+    left: &Sheet,
+    right_sheet: &Sheet,
+    keys: &[String],
+    how: &str,
+    rids: bool,
+) -> Result<LazyFrame, String> {
+    let side = |s: &Sheet, rid: &str| match rids {
+        true => s.view_plan_rid(true).rename([ROW_ID], [rid], true),
+        false => s.view_plan(),
+    };
+    let l = side(left, LRID);
+    let (right, right_name) = (side(right_sheet, RRID), right_sheet.name.as_str());
+    let tag = |p: LazyFrame, name: &str| p.with_column(lit(name.to_string()).alias("origin_sheet"));
+    let plan = if how == "append" {
+        let args = UnionArgs {
+            to_supertypes: true,
+            diagonal: true,
+            ..Default::default()
+        };
+        concat([tag(l, &left.name), tag(right, right_name)], args).map_err(|e| e.to_string())?
+    } else if how == "concat" {
+        let names = |p: &LazyFrame| -> Result<Vec<String>, String> {
+            let schema = p.clone().collect_schema().map_err(|e| e.to_string())?;
+            Ok(schema.iter_names().map(|n| n.to_string()).collect())
+        };
+        let (ln, rn) = (names(&l)?, names(&right)?);
+        if ln.len() != rn.len() {
+            return Err(format!(
+                "concat: {} has {} columns, {right_name} has {}",
+                left.name,
+                ln.len(),
+                rn.len()
+            ));
+        }
+        let renamed = right.select(
+            rn.iter()
+                .zip(&ln)
+                .map(|(r, l)| col(r.as_str()).alias(l.as_str()))
+                .collect::<Vec<_>>(),
+        );
+        let args = UnionArgs {
+            to_supertypes: true,
+            ..Default::default()
+        };
+        concat([tag(l, &left.name), tag(renamed, right_name)], args).map_err(|e| e.to_string())?
+    } else {
+        let jt = match how {
+            "inner" => JoinType::Inner,
+            "left" | "extend" => JoinType::Left,
+            "full" | "merge" => JoinType::Full,
+            other => return Err(format!("unknown join type: {other}")),
+        };
+        let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
+        let mut args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
+        args.maintain_order = MaintainOrderJoin::LeftRight;
+        // VisiData's order: keys as first seen (left rows, then right-only
+        // keys), each key's rows together, left row then right row. Pivots
+        // of the join then order their columns the same way every run.
+        let numbered = |p: LazyFrame, row: &str, first: &str| -> Result<LazyFrame, String> {
+            let min = col(row).cast(DataType::Int64).min();
+            let min = min.over(on.clone()).map_err(|e| e.to_string())?;
+            Ok(p.with_row_index(row, None).with_column(min.alias(first)))
+        };
+        let right = if how == "extend" {
+            let names: Vec<String> = right
+                .clone()
+                .collect_schema()
+                .map_err(|e| e.to_string())?
+                .iter_names()
+                .filter(|n| !keys.iter().any(|k| k == n.as_str()) && n.as_str() != RRID)
+                .map(|n| n.to_string())
+                .collect();
+            let to: Vec<String> = names
+                .iter()
+                .map(|n| format!("{}_{n}", extend_prefix(right_sheet)))
+                .collect();
+            right.rename(names, to, true)
+        } else {
+            right
+        };
+        let l = numbered(l, JL, JLK)?;
+        let right = numbered(right, JR, JRK)?;
+        let mut joined = l
+            .join(right, on.clone(), on, args)
+            .sort_by_exprs(
+                [
+                    col(JLK).fill_null(col(JRK) + lit(JOIN_RIGHT_KEYS)),
+                    col(JL),
+                    col(JR),
+                ],
+                SortMultipleOptions::default()
+                    .with_nulls_last(true)
+                    .with_maintain_order(true),
+            )
+            .drop(cols([JL, JLK, JR, JRK]));
+        if how == "merge" {
+            // Polars suffixes colliding right columns `_right`; fold them in.
+            let names: Vec<String> = joined
+                .collect_schema()
+                .map_err(|e| e.to_string())?
+                .iter_names()
+                .map(|n| n.to_string())
+                .collect();
+            let dups: Vec<&str> = names
+                .iter()
+                .filter_map(|n| n.strip_suffix("_right"))
+                .filter(|base| names.iter().any(|n| n == base))
+                .collect();
+            let merged: Vec<Expr> = dups
+                .iter()
+                .map(|b| {
+                    let r = format!("{b}_right");
+                    col(r.as_str()).fill_null(col(*b)).alias(*b)
+                })
+                .collect();
+            let drop: Vec<String> = dups.iter().map(|b| format!("{b}_right")).collect();
+            joined = joined.with_columns(merged).drop(cols(drop));
+        }
+        joined
+    };
+    Ok(plan)
+}
+
+/// A join row's left and right source row ids (S-45 B).
+pub(crate) const LRID: &str = "__vdrs_lrid";
+pub(crate) const RRID: &str = "__vdrs_rrid";
+
+/// What [`Sheet::join_sources`] finds.
+#[derive(Debug, Clone)]
+pub struct JoinSources {
+    pub left: SheetId,
+    pub right: SheetId,
+    /// `(shown in the join, name in the source)`
+    pub left_cols: Vec<(String, String)>,
+    pub right_cols: Vec<(String, String)>,
+    pub rows: Vec<(Option<u64>, Option<u64>)>,
 }

@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(names(&u), ["id", "tags_key", "tags_value"]);
         // `[]` drops its row, null keeps it as item 0
         assert_eq!(rows(&u), ["1|0|a", "1|1|b", "3|0|null", "4|0|c"]);
-        assert!(u.editable().is_err());
+        assert!(u.editable().is_ok());
         s.view.hidden.clear();
         s.view
             .hidden

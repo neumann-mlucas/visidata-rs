@@ -130,6 +130,13 @@ impl Script {
     /// Source + plan steps, named.
     fn base(&mut self, s: &Sheet) -> Result<String, String> {
         let src = match &s.state.lineage {
+            // its first edit copied its rows into memory (S-45 A)
+            Some(_) if s.state.memory_base.is_some() => {
+                return Err(format!(
+                    "export: {:?} was edited; :save it and export the file",
+                    s.name
+                ));
+            }
             Some(l) => self.derive(l)?,
             None => self.source(s)?,
         };

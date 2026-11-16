@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [x] S-45 — edits on pivot/melt/unfurl/sql/join sheets (in-memory copy); join edits write back to source rows — shipped 2026-11-16
 - [x] S-44 — JSON Lines error rows: `#ERR` cells, `F`/pivot `#ERR` key, `:save` writes `#ERR` — shipped 2026-11-16
 - [x] S-43 — option `header` (0 → `column_<n>`, N rows joined) for csv/tsv/xlsx/fixed/usv; `z^` `g^` `gz^` rename from rows — shipped 2026-11-16
 - [x] S-42 — replay readers + aggregators: A JSONL comment lines; B fixed/usv/lsv/jsonla; C percentile aggregators + `unfurl_empty`; D yaml/toml/html/zip — shipped 2026-11-16, replay 87 PASS

@@ -42,7 +42,7 @@ impl Sheet {
     /// replaces an earlier lookup of the same name; another column of that
     /// name is refused. The names that are new columns.
     pub fn add_lookups(&mut self, steps: Vec<PlanStep>) -> Result<Vec<String>, String> {
-        self.editable()?;
+        self.make_editable()?;
         let mut new = Vec::new();
         for s in &steps {
             let Some(name) = s.writes() else { continue };

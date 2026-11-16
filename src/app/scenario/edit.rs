@@ -729,7 +729,7 @@ async fn expand_and_contract_a_struct_column() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn unfurl_pushes_a_read_only_sheet_of_items() {
+async fn unfurl_pushes_an_editable_sheet_of_items() {
     let mut tmp = tempfile::Builder::new()
         .suffix(".jsonl")
         .tempfile()
@@ -747,12 +747,14 @@ async fn unfurl_pushes_a_read_only_sheet_of_items() {
         title(&h)
     );
     assert_eq!(h.current_column(), "tags_value");
-    h.keys("e").await;
-    assert!(status(&h).starts_with("read-only"), "{}", status(&h));
-    h.keys("<Esc> F").await; // counts per tag
+    h.keys("F").await; // counts per tag
     assert_eq!(first_cell(&h), "a", "{}", h.screen());
     assert!(h.screen().contains(" 2 "), "{}", h.screen());
-    h.keys("q q").await;
+    h.keys("q e <C-u>").await; // its rows are its own (S-45 A)
+    h.type_("z").await;
+    assert_eq!(first_cell(&h), "1");
+    assert!(view_csv(&h).contains("1,0,z\n"), "{}", view_csv(&h));
+    h.keys("q y").await;
     assert!(
         title(&h).contains("row 1/3") && !title(&h).contains("unfurl"),
         "{}",
@@ -1407,4 +1409,32 @@ async fn json_lines_error_row() {
     );
     h.keys("F").await;
     assert!(view_csv(&h).contains("#ERR,1,"), "{}", view_csv(&h));
+}
+
+/// S-45: a join takes edits. A cell edit shows on every join row with the
+/// same source row and goes back to the source sheet (one undo step there);
+/// a pivot keeps its edits; freq stays read-only.
+#[tokio::test(flavor = "multi_thread")]
+async fn edits_on_a_join_write_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("o.csv");
+    std::fs::write(&other, "id,w\n1,x\n1,y\n2,z\n").unwrap();
+    let mut h = csv(b"id,v\n1,a\n2,b\n").await;
+    h.keys(":").await;
+    h.type_(&format!("join {} id inner", other.display())).await;
+    assert_eq!(view_csv(&h), "id,v,w\n1,a,x\n1,a,y\n2,b,z\n");
+    h.keys("l e <C-u>").await;
+    h.type_("A").await;
+    assert_eq!(view_csv(&h), "id,v,w\n1,A,x\n1,A,y\n2,b,z\n");
+    h.keys(":").await;
+    h.type_("export out.py").await;
+    assert!(status(&h).contains("was edited"), "{}", status(&h));
+    h.keys("q").await; // its edits are the join's own too: asks
+    assert!(status(&h).starts_with("discard 1 edit"), "{}", status(&h));
+    h.keys("y").await;
+    assert_eq!(view_csv(&h), "id,v\n1,A\n2,b\n");
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n2,b\n");
+    h.keys("l F e").await;
+    assert!(status(&h).starts_with("read-only"), "{}", status(&h));
 }

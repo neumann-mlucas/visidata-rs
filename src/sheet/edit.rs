@@ -3,16 +3,76 @@
 use super::*;
 
 impl Sheet {
-    /// Sheets read from a source take edits; derived ones (freq, pivot,
-    /// join, `:sql`, selected rows, …) don't (S-18 D3).
+    /// Sheets read from a source take edits (S-18 D3), and so do derived
+    /// sheets whose rows are their own (S-45 A): pivot, melt, unfurl, `:sql`,
+    /// join, Lua. Not freq, selected rows or copies (VisiData edits their
+    /// source rows there), nor meta sheets.
     pub fn editable(&self) -> Result<(), String> {
-        if matches!(self.origin, Origin::File | Origin::Tail { .. }) {
+        if matches!(
+            self.origin,
+            Origin::File
+                | Origin::Tail { .. }
+                | Origin::Pivot { .. }
+                | Origin::Unpivot { .. }
+                | Origin::Unfurl { .. }
+                | Origin::Sql { .. }
+                | Origin::Join { .. }
+                | Origin::Lua { .. }
+        ) {
             return Ok(());
         }
         Err(match &self.state.lineage {
             Some(l) => format!("read-only: {} is derived from {}", self.name, l.parent.name),
             None => format!("read-only: {} is derived", self.name),
         })
+    }
+
+    /// Whether edits rebuild the plan from a base: a source sheet, or a
+    /// derived one copied into memory by its first edit (it then carries
+    /// [`ROW_ID`]).
+    pub(super) fn rebuilds(&self) -> bool {
+        matches!(self.origin, Origin::File | Origin::Tail { .. }) || self.has_rids()
+    }
+
+    /// [`Self::editable`], and a derived sheet's first edit copies its rows
+    /// into memory: the base its edits rebuild on (S-45 A). Its steps are in
+    /// the copy, so they go; `:export` refuses it after. Undo past the edit
+    /// brings the derived plan back (no [`ROW_ID`]): the next edit copies again.
+    pub(super) fn make_editable(&mut self) -> Result<(), String> {
+        self.editable()?;
+        if self.rebuilds() {
+            return Ok(());
+        }
+        // ponytail: collects the whole derived sheet on the UI thread, once;
+        // a job if huge joins get edited
+        let df = self.plan.clone().collect().map_err(|e| e.to_string())?;
+        self.state.join_sources = self.join_sources()?.map(Arc::new);
+        self.state.memory_base = Some(df.lazy());
+        self.state.steps.clear();
+        self.rebuild_plan().map_err(|e| e.to_string())
+    }
+
+    /// The source cells behind cell (`rid`, `column`) of an edited join, as
+    /// `(sheet, row id, column)` (S-45 B): a key's on both sides, another
+    /// column's on the side that has it. Rows added to the join have none.
+    pub fn source_cells(&self, rid: u64, column: &str) -> Vec<(SheetId, u64, String)> {
+        let Some(j) = &self.state.join_sources else {
+            return Vec::new();
+        };
+        let Some(&(l, r)) = j.rows.get(rid as usize) else {
+            return Vec::new();
+        };
+        let side = |id: SheetId, rid: Option<u64>, cols: &[(String, String)]| {
+            let c = cols.iter().find(|(shown, _)| shown == column)?;
+            Some((id, rid?, c.1.clone()))
+        };
+        [
+            side(j.left, l, &j.left_cols),
+            side(j.right, r, &j.right_cols),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     /// `text` typed into `column`, as stored (None for empty = null), and the
@@ -267,7 +327,7 @@ impl Sheet {
         values: Option<&DataFrame>,
         n: usize,
     ) -> Result<Vec<u64>, String> {
-        self.editable()?;
+        self.make_editable()?;
         let n = values.map_or(n, DataFrame::height);
         if n == 0 {
             return Err("nothing to add".into());
@@ -423,7 +483,7 @@ impl Sheet {
     /// `d` / `gd`: delete rows `rids`; they leave the selection too. Returns
     /// how many were deleted.
     pub fn delete_rows(&mut self, rids: Vec<u64>) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
@@ -455,7 +515,7 @@ impl Sheet {
         values: &Column,
         rids: Vec<u64>,
     ) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         if values.is_empty() {
             return Err("nothing to paste".into());
         }
@@ -500,7 +560,7 @@ impl Sheet {
         mut rids: Vec<u64>,
         lines: &[Vec<String>],
     ) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         if lines.is_empty() || cols.is_empty() {
             return Err("nothing to paste".into());
         }
@@ -594,15 +654,33 @@ impl Sheet {
     }
 
     /// `e` / `:edit`: set one cell (row id `rid`) of `column`.
+    /// On a join, every row showing the same source cell changes too, as
+    /// VisiData's join rows share their source rows (S-45 B).
     pub fn edit_cell(&mut self, column: &str, rid: u64, text: &str) -> Result<(), String> {
-        self.set_rows(column, Arc::from([rid]), text)
+        self.make_editable()?;
+        let sources = self.source_cells(rid, column);
+        let rids: Arc<[u64]> = match self.state.join_sources.as_deref() {
+            Some(j) if !sources.is_empty() => {
+                let (l, r) = j.rows[rid as usize];
+                let shows = |cols: &[(String, String)]| cols.iter().any(|(c, _)| c == column);
+                let (on_l, on_r) = (shows(&j.left_cols), shows(&j.right_cols));
+                (0..j.rows.len() as u64)
+                    .filter(|&i| {
+                        let (li, ri) = j.rows[i as usize];
+                        (on_l && li.is_some() && li == l) || (on_r && ri.is_some() && ri == r)
+                    })
+                    .collect()
+            }
+            _ => Arc::from([rid]),
+        };
+        self.set_rows(column, rids, text)
     }
 
     /// `:setcol` / `ge`: write `text` into `column` on the selected rows.
     pub fn set_col(&mut self, column: &str, text: &str) -> Result<usize, String> {
         let rids: Arc<[u64]> = self.view.selected.iter().copied().collect();
         if rids.is_empty() {
-            self.editable()?;
+            self.make_editable()?;
             return Err("no rows selected".into());
         }
         let n = rids.len();
@@ -614,7 +692,7 @@ impl Sheet {
     /// expression reads the base columns (as `:derive`), not the view's casts;
     /// its type must fit the column's.
     pub fn set_expr(&mut self, column: &str, expr: &str) -> Result<usize, String> {
-        self.editable()?;
+        self.make_editable()?;
         let rids: Arc<[u64]> = self.view.selected.iter().copied().collect();
         if rids.is_empty() {
             return Err("no rows selected".into());
@@ -666,7 +744,7 @@ impl Sheet {
         rids: Option<Arc<[u64]>>,
         undo: bool,
     ) -> Result<(), String> {
-        self.editable()?;
+        self.make_editable()?;
         regex::Regex::new(pattern).map_err(|e| format!("bad regex: {e}"))?;
         let dtype = self
             .plan
@@ -702,7 +780,7 @@ impl Sheet {
         rids: Arc<[u64]>,
         text: &str,
     ) -> Result<(), String> {
-        self.editable()?;
+        self.make_editable()?;
         let (value, dtype) = self.edit_value(column, text)?;
         let step = PlanStep::SetCol {
             column: column.to_string(),

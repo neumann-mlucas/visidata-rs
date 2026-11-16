@@ -35,10 +35,10 @@ duckdb-save-sheet	PASS
 duckdb-types	SKIP serialize: CSV format does not support nested data
 dup-rows-attrs	PASS
 edit-fixed	NO_GOLDEN golden is .fixed
-edit-joinkey-1	SKIP runtime: read-only: data2+data1 is derived
-edit-joinkey-2	SKIP runtime: read-only: data2+data1 is derived
-edit-joinregular-1	SKIP runtime: read-only: data2+data1 is derived
-edit-joinregular-2	SKIP runtime: read-only: data2+data1 is derived
+edit-joinkey-1	PASS
+edit-joinkey-2	PASS
+edit-joinregular-1	PASS
+edit-joinregular-2	PASS
 edit-type	PASS
 empty-unfurl	UNTESTABLE addcol-expr
 empty-unfurl-2	UNTESTABLE addcol-expr
@@ -199,7 +199,7 @@ pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median 
 pr2372	SKIP runtime: no column: 
 pr2400	PASS
 pr2614	FAIL line 1: want="A" got="C"
-pr2647	SKIP runtime: read-only: b+a is derived
+pr2647	PASS
 pr2688a	PASS
 pr2688b	PASS
 pr2815	PASS
@@ -232,7 +232,7 @@ test_quartiles	SKIP freq-keys
 transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
 unfurl-dict	SKIP runtime: unfurl: struct fields of different nested types
-unfurl-empty	SKIP runtime: read-only: unfurl(a): ../visidata/tests/unfurl-empty.jsonl is derived from ../visidata/tests/unfurl-empty.jsonl
+unfurl-empty	SKIP runtime: "key" doesn't fit a_key (i64)
 unfurl-empty-false	PASS
 unfurl-list	FAIL line 2: want="7/3/2018 1:47p\t0\tRobert Armstrong\tFOOD213\tBFF Oh My Gravy! Beef & Salmon 2.8oz\t4\t$12.95\t$51.8" got="7/3/2018 1:47p\t0\t[\"Robert Armst
 xlsx-color-cells	FAIL line 1: want="A\tA_cellPyObj\tA_fontColor\tA_fillColor\tBC\tBC_cellPyObj\tBC_fontColor\tBC_fillColor\t\t_cellPyObj\t_fontColor\t_fillColor\tD\tD_cellPyObj\

@@ -78,6 +78,11 @@ impl Sheet {
     /// columns still there) and edits; `U` goes back.
     pub fn adopt(&mut self, mut fresh: Sheet) {
         self.checkpoint();
+        // an edited derived sheet's edits name rows of its copy (S-45 A):
+        // gone with it (a join's went to its sources); `U` brings them back
+        if !matches!(self.origin, Origin::File | Origin::Tail { .. }) && self.has_rids() {
+            self.state.steps.clear();
+        }
         // replay the edits; a bad step fails the whole plan's schema, so check
         // once and only then go step by step
         let all = super::step::apply_steps(fresh.plan.clone(), &self.state.steps)

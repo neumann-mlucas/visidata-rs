@@ -93,6 +93,8 @@ pub struct SheetState {
     pub load_tried: bool,
     /// The source read into memory by `memory_plan`: the base edits rebuild on.
     pub memory_base: Option<LazyFrame>,
+    /// An edited join's source rows, for writing its edits back (S-45 B).
+    pub join_sources: Option<Arc<derive::JoinSources>>,
     /// Edit steps as of the last `:save` (quit guard, S-26 A1).
     pub saved_edits: Vec<PlanStep>,
     /// `:link`: refresh when this becomes active and its parent changed.

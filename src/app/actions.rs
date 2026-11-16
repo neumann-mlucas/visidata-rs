@@ -1270,7 +1270,18 @@ impl App {
                     return;
                 };
                 match self.sheets.active_mut().edit_cell(&column, rid, &value) {
-                    Ok(()) => self.spawn_materialize(),
+                    Ok(()) => {
+                        // a join's edit goes to its source rows too (S-45 B)
+                        for (id, r, c) in self.sheets.active().source_cells(rid, &column) {
+                            let Some(s) = self.sheets.find_by_id_mut(id) else {
+                                continue;
+                            };
+                            if let Err(e) = s.edit_cell(&c, r, &value) {
+                                self.toast = Some(format!("{}: {e}", s.name));
+                            }
+                        }
+                        self.spawn_materialize();
+                    }
                     Err(e) => self.toast = Some(e),
                 }
             }

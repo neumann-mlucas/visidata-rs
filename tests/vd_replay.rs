@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 89;
+const MIN_PASS: usize = 94;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -1409,6 +1409,18 @@ impl Replay {
             // serializer writes sort order, so they don't change the output.
             "slide-up" | "slide-down" | "slide-top" | "slide-bottom" => Ok(()),
             // reload-sheet / reload-selected: data on disk is unchanged in replay.
+            // a derived sheet is made again from its sources (`:refresh`)
+            "reload-sheet" if self.current_slot()?.sheet.state.lineage.is_some() => {
+                let stack: Vec<Sheet> = self.loaded.iter().map(|l| l.sheet.clone()).collect();
+                let id = self.current_slot()?.sheet.id;
+                let fresh = visidata_rs::sheet::refresh(id, &stack).map_err(Runtime)?;
+                for s in fresh.sheets {
+                    if let Some(l) = self.loaded.iter_mut().find(|l| l.sheet.id == s.id) {
+                        l.sheet = s;
+                    }
+                }
+                Ok(())
+            }
             "reload-sheet" | "reload-selected" => Ok(()),
             other => Err(MissingLongname(other.to_string())),
         }
@@ -1594,7 +1606,16 @@ impl Replay {
     fn setcol_input(&mut self, col_name: &str, row_key: &str, value: &str) -> Result<(), StepErr> {
         let s = &mut self.current_slot_mut()?.sheet;
         let rid = view_rid(s, row_key)?;
-        s.edit_cell(col_name, rid, value).map_err(StepErr::Runtime)
+        s.edit_cell(col_name, rid, value)
+            .map_err(StepErr::Runtime)?;
+        for (id, r, c) in s.source_cells(rid, col_name) {
+            if let Some(slot) = self.loaded.iter_mut().find(|l| l.sheet.id == id) {
+                slot.sheet
+                    .edit_cell(&c, r, value)
+                    .map_err(StepErr::Runtime)?;
+            }
+        }
+        Ok(())
     }
 
     /// `zy` (`row` = its key) / `gzy` (selected rows, view order): `col` to the register.
@@ -1994,7 +2015,21 @@ impl Replay {
             left: first.sheet.id,
             right_name: String::new(),
         };
-        let joined = Sheet::child(&first.sheet, id, joined_name.clone(), result, origin);
+        let mut joined = Sheet::child(&first.sheet, id, joined_name.clone(), result, origin);
+        // two sheets on same-named keys: the app's join, whose edits write
+        // back to its source rows (S-45 B)
+        if let [a, b] = slot_idxs[..]
+            && !matches!(jt, "append" | "concat")
+            && self.loaded[a].sheet.view.keys == self.loaded[b].sheet.view.keys
+        {
+            let how = if jt == "outer" { "left" } else { jt };
+            let keys = self.loaded[a].sheet.view.keys.clone();
+            let mut j =
+                Sheet::join_from(&self.loaded[a].sheet, id, &self.loaded[b].sheet, &keys, how)
+                    .map_err(StepErr::Runtime)?;
+            j.name = joined_name.clone();
+            joined = j;
+        }
         self.push_sheet(joined_name, joined);
         if let Some(slot) = self.loaded.last_mut() {
             slot.sheet.view.keys = inherited_keys;

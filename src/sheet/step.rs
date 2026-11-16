@@ -542,7 +542,7 @@ impl Sheet {
     /// `:patch` (S-29 sessions): pasted cells into `column`, or (`None`)
     /// added rows, as `:mksession` saved their step's data.
     pub fn restore_patch(&mut self, column: Option<&str>, df: DataFrame) -> Result<(), String> {
-        self.editable()?;
+        self.make_editable()?;
         let df = Arc::new(df);
         match column {
             Some(c) => self
@@ -574,16 +574,16 @@ impl Sheet {
 
     /// Bake `step` into the plan and remember it for `:export` and `:tail`.
     pub fn apply_step(&mut self, step: PlanStep) -> PolarsResult<()> {
-        match self.editable() {
+        match self.rebuilds() {
             // rebuilt so the step joins the run of column steps before it
-            Ok(()) => {
+            true => {
                 self.state.steps.push(step);
                 if let Err(e) = self.rebuild_plan() {
                     self.state.steps.pop();
                     return Err(e);
                 }
             }
-            Err(_) => {
+            false => {
                 self.plan = step.apply(self.plan.clone())?;
                 self.state.steps.push(step);
             }
