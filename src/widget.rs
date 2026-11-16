@@ -262,7 +262,13 @@ impl SheetWidget<'_> {
                 ColText::new(&c, cell_fmt(view, self.theme, &cols[ci]))
             })
             .collect();
+        // error rows (S-44 A): `#ERR` in every cell
+        let err_col = cols
+            .iter()
+            .find(|c| c.name() == crate::reader::ERR_COL && c.dtype() == &DataType::Boolean);
         for (dy, ri) in (row_start..row_end).enumerate() {
+            let err_row =
+                err_col.is_some_and(|c| !matches!(c.get(ri), Ok(AnyValue::Null) | Err(_)));
             let y = area.y + 1 + dy as u16;
             if y >= area.y + area.height {
                 break;
@@ -299,6 +305,9 @@ impl SheetWidget<'_> {
                     .unwrap_or_default();
                 if let Some(t) = &custom.text {
                     text = printable(t);
+                }
+                if err_row {
+                    text = "#ERR".into();
                 }
                 let col_hi = ci == view.col_cursor;
                 let mut style = cell_style(th, &av, dtype_hint, row_hi, col_hi, selected, stripe);

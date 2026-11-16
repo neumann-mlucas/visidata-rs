@@ -29,3 +29,8 @@ load-jsonla          # VisiData types jsonla columns from the first row (Number 
 load-json            # gz( expands lists into `[0]` `[1]` columns in VisiData; vdrs expands only structs (S-22) (S-42 D)
 load-fixed-header0   # header 0: VisiData names every column '' (blank header line); a frame can't hold two names alike, vdrs names them column_1… (S-43 A)
 load-fixed-leadingspaces # same as load-fixed-header0
+1410b                # VisiData sorts an error (#ERR) before a null; vdrs sorts #ERR as text, after it (S-44)
+pivot-error          # error-before-null sort as 1410b, and VisiData drops null pivot values (no `null` column) (S-44)
+describe-error       # distinct of a date column counts VisiData's datetimes; '' column counts the error row as null; sum of dates is #ERR (S-44)
+aggregators-errors   # pivot of a binned date key with null pivot values (S-44)
+melt-error           # VisiData's melt columns are Variable/Value and it drops null values (S-44)

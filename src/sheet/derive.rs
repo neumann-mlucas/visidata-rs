@@ -31,6 +31,7 @@ impl Sheet {
             (None, Some(n)) => n.text_expr(col(col_name)).alias(col_name),
             (None, None) => col(col_name),
         };
+        let key = parent.err_key(key).alias(col_name);
         let grouped = match &bins {
             None => base.group_by_stable([key]).agg(exprs),
             Some(Binning::Values { .. }) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
@@ -651,8 +652,13 @@ impl Sheet {
             .cloned()
             .collect();
         if !aggs.is_empty() {
-            let out = pivot_aggs(parent.view_plan().with_column(value_text), keys, on, &aggs)
-                .map_err(|e| e.to_string())?;
+            let out = pivot_aggs(
+                err_keys_of(parent, keys).with_column(value_text),
+                keys,
+                on,
+                &aggs,
+            )
+            .map_err(|e| e.to_string())?;
             let how = Derivation::PivotCount {
                 keys: keys.to_vec(),
                 on: on.to_string(),
@@ -660,8 +666,7 @@ impl Sheet {
             };
             return Ok(Self::child(parent, id, name, out.lazy(), origin).derived(parent, how));
         }
-        let counted = parent
-            .view_plan()
+        let counted = err_keys_of(parent, keys)
             .with_column(value_text)
             .group_by_stable(
                 keys.iter()
@@ -996,4 +1001,17 @@ fn pivot_aggs(
         }
     }
     DataFrame::new_infer_height(out)
+}
+
+/// `parent`'s view with `keys` as `#ERR` on error rows (S-44 A).
+fn err_keys_of(parent: &Sheet, keys: &[String]) -> LazyFrame {
+    let lf = parent.view_plan();
+    match parent.has_error_rows() {
+        true => lf.with_columns(
+            keys.iter()
+                .map(|k| parent.err_key(col(k.as_str())).alias(k.as_str()))
+                .collect::<Vec<_>>(),
+        ),
+        false => lf,
+    }
 }

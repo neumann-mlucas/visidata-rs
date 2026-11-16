@@ -1,13 +1,13 @@
 # S-25 P0 triage: every corpus file's first blocker, quarantine ignored.
 # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
 1410a	PASS
-1410b	SKIP serialize: ExpectedObjectColon at character 33 (',')
+1410b	FAIL line 2: want="#ERR\t1\t10.00\t■■■■■■■■■■■■■■■■■■■" got="\t2\t20.0\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
 1410c	SKIP type-len
 add-col-dup-attrs	SKIP setcol-iter
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
 aggregators-cols	SKIP addcol-aggregate
-aggregators-errors	SKIP runtime: no column "qty"
+aggregators-errors	FAIL line 1: want="key1\tamt_max_bar\tamt_max_baz\tamt_max_foo\tamt_min_bar\tamt_min_baz\tamt_min_foo\tqty_max_bar\tqty_max_baz\tqty_max_foo\tqty_min_bar\tqty_m
 aggregators-set	PASS
 append	PASS
 avg-nulls	PASS
@@ -22,7 +22,7 @@ curcol	UNTESTABLE addcol-expr
 date_add	UNTESTABLE addcol-expr
 deferred-hidden-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-08-07\t#ERR\t#ERR" got="Date\t0\t0\t32\t2018-07-03\t2018-08-31\t\t2018-08-07"
-describe-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
+describe-error	FAIL line 2: want="\t0\t10\t1" got="\t0\t9\t2"
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP runtime: join-sheets: unsupported jointype 'diff'
 duckdb-commit-changes	SKIP commit-sheet
@@ -54,7 +54,7 @@ format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
 freeze-sheet-attrs	PASS
 freq-dive-except	SKIP dive-except
-freq-error	SKIP runtime: no column "qty"
+freq-error	UNTESTABLE addcol-expr
 freq-fmtstr	PASS
 freq-same-int	PASS
 freq-summary	UNTESTABLE select-expr
@@ -176,7 +176,7 @@ load-zip	PASS
 load_npy	SKIP runtime: open-file ../visidata/sample_data/benchmark.npy: unknown format for ../visidata/sample_data/benchmark.npy
 long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-melt-error	SKIP runtime: ExpectedObjectColon at character 33 (',')
+melt-error	SKIP serialize: not found: unable to find column "Variable"; valid columns: ["key1", "variable", "value"]
 messenger-nosave	NO_GOLDEN golden is .dot
 monthly-revenue	SKIP runtime: column already exists: Date
 numeric-cols	PASS
@@ -187,7 +187,7 @@ outer-join-2	PASS
 pandas_loader_dup_selected	PASS
 petsdiet	PASS
 pivot	PASS
-pivot-error	SKIP runtime: no column "qty"
+pivot-error	FAIL line 1: want="key1\tfoo\tbaz\tbar" got="key1\tfoo\tnull\tbaz\tbar"
 pivot-noaggr	PASS
 postgres-exec-sql-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 postgres-open-table-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/benchmark: unknown format for ../visidata/postgres:///vdtest/benchmark
@@ -214,7 +214,7 @@ remove-errors	UNTESTABLE setcol-expr
 rows-select-expr	UNTESTABLE select-expr
 save-benchmarks	PASS
 save-geojson	NO_GOLDEN golden is .geojson
-save-json	SKIP serialize: ExpectedObjectColon at character 33 (',')
+save-json	PASS
 save-jsonla	NO_GOLDEN golden is .jsonla
 save-usv	NO_GOLDEN golden is .usv
 select-to-selected	PASS

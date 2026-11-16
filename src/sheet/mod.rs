@@ -877,6 +877,41 @@ impl Sheet {
         }
     }
 
+    /// Whether the view has error rows (S-44 A): a boolean [`ERR_COL`].
+    pub fn has_error_rows(&self) -> bool {
+        let schema = self.view_plan().collect_schema();
+        schema.is_ok_and(|s| s.get(crate::reader::ERR_COL) == Some(&DataType::Boolean))
+    }
+
+    /// `e` as text, `#ERR` on an error row; `e` itself without error rows.
+    /// Freq and pivot keys (S-44 A).
+    pub fn err_key(&self, e: Expr) -> Expr {
+        match self.has_error_rows() {
+            true => when(col(crate::reader::ERR_COL).is_not_null())
+                .then(lit("#ERR"))
+                .otherwise(e.cast(DataType::String)),
+            false => e,
+        }
+    }
+
+    /// `view_plan` to write out: on a sheet with error rows every cell is
+    /// text and an error row's cells are `#ERR` (S-44 A).
+    pub fn save_plan(&self) -> LazyFrame {
+        let lf = self.view_plan();
+        if !self.has_error_rows() {
+            return lf;
+        }
+        let Ok(schema) = lf.clone().collect_schema() else {
+            return lf;
+        };
+        lf.select(
+            schema
+                .iter_names()
+                .map(|n| self.err_key(col(n.as_str())).alias(n.as_str()))
+                .collect::<Vec<_>>(),
+        )
+    }
+
     /// Whether `:color` rule `i` holds on window row `r`.
     pub fn format_holds(&self, i: usize, r: usize) -> bool {
         self.state

@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 88;
+const MIN_PASS: usize = 89;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -2052,7 +2052,7 @@ impl Replay {
             Origin::Columns { cols } => self.visidata_columns(cols, slot.name == "all_columns")?,
             _ => slot
                 .sheet
-                .view_plan()
+                .save_plan()
                 .collect()
                 .map_err(|e| e.to_string())?,
         };
@@ -2712,6 +2712,9 @@ fn vd_replay_corpus() {
                 eprintln!("PASS: {stem}");
             }
         } else {
+            if std::env::var("VDRS_REPLAY_DUMP").is_ok_and(|d| d == stem) {
+                eprintln!("--- want\n{want}\n--- got\n{got}");
+            }
             let d = short_diff(&want, &got);
             let first = d.lines().nth(1).unwrap_or(&d).trim().to_string();
             outcomes.insert(stem.clone(), format!("FAIL {first}"));

@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [x] S-44 — JSON Lines error rows: `#ERR` cells, `F`/pivot `#ERR` key, `:save` writes `#ERR` — shipped 2026-11-16
 - [x] S-43 — option `header` (0 → `column_<n>`, N rows joined) for csv/tsv/xlsx/fixed/usv; `z^` `g^` `gz^` rename from rows — shipped 2026-11-16
 - [x] S-42 — replay readers + aggregators: A JSONL comment lines; B fixed/usv/lsv/jsonla; C percentile aggregators + `unfurl_empty`; D yaml/toml/html/zip — shipped 2026-11-16, replay 87 PASS
 - [x] S-41 — replay blockers: A `\` `g|` `g\` regex select; B `z}` `z{`; C `r` search-keys; D `'` freeze-col; E `addcol-incr-key` + `incr_base`; F describe `zs` select-cell — shipped 2026-11-15 except D (deferred: no per-column width, freq sheets read-only)

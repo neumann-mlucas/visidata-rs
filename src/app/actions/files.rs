@@ -34,7 +34,7 @@ impl App {
     /// what the user sees, not raw source data. Overwrites existing files.
     pub(super) fn save_active(&mut self, path: &str) {
         let s = self.sheets.active();
-        let plan = s.view_plan();
+        let plan = s.save_plan();
         let edits = s.edits();
         let table = s.table_name();
         let path = path.to_string();

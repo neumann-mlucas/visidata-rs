@@ -31,7 +31,7 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header |
 | Parquet | `.parquet`, `.pq` | Polars `scan_parquet` | native lazy |
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
-| JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line; blank and `#` / `//` lines skipped (copied to a tempfile when present, S-42 A) |
+| JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line; blank and `#` / `//` lines skipped (copied to a tempfile when present, S-42 A); a line that isn't an object becomes `{"": true}`, an error row (files up to 256 MiB; S-44 A) |
 | JSON | `.json` | Polars `JsonReader` (eager) | array of records; a `.json` file holding JSON Lines is sniffed and read as JSONL |
 | Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), a column whose cells are all numbers, all true/false or all dates loads with that type; a mixed column loads as text (S-24 R3); empty header names preserved |
 | SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`; a column holding only integers loads as integers, only numbers as floats, anything else as text, nothing lost (S-24 R3); UTF-8-lossy decode (handles invalid-unicode TEXT) |
@@ -174,7 +174,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|
 | `StartExInput` → `ExCommand(str)` | `:`, `<Space>` | — |
 | `StartDeriveInput` | `=` | new column from a SQL expression, named after it; `name = expr` names it when `name` is new |
-| `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `view_plan()` (casts + filter + sort + visible cols); writer by extension (csv/tsv/parquet/ipc/jsonl/json); unknown extension errors without touching the file; `:w` and `:write` aliases |
+| `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `save_plan()` (`view_plan()`: casts + filter + sort + visible cols; on a sheet with error rows every cell as text, `#ERR` on those rows, S-44 A); writer by extension (csv/tsv/parquet/ipc/jsonl/json); unknown extension errors without touching the file; `:w` and `:write` aliases |
 | `Quit` | `gq`, `<C-q>` | exit |
 | `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
 | `RepeatLast` | `:repeat-last` (`.` plots since S-23 C1) | capture of resolved Action (not keystrokes) |

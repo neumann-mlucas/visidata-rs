@@ -628,10 +628,12 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
     let mut tempfile = if gz { Some(decompress_gz(path)?) } else { None };
-    if matches!(kind, SourceKind::Jsonl | SourceKind::Json)
-        && let Some(t) = skip_comment_lines(tempfile.as_ref().map_or(path, |t| t.path()))?
-    {
-        tempfile = Some(t);
+    if matches!(kind, SourceKind::Jsonl | SourceKind::Json) {
+        let p = tempfile.as_ref().map_or(path, |t| t.path());
+        let lines = kind == SourceKind::Jsonl || !starts_with_json_array(p)?;
+        if let Some(t) = clean_json_lines(p, lines)? {
+            tempfile = Some(t);
+        }
     }
     let real_path = tempfile.as_ref().map_or(path, |t| t.path());
     let (lazy, real_kind) = scan(real_path, kind, header)?;
@@ -648,19 +650,41 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
     })
 }
 
-/// JSON lines without blank lines and `#` / `//` comment lines (VisiData's
-/// `JsonSheet.options.regex_skip`), in a tempfile; `None` when there are none.
-// ponytail: reads the file once more to look; a big clean file pays a scan.
-fn skip_comment_lines(path: &Path) -> Result<Option<tempfile::NamedTempFile>, OpenError> {
+/// The column an error row sets (S-44 A): a JSON line that isn't an object
+/// loads as `{"": true}`, as VisiData's row with only its `''` field.
+/// A sheet with a boolean column of this name has error rows: rows where
+/// it's set show `#ERR` in every cell.
+pub const ERR_COL: &str = "";
+
+/// JSON without blank lines and `#` / `//` comment lines (VisiData's
+/// `JsonSheet.options.regex_skip`); with `lines` (JSON Lines), a line that
+/// isn't a JSON object becomes `{ERR_ROW: true}`, an error row. In a
+/// tempfile; `None` when nothing changes.
+// ponytail: reads the file once more to look (and parses each line, for
+// JSON Lines up to CSV_FULL_INFER_BYTES; a bigger file's bad line still
+// fails the whole read).
+fn clean_json_lines(
+    path: &Path,
+    lines: bool,
+) -> Result<Option<tempfile::NamedTempFile>, OpenError> {
     use std::io::BufRead;
+    let check = lines && file_is_small(path);
     let skip = |l: &str| {
         let t = l.trim();
         t.is_empty() || t.starts_with('#') || t.starts_with("//")
     };
-    let lines = || -> io::Result<_> { Ok(io::BufReader::new(std::fs::File::open(path)?).lines()) };
+    let bad = |l: &str| {
+        check
+            && !matches!(
+                serde_json::from_str::<serde_json::Value>(l),
+                Ok(serde_json::Value::Object(_))
+            )
+    };
+    let read = || -> io::Result<_> { Ok(io::BufReader::new(std::fs::File::open(path)?).lines()) };
     let mut any = false;
-    for l in lines()? {
-        if skip(&l?) {
+    for l in read()? {
+        let l = l?;
+        if skip(&l) || bad(&l) {
             any = true;
             break;
         }
@@ -669,9 +693,14 @@ fn skip_comment_lines(path: &Path) -> Result<Option<tempfile::NamedTempFile>, Op
         return Ok(None);
     }
     let mut tmp = tempfile::NamedTempFile::new()?;
-    for l in lines()? {
+    for l in read()? {
         let l = l?;
-        if !skip(&l) {
+        if skip(&l) {
+            continue;
+        }
+        if bad(&l) {
+            writeln!(tmp, r#"{{"": true}}"#)?;
+        } else {
             writeln!(tmp, "{l}")?;
         }
     }
@@ -1133,6 +1162,20 @@ mod tests {
             .iter()
             .map(|n| n.to_string())
             .collect()
+    }
+
+    #[test]
+    fn json_lines_bad_line_is_an_error_row() {
+        let df = open_header(".jsonl", "{\"a\": 1}\n[1]\n\n{\"a\": 2}\n", 1);
+        assert_eq!(names(&df), ["a", ERR_COL]);
+        let err = df
+            .column(ERR_COL)
+            .unwrap()
+            .bool()
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(err, [None, Some(true), None]);
     }
 
     #[test]

@@ -1381,3 +1381,30 @@ async fn header_zero_then_rename_from_row() {
         view_csv(&h)
     );
 }
+
+/// S-44 A: a JSON line that isn't an object is an error row: `#ERR` in each
+/// cell on screen, its own `#ERR` group in `F`, and `#ERR` cells on `:save`.
+#[tokio::test(flavor = "multi_thread")]
+async fn json_lines_error_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.jsonl");
+    std::fs::write(
+        &path,
+        "{\"k\": \"a\", \"n\": 1}\n{\"k\": \"a\", oops}\n# note\n{\"k\": \"b\", \"n\": 2}\n",
+    )
+    .unwrap();
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+    assert!(h.screen().contains("#ERR"), "{}", h.screen());
+    let out = dir.path().join("out.csv");
+    h.keys(":").await;
+    h.type_(&format!("save {}", out.display())).await;
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        "k,n,\"\"\na,1,\n#ERR,#ERR,#ERR\nb,2,\n"
+    );
+    h.keys("F").await;
+    assert!(view_csv(&h).contains("#ERR,1,"), "{}", view_csv(&h));
+}
