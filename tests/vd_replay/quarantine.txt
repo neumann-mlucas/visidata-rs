@@ -23,3 +23,5 @@ issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric sta
 issue1377  # paste into a new sheet: VisiData list rows put the first pasted value in column A (positional); vdrs matches by name and adds the rest
 issue1377b  # same as issue1377
 pr2614               # VisiData's `i` names its column `A` though data1 has an `A`; Polars columns can't share a name
+fill-nested          # Customer mixes lists and strings: Polars reads it as text, a list as `["a", "b"]`; VisiData keeps the list, `["a","b"]` (S-42 A)
+unfurl-list          # same column: vdrs unfurls text, not the list (S-42 A)

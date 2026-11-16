@@ -31,7 +31,7 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header |
 | Parquet | `.parquet`, `.pq` | Polars `scan_parquet` | native lazy |
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
-| JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line |
+| JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line; blank and `#` / `//` lines skipped (copied to a tempfile when present, S-42 A) |
 | JSON | `.json` | Polars `JsonReader` (eager) | array of records; a `.json` file holding JSON Lines is sniffed and read as JSONL |
 | Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), a column whose cells are all numbers, all true/false or all dates loads with that type; a mixed column loads as text (S-24 R3); empty header names preserved |
 | SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`; a column holding only integers loads as integers, only numbers as floats, anything else as text, nothing lost (S-24 R3); UTF-8-lossy decode (handles invalid-unicode TEXT) |

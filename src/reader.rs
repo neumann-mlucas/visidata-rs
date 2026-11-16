@@ -556,7 +556,12 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
     let gz = path
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
-    let tempfile = if gz { Some(decompress_gz(path)?) } else { None };
+    let mut tempfile = if gz { Some(decompress_gz(path)?) } else { None };
+    if matches!(kind, SourceKind::Jsonl | SourceKind::Json)
+        && let Some(t) = skip_comment_lines(tempfile.as_ref().map_or(path, |t| t.path()))?
+    {
+        tempfile = Some(t);
+    }
     let real_path = tempfile.as_ref().map_or(path, |t| t.path());
     let (lazy, real_kind) = scan(real_path, kind)?;
     let display_name = path.display().to_string();
@@ -569,6 +574,37 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         parts: Vec::new(),
         _tempfile: tempfile,
     })
+}
+
+/// JSON lines without blank lines and `#` / `//` comment lines (VisiData's
+/// `JsonSheet.options.regex_skip`), in a tempfile; `None` when there are none.
+// ponytail: reads the file once more to look; a big clean file pays a scan.
+fn skip_comment_lines(path: &Path) -> Result<Option<tempfile::NamedTempFile>, OpenError> {
+    use std::io::BufRead;
+    let skip = |l: &str| {
+        let t = l.trim();
+        t.is_empty() || t.starts_with('#') || t.starts_with("//")
+    };
+    let lines = || -> io::Result<_> { Ok(io::BufReader::new(std::fs::File::open(path)?).lines()) };
+    let mut any = false;
+    for l in lines()? {
+        if skip(&l?) {
+            any = true;
+            break;
+        }
+    }
+    if !any {
+        return Ok(None);
+    }
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    for l in lines()? {
+        let l = l?;
+        if !skip(&l) {
+            writeln!(tmp, "{l}")?;
+        }
+    }
+    tmp.flush()?;
+    Ok(Some(tmp))
 }
 
 /// Build the plan for a file of a known kind. Returns the kind actually used:
@@ -856,6 +892,26 @@ mod tests {
             detect(Path::new("x.wat")),
             Err(OpenError::UnknownFormat { .. })
         ));
+    }
+
+    /// `text` in a tempfile with extension `ext`, opened as vdrs opens it.
+    fn open_text(ext: &str, text: &str) -> DataFrame {
+        let mut f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
+        f.write_all(text.as_bytes()).unwrap();
+        open(f.path().as_os_str(), None)
+            .unwrap()
+            .lazy
+            .collect()
+            .unwrap()
+    }
+
+    #[test]
+    fn jsonl_skips_blank_and_comment_lines() {
+        let df = open_text(".jsonl", "# note\n{\"a\": 1}\n\n// more\n{\"a\": 2}\n");
+        assert_eq!(
+            df.column("a").unwrap().i64().unwrap().to_vec(),
+            [Some(1), Some(2)]
+        );
     }
 
     #[test]
