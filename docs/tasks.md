@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [x] S-47 — local replay corpus `tests/vd_local` (36 cases, 31 pass, 5 quarantined); VisiData join/melt/pivot naming — shipped 2026-11-16
 - [ ] S-46 — more VisiData commands: A `'` freeze-col, `dive-selected` replay — shipped 2026-11-16; B `gF` `z<CR>` addcol-aggregate/rank `z#` `gS` `g<C-s>` `gP` join-cols commit-sheet — draft
 - [x] S-45 — edits on pivot/melt/unfurl/sql/join sheets (in-memory copy); join edits write back to source rows — shipped 2026-11-16
 - [x] S-44 — JSON Lines error rows: `#ERR` cells, `F`/pivot `#ERR` key, `:save` writes `#ERR` — shipped 2026-11-16

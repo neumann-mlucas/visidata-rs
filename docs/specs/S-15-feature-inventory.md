@@ -112,7 +112,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|---|
 | `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col with `count` + `percent` cols (2-decimal, round_series feature); `numeric_binning`: `freq_binned` ranges in a job, dive by bin index (S-35 C1) |
 | `Pivot { index, on, values, agg }` | — | `:pivot <index> <on> <values> [agg]` | `sheet::pivot_df` (Polars dropped `pivot_stable`); eager |
-| `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot` |
+| `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot`: VisiData's `Variable`/`Value`, row-major, nulls dropped, index columns as keys, S-44 error flag not melted |
 | `Diff { path, keys }` | — | `:diff <path> [key1,key2,...]` | schema diff or full outer join flagging only_a/only_b/changed |
 | `Tail { path, follow }` | — | `:tail <path> [--follow\|-f]` | 2s tick re-reads; auto-scroll when at bottom |
 | `OpenCellFile` | `zo` | — | open the cursor cell's text as a path (`Open`; VisiData `open-cell-file`) |
@@ -145,7 +145,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `OpenSheetSwitcher` | `S` | push meta-sheet listing stack; `<CR>` on row → `SwitchToSheet` |
 | `SwitchToSheet(id)` + `SubmitRow` | `<CR>` | pop sheet-switcher, activate selected |
 | `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
-| `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets, and pivot/unpivot/unfurl/`:sql`/join/Lua sheets: the first edit copies the rows into memory (`Sheet::make_editable`; `:refresh` drops the edits, `:export` refuses; S-45 A); a join's `e` also edits the open source sheets' rows (`Sheet::source_cells`) and every join row sharing them (S-45 B) |
+| `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets, and pivot (key columns only)/unpivot/unfurl/`:sql`/join/Lua sheets: the first edit copies the rows into memory (`Sheet::make_editable`; `:refresh` drops the edits, `:export` refuses; S-45 A); a join's `e` also edits the open source sheets' rows (`Sheet::source_cells`) and every join row sharing them (S-45 B) |
 | `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
 | `JumpPrev` | `<C-^>` / `<C-6>` | the sheet under the active one comes to the top (VisiData `jump-prev`); twice = back (S-26 A7) |
 | `HelpCommands` | `z<C-h>` / `z<F1>` / `z<BS>`, `:help` | push a `help` sheet: key, action (`to_ex`), description, menu per sheet-layer chord (S-26 A5); menu = VisiData's menu path for a key still bound as by default (`keymap::menu_path`, `src/menu.tsv` from `scripts/gen_menu.py`, S-37 P0d) |
@@ -193,14 +193,14 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Freq dive | `<CR>` / `g<CR>` on a freq sheet | parent's rows with the cursor's / selected values (text compare, null matches null); rows dived from a freq sheet are a freq sheet again (`Origin::Freq` kept), so `<CR>` goes on to the source |
 | Describe | `I`, `:describe` | VisiData's describe sheet: per visible column `sheet` `column` `type` (sheet, type hidden), errors (failed type casts), nulls, distinct (null = one value), mode (first seen on ties); numbers: min max sum median mean stdev (sample); dates: min max, median when the count is odd (VisiData `#ERR` → empty) (background job) |
 | Describe select-cell | `zs` / `zu` on the describe sheet | the parent's view rows the cursor stat describes (`Sheet::described_rids`: errors, nulls, = mode/min/max, median low/high, distinct all, else non-null); a null stat → `no <stat> for <col>`; background job, `JobDone::SelectIn` on the parent (S-41 F) |
-| Pivot | `W` | key cols × current col, counts; with `+` aggregators one column per aggregator and value (`sum_Pencil`, VisiData names; S-35 B); no keys → one row |
+| Pivot | `W` | key cols × current col, counts (absent pair 0, null/empty value column `''`); with `+` aggregators one column per aggregator and value (`sum_Pencil`, VisiData names; S-35 B); no keys → one row |
 | Pivot preview | typing `:pivot …` | right half: next argument + columns + aggs, then the pivot of the first 10k view rows (background, Lua aggs too); Enter runs the full pivot |
 | Diff prompt | `D` | prompts for a path; key cols are the diff keys |
 | Copy | `g"`, `:dup` | lazy copy of the view |
 | Select equal | `,` | rows whose current col equals the cursor cell |
 | Undo / redo | `U` / `R`, `:undo` / `:redo` | per-sheet undo tree of (plan, view, steps) snapshots, 100 states; a change after `U` branches; `R` = child last made or come back from (S-20) |
 | Undo history | `:earlier [n]` / `:later [n]`, `:undotree` (`open_undo_tree`) | walk states in creation order across branches; a sheet of states (id, parent, ago, change, `*` current), `Enter` restores one (S-20) |
-| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|extend\|append]` | same-named keys; rows in VisiData's order (keys as first seen, left then right-only, each key's rows together); merge = full + right non-null wins; extend = left + right non-key columns renamed `<name>_<col>` (name = file name before its first `.`); append = diagonal concat + `origin_sheet`; result collected once (background) |
+| Join | `:join <file\|sheet\|#id> [keys] [inner\|left\|full\|merge\|extend\|append]` | same-named keys; rows in VisiData's order (keys as first seen, left then right-only, each key's rows together); inner/left/full: a non-key column on both sides is `<name>_<col>` on each (VisiData's); null keys match (`nulls_equal`, VisiData's `""`); merge = full + right non-null wins; extend = left + right non-key columns renamed `<name>_<col>` (name = file name before its first `.`); append = diagonal concat + `origin_sheet`; result collected once (background) |
 | Substitute | `:s/re/rep/[g][i]`, `*` `g*` `gz*` | `PlanStep::Replace` on selected rows (none: the view's); `*` = new `<col>_re`; exported (S-28) |
 | Search hits | `:hits <regex>` | sheet of (row, column, value, keys); `Enter` jumps to the cell (S-28) |
 | Selection stats | status line, `:stats` | sum/avg/min/max (numbers) or count/distinct of the cursor column over the selection, a background job keyed by (sheet, selection, column, revision); `:stats` copies TSV (S-30 C) |

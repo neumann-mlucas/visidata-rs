@@ -1,0 +1,9 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/nl_left.csv		
+			open-file	tests/vd_local/data/nl_right.csv		
+nl_left	k		key-col			
+nl_right	k		key-col			
+nl_right			sheets-stack			
+sheets		キnl_left	select-row			
+sheets		キnl_right	select-row			
+sheets			join-sheets	full		

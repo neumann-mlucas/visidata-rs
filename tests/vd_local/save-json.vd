@@ -1,0 +1,4 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/types.jsonl		
+types			save-sheet	$VD_TESTTMP/save-json.json		
+			open-file	$VD_TESTTMP/save-json.json		

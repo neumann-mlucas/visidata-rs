@@ -632,8 +632,8 @@ impl Sheet {
     ) -> Result<Self, String> {
         let name = format!("pivot({on}): {}", parent.name);
         let origin = Origin::Pivot { parent: parent.id };
-        // The cursor may sit on a key column; a null and the text "null" are
-        // one column header, so they are one group.
+        // The cursor may sit on a key column; a null and "" are one column
+        // header (VisiData's `''`), so they are one group.
         // Hidden key columns are out of the view too.
         let shown = parent
             .view_plan()
@@ -645,7 +645,7 @@ impl Sheet {
             .cloned()
             .collect();
         let keys = &keys[..];
-        let value_text = col(on).cast(DataType::String).fill_null(lit("null"));
+        let value_text = col(on).cast(DataType::String).fill_null(lit(""));
         let aggs: Vec<(String, String)> = aggs
             .iter()
             .filter(|(c, _)| c != on && !keys.contains(c))
@@ -697,7 +697,17 @@ impl Sheet {
                 .collect();
             DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?
         } else {
-            pivot_df(&counted, on, keys, "__vdrs_n", element().first())
+            // VisiData counts an absent pair as 0
+            let df = pivot_df(&counted, on, keys, "__vdrs_n", element().first())
+                .map_err(|e| e.to_string())?;
+            df.lazy()
+                .with_column(
+                    all()
+                        .exclude_cols(keys.to_vec())
+                        .as_expr()
+                        .fill_null(lit(0)),
+                )
+                .collect()
                 .map_err(|e| e.to_string())?
         };
         let how = Derivation::PivotCount {
@@ -804,8 +814,17 @@ impl Sheet {
             let schema = s.view_plan().collect_schema().map_err(|e| e.to_string())?;
             Ok(schema.iter_names().map(|n| n.to_string()).collect())
         };
-        let mut right_cols: Vec<(String, String)> =
-            names(right)?.into_iter().map(|n| (n.clone(), n)).collect();
+        let both = join_collisions(parent, right, keys, how)?;
+        let shown = |s: &Sheet| -> Result<Vec<(String, String)>, String> {
+            Ok(names(s)?
+                .into_iter()
+                .map(|n| match both.contains(&n) {
+                    true => (format!("{}_{n}", extend_prefix(s)), n),
+                    false => (n.clone(), n),
+                })
+                .collect())
+        };
+        let mut right_cols = shown(right)?;
         if how == "extend" {
             let prefix = extend_prefix(right);
             for (shown, n) in &mut right_cols {
@@ -817,7 +836,7 @@ impl Sheet {
         Ok(Some(JoinSources {
             left: parent.id,
             right: right.id,
-            left_cols: names(parent)?.into_iter().map(|n| (n.clone(), n)).collect(),
+            left_cols: shown(parent)?,
             right_cols,
             rows: ids(LRID)?.into_iter().zip(ids(RRID)?).collect(),
         }))
@@ -826,14 +845,31 @@ impl Sheet {
     /// Build an unpivot (melt) sheet. `on` = columns to unpivot; `index` = keep columns.
     pub fn unpivot_from(parent: &Sheet, id: SheetId, on: &[String], index: &[String]) -> Self {
         use polars::prelude::UnpivotArgsDSL;
+        // a bad JSON line's flag column (S-44) isn't data to melt
+        let on: Vec<String> = on
+            .iter()
+            .filter(|c| *c != crate::reader::ERR_COL)
+            .cloned()
+            .collect();
+        let on = on.as_slice();
         let args = UnpivotArgsDSL {
             on: (!on.is_empty()).then(|| cols(on.iter().map(String::as_str))),
-            index: cols(index.iter().map(String::as_str)),
-            variable_name: None,
-            value_name: None,
+            index: cols(index.iter().map(String::as_str).chain([MELT_ROW])),
+            variable_name: Some("Variable".into()),
+            value_name: Some("Value".into()),
         };
-        let plan = parent.view_plan().unpivot(args);
-        Sheet::child(
+        // VisiData's names and row-major order; it leaves out null values
+        let plan = parent
+            .view_plan()
+            .with_row_index(MELT_ROW, None)
+            .unpivot(args)
+            .filter(col("Value").is_not_null())
+            .sort(
+                [MELT_ROW],
+                SortMultipleOptions::default().with_maintain_order(true),
+            )
+            .drop(cols([MELT_ROW]));
+        let mut s = Sheet::child(
             parent,
             id,
             format!("unpivot({}): {}", on.join(","), parent.name),
@@ -846,9 +882,15 @@ impl Sheet {
                 on: on.to_vec(),
                 index: index.to_vec(),
             },
-        )
+        );
+        // VisiData's melt keeps its index columns as keys
+        s.view.keys = index.to_vec();
+        s
     }
 }
+
+/// Melt's source row, for VisiData's row-major order (also written by `:export`).
+pub(crate) const MELT_ROW: &str = "__vdrs_melt";
 
 /// `join_from` order helpers (also written by `:export`).
 pub(crate) const JL: &str = "__vdrs_l";
@@ -1013,6 +1055,8 @@ fn join_plan(
         let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
         let mut args = JoinArgs::new(jt).with_coalesce(JoinCoalesce::CoalesceColumns);
         args.maintain_order = MaintainOrderJoin::LeftRight;
+        // VisiData reads an empty cell as "", and "" matches "": null keys join
+        args.nulls_equal = true;
         // VisiData's order: keys as first seen (left rows, then right-only
         // keys), each key's rows together, left row then right row. Pivots
         // of the join then order their columns the same way every run.
@@ -1037,6 +1081,22 @@ fn join_plan(
             right.rename(names, to, true)
         } else {
             right
+        };
+        // a non-key column on both sides: `<sheet>_<column>` on each, as VisiData
+        let both = join_collisions(left, right_sheet, keys, how)?;
+        let (l, right) = match both.is_empty() {
+            true => (l, right),
+            false => {
+                let named = |p: &Sheet| -> Vec<String> {
+                    both.iter()
+                        .map(|c| format!("{}_{c}", extend_prefix(p)))
+                        .collect()
+                };
+                (
+                    l.rename(&both, named(left), true),
+                    right.rename(&both, named(right_sheet), true),
+                )
+            }
         };
         let l = numbered(l, JL, JLK)?;
         let right = numbered(right, JR, JRK)?;
@@ -1094,4 +1154,26 @@ pub struct JoinSources {
     pub left_cols: Vec<(String, String)>,
     pub right_cols: Vec<(String, String)>,
     pub rows: Vec<(Option<u64>, Option<u64>)>,
+}
+
+/// Non-key columns both sides of an inner, left or full join show: VisiData
+/// names each `<sheet>_<column>` (merge folds them, extend prefixes the right).
+fn join_collisions(
+    left: &Sheet,
+    right: &Sheet,
+    keys: &[String],
+    how: &str,
+) -> Result<Vec<String>, String> {
+    if !matches!(how, "inner" | "left" | "full") {
+        return Ok(Vec::new());
+    }
+    let names = |s: &Sheet| -> Result<Vec<String>, String> {
+        let schema = s.view_plan().collect_schema().map_err(|e| e.to_string())?;
+        Ok(schema.iter_names().map(|n| n.to_string()).collect())
+    };
+    let r = names(right)?;
+    Ok(names(left)?
+        .into_iter()
+        .filter(|n| !keys.contains(n) && r.contains(n))
+        .collect())
 }

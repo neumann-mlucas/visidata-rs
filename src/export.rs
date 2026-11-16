@@ -774,9 +774,10 @@ impl Script {
                 let on_py = py_str(on);
                 match (py, keys.is_empty()) {
                     (true, false) => format!(
-                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"))\
+                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"\"))\
                          .group_by([{k}, {on_py}], maintain_order=True).len().collect()\
-                         .pivot(on={on_py}, index=[{k}], values=\"len\", aggregate_function=\"first\").lazy()",
+                         .pivot(on={on_py}, index=[{k}], values=\"len\", aggregate_function=\"first\").lazy()\
+                         .with_columns(pl.exclude([{k}]).fill_null(0))",
                         k = keys
                             .iter()
                             .map(|k| py_str(k))
@@ -784,31 +785,36 @@ impl Script {
                             .join(", ")
                     ),
                     (true, true) => format!(
-                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"null\"))\
+                        "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"\"))\
                          .group_by({on_py}, maintain_order=True).len().with_columns(pl.lit(0).alias(\"__k\")).collect()\
                          .pivot(on={on_py}, index=\"__k\", values=\"len\").drop(\"__k\").lazy()\
                          .select(pl.all().cast(pl.Int64))"
                     ),
-                    (false, _) => sql_pivot(&p, keys, on, "count(*)"),
+                    (false, _) => sql_pivot(&p, keys, on, "count(*)")
+                        .replace("USING first(__v)", "USING coalesce(first(__v), 0)"),
                 }
             }
             Derivation::Unpivot { on, index } if py => format!(
-                "{p}.unpivot(on=[{}], index=[{}])",
+                "{p}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"Variable\", value_name=\"Value\")\
+                 .filter(pl.col(\"Value\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")",
                 on.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", "),
                 index
                     .iter()
-                    .map(|c| py_str(c))
+                    .map(String::as_str)
+                    .chain([MELT_ROW])
+                    .map(py_str)
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(", "),
+                m = MELT_ROW,
             ),
             Derivation::Unpivot { on, index } => {
                 let keep: Vec<String> = index
                     .iter()
                     .map(|c| q_ident(c))
-                    .chain(["\"variable\"".into(), "\"value\"".into()])
+                    .chain(["\"Variable\"".into(), "\"Value\"".into()])
                     .collect();
                 format!(
-                    "SELECT {} FROM {p} UNPIVOT INCLUDE NULLS (\"value\" FOR \"variable\" IN ({}))",
+                    "SELECT {} FROM {p} UNPIVOT (\"Value\" FOR \"Variable\" IN ({}))",
                     keep.join(", "),
                     on.iter().map(|c| q_ident(c)).collect::<Vec<_>>().join(", ")
                 )
@@ -1061,7 +1067,7 @@ fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
         .collect())
 }
 
-use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
+use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW};
 
 /// `zM` of view `p`, as `Sheet::unfurl_from`.
 fn unfurl_code(
@@ -1193,6 +1199,10 @@ fn join_code(
         .iter()
         .filter(|n| !keys.contains(n) && ln.contains(n))
         .collect();
+    // inner/left/full: a column on both sides is `<sheet>_<column>` on each,
+    // as `Sheet::join_from` (a diff keeps Polars' `_right`)
+    let prefixed = flag.is_none() && matches!(how, "inner" | "left" | "full");
+    let pre = |s: &Sheet, n: &str| format!("{}_{n}", crate::sheet::extend_prefix(s));
     Ok(match (how, py) {
         ("append", true) => format!(
             "pl.concat([{p}.with_columns(pl.lit({}).alias(\"origin_sheet\")), \
@@ -1233,6 +1243,18 @@ fn join_code(
                 "extend" => "left",
                 h => h,
             };
+            let renamed = |t: &str, s: &Sheet| {
+                let pairs: Vec<String> = dups
+                    .iter()
+                    .map(|n| format!("{}: {}", py_str(n), py_str(&pre(s, n))))
+                    .collect();
+                format!("{t}.rename({{{}}})", pairs.join(", "))
+            };
+            let (p, r) = match prefixed && !dups.is_empty() {
+                true => (renamed(p, left), renamed(r, right)),
+                false => (p.to_string(), r.to_string()),
+            };
+            let (p, r) = (p.as_str(), r.as_str());
             let r = &if how == "extend" {
                 let pairs: Vec<String> = rn
                     .iter()
@@ -1298,6 +1320,8 @@ fn join_code(
                     if how == "extend" && !keys.contains(n) {
                         let to = format!("{}_{n}", crate::sheet::extend_prefix(right));
                         format!("{} AS {}", q_ident(n), q_ident(&to))
+                    } else if dups.contains(&n) && prefixed {
+                        format!("{} AS {}", q_ident(n), q_ident(&pre(right, n)))
                     } else if dups.contains(&n) {
                         format!("{} AS {}", q_ident(n), q_ident(&format!("{n}_right")))
                     } else {
@@ -1321,6 +1345,16 @@ fn join_code(
                     "(SELECT *, min({row}) OVER (PARTITION BY {part}) AS {first} \
                      FROM (SELECT *, row_number() OVER () AS {row} FROM {t}))"
                 ),
+            };
+            let p = &match prefixed && !dups.is_empty() {
+                true => {
+                    let ren: Vec<String> = dups
+                        .iter()
+                        .map(|n| format!("{} AS {}", q_ident(n), q_ident(&pre(left, n))))
+                        .collect();
+                    format!("(SELECT * RENAME ({}) FROM {p})", ren.join(", "))
+                }
+                false => p.to_string(),
             };
             let mut q = format!(
                 "SELECT * FROM {} {jt} JOIN (SELECT {} FROM {}) USING ({part})",
@@ -2019,7 +2053,7 @@ fn sql_pivot(p: &str, keys: &[String], on: &str, agg: &str) -> String {
         format!(" GROUP BY {}", k.join(", "))
     };
     // PIVOT sorts the new columns by name; the app keeps them as first seen.
-    let text = format!("coalesce(CAST({on} AS VARCHAR), 'null')");
+    let text = format!("coalesce(CAST({on} AS VARCHAR), '')");
     format!(
         "SELECT * FROM (PIVOT (SELECT {select}{text} AS {on}, {agg} AS __v \
          FROM {p} GROUP BY {}) ON {on} IN (SELECT {on} FROM (SELECT {text} AS {on}, \
@@ -2057,7 +2091,7 @@ fn py_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)]) 
             .collect(),
     );
     format!(
-        "{p}.with_columns(pl.col({o}).cast(pl.Utf8).fill_null(\"null\")){add_k}\
+        "{p}.with_columns(pl.col({o}).cast(pl.Utf8).fill_null(\"\")){add_k}\
          .group_by({by}, maintain_order=True).agg({agg_exprs}).collect()\
          .pipe(lambda g: (lambda ps: pl.DataFrame([*[ps[0][k] for k in {ks}], \
          *[(ps[i][v].fill_null(0) if {zero}[i] else ps[i][v]).alias({pre}[i] + v) \
@@ -2070,7 +2104,7 @@ fn sql_pivot_aggs(p: &str, keys: &[String], on: &str, aggs: &[(String, String)])
     let k: Vec<String> = keys.iter().map(|k| q_ident(k)).collect();
     let o = q_ident(on);
     let lead = k.iter().map(|c| format!("{c}, ")).collect::<String>();
-    let text = format!("coalesce(CAST({o} AS VARCHAR), 'null')");
+    let text = format!("coalesce(CAST({o} AS VARCHAR), '')");
     let alias: Vec<String> = aggs.iter().map(|(c, a)| q_ident(&agg_name(c, a))).collect();
     // no CTEs: a PIVOT reading its columns from the data can't see them
     let g = format!(
@@ -2639,7 +2673,7 @@ mod tests {
             (
                 Sheet::pivot_current_from(&s, 9, &["name".into()], "qty", &[]).unwrap(),
                 "index=[\"name\"], values=\"len\"",
-                "USING first(__v) GROUP BY \"name\"",
+                "USING coalesce(first(__v), 0) GROUP BY \"name\"",
             ),
             (
                 Sheet::row_diff_from(&s, 10, &right, &["name".into()]).unwrap(),

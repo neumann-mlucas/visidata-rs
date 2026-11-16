@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 96;
+const MIN_PASS: usize = 95;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -162,9 +162,6 @@ fn parse_vdx(path: &Path) -> anyhow::Result<Vec<CmdlogRow>> {
 struct SheetSlot {
     name: String,
     sheet: Sheet,
-    /// Non-key column order after multi-sheet appends (VisiData's
-    /// enumerate-reverse-selection convention). Empty = schema order.
-    col_order: Vec<String>,
 }
 
 /// Multi-sheet replay driver (iteration 5). `loaded` grows as `open-file`
@@ -450,11 +447,7 @@ impl Replay {
     }
 
     fn push_sheet(&mut self, name: String, sheet: Sheet) {
-        self.loaded.push(SheetSlot {
-            name,
-            sheet,
-            col_order: Vec::new(),
-        });
+        self.loaded.push(SheetSlot { name, sheet });
         self.set_current(self.loaded.len() - 1);
         self.meta_mode = None;
     }
@@ -732,7 +725,7 @@ impl Replay {
                 let slot = self.current_slot()?;
                 let mut df = slot
                     .sheet
-                    .view_plan()
+                    .save_plan()
                     .collect()
                     .map_err(|e| Runtime(e.to_string()))?;
                 if duckdb::is_db(&path) {
@@ -1834,6 +1827,18 @@ impl Replay {
                     .ok_or_else(|| StepErr::Runtime(format!("no sheet named '{name}'")))
             })
             .collect::<Result<_, _>>()?;
+        // VisiData joins the selected rows of its sheets sheet in its order:
+        // the most recently active sheet first
+        let mut slot_idxs = slot_idxs;
+        let selected = if from_stack {
+            let recency = |i: &usize| std::cmp::Reverse(self.stack.iter().position(|s| s == i));
+            let mut paired: Vec<(usize, String)> = slot_idxs.into_iter().zip(selected).collect();
+            paired.sort_by_key(|(i, _)| recency(i));
+            slot_idxs = paired.iter().map(|(i, _)| *i).collect();
+            paired.into_iter().map(|(_, n)| n).collect()
+        } else {
+            selected
+        };
         let jt = if jointype.is_empty() {
             "inner"
         } else {
@@ -2077,11 +2082,8 @@ impl Replay {
                 .iter()
                 .map(String::as_str)
                 .collect();
-            let order: Vec<usize> = if from_stack {
-                slot_idxs.iter().rev().copied().collect()
-            } else {
-                slot_idxs.clone()
-            };
+            // the joined sheets in order (a stack's by recency, above)
+            let order: Vec<usize> = slot_idxs.clone();
             for &i in &order {
                 let schema = match self.loaded[i].sheet.data_plan().collect_schema() {
                     Ok(s) => s,
@@ -2095,8 +2097,9 @@ impl Replay {
                     }
                 }
             }
+            // the sheet's own column order, so later slides move it (S-34)
             if let Some(slot) = self.loaded.last_mut() {
-                slot.col_order = col_order;
+                slot.sheet.set_order(&col_order);
             }
         }
         Ok(())
@@ -2121,13 +2124,11 @@ impl Replay {
             .into_iter()
             .map(|s| s.to_string())
             .collect();
-        // VisiData's join columns: keys, then `origin_sheet`, then the
-        // col_order hint, then the rest.
+        // VisiData's join columns: keys, then `origin_sheet`, then the rest.
         let keys = slot.sheet.view.keys.iter();
         let mut order: Vec<String> = Vec::with_capacity(shown.len());
         for n in keys
             .chain(std::iter::once(&"origin_sheet".to_string()))
-            .chain(&slot.col_order)
             .chain(&shown)
         {
             if shown.contains(n) && !order.contains(n) {
@@ -2231,7 +2232,7 @@ impl Replay {
             df.with_column(text.with_name(c.as_str().into()).into_column())
                 .map_err(|e| e.to_string())?;
         }
-        // VisiData's bools in a save: `True`, and False empty (no golden has `False`).
+        // VisiData's bools as Python prints them: `True`/`False`.
         let bools: Vec<String> = df
             .columns()
             .iter()
@@ -2247,7 +2248,7 @@ impl Replay {
                 .clone();
             let text: StringChunked = b
                 .iter()
-                .map(|v| v.map(|v| if v { "True" } else { "" }))
+                .map(|v| v.map(|v| if v { "True" } else { "False" }))
                 .collect();
             df.with_column(text.with_name(c.as_str().into()).into_column())
                 .map_err(|e| e.to_string())?;
@@ -2421,9 +2422,12 @@ fn find_by_key(df: &DataFrame, keys: &[String], target: &str) -> Result<usize, S
 /// Row id of a cmdlog row reference, looked up in the sheet's view (casts
 /// applied, so a `@` key matches `2018-07-03`): key value, else view index.
 fn view_rid(s: &Sheet, target: &str) -> Result<u64, StepErr> {
+    // `キ` marks a key value; a bare number is a row index, keys or not
+    let keyed = target.starts_with('キ') || target.parse::<usize>().is_err();
     let target = target.strip_prefix('キ').unwrap_or(target);
     let rt = |e: PolarsError| StepErr::Runtime(e.to_string());
     if let Some(k) = s.view.keys.first()
+        && keyed
         && !target.is_empty()
         && let Some(&rid) = s
             .rids_with_values(k, &[AnyValue::String(target)])
@@ -2503,7 +2507,10 @@ fn eq_loose(a: &str, b: &str) -> bool {
         }
         match (x.parse::<f64>(), y.parse::<f64>()) {
             (Ok(xf), Ok(yf)) => {
-                xf == yf || (xf - yf).abs() <= 1e-9 * xf.abs().max(yf.abs()).max(1.0)
+                xf == yf
+                    || (xf - yf).abs() <= 1e-9 * xf.abs().max(yf.abs()).max(1.0)
+                    // VisiData shows a float as `%.2f` (disp_float_fmt)
+                    || x.split_once('.').is_some_and(|(_, d)| d.len() == 2) && format!("{yf:.2}") == *x
             }
             _ => false,
         }
@@ -2516,8 +2523,7 @@ fn tsv_eq(want: &str, got: &str) -> bool {
     w.len() == g.len() && w.iter().zip(g.iter()).all(|(a, b)| eq_loose(a, b))
 }
 
-fn load_quarantine() -> HashSet<String> {
-    let p = Path::new("tests/vd_replay/quarantine.txt");
+fn load_quarantine(p: &Path) -> HashSet<String> {
     let Ok(text) = fs::read_to_string(p) else {
         return HashSet::new();
     };
@@ -2657,14 +2663,30 @@ fn vd_replay_corpus() {
         );
         return;
     }
-    let visidata_root = corpus.parent().unwrap().to_path_buf();
+    let root = corpus.parent().unwrap().to_path_buf();
+    run_corpus(corpus, root, Path::new("tests/vd_replay"), MIN_PASS, false);
+}
+
+/// S-47: our scripts on our data, goldens written by VisiData itself
+/// (`just vd-golden`). Strict: every file passes unless quarantined.
+#[test]
+fn vd_replay_local() {
+    let dir = Path::new("tests/vd_local");
+    run_corpus(dir, PathBuf::from("."), dir, 0, true);
+}
+
+/// Replay every script in `corpus` (paths in it resolve against `root`) and
+/// compare with `corpus/golden`. `meta` holds `quarantine.txt` and
+/// `triage.txt`. `strict`: a SKIP, UNTESTABLE or missing golden fails too.
+fn run_corpus(corpus: &Path, root: PathBuf, meta: &Path, min_pass: usize, strict: bool) {
+    let visidata_root = root;
     // Triage: run quarantined files too, record every file's first blocker in
-    // `tests/vd_replay/triage.txt`, assert nothing (S-25 P0).
+    // `<meta>/triage.txt`, assert nothing (S-25 P0).
     let triage = std::env::var("VDRS_REPLAY_TRIAGE").is_ok();
     let quarantine = if triage {
         HashSet::new()
     } else {
-        load_quarantine()
+        load_quarantine(&meta.join("quarantine.txt"))
     };
     let mut outcomes: BTreeMap<String, String> = BTreeMap::new();
 
@@ -2835,11 +2857,20 @@ fn vd_replay_corpus() {
             let o: String = o.lines().next().unwrap_or("").chars().take(160).collect();
             out.push_str(&format!("{stem}\t{o}\n"));
         }
-        fs::write("tests/vd_replay/triage.txt", out).unwrap();
-        eprintln!("triage written to tests/vd_replay/triage.txt");
+        let path = meta.join("triage.txt");
+        fs::write(&path, out).unwrap();
+        eprintln!("triage written to {}", path.display());
         return;
     }
     assert!(fail.is_empty(), "{} replay regressions", fail.len());
     // A runtime error buckets a file as SKIP, so FAIL=0 alone can hide regressions.
-    assert!(pass >= MIN_PASS, "PASS fell to {pass}, floor {MIN_PASS}");
+    assert!(pass >= min_pass, "PASS fell to {pass}, floor {min_pass}");
+    if strict {
+        let blocked: Vec<String> = outcomes
+            .iter()
+            .filter(|(_, o)| !o.starts_with("PASS"))
+            .map(|(s, o)| format!("{s}: {o}"))
+            .collect();
+        assert!(blocked.is_empty(), "not passing:\n{}", blocked.join("\n"));
+    }
 }

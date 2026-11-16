@@ -1,0 +1,12 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/left.tsv		
+			open-file	tests/vd_local/data/right.tsv		
+left	Key		key-col			
+right	Key		key-col			
+right			sheets-stack			
+sheets		キleft	select-row			
+sheets		キright	select-row			
+sheets			join-sheets	full		
+right+left	A	0	edit-cell	A2		
+right+left			sheets-stack			
+sheets		キleft	open-row			

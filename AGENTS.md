@@ -7,7 +7,7 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
 - `just check`: fmt check, clippy `-D warnings`, full nextest run. Done = exit 0.
 - `just test <filter>` for a narrow run first.
 - Builds go to `../.visidata-rs-target`, shared by the checkout and its worktrees (`.cargo/config.toml`). Dev profile keeps line tables only. `cargo clean` there when it grows.
-- `prek run --files <changed>` before committing (`prek install` once). Test data under `tests/golden/`, `tests/vd_replay/` and `docs/fixtures/` is byte-exact, so the hooks skip it.
+- `prek run --files <changed>` before committing (`prek install` once). Test data under `tests/golden/`, `tests/vd_replay/`, `tests/vd_local/` and `docs/fixtures/` is byte-exact, so the hooks skip it.
 - `UPDATE_GOLDEN=1` rewrites `tests/golden/` cases. Review the diff before committing.
 - `VDRS_PYTHON=<python with polars>` runs exported scripts in golden cases.
 - `tests/vd_replay.rs` reads the VisiData checkout at `../visidata`.

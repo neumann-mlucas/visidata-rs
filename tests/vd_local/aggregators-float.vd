@@ -1,0 +1,18 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/agg.csv		
+agg	f		type-float			
+agg	f		aggregate-col	sum		
+agg	f		aggregate-col	mean		
+agg	f		aggregate-col	median		
+agg	f		aggregate-col	mode		
+agg	f		aggregate-col	distinct		
+agg	f		aggregate-col	count		
+agg	f		aggregate-col	min		
+agg	f		aggregate-col	max		
+agg	f		aggregate-col	stdev		
+agg	f		aggregate-col	p10		
+agg	f		aggregate-col	p90		
+agg	f		aggregate-col	q3		
+agg	f		aggregate-col	q4		
+agg	f		aggregate-col	q5		
+agg	g		freq-col			

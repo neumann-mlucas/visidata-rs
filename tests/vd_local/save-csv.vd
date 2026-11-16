@@ -1,0 +1,4 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/nums.csv		
+nums			save-sheet	$VD_TESTTMP/save-csv.csv		
+			open-file	$VD_TESTTMP/save-csv.csv		

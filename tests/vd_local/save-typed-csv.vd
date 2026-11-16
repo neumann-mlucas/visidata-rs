@@ -1,0 +1,6 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/nums.csv		
+nums	f		type-float			
+nums	i		type-int			
+nums			save-sheet	$VD_TESTTMP/typed.csv		
+			open-file	$VD_TESTTMP/typed.csv		

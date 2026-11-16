@@ -781,6 +781,16 @@ impl Sheet {
         text: &str,
     ) -> Result<(), String> {
         self.make_editable()?;
+        // VisiData's pivot cells are computed: only its key columns take edits
+        // ponytail: paste and `:s` don't check this
+        let pivot_keys = match self.state.lineage.as_deref().map(|l| &l.how) {
+            Some(Derivation::PivotCount { keys, .. }) => Some(keys.clone()),
+            Some(Derivation::Pivot { index, .. }) => Some(vec![index.clone()]),
+            _ => None,
+        };
+        if pivot_keys.is_some_and(|k| !k.iter().any(|k| k == column)) {
+            return Err(format!("cannot edit readonly column {column}"));
+        }
         let (value, dtype) = self.edit_value(column, text)?;
         let step = PlanStep::SetCol {
             column: column.to_string(),

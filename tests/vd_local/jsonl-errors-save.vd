@@ -1,0 +1,4 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/bad.jsonl		
+bad			save-sheet	$VD_TESTTMP/bad-out.csv		
+			open-file	$VD_TESTTMP/bad-out.csv		

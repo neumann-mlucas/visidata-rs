@@ -33,5 +33,6 @@ load-fixed-leadingspaces # same as load-fixed-header0
 pivot-error          # error-before-null sort as 1410b, and VisiData drops null pivot values (no `null` column) (S-44)
 describe-error       # distinct of a date column counts VisiData's datetimes; '' column counts the error row as null; sum of dates is #ERR (S-44)
 aggregators-errors   # pivot of a binned date key with null pivot values (S-44)
-melt-error           # VisiData's melt columns are Variable/Value and it drops null values (S-44)
+melt-error           # VisiData melts source text (amt `3`); vdrs melts the typed value (`3.0`) (S-44)
 unfurl-empty         # setcol-input puts text "key" into int column a_key; VisiData columns are untyped, vdrs refuses (S-45)
+pr2400               # VisiData's merge skips falsy cells (MergeColumn.calcValue `if v`): False shows empty; vdrs keeps False

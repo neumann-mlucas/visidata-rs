@@ -1,4 +1,4 @@
-id	name	grp	amt	day	city	amt_right
+id	name	grp	input_amt	day	city	right_amt
 1	ann	a	1.5	2024-01-02	oslo	1.5
 2	bob	b	2.25	2024-01-03	rome	9.0
 3	cid	a		2024-01-04		

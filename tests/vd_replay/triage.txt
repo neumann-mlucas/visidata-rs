@@ -176,7 +176,7 @@ load-zip	PASS
 load_npy	SKIP runtime: open-file ../visidata/sample_data/benchmark.npy: unknown format for ../visidata/sample_data/benchmark.npy
 long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-melt-error	SKIP serialize: not found: unable to find column "Variable"; valid columns: ["key1", "variable", "value"]
+melt-error	FAIL line 8: want="2016-01-01\tamt\t3" got="2016-01-01\tamt\t3.0"
 messenger-nosave	NO_GOLDEN golden is .dot
 monthly-revenue	SKIP runtime: column already exists: Date
 numeric-cols	PASS
@@ -187,7 +187,7 @@ outer-join-2	PASS
 pandas_loader_dup_selected	PASS
 petsdiet	PASS
 pivot	PASS
-pivot-error	FAIL line 1: want="key1\tfoo\tbaz\tbar" got="key1\tfoo\tnull\tbaz\tbar"
+pivot-error	FAIL line 1: want="key1\tfoo\tbaz\tbar" got="key1\tfoo\t\tbaz\tbar"
 pivot-noaggr	PASS
 postgres-exec-sql-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unknown format for ../visidata/postgres:///vdtest
 postgres-open-table-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest/benchmark: unknown format for ../visidata/postgres:///vdtest/benchmark
@@ -197,7 +197,7 @@ postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unkno
 pr2302	PASS
 pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median mode min max stdev q3 q4 q5 q10 p<n>
 pr2372	SKIP runtime: no column: 
-pr2400	PASS
+pr2400	FAIL line 9: want="Nebuchadnezzar\t\t\t5" got="Nebuchadnezzar\t\t\t5\tFalse"
 pr2614	FAIL line 1: want="A" got="C"
 pr2647	PASS
 pr2688a	PASS

@@ -1,0 +1,9 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/jl.csv		
+			open-file	tests/vd_local/data/jr.csv		
+jl	k		key-col			
+jr	k		key-col			
+jr			sheets-stack			
+sheets		キjl	select-row			
+sheets		キjr	select-row			
+sheets			join-sheets	merge		

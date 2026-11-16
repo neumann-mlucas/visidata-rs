@@ -10,7 +10,7 @@ melt, unfurl) take the edit; join rows share their source rows, so a join edit i
 
 | Part | vdrs |
 |---|---|
-| A | `Sheet::editable` admits pivot, unpivot, unfurl, `:sql`, join and Lua sheets. The first edit (`make_editable`) collects the plan into `memory_base`, clears the steps (they're in the copy) and rebuilds with [`ROW_ID`]: from then on edits work as on a source sheet. Undo past it restores the derived plan (no `ROW_ID`), and the next edit copies again. `:refresh` re-derives and drops the copy's edits. `:export` refuses an edited derived sheet. The quit guard counts its edits. |
+| A | `Sheet::editable` admits pivot, unpivot, unfurl, `:sql`, join and Lua sheets. A pivot takes edits in its key columns only; its counts are "cannot edit readonly column" (VisiData's; `set_rows` reads the keys from the lineage). The first edit (`make_editable`) collects the plan into `memory_base`, clears the steps (they're in the copy) and rebuilds with [`ROW_ID`]: from then on edits work as on a source sheet. Undo past it restores the derived plan (no `ROW_ID`), and the next edit copies again. `:refresh` re-derives and drops the copy's edits. `:export` refuses an edited derived sheet. The quit guard counts its edits. |
 | B | A join's first edit also re-runs the join from its lineage snapshots with each side's row ids (`join_plan(…, rids: true)`), kept as `JoinSources`. `e` (`edit_cell`) sets the cell on every join row showing the same source row (both sides' rows for a key), and the app (and replay) edits that source row on the open left/right sheet (`source_cells`); each is an undo step on its own sheet. |
 
 Freq, selected-row (`"`) and copy (`g"`) sheets stay read-only: VisiData edits their source rows,

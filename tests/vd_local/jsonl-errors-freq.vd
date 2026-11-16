@@ -1,0 +1,3 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/bad.jsonl		
+bad	k		freq-col			

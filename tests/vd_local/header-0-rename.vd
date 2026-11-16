@@ -1,0 +1,5 @@
+sheet	col	row	longname	input	keystrokes	comment
+global		header	set-option	0		
+			open-file	tests/vd_local/data/plain.csv		
+plain		0	rename-cols-row			
+plain		0	delete-row			

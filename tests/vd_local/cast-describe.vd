@@ -1,0 +1,5 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/messy.csv		
+messy	i		type-int			
+messy	f		type-float			
+messy			describe-sheet			

@@ -1,6 +1,6 @@
- pivot(a): tests/golden/pivot-null-text/input.csv  csv · sheets 2          null 1/2  row 1/1 · 100%
- null i  x i
-      2    1
+ pivot(a): tests/golden/pivot-null-text/input.csv  csv · sheets 2          null 1/3  row 1/1 · 100%
+ null i    i  x i
+      1    1    1
 
 
 

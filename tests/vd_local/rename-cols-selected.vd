@@ -1,0 +1,4 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/people.csv		
+people		2	select-row			
+people	name		rename-cols-selected			

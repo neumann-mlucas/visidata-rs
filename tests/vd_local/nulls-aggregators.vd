@@ -1,0 +1,8 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/nulls.csv		
+nulls	v		type-int			
+nulls	v		aggregate-col	sum		
+nulls	v		aggregate-col	mean		
+nulls	v		aggregate-col	count		
+nulls	v		aggregate-col	distinct		
+nulls	k		freq-col			

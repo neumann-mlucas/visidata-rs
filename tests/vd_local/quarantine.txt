@@ -1,0 +1,6 @@
+# Local corpus cases whose VisiData output vdrs doesn't mirror, by design or not yet.
+cast-date            # VisiData's csv_skipinitialspace reads " -5 " as "-5 "; vdrs keeps the leading space
+cast-float           # csv_skipinitialspace, as cast-date
+cast-int             # a failed int cast keeps VisiData's text ("30.0", "x"); vdrs casts to null
+cast-describe        # VisiData counts failed casts as errors and describes the parsed values; vdrs's are nulls
+join-extend          # VisiData's extend repeats the first match's values for every duplicate key row

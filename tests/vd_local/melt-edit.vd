@@ -1,0 +1,5 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/sales.csv		
+sales	region		key-col			
+sales			melt			
+	Value	0	edit-cell	zz		
