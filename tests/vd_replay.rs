@@ -191,6 +191,8 @@ struct Replay {
     incr_base: u64,
     /// `set-option filetype F`: the format later `open-file`s use (S-42 B).
     filetype: Option<SourceKind>,
+    /// `set-option unfurl_empty` (S-42 C).
+    unfurl_empty: bool,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
@@ -257,6 +259,7 @@ impl Replay {
             numeric_binning: false,
             incr_base: 1,
             filetype: None,
+            unfurl_empty: false,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
@@ -722,7 +725,8 @@ impl Replay {
                 let id = self.alloc();
                 let parent = self.current_slot()?;
                 let name = format!("{}_{}_unfurled", parent.name, r.col);
-                let u = Sheet::unfurl_from(&parent.sheet, id, &r.col).map_err(Runtime)?;
+                let u = Sheet::unfurl_from(&parent.sheet, id, &r.col, self.unfurl_empty)
+                    .map_err(Runtime)?;
                 self.push_sheet(name, u);
                 Ok(())
             }
@@ -1190,8 +1194,9 @@ impl Replay {
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
-            "set-option" if r.row == "unfurl_empty" && r.input == "True" => {
-                Err(Runtime("option unfurl_empty".into()))
+            "set-option" if r.row == "unfurl_empty" => {
+                self.unfurl_empty = r.input == "True";
+                Ok(())
             }
             "set-option" if r.row == "filetype" => {
                 use clap::ValueEnum;

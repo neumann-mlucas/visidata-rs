@@ -120,6 +120,8 @@ pub struct Options {
     pub histogram_bins: usize,
     /// `vd.option("incr_base", N)` (S-41 E): where `i` starts; None: 1.
     pub incr_base: Option<u64>,
+    /// `vd.option("unfurl_empty", true)` (S-42 C).
+    pub unfurl_empty: bool,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
     /// Every value set, as checked (S-37 P0c): what `O` shows.
@@ -142,6 +144,7 @@ impl Options {
             "disp_footer" => self.disp_footer = on,
             "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => self.incr_base = v.parse().ok(),
+            "unfurl_empty" => self.unfurl_empty = on,
             "mouse" => self.mouse = on,
             _ => {} // keymap: applied when set (the vim profile's binds)
         }
@@ -1698,6 +1701,9 @@ pub fn default_init_lua() -> String {
          \n\
          -- First number of i, gi and :addcol-incr-key. Default 1.\n\
          -- vd.option(\"incr_base\", \"1\")\n\
+         \n\
+         -- zM on an empty list keeps the row, key and value empty. Default off.\n\
+         -- vd.option(\"unfurl_empty\", \"true\")\n\
          \n\
          -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
          -- turns it on or off.\n\

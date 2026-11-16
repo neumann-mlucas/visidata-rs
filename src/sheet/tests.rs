@@ -1062,6 +1062,30 @@ fn every_state_comes_back_exactly() {
     }
 }
 
+/// S-42 C: `p<n>` interpolates between ranks, in the column's type; `q4`
+/// adds p25 p50 p75.
+#[test]
+fn percentile_aggregators_as_visidata() {
+    let (mut s, _tmp) = sheet_of("k,i,f\nx,1,1.0\nx,2,2.0\nx,3,3.0\nx,4,4.0\n");
+    s.add_aggregators("i", "q4").unwrap();
+    s.add_aggregators("f", "p33").unwrap();
+    assert!(
+        s.add_aggregators("k", "p50")
+            .unwrap_err()
+            .contains("isn't numeric")
+    );
+    assert!(
+        s.add_aggregators("i", "p12")
+            .unwrap_err()
+            .contains("no aggregator")
+    );
+    let df = Sheet::freq_from(&s, 1, "k").plan.collect().unwrap();
+    let get = |c: &str| df.column(c).unwrap().get(0).unwrap().to_string();
+    // ranks 0..3: p25 = 1.75 → 1 in an int column, p50 2.5 → 2, p75 3.25 → 3
+    assert_eq!([get("i_p25"), get("i_p50"), get("i_p75")], ["1", "2", "3"]);
+    assert_eq!(get("f_p33"), "1.99");
+}
+
 #[test]
 fn freq_adds_aggregator_columns_in_view_order() {
     let (mut s, _tmp) = sheet_of("k,a,b\nx,1,\nx,3,a\ny,,b\n");

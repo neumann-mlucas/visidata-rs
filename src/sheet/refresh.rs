@@ -67,7 +67,7 @@ impl Sheet {
                 Sheet::pivot_current_from(parent, id, keys, on, aggs)?
             }
             Derivation::Describe => Sheet::describe_from(parent, id)?,
-            Derivation::Unfurl { column } => Sheet::unfurl_from(parent, id, column)?,
+            Derivation::Unfurl { column, empty } => Sheet::unfurl_from(parent, id, column, *empty)?,
             Derivation::Diff { other, keys } => {
                 Sheet::row_diff_from(parent, id, &live(other), keys)?
             }

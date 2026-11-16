@@ -315,7 +315,12 @@ impl Block {
                 self.ex(Action::PivotCurrent);
             }
             Derivation::Describe => self.ex(Action::Describe),
-            Derivation::Unfurl { column } => {
+            Derivation::Unfurl { column, empty } => {
+                // the option this `zM` ran under (S-42 C)
+                self.ex(Action::SetOption {
+                    name: "unfurl_empty".into(),
+                    value: Some(empty.to_string()),
+                });
                 self.col(column);
                 self.ex(Action::UnfurlCol);
             }

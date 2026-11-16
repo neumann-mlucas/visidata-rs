@@ -32,6 +32,25 @@ pub fn zero_on_empty(agg: &str) -> bool {
 /// Aggregators that need numbers.
 const NUMERIC: &[&str] = &["sum", "mean", "avg", "median", "stdev"];
 
+/// Percentiles VisiData names `p<n>`, linear between ranks (S-42 C).
+pub const PERCENTILES: &[u32] = &[10, 20, 25, 30, 33, 40, 50, 60, 67, 70, 75, 80, 90, 95, 99];
+
+/// `p<n>` → n, when VisiData has it.
+pub fn percentile(agg: &str) -> Option<u32> {
+    let n = agg.strip_prefix('p')?.parse().ok()?;
+    PERCENTILES.contains(&n).then_some(n)
+}
+
+/// `q<n>`: the percentiles splitting values into n groups (`q4` = p25 p50 p75).
+fn quantile_group(agg: &str) -> Option<Vec<String>> {
+    let q: u32 = agg.strip_prefix('q')?.parse().ok()?;
+    [3, 4, 5, 10].contains(&q).then(|| {
+        (1..q)
+            .map(|i| format!("p{}", (100.0 * i as f64 / q as f64).round()))
+            .collect()
+    })
+}
+
 /// `agg` of `column`'s non-null values, named `{column}_{agg}` (VisiData's
 /// `aggname`). `agg` is one of [`AGGREGATORS`].
 pub fn agg_expr(column: &str, agg: &str) -> Expr {
@@ -46,7 +65,14 @@ pub fn agg_expr(column: &str, agg: &str) -> Expr {
         "mode" => c.drop_nulls().mode(true).first(),
         "min" => c.min(),
         "max" => c.max(),
-        _ => c.std(1),
+        a => match percentile(a) {
+            // in the column's type: an int column's p33 is truncated, as VisiData's
+            Some(n) => c
+                .clone()
+                .quantile(lit(n as f64 / 100.0), QuantileMethod::Linear)
+                .cast(DataTypeExpr::OfExpr(Box::new(c))),
+            None => c.std(1),
+        },
     };
     e.alias(agg_name(column, agg))
 }
@@ -158,11 +184,15 @@ impl Sheet {
             .ok_or_else(|| format!("no column {column:?}"))?;
         names
             .split_whitespace()
-            .map(|n| match n {
-                n if !AGGREGATORS.contains(&n) => {
-                    Err(format!("no aggregator {n:?}: {}", AGGREGATORS.join(" ")))
-                }
-                n if NUMERIC.contains(&n) && !dt.is_primitive_numeric() => {
+            .flat_map(|n| quantile_group(n).unwrap_or_else(|| vec![n.to_string()]))
+            .map(|n| match n.as_str() {
+                n if !AGGREGATORS.contains(&n) && percentile(n).is_none() => Err(format!(
+                    "no aggregator {n:?}: {} q3 q4 q5 q10 p<n>",
+                    AGGREGATORS.join(" ")
+                )),
+                n if (NUMERIC.contains(&n) || percentile(n).is_some())
+                    && !dt.is_primitive_numeric() =>
+                {
                     Err(format!("{n}: {column} isn't numeric ({})", type_name(&dt)))
                 }
                 n => Ok(n.to_string()),

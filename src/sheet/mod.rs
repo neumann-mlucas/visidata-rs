@@ -158,9 +158,10 @@ pub enum Derivation {
         aggs: Vec<(String, String)>,
     },
     Describe,
-    /// `zM`: a row per item of `column` (S-22).
+    /// `zM`: a row per item of `column` (S-22); `empty`: `unfurl_empty`.
     Unfurl {
         column: String,
+        empty: bool,
     },
     /// Row diff against `other` on `keys`.
     Diff {

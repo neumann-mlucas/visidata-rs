@@ -104,6 +104,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "save the session on quit",
     },
     Opt {
+        name: "unfurl_empty",
+        kind: Kind::Bool,
+        default: "false",
+        live: true,
+        help: "zM keeps a row, key and value empty, for an empty list",
+    },
+    Opt {
         name: "validation",
         kind: Kind::Choice(&["refuse", "warn"]),
         default: "refuse",

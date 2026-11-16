@@ -1322,7 +1322,8 @@ impl App {
                     return;
                 };
                 let id = self.sheets.alloc_id();
-                match Sheet::unfurl_from(self.sheets.active(), id, &c) {
+                let empty = self.theme.unfurl_empty;
+                match Sheet::unfurl_from(self.sheets.active(), id, &c, empty) {
                     Ok(s) => {
                         self.sheets.push(s);
                         self.spawn_materialize();
@@ -2233,6 +2234,7 @@ impl App {
             "numeric_binning" => t.numeric_binning = v == "true",
             "histogram_bins" => t.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => t.incr_base = v.parse().unwrap_or(1),
+            "unfurl_empty" => t.unfurl_empty = v == "true",
             "disp_footer" => t.footer = v == "true",
             "disp_float_fmt" => {
                 t.float_digits = crate::plugins::float_fmt_digits(&v);

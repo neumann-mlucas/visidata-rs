@@ -741,7 +741,7 @@ impl Script {
                 diff_code(py, &j, &l.parent, other, keys)?
             }
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
-            Derivation::Unfurl { column } => unfurl_code(py, &p, &l.parent, column)?,
+            Derivation::Unfurl { column, empty } => unfurl_code(py, &p, &l.parent, column, *empty)?,
             Derivation::PivotCount { keys, on, aggs } if !aggs.is_empty() => {
                 if py {
                     py_pivot_aggs(&p, keys, on, aggs)
@@ -1043,7 +1043,17 @@ fn columns(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
 use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK};
 
 /// `zM` of view `p`, as `Sheet::unfurl_from`.
-fn unfurl_code(py: bool, p: &str, parent: &Sheet, column: &str) -> Result<String, String> {
+fn unfurl_code(
+    py: bool,
+    p: &str,
+    parent: &Sheet,
+    column: &str,
+    empty: bool,
+) -> Result<String, String> {
+    // ponytail: refused, not translated; add when an export needs it
+    if empty {
+        return Err("export: zM under unfurl_empty isn't exported".into());
+    }
     use crate::sheet::{UNFURL_ROW as U, Unfurl, unfurl_kind};
     let cols = columns(parent)?;
     let dt = &cols
@@ -2129,6 +2139,10 @@ fn py_agg(c: &str, agg: &str) -> String {
         "mean" | "avg" => "mean()",
         "mode" => "drop_nulls().mode(maintain_order=True).first()",
         "stdev" => "std()",
+        // ponytail: float even on an int column (vdrs truncates to the column's type)
+        a if let Some(n) = crate::sheet::columns::percentile(a) => {
+            &format!("quantile({}, interpolation=\"linear\")", n as f64 / 100.0)
+        }
         _ => &format!("{agg}()"),
     };
     format!(
@@ -2146,6 +2160,9 @@ fn sql_agg(c: &str, agg: &str) -> String {
         "sum" => format!("coalesce(sum({q}), 0)"),
         "mean" | "avg" => format!("avg({q})"),
         "stdev" => format!("stddev_samp({q})"),
+        a if let Some(n) = crate::sheet::columns::percentile(a) => {
+            format!("quantile_cont({q}, {})", n as f64 / 100.0)
+        }
         _ => format!("{agg}({q})"),
     };
     format!("{e} AS {}", q_ident(&agg_name(c, agg)))

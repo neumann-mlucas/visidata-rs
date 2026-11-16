@@ -213,6 +213,8 @@ pub enum Unfurl {
 
 /// Row number of the unfurled row's source row, while unfurling.
 pub const UNFURL_ROW: &str = "__vdrs_u";
+/// The source row's list was empty (`unfurl_empty`).
+const UNFURL_EMPTY: &str = "__vdrs_uempty";
 
 pub fn unfurl_kind(dt: &DataType) -> Result<Unfurl, String> {
     Ok(match dt {
@@ -234,8 +236,14 @@ pub fn unfurl_kind(dt: &DataType) -> Result<Unfurl, String> {
 impl Sheet {
     /// `zM`: `parent`'s rows, one per item of `column`, which becomes
     /// `column_key` (position or field) and `column_value`. Empty lists drop
-    /// their row; a null keeps it (key 0), as VisiData.
-    pub fn unfurl_from(parent: &Sheet, id: SheetId, column: &str) -> Result<Self, String> {
+    /// their row, or with `empty` (`unfurl_empty`) keep it with both empty; a
+    /// null keeps it (key 0), as VisiData.
+    pub fn unfurl_from(
+        parent: &Sheet,
+        id: SheetId,
+        column: &str,
+        empty: bool,
+    ) -> Result<Self, String> {
         let lf = parent.view_plan();
         let schema = lf.clone().collect_schema().map_err(|e| e.to_string())?;
         let dt = schema
@@ -245,6 +253,7 @@ impl Sheet {
         let c = || col(column);
         let kind = unfurl_kind(dt)?;
         let is_struct = matches!(kind, Unfurl::Struct { .. });
+        let is_list = matches!(kind, Unfurl::List);
         let items = match kind {
             Unfurl::List => c(),
             Unfurl::Struct { fields, text } => concat_list(
@@ -269,6 +278,10 @@ impl Sheet {
             let i = int_range(lit(0), len(), 1, DataType::Int64)
                 .over([col(UNFURL_ROW)])
                 .map_err(|e| e.to_string())?;
+            let i = match empty {
+                true => when(col(UNFURL_EMPTY)).then(lit(NULL)).otherwise(i),
+                false => i,
+            };
             (i, c())
         };
         let names: Vec<Expr> = schema
@@ -278,13 +291,17 @@ impl Sheet {
                 false => vec![col(n.as_str())],
             })
             .collect();
+        let lf = lf.with_row_index(UNFURL_ROW, None);
+        let lf = match (empty, is_list) {
+            (true, true) => lf.with_column(c().list().len().eq(lit(0)).alias(UNFURL_EMPTY)),
+            _ => lf.with_column(lit(false).alias(UNFURL_EMPTY)),
+        };
         let plan = lf
-            .with_row_index(UNFURL_ROW, None)
             .with_column(items.alias(column))
             .explode(
                 cols([column]),
                 ExplodeOptions {
-                    empty_as_null: false,
+                    empty_as_null: empty,
                     keep_nulls: true,
                 },
             )
@@ -300,6 +317,7 @@ impl Sheet {
             parent,
             Derivation::Unfurl {
                 column: column.into(),
+                empty,
             },
         ))
     }
@@ -411,7 +429,7 @@ mod tests {
         let loaded = crate::reader::open(t.path().as_os_str(), None).unwrap();
         let mut s = Sheet::from_source(0, loaded);
         s.view.hidden.extend(["m".to_string(), "deep".to_string()]);
-        let u = Sheet::unfurl_from(&s, 1, "tags").unwrap();
+        let u = Sheet::unfurl_from(&s, 1, "tags", false).unwrap();
         assert_eq!(u.name, format!("unfurl(tags): {}", s.name));
         assert_eq!(names(&u), ["id", "tags_key", "tags_value"]);
         // `[]` drops its row, null keeps it as item 0
@@ -421,17 +439,17 @@ mod tests {
         s.view
             .hidden
             .extend(["tags".to_string(), "deep".to_string()]);
-        let u = Sheet::unfurl_from(&s, 1, "m").unwrap();
+        let u = Sheet::unfurl_from(&s, 1, "m", false).unwrap();
         // fields of different types: values as text
         assert_eq!(rows(&u)[..2], ["1|x|1".to_string(), "1|y|q".to_string()]);
         s.view.hidden.clear();
         s.view.hidden.extend(["tags".to_string(), "m".to_string()]);
-        let u = Sheet::unfurl_from(&s, 1, "deep").unwrap();
+        let u = Sheet::unfurl_from(&s, 1, "deep", false).unwrap();
         assert_eq!(
             rows(&u)[..2],
             ["1|0|[1, 2]".to_string(), "1|1|[3]".to_string()]
         );
-        let u = Sheet::unfurl_from(&s, 1, "id").unwrap(); // a scalar is one item
+        let u = Sheet::unfurl_from(&s, 1, "id", false).unwrap(); // a scalar is one item
         assert_eq!(rows(&u)[0], "0|1|[[1, 2], [3]]");
     }
 

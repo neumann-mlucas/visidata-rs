@@ -761,6 +761,30 @@ async fn unfurl_pushes_a_read_only_sheet_of_items() {
     assert_eq!(h.current_column(), "tags");
 }
 
+/// S-42 C: under `unfurl_empty`, an empty list keeps its row, key and value empty.
+#[tokio::test(flavor = "multi_thread")]
+async fn unfurl_empty_keeps_empty_lists() {
+    let mut tmp = tempfile::Builder::new()
+        .suffix(".jsonl")
+        .tempfile()
+        .unwrap();
+    writeln!(tmp, r#"{{"id":1,"tags":["a","b"]}}"#).unwrap();
+    writeln!(tmp, r#"{{"id":2,"tags":[]}}"#).unwrap();
+    tmp.flush().unwrap();
+    let loaded = crate::reader::open(tmp.path().as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tmp).await;
+    h.keys(":").await;
+    h.type_("set unfurl_empty true").await;
+    h.keys("<CR> l z M").await;
+    assert!(title(&h).contains("row 1/3"), "{}", title(&h));
+    let last = h.screen().lines().nth(4).unwrap().to_string();
+    assert!(
+        last.trim_start().starts_with('2') && !last.contains('a'),
+        "{}",
+        h.screen()
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn columns_sheet_writes_back_to_its_sheet() {
     let mut h = Harness::new(5).await;

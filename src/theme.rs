@@ -57,6 +57,8 @@ pub struct Theme {
     /// `incr_base` (S-41 E): the first number `i`, `gi` and
     /// `:addcol-incr-key` write.
     pub incr_base: u64,
+    /// `unfurl_empty` (S-42 C): `zM` keeps a row for an empty list.
+    pub unfurl_empty: bool,
     /// `disp_footer`, `:footer` (S-36 C): a totals row under the table.
     pub footer: bool,
 }
@@ -152,6 +154,7 @@ impl Theme {
             numeric_binning: false,
             histogram_bins: 0,
             incr_base: 1,
+            unfurl_empty: false,
             footer: false,
         }
     }
@@ -195,6 +198,7 @@ impl Theme {
             numeric_binning: false,
             histogram_bins: 0,
             incr_base: 1,
+            unfurl_empty: false,
             footer: false,
         }
     }
