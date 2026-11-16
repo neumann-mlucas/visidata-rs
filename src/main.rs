@@ -25,7 +25,8 @@ struct Cli {
     session: Option<String>,
 
     /// Force a format (stdin, or a wrong extension): csv, tsv, parquet,
-    /// arrow, jsonl, json, xlsx, sqlite, or a Lua loader's name.
+    /// arrow, jsonl, json, xlsx, sqlite, fixed, usv, lsv, jsonla, or a Lua
+    /// loader's name.
     #[arg(short = 'f', long)]
     format: Option<String>,
 

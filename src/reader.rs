@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 
+mod text;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum SourceKind {
     Csv,
@@ -17,6 +19,11 @@ pub enum SourceKind {
     Json, // JSON array of records; `.json` holding JSON Lines is sniffed back to Jsonl
     Xlsx,
     Sqlite,
+    /// Fixed-width text (S-42 B); `--format fixed` for a file without `.fixed`.
+    Fixed,
+    Usv,
+    Lsv,
+    Jsonla,
     #[value(skip)]
     Duckdb, // read through the `duckdb` program (crate::duckdb)
     #[value(skip)]
@@ -529,6 +536,10 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("xlsx" | "xls" | "xlsm" | "xlsb" | "ods") => Ok(SourceKind::Xlsx),
         Some("sqlite" | "sqlite3" | "db") => Ok(SourceKind::Sqlite),
         Some("duckdb" | "ddb") => Ok(SourceKind::Duckdb),
+        Some("fixed") => Ok(SourceKind::Fixed),
+        Some("usv") => Ok(SourceKind::Usv),
+        Some("lsv") => Ok(SourceKind::Lsv),
+        Some("jsonla") => Ok(SourceKind::Jsonla),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
@@ -629,6 +640,10 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             .lazy(),
         SourceKind::Xlsx => open_xlsx(path, None)?.lazy(),
         SourceKind::Sqlite => open_sqlite_table(path, None)?.lazy(),
+        SourceKind::Fixed => text::fixed(path)?.lazy(),
+        SourceKind::Usv => text::usv(path)?.lazy(),
+        SourceKind::Lsv => text::lsv(path)?.lazy(),
+        SourceKind::Jsonla => text::jsonla(path)?.lazy(),
         // Always the table list, as VisiData; `<CR>` opens one (`open_part`).
         SourceKind::Duckdb => crate::duckdb::index(path)
             .map_err(OpenError::Duckdb)?
@@ -912,6 +927,33 @@ mod tests {
             df.column("a").unwrap().i64().unwrap().to_vec(),
             [Some(1), Some(2)]
         );
+    }
+
+    fn texts(df: &DataFrame, c: &str) -> Vec<String> {
+        let c = df.column(c).unwrap().cast(&DataType::String).unwrap();
+        c.str()
+            .unwrap()
+            .iter()
+            .map(|v| v.unwrap_or("-").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn text_formats_read_as_visidata() {
+        let df = open_text(".usv", "a\u{241f}b\u{241e}1\u{241f}2\u{241e}\n");
+        assert_eq!(
+            (texts(&df, "a"), texts(&df, "b")),
+            (vec!["1".into()], vec!["2".into()])
+        );
+        let df = open_text(".lsv", "k: v1\nm: x\n  y\n\nk: v2\n");
+        assert_eq!(texts(&df, "k"), ["v1", "v2"]);
+        assert_eq!(texts(&df, "m"), ["xy", ""]);
+        let df = open_text(".jsonla", "[\"n\", \"ok\"]\n[1, true]\n[2, false]\n");
+        assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
+        assert_eq!(texts(&df, "ok"), ["true", "false"]);
+        let df = open_text(".fixed", "id  name\n1   ann\n22  bobby\n");
+        assert_eq!(texts(&df, "id"), ["1 ", "22"]);
+        assert_eq!(texts(&df, "name"), ["ann", "bobby"]);
     }
 
     #[test]

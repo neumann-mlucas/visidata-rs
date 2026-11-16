@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 75;
+const MIN_PASS: usize = 80;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -189,6 +189,8 @@ struct Replay {
     numeric_binning: bool,
     /// `set-option incr_base N` (S-41 E).
     incr_base: u64,
+    /// `set-option filetype F`: the format later `open-file`s use (S-42 B).
+    filetype: Option<SourceKind>,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
@@ -254,6 +256,7 @@ impl Replay {
             next_id: 0,
             numeric_binning: false,
             incr_base: 1,
+            filetype: None,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
@@ -656,7 +659,7 @@ impl Replay {
         match r.longname.as_str() {
             "open-file" => {
                 let path = self.path(&r.input);
-                let loaded = reader::open(path.as_os_str(), None)
+                let loaded = reader::open(path.as_os_str(), self.filetype)
                     .map_err(|e| Runtime(format!("open-file {}: {}", path.display(), e)))?;
                 // Sheet name = file stem (VisiData default); e.g. tests/data1.tsv → data1.
                 let name = Path::new(&r.input)
@@ -1189,6 +1192,15 @@ impl Replay {
             "join-sheets-top2" => self.join_top2(&r.input),
             "set-option" if r.row == "unfurl_empty" && r.input == "True" => {
                 Err(Runtime("option unfurl_empty".into()))
+            }
+            "set-option" if r.row == "filetype" => {
+                use clap::ValueEnum;
+                // one vdrs doesn't know (`pandas`, `dir`): detection by extension
+                self.filetype = SourceKind::from_str(&r.input, true).ok();
+                Ok(())
+            }
+            "set-option" if r.row == "header" && r.input != "1" => {
+                Err(Runtime(format!("option header {}", r.input)))
             }
             "set-option" if r.row == "incr_base" => {
                 // VisiData's is a float (`5.0`); an int base here
@@ -2046,6 +2058,28 @@ impl Replay {
             let text: StringChunked = f
                 .iter()
                 .map(|v| v.map(|v| format!("{v:.*}", *d as usize)))
+                .collect();
+            df.with_column(text.with_name(c.as_str().into()).into_column())
+                .map_err(|e| e.to_string())?;
+        }
+
+        // VisiData's bools in a save: `True`, and False empty (no golden has `False`).
+        let bools: Vec<String> = df
+            .columns()
+            .iter()
+            .filter(|c| c.dtype() == &DataType::Boolean)
+            .map(|c| c.name().to_string())
+            .collect();
+        for c in bools {
+            let b = df
+                .column(&c)
+                .map_err(|e| e.to_string())?
+                .bool()
+                .map_err(|e| e.to_string())?
+                .clone();
+            let text: StringChunked = b
+                .iter()
+                .map(|v| v.map(|v| if v { "True" } else { "" }))
                 .collect();
             df.with_column(text.with_name(c.as_str().into()).into_column())
                 .map_err(|e| e.to_string())?;

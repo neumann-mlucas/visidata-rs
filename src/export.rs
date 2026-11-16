@@ -336,6 +336,13 @@ impl Script {
                     (SourceKind::Stdin, _) => {
                         return Err("export: stdin can't be re-read".into());
                     }
+                    (
+                        k @ (SourceKind::Fixed
+                        | SourceKind::Usv
+                        | SourceKind::Lsv
+                        | SourceKind::Jsonla),
+                        _,
+                    ) => return Err(format!("export: Polars has no {k:?} reader")),
                 })
             }
             Lang::Sql => {
@@ -399,6 +406,12 @@ impl Script {
                         format!("SELECT * FROM {db}.{}", duckdb_table(part)?)
                     }
                     SourceKind::Stdin => return Err("export: stdin can't be re-read".into()),
+                    k @ (SourceKind::Fixed
+                    | SourceKind::Usv
+                    | SourceKind::Lsv
+                    | SourceKind::Jsonla) => {
+                        return Err(format!("export: DuckDB has no {k:?} reader"));
+                    }
                 })
             }
         }

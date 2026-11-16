@@ -46,6 +46,7 @@ File naming: `S-NN-slug.md`.
 | S-39 | Sources that aren't files: Lua loaders return rows, then `trait Source` | S-10, S-18 B | **A shipped 2026-11-15**; B gated → [`S-39-sources.md`](S-39-sources.md) |
 | S-40 | Lua config: `vd.augroup` + event options, project `.vdrs.lua` (trust, merge), multi-sheet loaders by name, Lua status line / title bar, Lua sidebar pages | S-29, S-39 A, S-37 P0c | **shipped 2026-11-15** (A–G) → [`S-40-lua-config-extensions.md`](S-40-lua-config-extensions.md) |
 | S-41 | VisiData commands the replay corpus is blocked on: regex select over columns, select-to-next-selected, search-keys, freeze-col, addcol-incr-key, describe select-cell | S-25 P0 | **shipped 2026-11-15** (A–C, E, F; D deferred) → [`S-41-replay-parity-commands.md`](S-41-replay-parity-commands.md) |
+| S-42 | Readers and aggregators the replay corpus is blocked on: JSONL comments, fixed width, usv, lsv, jsonla, yaml, toml, html, zip; percentile aggregators, `unfurl_empty` | S-03, S-25 P4 | **in progress 2026-11-16** → [`S-42-readers-aggregators.md`](S-42-readers-aggregators.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

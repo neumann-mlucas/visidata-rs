@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [ ] S-42 — replay readers + aggregators: A JSONL comment lines; B fixed/usv/lsv/jsonla; C percentile aggregators + `unfurl_empty`; D yaml/toml/html/zip
 - [x] S-41 — replay blockers: A `\` `g|` `g\` regex select; B `z}` `z{`; C `r` search-keys; D `'` freeze-col; E `addcol-incr-key` + `incr_base`; F describe `zs` select-cell — shipped 2026-11-15 except D (deferred: no per-column width, freq sheets read-only)
 - [x] S-39 A — a Lua loader may return rows (api 13, 2026-11-15); B `trait Source` when a live source needs it
 - [x] S-40 — Lua config: A `vd.augroup` / `vd.off` / `pattern` / `once` + events `tick` `enter` `loaded` `reload` (1–1.5 d); B project `.vdrs.lua` with `:trust`, merge order, `vd.reset()` (1.5–2 d); C multi-sheet loaders; loader by name (`--format`/`-f`), `patterns` (2 d, after S-39 A); D `vd.statusline` / `vd.titlebar` (1.5–2 d); G `vd.set_theme(table)` (0.5 d); E Lua sidebar pages (1 d); F guide recipes with open-format fixtures: cvsv, PDB, FASTA, access log; `vd.reset()` documented — shipped 2026-11-15

@@ -132,7 +132,7 @@ join-concat	SKIP runtime: cannot locate row 'Customer' (keys=[])
 join-different-types	SKIP allow-error
 join-extend-mult	PASS
 join-merge	PASS
-join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
+join-non-unique-cols	SKIP runtime: option header 0
 jump-sheet	PASS
 known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
 listofdictobj	SKIP open-cell
@@ -142,17 +142,17 @@ load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expande
 load-duckdb	PASS
 load-duckdb-view	PASS
 load-fec	SKIP runtime: open-file ../visidata/sample_data/1794685.fec: unknown format for ../visidata/sample_data/1794685.fec
-load-fixed	SKIP runtime: open-file ../visidata/sample_data/countries: unknown format for ../visidata/sample_data/countries
-load-fixed-header0	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
-load-fixed-leadingspaces	SKIP runtime: open-file ../visidata/sample_data/test-fixed-leadingspaces.txt: unknown format for ../visidata/sample_data/test-fixed-leadingspaces.txt
+load-fixed	PASS
+load-fixed-header0	SKIP runtime: option header 0
+load-fixed-leadingspaces	SKIP runtime: option header 0
 load-grep-json	NO_GOLDEN golden is .grep
 load-grep-standard	NO_GOLDEN golden is .grep
 load-h5	SKIP runtime: open-file ../visidata/sample_data/sensors.h5: unknown format for ../visidata/sample_data/sensors.h5
 load-html	SKIP runtime: open-file ../visidata/sample_data/sunshinelist.html: unknown format for ../visidata/sample_data/sunshinelist.html
 load-http-flaky	SKIP runtime: open-file ../visidata/https://raw.githubusercontent.com/saulpw/visidata/develop/sample_data/benchmark.csv: io: ../visidata/https://raw.githubuserc
 load-json	SKIP serialize: CSV format does not support nested data
-load-jsonla	SKIP runtime: open-file ../visidata/sample_data/officials.jsonla: unknown format for ../visidata/sample_data/officials.jsonla
-load-lsv	SKIP runtime: open-file ../visidata/sample_data/benchmark.lsv: unknown format for ../visidata/sample_data/benchmark.lsv
+load-jsonla	FAIL line 3: want="Number\t8\tint\t\t1" got="Number\t8\t\t\t1"
+load-lsv	PASS
 load-msgpack	SKIP runtime: open-file ../visidata/sample_data/test.msgpack: unknown format for ../visidata/sample_data/test.msgpack
 load-msgpackz	SKIP runtime: open-file ../visidata/sample_data/test.msgpackz: unknown format for ../visidata/sample_data/test.msgpackz
 load-numpy	SKIP runtime: open-file ../visidata/sample_data/goog.npy: unknown format for ../visidata/sample_data/goog.npy
@@ -167,7 +167,7 @@ load-sqlite	PASS
 load-sqlite-view	PASS
 load-stata	SKIP runtime: open-file ../visidata/sample_data/co3.dta: unknown format for ../visidata/sample_data/co3.dta
 load-toml	SKIP runtime: open-file ../visidata/sample_data/freshwater-mammals.toml: unknown format for ../visidata/sample_data/freshwater-mammals.toml
-load-usv	SKIP runtime: open-file ../visidata/sample_data/test.usv: unknown format for ../visidata/sample_data/test.usv
+load-usv	PASS
 load-xlsx	PASS
 load-xml	SKIP runtime: open-file ../visidata/sample_data/benchmark.xml: unknown format for ../visidata/sample_data/benchmark.xml
 load-xpt-n311	SKIP runtime: open-file ../visidata/sample_data/brakes.xpt: unknown format for ../visidata/sample_data/brakes.xpt
@@ -197,12 +197,12 @@ postgres-tables-pg	SKIP runtime: open-file ../visidata/postgres:///vdtest: unkno
 pr2302	PASS
 pr2308	SKIP runtime: no aggregator "keymax": count distinct sum mean avg median mode min max stdev
 pr2372	SKIP runtime: no column: 
-pr2400	SKIP runtime: open-file ../visidata/sample_data/test.fixed: unknown format for ../visidata/sample_data/test.fixed
+pr2400	PASS
 pr2614	FAIL line 1: want="A" got="C"
 pr2647	SKIP runtime: read-only: b+a is derived
 pr2688a	PASS
 pr2688b	PASS
-pr2815	SKIP serialize: NDJSON line expected to contain JSON object: list[str]
+pr2815	PASS
 pr2855	PASS
 prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
@@ -237,6 +237,6 @@ unfurl-empty-false	PASS
 unfurl-list	FAIL line 2: want="7/3/2018 1:47p\t0\tRobert Armstrong\tFOOD213\tBFF Oh My Gravy! Beef & Salmon 2.8oz\t4\t$12.95\t$51.8" got="7/3/2018 1:47p\t0\t[\"Robert Armst
 xlsx-color-cells	FAIL line 1: want="A\tA_cellPyObj\tA_fontColor\tA_fillColor\tBC\tBC_cellPyObj\tBC_fontColor\tBC_fillColor\t\t_cellPyObj\t_fontColor\t_fillColor\tD\tD_cellPyObj\
 xlsx-empty-cell	PASS
-xlsx-header	SKIP rename-cols-row
+xlsx-header	SKIP runtime: option header 0
 xlsx-merged-cells	PASS
 xml-table	SKIP runtime: open-file ../visidata/tests/xml-table.xml: unknown format for ../visidata/tests/xml-table.xml

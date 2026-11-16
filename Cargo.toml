@@ -37,6 +37,7 @@ regex = "1"
 flate2 = "1"
 calamine = { version = "0.38", features = ["chrono"] }  # chrono already comes with polars
 rusqlite = { version = "0.41", features = ["bundled"] }
+serde_json = "1"  # already pulled in by polars; jsonla rows (S-42 B)
 unicode-width = "0.2"  # already pulled in by ratatui; display widths of cells
 
 [dev-dependencies]

@@ -16,7 +16,7 @@ Previous specs (S-01…S-14) describe *decisions*. This spec describes *the ship
 ```text
 vdrs <path>                  open a file
 vdrs -                       read from stdin (auto-sniffed)
-vdrs --format <fmt> <path>   override format detection (csv|tsv|parquet|arrow|jsonl|json|xlsx|sqlite)
+vdrs --format <fmt> <path>   override format detection (csv|tsv|parquet|arrow|jsonl|json|xlsx|sqlite|fixed|usv|lsv|jsonla)
 vdrs --headless <path>       print source, schema, and first N rows (Polars table), no TUI
 vdrs --head N                limit --headless row count
 ```
@@ -36,10 +36,14 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | Excel/ODS | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.ods` | `calamine` → DataFrame | one worksheet (list when several; `file:Sheet`), a column whose cells are all numbers, all true/false or all dates loads with that type; a mixed column loads as text (S-24 R3); empty header names preserved |
 | SQLite | `.sqlite`, `.sqlite3`, `.db` | `rusqlite` (bundled) | one table (list when several; `file:table`) ordered by `rowid`; a column holding only integers loads as integers, only numbers as floats, anything else as text, nothing lost (S-24 R3); UTF-8-lossy decode (handles invalid-unicode TEXT) |
 | DuckDB | `.duckdb`, `.ddb` | the `duckdb` program (`vd.option("duckdb_cmd")`), Parquet tempfiles | always VisiData's index (name, schema_name, table_type, rows, cols, keys, source); `<CR>` / `file:schema.table` opens one, typed; `:exec-sql` runs SQL in the file (last query's rows open, index reloads); `:save x.duckdb` = `CREATE OR REPLACE TABLE <sheet>` |
+| Fixed width | `.fixed`, or `--format fixed` | `reader/text.rs` (eager) | columns where the header row has text, widened to the data (VisiData's `columnize`); values keep their padding; text columns (S-42 B) |
+| USV | `.usv` | `reader/text.rs` | `␟` between fields, `␞` after rows; first row = header; text columns |
+| LSV | `.lsv` | `reader/text.rs` | `key: value` lines, blank line between records, a line without `:` continues the key; columns in order of first appearance; missing = empty text |
+| JSON arrays | `.jsonla` | `serde_json` → Polars `JsonReader` | first line = header array, then one array per row; JSON types kept |
 | stdin | `-` | drained to tempfile, sniffed | csvlens-style fallback |
 | gzip | `*.gz` suffix (any case) | `flate2` → tempfile | one layer; format from the inner extension (`.json.gz`) or `--format` |
 
-**Deliberately out of scope** (per direction §1): xml, html, yaml, toml, zip, stata, hdf5, numpy, msgpack, xpt, fixed-width, jsonla, usv, png, http. These are candidates for `vdrs-ext-<fmt>` Lua plugin crates (per S-09 extension ADR) when a user asks.
+**Deliberately out of scope** (per direction §1): xml, html, yaml, toml, zip, stata, hdf5, numpy, msgpack, xpt, png, http. These are candidates for `vdrs-ext-<fmt>` Lua plugin crates (per S-09 extension ADR) when a user asks.
 
 Entry: `src/reader.rs:open()`.
 
