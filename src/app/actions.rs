@@ -1932,6 +1932,10 @@ impl App {
                         crate::reader::SourceKind::Duckdb => {
                             Some(format!("{}.{name}", at(df.column("schema_name").ok()?)?))
                         }
+                        crate::reader::SourceKind::Zip => Some(crate::reader::member_name(
+                            &name,
+                            &at(df.column("filename").ok()?)?,
+                        )),
                         _ => Some(name),
                     }
                 });

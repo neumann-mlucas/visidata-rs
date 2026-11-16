@@ -26,3 +26,4 @@ pr2614               # VisiData's `i` names its column `A` though data1 has an `
 fill-nested          # Customer mixes lists and strings: Polars reads it as text, a list as `["a", "b"]`; VisiData keeps the list, `["a","b"]` (S-42 A)
 unfurl-list          # same column: vdrs unfurls text, not the list (S-42 A)
 load-jsonla          # VisiData types jsonla columns from the first row (Number int); the replay columns sheet shows only `#`/`%` casts as a type (S-42 B)
+load-json            # gz( expands lists into `[0]` `[1]` columns in VisiData; vdrs expands only structs (S-22) (S-42 D)

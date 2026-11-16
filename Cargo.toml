@@ -39,6 +39,10 @@ calamine = { version = "0.38", features = ["chrono"] }  # chrono already comes w
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json = "1"  # already pulled in by polars; jsonla rows (S-42 B)
 unicode-width = "0.2"  # already pulled in by ratatui; display widths of cells
+yaml-rust2 = "0.13.0"  # .yaml/.yml (S-42 D)
+toml = "1.2.1"  # .toml
+scraper = "0.29.0"  # .html tables
+zip = { version = "9.4.1", default-features = false, features = ["deflate"] }  # .zip members; calamine already builds it
 
 [dev-dependencies]
 portable-pty = "0.9.0"

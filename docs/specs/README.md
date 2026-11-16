@@ -20,7 +20,7 @@ File naming: `S-NN-slug.md`.
 | S-11 | Streaming source abstraction | 4 | not-started as a trait; `:tail` reads CSV/JSONL incrementally and watches Parquet dirs |
 | S-12 | Frame diff | 5 | **shipped** — `:diff` and `D` (prompt; key columns as keys) |
 | S-13 | Tier 1 feature target (daily-driver parity for upstream golden corpus) | 1.5 | **closed** (iter 14 — honest classification replaced the "~160 PASS" target) → [`S-13-tier1-feature-target.md`](S-13-tier1-feature-target.md) |
-| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (`MIN_PASS` 71 since S-38; ceiling 195; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
+| S-14 | Golden corpus replay harness | 1.5 | **landed and stable** (`MIN_PASS` 87 since S-42; ceiling 194; triage mode + honest quarantine since S-25 P0; `.vdx` scripts since 2026-11-07). its driver-only ops are now also in the binary (`:join`, `:uniform`, `:setcol`, `W`, `g"`, `,`) → [`S-14-corpus-replay-harness.md`](S-14-corpus-replay-harness.md) |
 | S-15 | **Feature inventory** — what the binary actually ships, plus what it doesn't (§10 cut, §10.1 not yet) | cross-cutting | **landed 2026-10-16**, updated per shipped feature → [`S-15-feature-inventory.md`](S-15-feature-inventory.md) |
 | S-18 | Cell/row editing + clipboard (Day-1 must-have) | — | **shipped 2026-11-09** (A–G) → [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) |
 | S-19 | Macros | — | **shipped 2026-11-10** → [`S-19-macros.md`](S-19-macros.md) |
@@ -46,7 +46,7 @@ File naming: `S-NN-slug.md`.
 | S-39 | Sources that aren't files: Lua loaders return rows, then `trait Source` | S-10, S-18 B | **A shipped 2026-11-15**; B gated → [`S-39-sources.md`](S-39-sources.md) |
 | S-40 | Lua config: `vd.augroup` + event options, project `.vdrs.lua` (trust, merge), multi-sheet loaders by name, Lua status line / title bar, Lua sidebar pages | S-29, S-39 A, S-37 P0c | **shipped 2026-11-15** (A–G) → [`S-40-lua-config-extensions.md`](S-40-lua-config-extensions.md) |
 | S-41 | VisiData commands the replay corpus is blocked on: regex select over columns, select-to-next-selected, search-keys, freeze-col, addcol-incr-key, describe select-cell | S-25 P0 | **shipped 2026-11-15** (A–C, E, F; D deferred) → [`S-41-replay-parity-commands.md`](S-41-replay-parity-commands.md) |
-| S-42 | Readers and aggregators the replay corpus is blocked on: JSONL comments, fixed width, usv, lsv, jsonla, yaml, toml, html, zip; percentile aggregators, `unfurl_empty` | S-03, S-25 P4 | **in progress 2026-11-16** → [`S-42-readers-aggregators.md`](S-42-readers-aggregators.md) |
+| S-42 | Readers and aggregators the replay corpus is blocked on: JSONL comments, fixed width, usv, lsv, jsonla, yaml, toml, html, zip; percentile aggregators, `unfurl_empty` | S-03, S-25 P4 | **shipped 2026-11-16** (A–D) → [`S-42-readers-aggregators.md`](S-42-readers-aggregators.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

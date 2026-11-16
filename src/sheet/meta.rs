@@ -246,7 +246,7 @@ impl Sheet {
             Some(p) => crate::reader::list_parts(p, loaded.kind).unwrap_or_default(),
             None => Vec::new(),
         };
-        match parts.is_empty() && loaded.kind != SourceKind::Duckdb {
+        match parts.is_empty() && !crate::reader::is_index(loaded.kind) {
             true => Sheet::from_source(id, loaded),
             false => Sheet::parts_list(id, loaded, parts),
         }
@@ -257,12 +257,12 @@ impl Sheet {
     pub fn parts_list(id: SheetId, loaded: LoadedSource, parts: Vec<String>) -> Self {
         let path = loaded.path.clone().unwrap_or_default();
         let kind = loaded.kind;
-        let what = if kind == SourceKind::Xlsx {
-            "sheet"
-        } else {
-            "table"
+        let what = match kind {
+            SourceKind::Xlsx => "sheet",
+            SourceKind::Zip => "member",
+            _ => "table",
         };
-        let plan = if kind == SourceKind::Duckdb {
+        let plan = if crate::reader::is_index(kind) {
             loaded.lazy.clone()
         } else {
             Column::new(what.into(), parts).into_frame().lazy()

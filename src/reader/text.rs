@@ -1,5 +1,5 @@
 //! Text formats read eagerly into text columns, as VisiData reads them (S-42 B):
-//! fixed width, `.usv`, `.lsv`, `.jsonla`.
+//! fixed width, `.usv`, `.lsv`, `.jsonla`; YAML and TOML as JSON records (S-42 D).
 
 use std::path::Path;
 
@@ -200,6 +200,88 @@ pub(super) fn jsonla(path: &Path) -> Result<DataFrame, OpenError> {
         })
         .collect();
     DataFrame::new_infer_height(cols).map_err(OpenError::from)
+}
+
+/// Rows of JSON objects as a frame, columns typed from the values (nested
+/// values become lists and structs), as the JSON reader types them.
+fn records(rows: Vec<serde_json::Value>) -> Result<DataFrame, OpenError> {
+    let json = serde_json::to_vec(&serde_json::Value::Array(rows))
+        .map_err(|e| OpenError::Polars(polars_err!(ComputeError: "{e}")))?;
+    if json.len() <= 2 {
+        return Ok(DataFrame::empty());
+    }
+    Ok(JsonReader::new(std::io::Cursor::new(json))
+        .with_json_format(JsonFormat::Json)
+        .finish()?)
+}
+
+/// A value that isn't an object as a row: `{"value": v}`.
+fn as_row(v: serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Object(_) => v,
+        v => serde_json::json!({ "value": v }),
+    }
+}
+
+fn yaml_json(y: &yaml_rust2::Yaml) -> serde_json::Value {
+    use serde_json::Value as J;
+    use yaml_rust2::Yaml as Y;
+    match y {
+        Y::Real(r) => r
+            .parse::<f64>()
+            .map_or_else(|_| J::String(r.clone()), J::from),
+        Y::Integer(i) => J::from(*i),
+        Y::String(s) => J::String(s.clone()),
+        Y::Boolean(b) => J::Bool(*b),
+        Y::Array(a) => J::Array(a.iter().map(yaml_json).collect()),
+        Y::Hash(h) => J::Object(
+            h.iter()
+                .map(|(k, v)| {
+                    let k = match k {
+                        Y::String(s) => s.clone(),
+                        k => yaml_json(k).to_string(),
+                    };
+                    (k, yaml_json(v))
+                })
+                .collect(),
+        ),
+        Y::Null | Y::BadValue | Y::Alias(_) => J::Null,
+    }
+}
+
+/// YAML (`.yaml`, `.yml`), as VisiData: one document that is a list → a row
+/// per item; one other document → one row; several documents → a row each.
+pub(super) fn yaml(path: &Path) -> Result<DataFrame, OpenError> {
+    let text = std::fs::read_to_string(path)?;
+    let docs = yaml_rust2::YamlLoader::load_from_str(&text)
+        .map_err(|e| OpenError::Polars(polars_err!(ComputeError: "yaml: {e}")))?;
+    let rows: Vec<serde_json::Value> = match docs.as_slice() {
+        [yaml_rust2::Yaml::Array(items)] => items.iter().map(yaml_json).collect(),
+        docs => docs.iter().map(yaml_json).collect(),
+    };
+    records(rows.into_iter().map(as_row).collect())
+}
+
+fn toml_json(v: toml::Value) -> serde_json::Value {
+    use serde_json::Value as J;
+    match v {
+        toml::Value::String(s) => J::String(s),
+        toml::Value::Integer(i) => J::from(i),
+        toml::Value::Float(f) => J::from(f),
+        toml::Value::Boolean(b) => J::Bool(b),
+        toml::Value::Datetime(d) => J::String(d.to_string()),
+        toml::Value::Array(a) => J::Array(a.into_iter().map(toml_json).collect()),
+        toml::Value::Table(t) => J::Object(t.into_iter().map(|(k, v)| (k, toml_json(v))).collect()),
+    }
+}
+
+/// TOML (`.toml`): one row, a column per top-level key, as VisiData.
+pub(super) fn toml(path: &Path) -> Result<DataFrame, OpenError> {
+    let text = std::fs::read_to_string(path)?;
+    let table: toml::Table = text
+        .parse()
+        .map_err(|e| OpenError::Polars(polars_err!(ComputeError: "toml: {e}")))?;
+    records(vec![toml_json(toml::Value::Table(table))])
 }
 
 #[cfg(test)]

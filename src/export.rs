@@ -340,7 +340,11 @@ impl Script {
                         k @ (SourceKind::Fixed
                         | SourceKind::Usv
                         | SourceKind::Lsv
-                        | SourceKind::Jsonla),
+                        | SourceKind::Jsonla
+                        | SourceKind::Yaml
+                        | SourceKind::Toml
+                        | SourceKind::Html
+                        | SourceKind::Zip),
                         _,
                     ) => return Err(format!("export: Polars has no {k:?} reader")),
                 })
@@ -409,7 +413,11 @@ impl Script {
                     k @ (SourceKind::Fixed
                     | SourceKind::Usv
                     | SourceKind::Lsv
-                    | SourceKind::Jsonla) => {
+                    | SourceKind::Jsonla
+                    | SourceKind::Yaml
+                    | SourceKind::Toml
+                    | SourceKind::Html
+                    | SourceKind::Zip) => {
                         return Err(format!("export: DuckDB has no {k:?} reader"));
                     }
                 })

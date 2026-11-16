@@ -316,6 +316,58 @@ async fn parts_list_opens_each_table() {
     );
 }
 
+/// S-42 D: an HTML page lists its tables and links, a zip its members;
+/// `<CR>` opens one.
+#[tokio::test(flavor = "multi_thread")]
+async fn html_and_zip_list_their_parts() {
+    let dir = tempfile::tempdir().unwrap();
+    let page = dir.path().join("p.html");
+    std::fs::write(
+        &page,
+        "<h2>Prices</h2><table id=prices><tr><th>item</th><th>usd</th></tr>\
+         <tr><td>tea</td><td>3</td></tr><tr><td>jam</td><td>5</td></tr></table>",
+    )
+    .unwrap();
+    let loaded = crate::reader::open(page.as_os_str(), None).unwrap();
+    let mut app = App::new(Sheet::opened(0, loaded), None, None);
+    app.spawn_materialize();
+    let mut h = Harness::from_app(app).await;
+    assert!(title(&h).contains("row 1/2"), "{}", title(&h)); // prices, links
+    assert!(h.screen().contains("prices"), "{}", h.screen());
+    h.keys("<CR>").await;
+    assert!(
+        title(&h).contains(":prices") && title(&h).contains("row 1/2"),
+        "{}",
+        title(&h)
+    );
+    assert_eq!(first_cell(&h), "tea", "{}", h.screen());
+
+    let zip = dir.path().join("a.zip");
+    {
+        use std::io::Write;
+        let mut z = ::zip::ZipWriter::new(std::fs::File::create(&zip).unwrap());
+        z.start_file("d/n.csv", ::zip::write::SimpleFileOptions::default())
+            .unwrap();
+        z.write_all(b"n\n1\n2\n3\n").unwrap();
+        z.finish().unwrap();
+    }
+    let loaded = crate::reader::open(zip.as_os_str(), None).unwrap();
+    let mut app = App::new(Sheet::opened(0, loaded), None, None);
+    app.spawn_materialize();
+    let mut h = Harness::from_app(app).await;
+    assert!(
+        title(&h).contains("members") && title(&h).contains("row 1/1"),
+        "{}",
+        title(&h)
+    );
+    h.keys("<CR>").await;
+    assert!(
+        title(&h).contains("d/n.csv") && title(&h).contains("row 1/3"),
+        "{}",
+        title(&h)
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn duckdb_index_exec_sql_open_and_save() {
     let have = std::process::Command::new("duckdb")

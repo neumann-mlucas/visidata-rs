@@ -16,7 +16,7 @@ Previous specs (S-01…S-14) describe *decisions*. This spec describes *the ship
 ```text
 vdrs <path>                  open a file
 vdrs -                       read from stdin (auto-sniffed)
-vdrs --format <fmt> <path>   override format detection (csv|tsv|parquet|arrow|jsonl|json|xlsx|sqlite|fixed|usv|lsv|jsonla)
+vdrs --format <fmt> <path>   override format detection (csv|tsv|parquet|arrow|jsonl|json|xlsx|sqlite|fixed|usv|lsv|jsonla|yaml|toml|html|zip)
 vdrs --headless <path>       print source, schema, and first N rows (Polars table), no TUI
 vdrs --head N                limit --headless row count
 ```
@@ -40,10 +40,14 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 | USV | `.usv` | `reader/text.rs` | `␟` between fields, `␞` after rows; first row = header; text columns |
 | LSV | `.lsv` | `reader/text.rs` | `key: value` lines, blank line between records, a line without `:` continues the key; columns in order of first appearance; missing = empty text |
 | JSON arrays | `.jsonla` | `serde_json` → Polars `JsonReader` | first line = header array, then one array per row; JSON types kept |
+| YAML | `.yaml`, `.yml` | `yaml-rust2` → JSON records → Polars `JsonReader` | one list document → a row per item; one other document → one row; several documents → a row each (S-42 D) |
+| TOML | `.toml` | `toml` → JSON record | one row, a column per top-level key; tables are structs, arrays lists; datetimes text |
+| HTML | `.html`, `.htm` | `scraper` | always the index (VisiData's `name rows cols id classes title aria_label caption summary heading`): each `<table>` (`id`, else `table_<i>`) and `links`; `<CR>` / `file:name` opens one. Header rows (`th`, scope col) join with `_`, colspan/rowspan fill, no header → first row; a cell's `<a href>`s → `<col>_link<i>` columns; text columns; names stripped |
+| Zip | `.zip` | `zip` | always the members list `directory filename ext size compressed_size date_time` (directory `.` at the top); `<CR>` / `file:member` extracts the member to a tempfile and opens it by its extension |
 | stdin | `-` | drained to tempfile, sniffed | csvlens-style fallback |
 | gzip | `*.gz` suffix (any case) | `flate2` → tempfile | one layer; format from the inner extension (`.json.gz`) or `--format` |
 
-**Deliberately out of scope** (per direction §1): xml, html, yaml, toml, zip, stata, hdf5, numpy, msgpack, xpt, png, http. These are candidates for `vdrs-ext-<fmt>` Lua plugin crates (per S-09 extension ADR) when a user asks.
+**Deliberately out of scope** (per direction §1): xml, stata, hdf5, numpy, msgpack, xpt, png, http. These are candidates for `vdrs-ext-<fmt>` Lua plugin crates (per S-09 extension ADR) when a user asks.
 
 Entry: `src/reader.rs:open()`.
 

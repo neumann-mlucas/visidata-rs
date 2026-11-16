@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 80;
+const MIN_PASS: usize = 87;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -282,7 +282,7 @@ impl Replay {
     fn open_sheet(&mut self, loaded: LoadedSource) -> Sheet {
         let id = self.alloc();
         match loaded.kind {
-            SourceKind::Duckdb => Sheet::parts_list(id, loaded, Vec::new()),
+            k if reader::is_index(k) => Sheet::parts_list(id, loaded, Vec::new()),
             _ => Sheet::from_source(id, loaded),
         }
     }
@@ -353,12 +353,43 @@ impl Replay {
         let text = |c: &str, i: usize| -> Option<String> {
             Some(df.column(c).ok()?.get(i).ok()?.get_str()?.to_string())
         };
+        // a zip's rows are keyed by `directory,filename`
+        let key = |i: usize| match kind {
+            SourceKind::Zip => Some(format!(
+                "{},{}",
+                text("directory", i)?,
+                text("filename", i)?
+            )),
+            _ => text("name", i),
+        };
         let i = match row.strip_prefix('キ') {
-            Some(name) => (0..df.height()).find(|&i| text("name", i).as_deref() == Some(name)),
+            Some(name) => (0..df.height()).find(|&i| key(i).as_deref() == Some(name)),
+            None if row.is_empty() => Some(0), // the cursor row: no cursor moves here
             None => row.parse().ok(),
         }
         .ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
+        if kind == SourceKind::Zip {
+            let (dir, file) = (text("directory", i), text("filename", i));
+            let (Some(dir), Some(file)) = (dir, file) else {
+                return Err(Runtime(format!("open-row: no row {row}")));
+            };
+            let loaded = reader::open_part(&path, kind, &reader::member_name(&dir, &file))
+                .map_err(|e| Runtime(e.to_string()))?;
+            let sheet = Sheet::from_source(self.alloc(), loaded);
+            let name = Path::new(&file)
+                .file_stem()
+                .map_or(file.clone(), |s| s.to_string_lossy().into());
+            self.push_sheet(name, sheet);
+            return Ok(());
+        }
         let name = text("name", i).ok_or_else(|| Runtime(format!("open-row: no row {row}")))?;
+        if kind == SourceKind::Html {
+            let loaded =
+                reader::open_part(&path, kind, &name).map_err(|e| Runtime(e.to_string()))?;
+            let sheet = Sheet::from_source(self.alloc(), loaded);
+            self.push_sheet(name, sheet);
+            return Ok(());
+        }
         let schema = text("schema_name", i).unwrap_or_else(|| "main".into());
         let loaded = reader::open_part(&path, kind, &format!("{schema}.{name}"))
             .map_err(|e| Runtime(e.to_string()))?;
@@ -2068,6 +2099,42 @@ impl Replay {
                 .map_err(|e| e.to_string())?;
         }
 
+        // VisiData saves a list as Python shows it: `[1, 2, 3]`, `['a', 'b']`.
+        let lists: Vec<String> = df
+            .columns()
+            .iter()
+            .filter(|c| matches!(c.dtype(), DataType::List(_)))
+            .map(|c| c.name().to_string())
+            .collect();
+        for c in lists {
+            let l = df
+                .column(&c)
+                .map_err(|e| e.to_string())?
+                .list()
+                .map_err(|e| e.to_string())?
+                .clone();
+            let text: StringChunked = l
+                .amortized_iter()
+                .map(|v| {
+                    v.map(|s| {
+                        let items: Vec<String> = s
+                            .as_ref()
+                            .iter()
+                            .map(|a| match a {
+                                AnyValue::Null => "None".into(),
+                                AnyValue::String(t) => format!("'{t}'"),
+                                AnyValue::StringOwned(t) => format!("'{t}'"),
+                                AnyValue::Boolean(b) => if b { "True" } else { "False" }.into(),
+                                a => a.to_string(),
+                            })
+                            .collect();
+                        format!("[{}]", items.join(", "))
+                    })
+                })
+                .collect();
+            df.with_column(text.with_name(c.as_str().into()).into_column())
+                .map_err(|e| e.to_string())?;
+        }
         // VisiData's bools in a save: `True`, and False empty (no golden has `False`).
         let bools: Vec<String> = df
             .columns()

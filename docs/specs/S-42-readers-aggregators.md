@@ -1,6 +1,6 @@
 # S-42 — Readers and aggregators the replay corpus is blocked on
 
-Status: **in progress 2026-11-16**.
+Status: **shipped 2026-11-16** (A–D).
 Depends on: S-03 (readers), S-25 P4 (aggregators), S-22 (unfurl).
 
 ## 1. Today
@@ -21,6 +21,27 @@ translation.
 
 Formats read eagerly into text columns, as VisiData does (no type guessing beyond JSON's own
 types); `@ # %` type them later.
+
+## 2.1 As built
+
+Replay 75 → 87 PASS (`MIN_PASS` 87).
+
+- **A**: blank / `#` / `//` lines go to a tempfile copy only when present. fill-nested and
+  unfurl-list then run to a FAIL and are quarantined: their `Customer` mixes lists and strings,
+  which Polars reads as text (`["a", "b"]`); VisiData keeps the list.
+- **B**: load-fixed, load-lsv, load-usv, pr2400, pr2815 pass. The replay honours
+  `set-option filetype` (unknown ones fall back to the extension) and serializes bools as
+  VisiData saves them (`True`, False empty). load-jsonla is quarantined: VisiData types jsonla
+  columns from the first row, and the replay's columns sheet shows only casts as a type.
+  `header 0` files stay SKIP.
+- **C**: percentiles are cast to the column's type (an int column's `p33` truncates, as
+  VisiData's int column type). test_quartiles then stops at `freq-keys` (`gF`, group by all
+  keys), unfurl-empty at an edit of the derived sheet; no new pass. Exports refuse a `zM` made
+  under `unfurl_empty`.
+- **D**: load-yaml, load-zip, load-html, issue1308, issue1346, issue2227, pull2140 pass. HTML and
+  zip open as an index (`reader::is_index`, like duckdb's); the replay serializes lists as
+  Python shows them (`[1, 2, 3]`), which turned load-json into a FAIL (VisiData's `gz(` expands
+  lists into `[0]` `[1]` columns), quarantined. load-toml stops at `open-cell`.
 
 ## 3. Out of scope
 

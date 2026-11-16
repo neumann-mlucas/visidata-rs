@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use polars::prelude::*;
 
+mod archive;
+mod html;
 mod text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -24,6 +26,12 @@ pub enum SourceKind {
     Usv,
     Lsv,
     Jsonla,
+    Yaml,
+    Toml,
+    /// The tables of an HTML page, and its links (S-42 D).
+    Html,
+    /// The members of a zip archive; `<CR>` opens one.
+    Zip,
     #[value(skip)]
     Duckdb, // read through the `duckdb` program (crate::duckdb)
     #[value(skip)]
@@ -368,8 +376,13 @@ pub fn open(
     // `book.xlsx:Sheet2` / `app.db:users` — the same name the parts list shows.
     if !path.exists()
         && let Some((file, part)) = s.rsplit_once(':')
-        && let Ok(kind @ (SourceKind::Xlsx | SourceKind::Sqlite | SourceKind::Duckdb)) =
-            detect(Path::new(file))
+        && let Ok(
+            kind @ (SourceKind::Xlsx
+            | SourceKind::Sqlite
+            | SourceKind::Duckdb
+            | SourceKind::Html
+            | SourceKind::Zip),
+        ) = detect(Path::new(file))
         && Path::new(file).is_file()
     {
         return open_part(Path::new(file), kind, part);
@@ -415,10 +428,24 @@ pub fn list_parts(path: &Path, kind: SourceKind) -> Result<Vec<String>, OpenErro
     Ok(if parts.len() > 1 { parts } else { Vec::new() })
 }
 
+/// A source whose plan is its list of parts (duckdb's index, an HTML page's
+/// tables, a zip's members): `<CR>` opens one with `open_part`.
+pub fn is_index(kind: SourceKind) -> bool {
+    matches!(
+        kind,
+        SourceKind::Duckdb | SourceKind::Html | SourceKind::Zip
+    )
+}
+
+/// The zip member an index row names (S-42 D).
+pub use archive::member_name;
+
 /// Open one worksheet / table from `list_parts`.
 /// DuckDB parts are `schema.table`.
 pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSource, OpenError> {
     let (lazy, tempfile) = match kind {
+        SourceKind::Zip => return archive::open_member(path, part),
+        SourceKind::Html => (html::part(path, part)?.lazy(), None),
         SourceKind::Xlsx => (open_xlsx(path, Some(part))?.lazy(), None),
         SourceKind::Sqlite => (open_sqlite_table(path, Some(part))?.lazy(), None),
         SourceKind::Duckdb => {
@@ -540,6 +567,10 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("usv") => Ok(SourceKind::Usv),
         Some("lsv") => Ok(SourceKind::Lsv),
         Some("jsonla") => Ok(SourceKind::Jsonla),
+        Some("yaml" | "yml") => Ok(SourceKind::Yaml),
+        Some("toml") => Ok(SourceKind::Toml),
+        Some("html" | "htm") => Ok(SourceKind::Html),
+        Some("zip") => Ok(SourceKind::Zip),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
@@ -644,6 +675,10 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
         SourceKind::Usv => text::usv(path)?.lazy(),
         SourceKind::Lsv => text::lsv(path)?.lazy(),
         SourceKind::Jsonla => text::jsonla(path)?.lazy(),
+        SourceKind::Yaml => text::yaml(path)?.lazy(),
+        SourceKind::Toml => text::toml(path)?.lazy(),
+        SourceKind::Html => html::index(path)?.lazy(),
+        SourceKind::Zip => archive::index(path)?.lazy(),
         // Always the table list, as VisiData; `<CR>` opens one (`open_part`).
         SourceKind::Duckdb => crate::duckdb::index(path)
             .map_err(OpenError::Duckdb)?
@@ -954,6 +989,38 @@ mod tests {
         let df = open_text(".fixed", "id  name\n1   ann\n22  bobby\n");
         assert_eq!(texts(&df, "id"), ["1 ", "22"]);
         assert_eq!(texts(&df, "name"), ["ann", "bobby"]);
+    }
+
+    #[test]
+    fn yaml_and_toml_read_as_records() {
+        // one list document → a row per item
+        let df = open_text(".yml", "- a: 1\n  b: x\n- a: 2\n");
+        assert_eq!(texts(&df, "a"), ["1", "2"]);
+        assert_eq!(texts(&df, "b"), ["x", "-"]);
+        // several documents → a row each
+        let df = open_text(".yaml", "a: 1\n---\na: 2\n");
+        assert_eq!(texts(&df, "a"), ["1", "2"]);
+        // TOML: one row, a column per top-level key
+        let df = open_text(".toml", "name = \"x\"\n[t]\nk = 1\n");
+        assert_eq!(
+            (df.height(), texts(&df, "name")),
+            (1, vec!["x".to_string()])
+        );
+        assert!(matches!(
+            df.column("t").unwrap().dtype(),
+            DataType::Struct(_)
+        ));
+    }
+
+    #[test]
+    fn html_index_names_tables_and_headings() {
+        let df = open_text(
+            ".html",
+            "<h3>Sales</h3><table><tr><td>a</td></tr><tr><td>1</td></tr></table>",
+        );
+        assert_eq!(texts(&df, "name"), ["table_0", "links"]);
+        assert_eq!(texts(&df, "heading"), ["Sales", "-"]);
+        assert_eq!(texts(&df, "rows"), ["1", "0"]);
     }
 
     #[test]

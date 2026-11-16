@@ -73,16 +73,16 @@ import-python	UNTESTABLE import-python
 incr-key	PASS
 inner-join	PASS
 invalid_unicode_sqlite	PASS
-issue1308	SKIP runtime: open-file ../visidata/sample_data/issue1308.html: unknown format for ../visidata/sample_data/issue1308.html
-issue1346	SKIP runtime: open-file ../visidata/tests/issue1346.html: unknown format for ../visidata/tests/issue1346.html
+issue1308	PASS
+issue1346	PASS
 issue1377	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
 issue1377b	FAIL line 1: want="A\tcustomer name\tsales rep\tsku\tcategory\tquantity\tunit price\text price\tdate" got="A\taccount number\tcustomer name\tsales rep\tsku\tcat
 issue2015	SKIP runtime: columns sheet: no row キa,id
 issue2190	UNTESTABLE assert-expr
 issue2225-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
-issue2227	SKIP runtime: open-file ../visidata/tests/issue2227.html: unknown format for ../visidata/tests/issue2227.html
+issue2227	PASS
 issue2309	SKIP save-all
-issue2316	SKIP runtime: open-file ../visidata/sample_data/issue2316.zip: unknown format for ../visidata/sample_data/issue2316.zip
+issue2316	SKIP allow-error
 issue2396	SKIP type-decimal
 issue2476	UNTESTABLE addcol-expr
 issue2524-curcol	UNTESTABLE addcol-expr
@@ -148,9 +148,9 @@ load-fixed-leadingspaces	SKIP runtime: option header 0
 load-grep-json	NO_GOLDEN golden is .grep
 load-grep-standard	NO_GOLDEN golden is .grep
 load-h5	SKIP runtime: open-file ../visidata/sample_data/sensors.h5: unknown format for ../visidata/sample_data/sensors.h5
-load-html	SKIP runtime: open-file ../visidata/sample_data/sunshinelist.html: unknown format for ../visidata/sample_data/sunshinelist.html
+load-html	PASS
 load-http-flaky	SKIP runtime: open-file ../visidata/https://raw.githubusercontent.com/saulpw/visidata/develop/sample_data/benchmark.csv: io: ../visidata/https://raw.githubuserc
-load-json	SKIP serialize: CSV format does not support nested data
+load-json	FAIL line 1: want=":@computed_region_cbhk_fwbd\t:@computed_region_nnqa_25f4\tfall\tgeolocation.coordinates[0]\tgeolocation.coordinates[1]\tgeolocation.type\tid\
 load-jsonla	FAIL line 3: want="Number\t8\tint\t\t1" got="Number\t8\t\t\t1"
 load-lsv	PASS
 load-msgpack	SKIP runtime: open-file ../visidata/sample_data/test.msgpack: unknown format for ../visidata/sample_data/test.msgpack
@@ -166,13 +166,13 @@ load-png	SKIP runtime: open-file ../visidata/sample_data/vdlogo-160x24.png: unkn
 load-sqlite	PASS
 load-sqlite-view	PASS
 load-stata	SKIP runtime: open-file ../visidata/sample_data/co3.dta: unknown format for ../visidata/sample_data/co3.dta
-load-toml	SKIP runtime: open-file ../visidata/sample_data/freshwater-mammals.toml: unknown format for ../visidata/sample_data/freshwater-mammals.toml
+load-toml	SKIP open-cell
 load-usv	PASS
 load-xlsx	PASS
 load-xml	SKIP runtime: open-file ../visidata/sample_data/benchmark.xml: unknown format for ../visidata/sample_data/benchmark.xml
 load-xpt-n311	SKIP runtime: open-file ../visidata/sample_data/brakes.xpt: unknown format for ../visidata/sample_data/brakes.xpt
-load-yaml	SKIP runtime: open-file ../visidata/sample_data/benchmark.yml: unknown format for ../visidata/sample_data/benchmark.yml
-load-zip	SKIP runtime: open-file ../visidata/sample_data/benchmark.zip: unknown format for ../visidata/sample_data/benchmark.zip
+load-yaml	PASS
+load-zip	PASS
 load_npy	SKIP runtime: open-file ../visidata/sample_data/benchmark.npy: unknown format for ../visidata/sample_data/benchmark.npy
 long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -205,7 +205,7 @@ pr2688b	PASS
 pr2815	PASS
 pr2855	PASS
 prefer-visible-col	UNTESTABLE addcol-expr
-pull2140	SKIP runtime: open-file ../visidata/sample_data/empty-table.html: unknown format for ../visidata/sample_data/empty-table.html
+pull2140	PASS
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
 quit-perf	NO_GOLDEN assertion-only (no golden in VisiData)
 rank-sheetrank-sorted-cols	SKIP addcol-rank-sheet
