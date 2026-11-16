@@ -27,3 +27,5 @@ fill-nested          # Customer mixes lists and strings: Polars reads it as text
 unfurl-list          # same column: vdrs unfurls text, not the list (S-42 A)
 load-jsonla          # VisiData types jsonla columns from the first row (Number int); the replay columns sheet shows only `#`/`%` casts as a type (S-42 B)
 load-json            # gz( expands lists into `[0]` `[1]` columns in VisiData; vdrs expands only structs (S-22) (S-42 D)
+load-fixed-header0   # header 0: VisiData names every column '' (blank header line); a frame can't hold two names alike, vdrs names them column_1… (S-43 A)
+load-fixed-leadingspaces # same as load-fixed-header0

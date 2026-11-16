@@ -1330,6 +1330,7 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme.footer = o.disp_footer;
         theme.incr_base = o.incr_base.unwrap_or(1);
         theme.unfurl_empty = o.unfurl_empty;
+        theme.header = o.header.unwrap_or(1);
     }
     (keymap, theme)
 }

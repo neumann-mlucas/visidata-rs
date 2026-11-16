@@ -1258,6 +1258,53 @@ impl Sheet {
         }
     }
 
+    /// `z^` `g^` `gz^` (S-43 A): `(column, new name)` for each of `columns`
+    /// named after its cells in rows `rids` (joined by a space; VisiData joins
+    /// with a newline). Without `overwrite` only unnamed columns: empty or
+    /// `column_<n>` (`header 0`). Empty text leaves a name alone. Scans the
+    /// view: run it in a job.
+    pub fn names_from_rows(
+        &self,
+        rids: &[u64],
+        columns: &[String],
+        overwrite: bool,
+    ) -> Result<Vec<(String, String)>, String> {
+        let unnamed = |n: &str| {
+            n.is_empty()
+                || n.strip_prefix("column_")
+                    .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+        };
+        let targets: Vec<&String> = columns.iter().filter(|c| overwrite || unnamed(c)).collect();
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        let df = self
+            .view_plan_rid(true)
+            .filter(rid_in(rids))
+            .select(
+                targets
+                    .iter()
+                    .map(|c| col(c.as_str()).cast(DataType::String))
+                    .collect::<Vec<_>>(),
+            )
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for (c, values) in targets.iter().zip(df.columns()) {
+            let text: Vec<&str> = values
+                .str()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .flatten()
+                .collect();
+            let name = text.join(" ").trim().to_string();
+            if !name.is_empty() && name != **c {
+                out.push(((*c).clone(), name));
+            }
+        }
+        Ok(out)
+    }
+
     /// `^` / `:rename`: a `Rename` step, and the view follows the column
     /// (hidden, keys, casts, filter, sort). Unchanged on error; undo is the caller's.
     pub fn rename_col(&mut self, old: &str, new: &str) -> Result<(), String> {

@@ -84,7 +84,7 @@ pub(super) fn open_member(path: &Path, member: &str) -> Result<LoadedSource, Ope
     std::io::copy(&mut f, &mut tmp)?;
     tmp.flush()?;
     let kind = super::detect(Path::new(member))?;
-    let mut loaded = super::open_path(tmp.path(), kind)?;
+    let mut loaded = super::open_path(tmp.path(), kind, 1)?;
     loaded.display_name = format!("{}:{member}", path.display());
     loaded.path = Some(path.to_owned());
     // a .gz member or a JSONL with comments already copied it to its own tempfile

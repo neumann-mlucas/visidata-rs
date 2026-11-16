@@ -65,10 +65,12 @@ impl App {
         let id = self.sheets.alloc_id();
         let path = path.to_string();
         let kind = format.and_then(crate::plugins::builtin_format);
+        let header = self.theme.header;
         self.spawn_job("open", move || {
             let loaded = match opened {
                 Some(l) => l,
-                None => crate::reader::open(path.as_ref(), kind).map_err(|e| e.to_string())?,
+                None => crate::reader::open_with(path.as_ref(), kind, header)
+                    .map_err(|e| e.to_string())?,
             };
             Ok(JobDone::PushSheet(Box::new(Sheet::opened(id, loaded))))
         });

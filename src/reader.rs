@@ -170,7 +170,7 @@ fn float_cell_string(f: f64) -> String {
 /// Read a worksheet (default: the first) into an eager DataFrame. A column
 /// whose cells are all whole numbers is i64, all numbers f64, all booleans
 /// bool, all dates datetime; anything mixed stays text (S-24 R3).
-fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
+fn open_xlsx(path: &Path, sheet: Option<&str>, header: usize) -> Result<DataFrame, OpenError> {
     use calamine::{Data, Reader, open_workbook_auto};
     let mut wb = open_workbook_auto(path).map_err(|e| OpenError::Xlsx(e.to_string()))?;
     let name = match sheet {
@@ -189,13 +189,15 @@ fn open_xlsx(path: &Path, sheet: Option<&str>) -> Result<DataFrame, OpenError> {
         return Ok(DataFrame::default());
     }
     let mut rows = range.rows();
-    let Some(head) = rows.next() else {
-        return Ok(DataFrame::default());
-    };
     // Preserve empty header names as empty strings (matches VisiData); don't
     // auto-generate col{i} — that pollutes diffs against xlsx goldens where
     // merged cells legitimately produce blank headers.
-    let headers = unique_headers(head.iter().map(cell_string));
+    let head: Vec<Vec<String>> = rows
+        .by_ref()
+        .take(header)
+        .map(|r| r.iter().map(cell_string).collect())
+        .collect();
+    let headers = header_names(&head, width);
     let mut cols: Vec<Vec<&Data>> = vec![Vec::new(); width];
     for row in rows {
         for (ci, col) in cols.iter_mut().enumerate() {
@@ -321,6 +323,8 @@ pub struct LoadedSource {
     /// A Lua loader's parts (S-40 C1), when it gave more than one: this
     /// source is their list, `<CR>` opens one.
     pub parts: Vec<(String, std::sync::Arc<LoadedSource>)>,
+    /// Rows read as column names (option `header`, S-43 A); 1 by default.
+    pub header: usize,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -340,6 +344,7 @@ impl LoadedSource {
             lazy: df.lazy(),
             via_loader: false,
             parts: Vec::new(),
+            header: 1,
             _tempfile: None,
         }
     }
@@ -353,6 +358,7 @@ impl LoadedSource {
             lazy: DataFrame::empty().lazy(),
             via_loader: false,
             parts: Vec::new(),
+            header: 1,
             _tempfile: None,
         }
     }
@@ -364,6 +370,17 @@ impl LoadedSource {
 pub fn open(
     path_or_dash: &OsStr,
     format_override: Option<SourceKind>,
+) -> Result<LoadedSource, OpenError> {
+    open_with(path_or_dash, format_override, 1)
+}
+
+/// [`open`] with `header` rows as column names (option `header`, S-43 A):
+/// 0 names columns `column_1`, `column_2`, …; more than 1 joins each
+/// column's cells of those rows. CSV/TSV, xlsx, fixed width and usv.
+pub fn open_with(
+    path_or_dash: &OsStr,
+    format_override: Option<SourceKind>,
+    header: usize,
 ) -> Result<LoadedSource, OpenError> {
     let s = path_or_dash.to_string_lossy();
     if s == "-" {
@@ -385,10 +402,10 @@ pub fn open(
         ) = detect(Path::new(file))
         && Path::new(file).is_file()
     {
-        return open_part(Path::new(file), kind, part);
+        return open_part_with(Path::new(file), kind, part, header);
     }
     let kind = format_override.map_or_else(|| detect(&path), Ok)?;
-    open_path(&path, kind)
+    open_path(&path, kind, header)
 }
 
 /// Polars scans take its own path type; a non-UTF-8 path is an error there.
@@ -408,6 +425,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         lazy,
         via_loader: false,
         parts: Vec::new(),
+        header: 1,
         _tempfile: None,
     })
 }
@@ -443,10 +461,20 @@ pub use archive::member_name;
 /// Open one worksheet / table from `list_parts`.
 /// DuckDB parts are `schema.table`.
 pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSource, OpenError> {
+    open_part_with(path, kind, part, 1)
+}
+
+/// [`open_part`] with `header` rows as column names (xlsx; S-43 A).
+pub fn open_part_with(
+    path: &Path,
+    kind: SourceKind,
+    part: &str,
+    header: usize,
+) -> Result<LoadedSource, OpenError> {
     let (lazy, tempfile) = match kind {
         SourceKind::Zip => return archive::open_member(path, part),
         SourceKind::Html => (html::part(path, part)?.lazy(), None),
-        SourceKind::Xlsx => (open_xlsx(path, Some(part))?.lazy(), None),
+        SourceKind::Xlsx => (open_xlsx(path, Some(part), header)?.lazy(), None),
         SourceKind::Sqlite => (open_sqlite_table(path, Some(part))?.lazy(), None),
         SourceKind::Duckdb => {
             let (lazy, tmp) = crate::duckdb::open_table(path, part).map_err(OpenError::Duckdb)?;
@@ -461,6 +489,7 @@ pub fn open_part(path: &Path, kind: SourceKind, part: &str) -> Result<LoadedSour
         lazy,
         via_loader: false,
         parts: Vec::new(),
+        header,
         _tempfile: tempfile,
     })
 }
@@ -589,7 +618,7 @@ fn decompress_gz(path: &Path) -> Result<tempfile::NamedTempFile, OpenError> {
     Ok(tmp)
 }
 
-fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
+fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSource, OpenError> {
     // Lazy scans don't touch the file until collect; fail here, naming the path.
     std::fs::metadata(path)
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
@@ -605,7 +634,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         tempfile = Some(t);
     }
     let real_path = tempfile.as_ref().map_or(path, |t| t.path());
-    let (lazy, real_kind) = scan(real_path, kind)?;
+    let (lazy, real_kind) = scan(real_path, kind, header)?;
     let display_name = path.display().to_string();
     Ok(LoadedSource {
         kind: real_kind,
@@ -614,6 +643,7 @@ fn open_path(path: &Path, kind: SourceKind) -> Result<LoadedSource, OpenError> {
         lazy,
         via_loader: false,
         parts: Vec::new(),
+        header,
         _tempfile: tempfile,
     })
 }
@@ -651,17 +681,21 @@ fn skip_comment_lines(path: &Path) -> Result<Option<tempfile::NamedTempFile>, Op
 
 /// Build the plan for a file of a known kind. Returns the kind actually used:
 /// `Json` falls back to `Jsonl` when the file isn't a JSON array.
-fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenError> {
+fn scan(
+    path: &Path,
+    kind: SourceKind,
+    header: usize,
+) -> Result<(LazyFrame, SourceKind), OpenError> {
     let lazy = match kind {
-        SourceKind::Csv => scan_csv(path, b',')?,
-        SourceKind::Tsv => scan_csv(path, b'\t')?,
+        SourceKind::Csv => scan_csv(path, b',', header)?,
+        SourceKind::Tsv => scan_csv(path, b'\t', header)?,
         SourceKind::Parquet => LazyFrame::scan_parquet(pl_path(path)?, ScanArgsParquet::default())?,
         SourceKind::Arrow => {
             LazyFrame::scan_ipc(pl_path(path)?, Default::default(), Default::default())?
         }
         SourceKind::Jsonl => LazyJsonLineReader::new(pl_path(path)?).finish()?,
         SourceKind::Json if !starts_with_json_array(path)? => {
-            return scan(path, SourceKind::Jsonl);
+            return scan(path, SourceKind::Jsonl, header);
         }
         // ponytail: eager read; JSON arrays can't be streamed by Polars' lazy reader.
         // Rewrite to JSONL in a tempfile first if a big array stalls the open.
@@ -669,10 +703,10 @@ fn scan(path: &Path, kind: SourceKind) -> Result<(LazyFrame, SourceKind), OpenEr
             .with_json_format(JsonFormat::Json)
             .finish()?
             .lazy(),
-        SourceKind::Xlsx => open_xlsx(path, None)?.lazy(),
+        SourceKind::Xlsx => open_xlsx(path, None, header)?.lazy(),
         SourceKind::Sqlite => open_sqlite_table(path, None)?.lazy(),
-        SourceKind::Fixed => text::fixed(path)?.lazy(),
-        SourceKind::Usv => text::usv(path)?.lazy(),
+        SourceKind::Fixed => text::fixed(path, header)?.lazy(),
+        SourceKind::Usv => text::usv(path, header)?.lazy(),
         SourceKind::Lsv => text::lsv(path)?.lazy(),
         SourceKind::Jsonla => text::jsonla(path)?.lazy(),
         SourceKind::Yaml => text::yaml(path)?.lazy(),
@@ -753,9 +787,10 @@ fn file_is_small(path: &Path) -> bool {
 /// cut, bad UTF-8 is replaced, and types come from the whole file.
 // ponytail: past CSV_FULL_INFER_BYTES a late type change still fails at
 // materialize; a per-column retry as text would lift that.
-fn csv_reader(path: &Path, sep: u8) -> PolarsResult<LazyCsvReader> {
+fn csv_reader(path: &Path, sep: u8, header: usize) -> PolarsResult<LazyCsvReader> {
     Ok(LazyCsvReader::new(pl_path(path)?)
-        .with_has_header(true)
+        .with_has_header(header == 1)
+        .with_skip_rows(if header > 1 { header } else { 0 })
         .with_separator(sep)
         .with_infer_schema_length((!file_is_small(path)).then_some(CSV_INFER_ROWS))
         .with_truncate_ragged_lines(true)
@@ -763,20 +798,78 @@ fn csv_reader(path: &Path, sep: u8) -> PolarsResult<LazyCsvReader> {
 }
 
 /// Scan a CSV under `csv_schema`'s types.
-fn scan_csv(path: &Path, sep: u8) -> Result<LazyFrame, OpenError> {
-    Ok(csv_reader(path, sep)?
+fn scan_csv(path: &Path, sep: u8, header: usize) -> Result<LazyFrame, OpenError> {
+    let lazy = csv_reader(path, sep, header)?
         .with_try_parse_dates(true)
-        .with_schema(Some(csv_schema(path, sep)?))
+        .with_schema(Some(csv_schema(path, sep, header)?))
         .with_infer_schema_length(Some(0)) // or each new plan infers again
-        .finish()?)
+        .finish()?;
+    if header <= 1 {
+        return Ok(lazy);
+    }
+    // the first `header` rows, as text, name the columns
+    let head = CsvReadOptions::default()
+        .with_has_header(false)
+        .with_n_rows(Some(header))
+        .with_infer_schema_length(Some(0))
+        .with_parse_options(
+            CsvParseOptions::default()
+                .with_separator(sep)
+                .with_truncate_ragged_lines(true)
+                .with_encoding(CsvEncoding::LossyUtf8),
+        )
+        .try_into_reader_with_file_path(Some(path.to_owned()))?
+        .finish()?;
+    let rows: Vec<Vec<String>> = (0..head.height())
+        .map(|i| {
+            head.columns()
+                .iter()
+                .map(|c| c.get(i).map(|v| any_string(&v)).unwrap_or_default())
+                .collect()
+        })
+        .collect();
+    let old: Vec<String> = lazy
+        .clone()
+        .collect_schema()?
+        .iter_names()
+        .map(|n| n.to_string())
+        .collect();
+    let new = header_names(&rows, old.len());
+    Ok(lazy.rename(old, new, true))
+}
+
+/// A cell as text, null empty.
+fn any_string(v: &AnyValue) -> String {
+    match v {
+        AnyValue::Null => String::new(),
+        AnyValue::String(s) => (*s).to_string(),
+        AnyValue::StringOwned(s) => s.to_string(),
+        v => v.to_string(),
+    }
+}
+
+/// Column names from `rows` (the header rows): each column's cells joined,
+/// as VisiData's; no rows → `column_1`, `column_2`, … (Polars' names; a
+/// frame can't hold VisiData's empty names twice). Repeats made unique.
+pub(crate) fn header_names(rows: &[Vec<String>], width: usize) -> Vec<String> {
+    if rows.is_empty() {
+        return (1..=width).map(|i| format!("column_{i}")).collect();
+    }
+    unique_headers((0..width).map(|j| {
+        rows.iter()
+            .map(|r| r.get(j).map_or("", String::as_str))
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }))
 }
 
 /// Inferred column types. Only ISO dates stay dates: `7/3/2018` is ambiguous
 /// and Polars would guess day-first, so other layouts stay text until `@`.
 /// Integers written with a leading zero (`082053`: zip codes, ids) stay text,
 /// so no digit is lost (S-24 R4).
-fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
-    let mut schema = (*csv_reader(path, sep)?.finish()?.collect_schema()?).clone();
+fn csv_schema(path: &Path, sep: u8, header: usize) -> Result<SchemaRef, OpenError> {
+    let mut schema = (*csv_reader(path, sep, header)?.finish()?.collect_schema()?).clone();
     let checked: Vec<Expr> = schema
         .iter()
         .filter(|(_, d)| **d == DataType::String || d.is_integer())
@@ -799,7 +892,7 @@ fn csv_schema(path: &Path, sep: u8) -> Result<SchemaRef, OpenError> {
             (n.clone(), d)
         })
         .collect();
-    let values = csv_reader(path, sep)?
+    let values = csv_reader(path, sep, header)?
         .with_schema(Some(Arc::new(as_text)))
         .with_infer_schema_length(Some(0))
         .finish()?
@@ -874,7 +967,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         Some(k) => k,
         None => sniff_format(&buf),
     };
-    let (lazy, kind) = scan(tmp.path(), kind)?;
+    let (lazy, kind) = scan(tmp.path(), kind, 1)?;
     Ok(LoadedSource {
         kind,
         display_name: "<stdin>".to_string(),
@@ -882,6 +975,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         lazy,
         via_loader: false,
         parts: Vec::new(),
+        header: 1,
         _tempfile: Some(tmp),
     })
 }
@@ -1021,6 +1115,42 @@ mod tests {
         assert_eq!(texts(&df, "name"), ["table_0", "links"]);
         assert_eq!(texts(&df, "heading"), ["Sales", "-"]);
         assert_eq!(texts(&df, "rows"), ["1", "0"]);
+    }
+
+    /// `text` in a tempfile, opened with `header` rows as names.
+    fn open_header(ext: &str, text: &str, header: usize) -> DataFrame {
+        let mut f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
+        f.write_all(text.as_bytes()).unwrap();
+        open_with(f.path().as_os_str(), None, header)
+            .unwrap()
+            .lazy
+            .collect()
+            .unwrap()
+    }
+
+    fn names(df: &DataFrame) -> Vec<String> {
+        df.get_column_names()
+            .iter()
+            .map(|n| n.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn header_option_names_columns() {
+        let df = open_header(".csv", "a,b\n1,2\n3,4\n", 0);
+        assert_eq!(names(&df), ["column_1", "column_2"]);
+        assert_eq!(df.height(), 3);
+        let df = open_header(".csv", "a,b\nx,y\n1,2\n", 2);
+        assert_eq!(names(&df), ["ax", "by"]);
+        assert_eq!(df.column("ax").unwrap().i64().unwrap().to_vec(), [Some(1)]);
+        let df = open_header(".usv", "a\u{241f}b\u{241e}1\u{241f}2\u{241e}", 0);
+        assert_eq!(
+            (names(&df), df.height()),
+            (vec!["column_1".into(), "column_2".into()], 2)
+        );
+        // no header: columns start where every row has a space before text
+        let df = open_header(".fixed", "  1 aaa\n 20 bbb\n", 0);
+        assert_eq!(texts(&df, "column_1"), [" 1", "20"]);
     }
 
     #[test]

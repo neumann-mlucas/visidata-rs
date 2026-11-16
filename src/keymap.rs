@@ -136,6 +136,21 @@ impl Keymap {
             ch("!", KeyCol, "toggle current column as key"),
             ch("z !", UnkeyAll, "unset all keys"),
             ch("^", StartRenameColInput, "rename current column"),
+            ch(
+                "z ^",
+                RenameColsFromRows { all: false, overwrite: true },
+                "rename current column to its cells in the selected rows (or cursor row)",
+            ),
+            ch(
+                "g ^",
+                RenameColsFromRows { all: true, overwrite: false },
+                "name unnamed columns after the selected rows (or cursor row)",
+            ),
+            ch(
+                "g z ^",
+                RenameColsFromRows { all: true, overwrite: true },
+                "rename all visible columns after the selected rows (or cursor row)",
+            ),
             // type coercion
             ch("#", TypeCastInt, "type: int"),
             ch("%", TypeCastFloat, "type: float"),

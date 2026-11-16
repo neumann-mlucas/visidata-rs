@@ -62,6 +62,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "the duckdb program, for .duckdb files and :exec-sql",
     },
     Opt {
+        name: "header",
+        kind: Kind::Count,
+        default: "1",
+        live: true,
+        help: "rows read as column names by later opens (csv, tsv, xlsx, fixed, usv); 0: column_1, column_2, …",
+    },
+    Opt {
         name: "histogram_bins",
         kind: Kind::Count,
         default: "0",

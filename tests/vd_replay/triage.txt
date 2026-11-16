@@ -132,7 +132,7 @@ join-concat	SKIP runtime: cannot locate row 'Customer' (keys=[])
 join-different-types	SKIP allow-error
 join-extend-mult	PASS
 join-merge	PASS
-join-non-unique-cols	SKIP runtime: option header 0
+join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
 jump-sheet	PASS
 known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
 listofdictobj	SKIP open-cell
@@ -143,8 +143,8 @@ load-duckdb	PASS
 load-duckdb-view	PASS
 load-fec	SKIP runtime: open-file ../visidata/sample_data/1794685.fec: unknown format for ../visidata/sample_data/1794685.fec
 load-fixed	PASS
-load-fixed-header0	SKIP runtime: option header 0
-load-fixed-leadingspaces	SKIP runtime: option header 0
+load-fixed-header0	FAIL line 1: want="" got="column_1\tcolumn_2\tcolumn_3\tcolumn_4"
+load-fixed-leadingspaces	FAIL line 1: want="" got="column_1\tcolumn_2\tcolumn_3"
 load-grep-json	NO_GOLDEN golden is .grep
 load-grep-standard	NO_GOLDEN golden is .grep
 load-h5	SKIP runtime: open-file ../visidata/sample_data/sensors.h5: unknown format for ../visidata/sample_data/sensors.h5
@@ -237,6 +237,6 @@ unfurl-empty-false	PASS
 unfurl-list	FAIL line 2: want="7/3/2018 1:47p\t0\tRobert Armstrong\tFOOD213\tBFF Oh My Gravy! Beef & Salmon 2.8oz\t4\t$12.95\t$51.8" got="7/3/2018 1:47p\t0\t[\"Robert Armst
 xlsx-color-cells	FAIL line 1: want="A\tA_cellPyObj\tA_fontColor\tA_fillColor\tBC\tBC_cellPyObj\tBC_fontColor\tBC_fillColor\t\t_cellPyObj\t_fontColor\t_fillColor\tD\tD_cellPyObj\
 xlsx-empty-cell	PASS
-xlsx-header	SKIP runtime: option header 0
+xlsx-header	PASS
 xlsx-merged-cells	PASS
 xml-table	SKIP runtime: open-file ../visidata/tests/xml-table.xml: unknown format for ../visidata/tests/xml-table.xml

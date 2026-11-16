@@ -3,6 +3,36 @@
 use super::*;
 
 impl App {
+    /// `z^` `g^` `gz^` (S-43 A): rename each `(old, new)`, one undo step;
+    /// a rename that fails stops there (the ones before it stay).
+    pub(super) fn rename_columns(&mut self, names: Vec<(String, String)>) {
+        if names.is_empty() {
+            self.toast = Some("no column renamed".into());
+            return;
+        }
+        let s = self.sheets.active_mut();
+        let before = s.snapshot();
+        let mut done = 0;
+        let mut err = None;
+        for (old, new) in &names {
+            match s.rename_col(old, new) {
+                Ok(()) => done += 1,
+                Err(e) => {
+                    err = Some(e);
+                    break;
+                }
+            }
+        }
+        if done > 0 {
+            s.push_undo(before);
+            self.spawn_materialize();
+        }
+        self.toast = Some(match err {
+            Some(e) => e,
+            None => format!("renamed {done} column{}", if done == 1 { "" } else { "s" }),
+        });
+    }
+
     /// Row id under the cursor; None on an empty view.
     pub(in crate::app) fn rid_at_cursor(&self) -> Option<u64> {
         let s = self.sheets.active();

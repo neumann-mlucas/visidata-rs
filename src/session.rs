@@ -229,7 +229,19 @@ impl Block {
         };
         match (&s.origin, path) {
             (Origin::File | Origin::Parts { .. }, Some(path)) => {
+                // the `header` it was read with (S-43 A)
+                let header = |n: usize| Action::SetOption {
+                    name: "header".into(),
+                    value: Some(n.to_string()),
+                };
+                let h = s.source.header;
+                if h != 1 {
+                    self.ex(header(h));
+                }
                 self.ex(Action::Open { path, format: None });
+                if h != 1 {
+                    self.ex(header(1));
+                }
                 true
             }
             (Origin::Tail { path, follow }, _) => {

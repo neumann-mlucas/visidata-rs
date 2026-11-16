@@ -1338,3 +1338,46 @@ async fn addcol_incr_key_restarts_per_key() {
     let rows: Vec<&str> = out.lines().skip(1).collect();
     assert_eq!(rows, ["A,1,5", "A,2,6", "B,1,7", "A,1,8"], "{out}");
 }
+
+/// S-43 A: `:set header 0` opens a file without a header row (`column_1`, …);
+/// `g^` names the unnamed columns after the cursor row, `U` undoes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn header_zero_then_rename_from_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("raw.csv");
+    std::fs::write(&path, "id,name\n1,ann\n2,bob\n").unwrap();
+    let mut h = Harness::new(5).await;
+    h.keys(":").await;
+    h.type_("set header 0").await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    assert!(
+        title(&h).contains("raw.csv") && title(&h).contains("row 1/3"),
+        "{}",
+        title(&h)
+    );
+    assert!(
+        view_csv(&h).starts_with("column_1,column_2\nid,name\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("g ^").await;
+    assert_eq!(status(&h), "renamed 2 columns");
+    assert!(
+        view_csv(&h).starts_with("id,name\nid,name\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("d").await; // the header row is data: delete it
+    assert!(
+        view_csv(&h).starts_with("id,name\n1,ann\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("U U").await;
+    assert!(
+        view_csv(&h).starts_with("column_1,column_2\n"),
+        "{}",
+        view_csv(&h)
+    );
+}

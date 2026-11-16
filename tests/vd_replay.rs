@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 87;
+const MIN_PASS: usize = 88;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -193,6 +193,8 @@ struct Replay {
     filetype: Option<SourceKind>,
     /// `set-option unfurl_empty` (S-42 C).
     unfurl_empty: bool,
+    /// `set-option header N` for every sheet type (S-43 A).
+    header: usize,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
     /// put in between. Per-sheet (col, row) fills empty fields when set.
     cursor: Option<HashMap<usize, (String, String)>>,
@@ -260,6 +262,7 @@ impl Replay {
             incr_base: 1,
             filetype: None,
             unfurl_empty: false,
+            header: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
             clip: None,
@@ -339,8 +342,8 @@ impl Replay {
             if !matches!(s.kind, SourceKind::Sqlite | SourceKind::Xlsx) {
                 return Ok(());
             }
-            let loaded =
-                reader::open_part(&path, s.kind, name).map_err(|e| Runtime(e.to_string()))?;
+            let loaded = reader::open_part_with(&path, s.kind, name, s.source.header)
+                .map_err(|e| Runtime(e.to_string()))?;
             let sheet = Sheet::from_source(self.alloc(), loaded);
             let name = format!("{}_{name}", self.current_slot()?.name); // VisiData's name
             self.push_sheet(name, sheet);
@@ -693,7 +696,7 @@ impl Replay {
         match r.longname.as_str() {
             "open-file" => {
                 let path = self.path(&r.input);
-                let loaded = reader::open(path.as_os_str(), self.filetype)
+                let loaded = reader::open_with(path.as_os_str(), self.filetype, self.header)
                     .map_err(|e| Runtime(format!("open-file {}: {}", path.display(), e)))?;
                 // Sheet name = file stem (VisiData default); e.g. tests/data1.tsv → data1.
                 let name = Path::new(&r.input)
@@ -969,6 +972,32 @@ impl Replay {
                 let name = s.capture(&r.col, &p).map_err(Runtime)?;
                 s.place_col(&name, Some(&r.col)).map_err(Runtime)
             }
+            "rename-cols-row" | "rename-col-selected" | "rename-cols-selected" => {
+                let all = r.longname != "rename-col-selected";
+                let s = &self.current_slot()?.sheet;
+                let rids: Vec<u64> = match s.view.selected.is_empty() {
+                    true => vec![view_rid(s, &r.row)?],
+                    false => s.view.selected.iter().copied().collect(),
+                };
+                let columns: Vec<String> = match all {
+                    true => s
+                        .view_plan()
+                        .collect_schema()
+                        .map_err(|e| Runtime(e.to_string()))?
+                        .iter_names()
+                        .map(|n| n.to_string())
+                        .collect(),
+                    false => vec![r.col.clone()],
+                };
+                let s = &mut self.current_slot_mut()?.sheet;
+                for (old, new) in s
+                    .names_from_rows(&rids, &columns, r.longname != "rename-cols-row")
+                    .map_err(Runtime)?
+                {
+                    s.rename_col(&old, &new).map_err(Runtime)?;
+                }
+                Ok(())
+            }
             "rename-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 s.rename_col(&r.col, &r.input).map_err(Runtime)
@@ -1235,8 +1264,15 @@ impl Replay {
                 self.filetype = SourceKind::from_str(&r.input, true).ok();
                 Ok(())
             }
-            "set-option" if r.row == "header" && r.input != "1" => {
-                Err(Runtime(format!("option header {}", r.input)))
+            // a sheet type's own (`SqliteSheet`) doesn't reach the files opened here
+            "set-option" if r.row == "header" => {
+                if matches!(r.col.as_str(), "" | "global" | "override") {
+                    self.header = r
+                        .input
+                        .parse()
+                        .map_err(|_| Runtime(format!("header {}", r.input)))?;
+                }
+                Ok(())
             }
             "set-option" if r.row == "incr_base" => {
                 // VisiData's is a float (`5.0`); an int base here

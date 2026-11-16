@@ -122,6 +122,8 @@ pub struct Options {
     pub incr_base: Option<u64>,
     /// `vd.option("unfurl_empty", true)` (S-42 C).
     pub unfurl_empty: bool,
+    /// `vd.option("header", N)` (S-43 A): rows read as column names; None: 1.
+    pub header: Option<usize>,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
     /// Every value set, as checked (S-37 P0c): what `O` shows.
@@ -145,6 +147,7 @@ impl Options {
             "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => self.incr_base = v.parse().ok(),
             "unfurl_empty" => self.unfurl_empty = on,
+            "header" => self.header = v.parse().ok(),
             "mouse" => self.mouse = on,
             _ => {} // keymap: applied when set (the vim profile's binds)
         }
@@ -844,7 +847,8 @@ pub fn open(
         (None, _) => plugins.and_then(|p| p.loader_for(&text, None)),
     };
     let (Some(p), Some(rule)) = (plugins, rule) else {
-        return crate::reader::open(path, builtin);
+        let header = plugins.and_then(|p| p.options().header).unwrap_or(1);
+        return crate::reader::open_with(path, builtin, header);
     };
     if text == "-" {
         // ponytail: a loader gets a path; stdin would need a kept tempfile
@@ -1701,6 +1705,10 @@ pub fn default_init_lua() -> String {
          \n\
          -- First number of i, gi and :addcol-incr-key. Default 1.\n\
          -- vd.option(\"incr_base\", \"1\")\n\
+         \n\
+         -- Rows read as column names (csv, tsv, xlsx, fixed width, usv); 0 names\n\
+         -- them column_1, column_2, … Default 1.\n\
+         -- vd.option(\"header\", \"1\")\n\
          \n\
          -- zM on an empty list keeps the row, key and value empty. Default off.\n\
          -- vd.option(\"unfurl_empty\", \"true\")\n\

@@ -59,6 +59,8 @@ pub struct Theme {
     pub incr_base: u64,
     /// `unfurl_empty` (S-42 C): `zM` keeps a row for an empty list.
     pub unfurl_empty: bool,
+    /// `header` (S-43 A): rows later opens read as column names.
+    pub header: usize,
     /// `disp_footer`, `:footer` (S-36 C): a totals row under the table.
     pub footer: bool,
 }
@@ -155,6 +157,7 @@ impl Theme {
             histogram_bins: 0,
             incr_base: 1,
             unfurl_empty: false,
+            header: 1,
             footer: false,
         }
     }
@@ -199,6 +202,7 @@ impl Theme {
             histogram_bins: 0,
             incr_base: 1,
             unfurl_empty: false,
+            header: 1,
             footer: false,
         }
     }

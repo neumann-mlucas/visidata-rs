@@ -5,7 +5,7 @@ use std::path::Path;
 
 use polars::prelude::*;
 
-use super::{OpenError, unique_headers};
+use super::{OpenError, header_names, unique_headers};
 
 /// The file as lines without their `\n` / `\r\n`.
 fn lines(path: &Path) -> Result<Vec<String>, OpenError> {
@@ -36,14 +36,18 @@ fn text_frame(headers: Vec<String>, rows: &[Vec<String>]) -> Result<DataFrame, O
 const FIXED_ROWS: usize = 1000;
 
 /// `[start, end)` char spans of fixed-width columns: VisiData's `columnize`
-/// with a header row (#2265, #2255, #3029).
-fn columnize(rows: &[Vec<char>]) -> Vec<(usize, usize)> {
-    let Some(head) = rows.first() else {
+/// (#2265, #2255, #3029). With a header row its text starts the columns;
+/// without, columns start where every row has a space before text.
+fn columnize(rows: &[Vec<char>], has_header: bool) -> Vec<(usize, usize)> {
+    if rows.is_empty() {
         return Vec::new();
-    };
+    }
+    let detect = if has_header { &rows[..1] } else { rows };
     let space = |r: &[char], i: usize| r.get(i).is_none_or(|c| c.is_whitespace());
-    let mut starts: Vec<usize> = (0..head.len())
-        .filter(|&i| !space(head, i) && (i == 0 || space(head, i - 1)))
+    let all_space = |i: usize| detect.iter().all(|r| space(r, i));
+    let width = detect.iter().map(Vec::len).max().unwrap_or(0);
+    let mut starts: Vec<usize> = (0..width)
+        .filter(|&i| !all_space(i) && (i == 0 || all_space(i - 1)))
         .collect();
     if starts.is_empty() {
         return Vec::new();
@@ -54,7 +58,7 @@ fn columnize(rows: &[Vec<char>]) -> Vec<(usize, usize)> {
         .map(|(i, _)| i)
         .collect();
     // right-justified headers: data reaching left of a header moves its start
-    if starts.len() > 1 {
+    if has_header && starts.len() > 1 {
         if (0..starts[0]).any(|p| filled.contains(&p)) {
             starts[0] = 0;
         }
@@ -88,39 +92,36 @@ fn columnize(rows: &[Vec<char>]) -> Vec<(usize, usize)> {
 }
 
 /// Fixed-width text (`--format fixed`, `.fixed`): columns where the header
-/// row has text; values keep their padding, as VisiData's.
-pub(super) fn fixed(path: &Path) -> Result<DataFrame, OpenError> {
+/// row has text; values keep their padding, as VisiData's. `header` rows
+/// name the columns (S-43 A).
+pub(super) fn fixed(path: &Path, header: usize) -> Result<DataFrame, OpenError> {
     let rows: Vec<Vec<char>> = lines(path)?.iter().map(|l| l.chars().collect()).collect();
-    let spans = columnize(&rows[..rows.len().min(FIXED_ROWS)]);
+    let spans = columnize(&rows[..rows.len().min(FIXED_ROWS)], header > 0);
     let cut = |r: &[char], (s, e): (usize, usize)| -> String {
         r[s.min(r.len())..e.min(r.len())].iter().collect()
     };
-    let Some((head, body)) = rows.split_first() else {
-        return Ok(DataFrame::empty());
-    };
-    let headers = spans
-        .iter()
-        .map(|&sp| cut(head, sp).trim().to_string())
-        .collect();
-    let body: Vec<Vec<String>> = body
+    let cells: Vec<Vec<String>> = rows
         .iter()
         .map(|r| spans.iter().map(|&sp| cut(r, sp)).collect())
         .collect();
-    text_frame(headers, &body)
+    let (head, body) = cells.split_at(header.min(cells.len()));
+    text_frame(header_names(head, spans.len()), body)
 }
 
 /// Unicode-separated values (`.usv`): `␟` between fields, `␞` after each
 /// row; the first row is the header.
-pub(super) fn usv(path: &Path) -> Result<DataFrame, OpenError> {
+pub(super) fn usv(path: &Path, header: usize) -> Result<DataFrame, OpenError> {
     let bytes = std::fs::read(path)?;
     let text = String::from_utf8_lossy(&bytes);
-    let mut rows = text
+    let rows: Vec<Vec<String>> = text
         .split('\u{241e}')
         .map(|r| r.trim_matches(['\r', '\n']))
         .filter(|r| !r.is_empty())
-        .map(|r| r.split('\u{241f}').map(String::from).collect::<Vec<_>>());
-    let headers = rows.next().unwrap_or_default();
-    text_frame(headers, &rows.collect::<Vec<_>>())
+        .map(|r| r.split('\u{241f}').map(String::from).collect::<Vec<_>>())
+        .collect();
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let (head, body) = rows.split_at(header.min(rows.len()));
+    text_frame(header_names(head, width), body)
 }
 
 /// Line-separated values (`.lsv`): `key: value` lines, a blank line between
@@ -290,7 +291,7 @@ mod tests {
 
     fn spans(text: &str) -> Vec<(usize, usize)> {
         let rows: Vec<Vec<char>> = text.lines().map(|l| l.chars().collect()).collect();
-        columnize(&rows)
+        columnize(&rows, true)
     }
 
     #[test]

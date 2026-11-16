@@ -51,6 +51,13 @@ pub enum Action {
     RenameCol {
         new_name: String,
     },
+    /// `z^` / `g^` / `gz^` (S-43 A): name columns after the selected rows'
+    /// (else the cursor row's) cells. `all`: every visible column, else the
+    /// cursor's; `overwrite`: named ones too, else only `column_<n>` / empty.
+    RenameColsFromRows {
+        all: bool,
+        overwrite: bool,
+    },
     TypeCastInt,
     TypeCastFloat,
     TypeCastString,
@@ -863,7 +870,8 @@ impl Action {
             | UnhideAll
             | KeyCol
             | UnkeyAll
-            | RenameCol { .. } => true,
+            | RenameCol { .. }
+            | RenameColsFromRows { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
             TypeCastDateAs { .. } => true,
             TypeCastJson => true,
@@ -932,6 +940,27 @@ impl Action {
         ("key_col", KeyCol),
         ("unkey_all", UnkeyAll),
         ("start_rename_col_input", StartRenameColInput),
+        (
+            "rename_col_selected",
+            RenameColsFromRows {
+                all: false,
+                overwrite: true,
+            },
+        ),
+        (
+            "rename_cols_row",
+            RenameColsFromRows {
+                all: true,
+                overwrite: false,
+            },
+        ),
+        (
+            "rename_cols_selected",
+            RenameColsFromRows {
+                all: true,
+                overwrite: true,
+            },
+        ),
         ("type_cast_int", TypeCastInt),
         ("type_cast_float", TypeCastFloat),
         ("type_cast_string", TypeCastString),

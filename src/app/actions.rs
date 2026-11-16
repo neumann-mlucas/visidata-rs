@@ -294,6 +294,23 @@ impl App {
                     Err(e) => self.toast = Some(e),
                 }
             }
+            Action::RenameColsFromRows { all, overwrite } => {
+                let columns = match all {
+                    true => self.visible_cols(),
+                    false => self.current_column_name().into_iter().collect(),
+                };
+                let selected: Vec<u64> =
+                    self.sheets.active().view.selected.iter().copied().collect();
+                let rids = match selected.is_empty() {
+                    true => self.rid_at_cursor().into_iter().collect(),
+                    false => selected,
+                };
+                self.scan_edit(
+                    "rename",
+                    move |s| s.names_from_rows(&rids, &columns, overwrite),
+                    |app, names| app.rename_columns(names),
+                );
+            }
             Action::TypeCastInt => self.push_type_cast(DataType::Int64),
             Action::TypeCastFloat => self.push_type_cast(DataType::Float64),
             Action::TypeCastString => self.push_type_cast(DataType::String),
@@ -1940,9 +1957,11 @@ impl App {
                     }
                 });
                 let Some(part) = part else { return };
+                // the list's own `header`: the one the file was opened with
+                let header = self.sheets.active().source.header;
                 let id = self.sheets.alloc_id();
                 self.spawn_job("open", move || {
-                    let loaded = crate::reader::open_part(&path, kind, &part)
+                    let loaded = crate::reader::open_part_with(&path, kind, &part, header)
                         .map_err(|e| format!("{part}: {e}"))?;
                     Ok(JobDone::PushSheet(Box::new(Sheet::from_source(id, loaded))))
                 });
@@ -2239,6 +2258,7 @@ impl App {
             "histogram_bins" => t.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => t.incr_base = v.parse().unwrap_or(1),
             "unfurl_empty" => t.unfurl_empty = v == "true",
+            "header" => t.header = v.parse().unwrap_or(1),
             "disp_footer" => t.footer = v == "true",
             "disp_float_fmt" => {
                 t.float_digits = crate::plugins::float_fmt_digits(&v);

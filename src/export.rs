@@ -294,6 +294,12 @@ impl Script {
                 .ok_or("export: no tables in the sqlite file")?,
             _ => part.unwrap_or_default().to_string(),
         };
+        if s.source.header != 1 {
+            return Err(format!(
+                "export: read with header {}; exports read the first row as names",
+                s.source.header
+            ));
+        }
         match self.lang {
             Lang::Py => {
                 let p = py_str(&shown);
