@@ -27,8 +27,8 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 
 | Format | Extensions | Backend | Behavior |
 |---|---|---|---|
-| CSV | `.csv` | Polars `LazyCsvReader` | first row = header; option `csv_skipinitialspace` (default on, VisiData's) strips leading blanks from names and text cells when inference saw any (`LoadedSource.stripped`; export strips too; S-48) |
-| TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header |
+| CSV | `.csv` | Polars `LazyCsvReader` | first row = header; option `csv_skipinitialspace` (default on, VisiData's) strips leading blanks from names and text cells when inference saw any (`LoadedSource.csv.stripped`; export strips too; S-48); a file with blank lines drops its all-empty rows (S-49) |
+| TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header; blank lines skipped as CSV (S-49) |
 | Parquet | `.parquet`, `.pq` | Polars `scan_parquet` | native lazy |
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
 | JSON Lines | `.jsonl`, `.ndjson` | Polars `LazyJsonLineReader` | one record per line; blank and `#` / `//` lines skipped (copied to a tempfile when present, S-42 A); a line that isn't an object becomes `{"": true}`, an error row (files up to 256 MiB; S-44 A) |
@@ -175,7 +175,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|
 | `StartExInput` → `ExCommand(str)` | `:`, `<Space>` | — |
 | `StartDeriveInput` | `=` | new column from a SQL expression, named after it; `name = expr` names it when `name` is new |
-| `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `save_plan()` (`view_plan()`: casts + filter + sort + visible cols; on a sheet with error rows every cell as text, `#ERR` on those rows, S-44 A); writer by extension (csv/tsv/parquet/ipc/jsonl/json); unknown extension errors without touching the file; `:w` and `:write` aliases |
+| `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `save_plan()` (`view_plan()`: casts + filter + sort + visible cols; on a sheet with error rows every cell as text, `#ERR` on those rows, S-44 A); writer by extension (csv/tsv/parquet/ipc/jsonl/json); csv/tsv write list/struct cells as Python `json.dumps` text (S-49); unknown extension errors without touching the file; `:w` and `:write` aliases |
 | `Quit` | `gq`, `<C-q>` | exit |
 | `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
 | `RepeatLast` | `:repeat-last` (`.` plots since S-23 C1) | capture of resolved Action (not keystrokes) |

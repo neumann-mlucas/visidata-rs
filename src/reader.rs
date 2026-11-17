@@ -325,9 +325,8 @@ pub struct LoadedSource {
     pub parts: Vec<(String, std::sync::Arc<LoadedSource>)>,
     /// Rows read as column names (option `header`, S-43 A); 1 by default.
     pub header: usize,
-    /// A CSV whose text cells and names lost their leading blanks
-    /// (option `csv_skipinitialspace`, S-48).
-    pub stripped: bool,
+    /// What reading a CSV/TSV changed, for `:export` to repeat.
+    pub csv: CsvRead,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -348,7 +347,7 @@ impl LoadedSource {
             via_loader: false,
             parts: Vec::new(),
             header: 1,
-            stripped: false,
+            csv: CsvRead::default(),
             _tempfile: None,
         }
     }
@@ -363,7 +362,7 @@ impl LoadedSource {
             via_loader: false,
             parts: Vec::new(),
             header: 1,
-            stripped: false,
+            csv: CsvRead::default(),
             _tempfile: None,
         }
     }
@@ -431,7 +430,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         via_loader: false,
         parts: Vec::new(),
         header: 1,
-        stripped: false,
+        csv: CsvRead::default(),
         _tempfile: None,
     })
 }
@@ -496,7 +495,7 @@ pub fn open_part_with(
         via_loader: false,
         parts: Vec::new(),
         header,
-        stripped: false,
+        csv: CsvRead::default(),
         _tempfile: tempfile,
     })
 }
@@ -643,7 +642,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         }
     }
     let real_path = tempfile.as_ref().map_or(path, |t| t.path());
-    let (lazy, real_kind, stripped) = scan(real_path, kind, header)?;
+    let (lazy, real_kind, csv) = scan(real_path, kind, header)?;
     let display_name = path.display().to_string();
     Ok(LoadedSource {
         kind: real_kind,
@@ -653,7 +652,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         via_loader: false,
         parts: Vec::new(),
         header,
-        stripped,
+        csv,
         _tempfile: tempfile,
     })
 }
@@ -716,21 +715,34 @@ fn clean_json_lines(
     Ok(Some(tmp))
 }
 
+/// What reading a CSV/TSV changed from Polars' plain read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CsvRead {
+    /// Text cells and names lost their leading blanks (`csv_skipinitialspace`, S-48).
+    pub stripped: bool,
+    /// The file has blank lines, so rows with every cell empty are left out
+    /// (VisiData skips blank lines, #3085; S-49).
+    pub blank_lines: bool,
+}
+
 /// Build the plan for a file of a known kind. Returns the kind actually used
-/// (`Json` falls back to `Jsonl` when the file isn't a JSON array) and
-/// whether leading blanks were stripped (`csv_skipinitialspace`).
+/// (`Json` falls back to `Jsonl` when the file isn't a JSON array) and what a
+/// CSV/TSV read changed.
 fn scan(
     path: &Path,
     kind: SourceKind,
     header: usize,
-) -> Result<(LazyFrame, SourceKind, bool), OpenError> {
+) -> Result<(LazyFrame, SourceKind, CsvRead), OpenError> {
     let lazy = match kind {
         // VisiData's option is the csv loader's: not tsv
-        SourceKind::Csv => {
-            let (lazy, stripped) = scan_csv(path, b',', header, skipinitialspace())?;
-            return Ok((lazy, kind, stripped));
+        SourceKind::Csv | SourceKind::Tsv => {
+            let (sep, skip) = match kind {
+                SourceKind::Csv => (b',', skipinitialspace()),
+                _ => (b'\t', false),
+            };
+            let (lazy, csv) = scan_csv(path, sep, header, skip)?;
+            return Ok((lazy, kind, csv));
         }
-        SourceKind::Tsv => scan_csv(path, b'\t', header, false)?.0,
         SourceKind::Parquet => LazyFrame::scan_parquet(pl_path(path)?, ScanArgsParquet::default())?,
         SourceKind::Arrow => {
             LazyFrame::scan_ipc(pl_path(path)?, Default::default(), Default::default())?
@@ -761,7 +773,32 @@ fn scan(
             .lazy(),
         SourceKind::Stdin => unreachable!("stdin resolved to a concrete kind before scan"),
     };
-    Ok((lazy, kind, false))
+    Ok((lazy, kind, CsvRead::default()))
+}
+
+/// A line with nothing on it (`\n\n`, `\n\r\n`) after the first line.
+// ponytail: one pass over the file at open; blank lines inside a quoted cell
+// count too (harmless: only all-empty rows are dropped).
+fn has_blank_line(path: &Path) -> io::Result<bool> {
+    use io::BufRead;
+    let mut r = io::BufReader::with_capacity(1 << 16, std::fs::File::open(path)?);
+    let mut line_start = false;
+    loop {
+        let buf = r.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(false);
+        }
+        for &b in buf {
+            match b {
+                b'\n' if line_start => return Ok(true),
+                b'\n' => line_start = true,
+                b'\r' => {}
+                _ => line_start = false,
+            }
+        }
+        let n = buf.len();
+        r.consume(n);
+    }
 }
 
 /// Option `csv_skipinitialspace` off (VisiData's default is on). Global as
@@ -853,9 +890,15 @@ fn csv_reader(path: &Path, sep: u8, header: usize) -> PolarsResult<LazyCsvReader
         .with_encoding(CsvEncoding::LossyUtf8))
 }
 
+/// Some cell of the row isn't null.
+fn not_all_null() -> Expr {
+    any_horizontal([all().as_expr().is_not_null()]).unwrap_or(lit(true))
+}
+
 /// Scan a CSV under `csv_schema`'s types. With `skip` (`csv_skipinitialspace`)
-/// leading blanks leave text cells and names, as Python's `skipinitialspace`;
-/// the bool says whether there were any.
+/// leading blanks leave text cells and names, as Python's `skipinitialspace`.
+/// A file with blank lines drops its all-empty rows, as VisiData skips blank
+/// lines (a `,,` line in such a file goes too; VisiData keeps it).
 // ponytail: a stripped column stays text (" 5" isn't inferred as a number);
 // re-infer after stripping if typed columns with blanks matter.
 fn scan_csv(
@@ -863,14 +906,23 @@ fn scan_csv(
     sep: u8,
     header: usize,
     skip: bool,
-) -> Result<(LazyFrame, bool), OpenError> {
+) -> Result<(LazyFrame, CsvRead), OpenError> {
     let (schema, padded) = csv_schema(path, sep, header)?;
     let lazy = csv_reader(path, sep, header)?
         .with_try_parse_dates(true)
         .with_schema(Some(schema.clone()))
         .with_infer_schema_length(Some(0)) // or each new plan infers again
         .finish()?;
+    let blank_lines = has_blank_line(path)?;
+    let lazy = match blank_lines {
+        true => lazy.filter(not_all_null()),
+        false => lazy,
+    };
     let stripped = skip && padded;
+    let read = CsvRead {
+        stripped,
+        blank_lines,
+    };
     let lazy = match stripped {
         true => {
             let text: Vec<Expr> = schema
@@ -885,7 +937,7 @@ fn scan_csv(
         false => lazy,
     };
     if header <= 1 {
-        return Ok((lazy, stripped));
+        return Ok((lazy, read));
     }
     // the first `header` rows, as text, name the columns
     let head = CsvReadOptions::default()
@@ -915,7 +967,7 @@ fn scan_csv(
         .map(|n| n.to_string())
         .collect();
     let new = header_names(&rows, old.len());
-    Ok((lazy.rename(old, new, true), stripped))
+    Ok((lazy.rename(old, new, true), read))
 }
 
 /// A cell as text, null empty.
@@ -1054,7 +1106,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         Some(k) => k,
         None => sniff_format(&buf),
     };
-    let (lazy, kind, stripped) = scan(tmp.path(), kind, 1)?;
+    let (lazy, kind, csv) = scan(tmp.path(), kind, 1)?;
     Ok(LoadedSource {
         kind,
         display_name: "<stdin>".to_string(),
@@ -1063,7 +1115,7 @@ fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenE
         via_loader: false,
         parts: Vec::new(),
         header: 1,
-        stripped,
+        csv,
         _tempfile: Some(tmp),
     })
 }

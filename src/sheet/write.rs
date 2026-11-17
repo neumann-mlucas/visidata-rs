@@ -86,6 +86,11 @@ pub(super) fn write_df<W: std::io::Write>(
     file: W,
     ext: Option<&str>,
 ) -> PolarsResult<()> {
+    if matches!(ext, None | Some("csv" | "tsv" | "tab"))
+        && df.columns().iter().any(|c| nested(c.dtype()))
+    {
+        return write_df(&mut nested_as_json(df)?, file, ext);
+    }
     match ext {
         Some("tsv" | "tab") => CsvWriter::new(file).with_separator(b'\t').finish(df),
         Some("parquet" | "pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
@@ -97,5 +102,68 @@ pub(super) fn write_df<W: std::io::Write>(
             .with_json_format(JsonFormat::Json)
             .finish(df),
         _ => CsvWriter::new(file).finish(df),
+    }
+}
+
+fn nested(dt: &DataType) -> bool {
+    matches!(
+        dt,
+        DataType::List(_) | DataType::Array(..) | DataType::Struct(_)
+    )
+}
+
+/// Text formats get list/struct cells as JSON text, as VisiData's
+/// `json.dumps(v, default=str, ensure_ascii=False)` (#2944; S-49).
+fn nested_as_json(df: &DataFrame) -> PolarsResult<DataFrame> {
+    let cols = df.columns().iter().map(|c| {
+        if !nested(c.dtype()) {
+            return Ok(c.clone());
+        }
+        let s = c.as_materialized_series();
+        let text: Vec<Option<String>> = s
+            .iter()
+            .map(|v| (!v.is_null()).then(|| py_json(&v)))
+            .collect();
+        Ok(Column::new(c.name().clone(), text))
+    });
+    DataFrame::new(df.height(), cols.collect::<PolarsResult<Vec<_>>>()?)
+}
+
+/// Python's `json.dumps` spacing: `[1, 2]`, `{"k": "v"}`.
+// ponytail: floats print as Rust's `{:?}` (`1e20`, Python `1e+20`); dates and
+// other scalars as their text, quoted (`default=str`).
+pub(crate) fn py_json(v: &AnyValue) -> String {
+    let q = |t: &str| serde_json::to_string(t).unwrap_or_default();
+    let obj = |fields: &[Field], vals: &[AnyValue]| {
+        let kv: Vec<String> = fields
+            .iter()
+            .zip(vals)
+            .map(|(f, v)| format!("{}: {}", q(&f.name), py_json(v)))
+            .collect();
+        format!("{{{}}}", kv.join(", "))
+    };
+    match v {
+        AnyValue::Null => "null".into(),
+        AnyValue::Boolean(b) => b.to_string(),
+        AnyValue::String(t) => q(t),
+        AnyValue::StringOwned(t) => q(t),
+        AnyValue::Float32(f) => py_float(*f as f64),
+        AnyValue::Float64(f) => py_float(*f),
+        AnyValue::List(s) | AnyValue::Array(s, _) => {
+            let items: Vec<String> = s.iter().map(|v| py_json(&v)).collect();
+            format!("[{}]", items.join(", "))
+        }
+        AnyValue::Struct(_, _, fields) => obj(fields, &v._iter_struct_av().collect::<Vec<_>>()),
+        AnyValue::StructOwned(p) => obj(&p.1, &p.0),
+        v if v.is_integer() => v.to_string(),
+        v => q(&v.to_string()),
+    }
+}
+
+fn py_float(f: f64) -> String {
+    match f {
+        f if f.is_nan() => "NaN".into(),
+        f if f.is_infinite() => (if f > 0.0 { "Infinity" } else { "-Infinity" }).into(),
+        f => format!("{f:?}"),
     }
 }

@@ -1,0 +1,4 @@
+sheet	col	row	longname	input	keystrokes	comment
+			open-file	tests/vd_local/data/nested.jsonl		
+nested			save-sheet	$VD_TESTTMP/save-nested.csv		
+			open-file	$VD_TESTTMP/save-nested.csv		

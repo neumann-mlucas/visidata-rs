@@ -392,13 +392,27 @@ impl Script {
                         let cols: Vec<String> = names
                             .iter()
                             .zip(schema.iter_values())
-                            .map(|(n, d)| match s.source.stripped && *d == DataType::String {
-                                true => format!("ltrim({c}, ' ') AS {c}", c = q_ident(n)),
-                                false => q_ident(n),
-                            })
+                            .map(
+                                |(n, d)| match s.source.csv.stripped && *d == DataType::String {
+                                    true => format!("ltrim({c}, ' ') AS {c}", c = q_ident(n)),
+                                    false => q_ident(n),
+                                },
+                            )
                             .collect();
+                        // blank lines' all-empty rows left out (S-49)
+                        let blank = match s.source.csv.blank_lines {
+                            true => format!(
+                                " WHERE NOT ({})",
+                                names
+                                    .iter()
+                                    .map(|n| format!("{} IS NULL", q_ident(n)))
+                                    .collect::<Vec<_>>()
+                                    .join(" AND ")
+                            ),
+                            false => String::new(),
+                        };
                         format!(
-                            "SELECT {} FROM read_csv_auto({p}, names = [{}]{})",
+                            "SELECT {} FROM read_csv_auto({p}, names = [{}]{}){blank}",
                             cols.join(", "),
                             quoted.join(", "),
                             sql_csv_args(s)?
@@ -2292,12 +2306,17 @@ fn csv_dates(s: &Sheet) -> Result<Vec<(String, DataType)>, String> {
         .collect())
 }
 
-/// csv_skipinitialspace (S-48): text cells without leading blanks.
-fn py_strip(s: &Sheet) -> &'static str {
-    match s.source.stripped {
-        true => ".with_columns(pl.col(pl.String).str.strip_chars_start(\" \"))",
-        false => "",
+/// What the read changed (`reader::CsvRead`): blank lines' all-empty rows
+/// left out (S-49), text cells without leading blanks (S-48).
+fn py_strip(s: &Sheet) -> String {
+    let mut out = String::new();
+    if s.source.csv.blank_lines {
+        out += ".filter(pl.any_horizontal(pl.all().is_not_null()))";
     }
+    if s.source.csv.stripped {
+        out += ".with_columns(pl.col(pl.String).str.strip_chars_start(\" \"))";
+    }
+    out
 }
 
 /// `pl.scan_csv` arguments matching how vdrs read this file.
@@ -2305,7 +2324,7 @@ fn py_csv_args(s: &Sheet) -> Result<String, String> {
     let mut args =
         ", infer_schema_length=None, truncate_ragged_lines=True, encoding=\"utf8-lossy\""
             .to_string();
-    if s.source.stripped {
+    if s.source.csv.stripped {
         // the names without their blanks
         let names: Vec<String> = csv_columns(s)?.iter_names().map(|n| py_str(n)).collect();
         args += &format!(", new_columns=[{}]", names.join(", "));

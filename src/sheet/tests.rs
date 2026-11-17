@@ -259,6 +259,23 @@ fn write_df_roundtrip_csv_parquet_tsv() {
 }
 
 #[test]
+fn write_df_text_formats_save_nested_cells_as_json() {
+    let path = tempfile::NamedTempFile::new()
+        .unwrap()
+        .path()
+        .with_extension("csv");
+    let loaded = reader::open("tests/vd_local/data/nested.jsonl".as_ref(), None).unwrap();
+    let mut df = loaded.lazy.collect().unwrap();
+    write_df_by_extension(&mut df, &path).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        text,
+        "k,tags,m\na,\"[\"\"x\"\", \"\"y\"\"]\",\"{\"\"p\"\": 1}\"\nb,[],\"{\"\"p\"\": 2}\"\n"
+    );
+}
+
+#[test]
 fn write_df_unknown_extension_errors() {
     let mut df = df!("a" => [1i64]).unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -437,7 +454,7 @@ fn failed_save_keeps_the_existing_file() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("keep.csv");
     std::fs::write(&p, "precious\n").unwrap();
-    let list = Series::new("l".into(), [1i32, 2]).implode().unwrap();
+    let list = Series::new("l".into(), [b"ab".as_slice()]); // CSV can't write binary
     let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
     assert!(write_df_by_extension(&mut df, &p).is_err());
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "precious\n");
@@ -473,7 +490,7 @@ fn save_keeps_mode_and_refuses_read_only_files() {
 fn failed_save_to_a_new_path_leaves_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("new.csv");
-    let list = Series::new("l".into(), [1i32]).implode().unwrap();
+    let list = Series::new("l".into(), [b"ab".as_slice()]); // CSV can't write binary
     let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
     assert!(write_df_by_extension(&mut df, &p).is_err());
     assert!(!p.exists());
@@ -493,7 +510,7 @@ fn failed_save_through_a_dangling_symlink_keeps_the_link() {
     let dir = tempfile::tempdir().unwrap();
     let link = dir.path().join("out.csv");
     std::os::unix::fs::symlink(dir.path().join("later.csv"), &link).unwrap();
-    let list = Series::new("l".into(), [1i32]).implode().unwrap();
+    let list = Series::new("l".into(), [b"ab".as_slice()]); // CSV can't write binary
     let mut df = DataFrame::new_infer_height(vec![list.into_series().into()]).unwrap();
     assert!(write_df_by_extension(&mut df, &link).is_err());
     assert!(std::fs::symlink_metadata(&link).is_ok());

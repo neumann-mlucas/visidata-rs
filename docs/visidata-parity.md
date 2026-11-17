@@ -95,8 +95,8 @@ packaging fixes are left out.
 
 | VisiData fix | vdrs | How known |
 |---|---|---|
-| #3085 CSV blank lines skipped (3.4) | **gap**: a blank line is an empty row | probe `csv-blank-lines` |
-| #2944 dict/list cells save as JSON in text formats (3.5) | **gap**: `:save x.csv` fails, "CSV format does not support nested data" | probe `save-nested-csv`; VisiData corpus SKIP |
+| #3085 CSV blank lines skipped (3.4) | done (S-49) | `vd_local` `csv-blank-lines` PASS |
+| #2944 dict/list cells save as JSON in text formats (3.5) | done (S-49) | `vd_local` `save-nested-csv` PASS |
 | #3178 append keeps same-named columns distinct (3.5) | **diverges**: Polars renames `a, a` to `a, a_duplicated_0` at read | probe `append-dup-names` |
 | #3219 dedupe groups as freq does: `1` ≠ `1.0` (3.5) | **diverges**: a JSONL column of `1`, `1.0` is one f64 column, so freq and dedupe both see `1.0` twice | probes `dedupe-int-float`, `freq-int-float` |
 | #3223 all null forms are one distinct value; describe fixes (3.5) | median selection matches already (S-44). Null count differs: VisiData counts CSV `""` as a value (0 nulls), vdrs as null (2) | probe `describe-nulls` |

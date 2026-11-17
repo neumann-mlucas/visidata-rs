@@ -52,11 +52,11 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
 /// Nulls sort as VisiData's smallest value: first with `[`, last with `]`.
 #[tokio::test(flavor = "multi_thread")]
 async fn nulls_lead_ascending_and_trail_descending_sorts() {
-    let mut h = csv(b"n\n2\n\n1\n3\n").await;
+    let mut h = csv(b"n,k\n2,a\n,b\n1,c\n3,d\n").await;
     h.keys("[").await;
-    assert_eq!(view_csv(&h), "n\n\n1\n2\n3\n");
+    assert_eq!(view_csv(&h), "n,k\n,b\n1,c\n2,a\n3,d\n");
     h.keys("]").await;
-    assert_eq!(view_csv(&h), "n\n3\n2\n1\n\n");
+    assert_eq!(view_csv(&h), "n,k\n3,d\n2,a\n1,c\n,b\n");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1013,7 +1013,7 @@ async fn search_keys_keeps_the_column() {
 /// on the sheet below; an even count's median takes both middle rows.
 #[tokio::test(flavor = "multi_thread")]
 async fn describe_select_cell() {
-    let mut h = csv(b"n\n1\n2\n3\n4\n\n").await;
+    let mut h = csv(b"n,k\n1,a\n2,b\n3,c\n4,d\n,e\n").await;
     h.keys("I").await;
     assert!(h.app.sheets.active().name.starts_with("describe"));
     // column errors nulls distinct mode min max sum median

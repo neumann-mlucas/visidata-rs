@@ -190,7 +190,7 @@ vdrs --format tsv export.txt       # force a format when the extension is wrong 
 vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI</code></pre>
 <div class="scroll"><table>
 <tr><th>Format</th><th>Extensions</th><th>Notes</th></tr>
-<tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates load as dates; other layouts (<code>7/3/2018</code> is ambiguous) stay text until <kbd>@</kbd>. Column types come from the whole file (first 100,000 rows above 256 MB). Rows with too few fields are padded, extra fields dropped; invalid UTF-8 is replaced.</td></tr>
+<tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code>, <code>.tab</code></td><td>First row is the header. ISO dates load as dates; other layouts (<code>7/3/2018</code> is ambiguous) stay text until <kbd>@</kbd>. Column types come from the whole file (first 100,000 rows above 256 MB). Rows with too few fields are padded, extra fields dropped; invalid UTF-8 is replaced. Blank lines are skipped, as VisiData (in a file that has them, a line of only separators like <code>,,</code> goes too).</td></tr>
 <tr><td>Parquet</td><td><code>.parquet</code>, <code>.pq</code>, a directory</td><td>A directory means all its <code>*.parquet</code> files.</td></tr>
 <tr><td>Arrow IPC</td><td><code>.arrow</code>, <code>.ipc</code>, <code>.feather</code></td><td></td></tr>
 <tr><td>JSON Lines</td><td><code>.jsonl</code>, <code>.ndjson</code></td><td>One record per line. Blank lines and lines starting with <code>#</code> or <code>//</code> are skipped. A line that isn't a JSON object is an error row: each of its cells shows <code>#ERR</code>, as does its group in <kbd>F</kbd> and pivots, and <code>:save</code> writes <code>#ERR</code> there. It sets the column named <code>""</code> (VisiData's error row shape).</td></tr>
@@ -763,7 +763,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="aggregate"><td><code>:aggregate names</code></td><td>Add aggregators to the current column (<kbd>+</kbd>).</td></tr>
 <tr data-ex="select-ids"><td><code>:select-ids 3,7</code>, <code>:patch cells col file</code>, <code>:patch rows file</code></td><td>What sessions use: select rows by id; restore pasted cells or added rows from a parquet file.</td></tr>
 <tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
-<tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view.</td></tr>
+<tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view. In <code>.csv</code> and <code>.tsv</code>, list and struct cells are written as JSON text (<code>["x", "y"]</code>, <code>{"p": 1}</code>), as VisiData.</td></tr>
 <tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>
 <tr data-ex="42"><td><code>:42</code></td><td>Go to row 42.</td></tr>
 <tr data-ex="select-all"><td><code>:select-all</code>, <code>:dedupe-rows</code>, …</td><td>Any action name (see <a href="#lua">vd.bind</a>), with <code>-</code> or <code>_</code>; no arguments.</td></tr>

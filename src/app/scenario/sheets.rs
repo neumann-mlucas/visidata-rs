@@ -251,7 +251,7 @@ async fn dive_of_dive_keys_on_the_first_freq() {
 /// name that says which bin.
 #[tokio::test(flavor = "multi_thread")]
 async fn null_bin_dive_opens_nan_rows() {
-    let mut h = csv(b"x\n1\n2\nNaN\n10\n\n").await;
+    let mut h = csv(b"x,k\n1,a\n2,b\nNaN,c\n10,d\n,e\n").await;
     h.keys(":").await;
     h.type_("set numeric_binning true").await;
     h.keys(":").await;
