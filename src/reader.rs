@@ -1218,6 +1218,19 @@ mod tests {
         }
         let df = open_text(".csv", "a,b\n1,2\n\n3,4\n");
         assert_eq!(df.height(), 2, "{df}");
+        // a window (slice) and the row count see the same rows as a full read
+        let mut f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        f.write_all(b"a,b\n1,2\n,\n3,4\n\n\n").unwrap();
+        let lazy = open(f.path().as_os_str(), None).unwrap().lazy;
+        let tail = lazy.clone().slice(1, 10).collect().unwrap();
+        assert_eq!(tail.height(), 2, "{tail}");
+        let n = lazy.clone().select([len()]).collect().unwrap();
+        assert_eq!(
+            n.column("len").unwrap().get(0).unwrap(),
+            AnyValue::UInt32(3)
+        );
+        let rev = lazy.sort(["a"], Default::default()).collect().unwrap();
+        assert_eq!(rev.height(), 3, "{rev}");
     }
 
     #[test]

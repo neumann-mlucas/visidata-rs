@@ -1458,6 +1458,10 @@ fn pivot_aggregate_columns_refuse_every_write() {
     let vals = Column::new("v".into(), ["7", "8"]);
     refused(piv.paste_cells("a", &vals).map(drop));
     piv.edit_cell("region", 0, "north").unwrap();
+    // a column added to the pivot is the user's: it takes edits
+    piv.add_empty_col("note").unwrap();
+    piv.edit_cell("note", 0, "x").unwrap();
+    refused(piv.edit_cell("a", 0, "9"));
     let df = piv.plan.clone().collect().unwrap();
     let a: Vec<Option<i64>> = df.column("a").unwrap().i64().unwrap().iter().collect();
     assert_eq!(a.iter().flatten().sum::<i64>(), 1); // unchanged

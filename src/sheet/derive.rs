@@ -771,6 +771,7 @@ impl Sheet {
         let Some(Lineage {
             parent,
             how: Derivation::Join { right, keys, how },
+            ..
         }) = self.state.lineage.as_deref()
         else {
             return Ok(None);

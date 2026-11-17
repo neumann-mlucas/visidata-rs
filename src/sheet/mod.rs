@@ -113,6 +113,9 @@ pub struct SheetState {
 pub struct Lineage {
     pub parent: Sheet,
     pub how: Derivation,
+    /// A pivot's own columns, as it made them: its computed cells are these
+    /// less its keys (columns added after take edits). Empty otherwise.
+    pub made: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -843,7 +846,18 @@ impl Sheet {
         let mut p = parent.clone();
         p.window = None;
         p.state.undo = UndoTree::default();
-        self.state.lineage = Some(Arc::new(Lineage { parent: p, how }));
+        let made = match &how {
+            Derivation::Pivot { .. } | Derivation::PivotCount { .. } => (self.plan.clone())
+                .collect_schema()
+                .map(|s| s.iter_names().map(|n| n.to_string()).collect())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        self.state.lineage = Some(Arc::new(Lineage {
+            parent: p,
+            how,
+            made,
+        }));
         self
     }
 

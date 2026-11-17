@@ -799,17 +799,20 @@ impl Sheet {
         Ok(())
     }
 
-    /// VisiData's pivot cells are computed: only its key columns take edits.
+    /// VisiData's pivot cells are computed: of the pivot's own columns, only
+    /// its keys take edits.
     pub(super) fn check_writable(&self, column: &str) -> Result<(), String> {
-        let keys = match self.state.lineage.as_deref().map(|l| &l.how) {
-            Some(Derivation::PivotCount { keys, .. }) => keys.as_slice(),
-            Some(Derivation::Pivot { index, .. }) => std::slice::from_ref(index),
+        let Some(l) = self.state.lineage.as_deref() else {
+            return Ok(());
+        };
+        let keys = match &l.how {
+            Derivation::PivotCount { keys, .. } => keys.as_slice(),
+            Derivation::Pivot { index, .. } => std::slice::from_ref(index),
             _ => return Ok(()),
         };
-        if keys.iter().any(|k| k == column) {
-            Ok(())
-        } else {
-            Err(format!("cannot edit readonly column {column}"))
+        match l.made.iter().any(|c| c == column) && !keys.iter().any(|k| k == column) {
+            true => Err(format!("cannot edit readonly column {column}")),
+            false => Ok(()),
         }
     }
 
