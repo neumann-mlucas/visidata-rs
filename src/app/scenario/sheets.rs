@@ -1192,3 +1192,45 @@ async fn freq_keys_transpose_join_all_and_open_cell() {
     assert!(h.app.sheets.active().name.ends_with(".csv[0].tags[0]"));
     assert_eq!(view_csv(&h), "key,value\np,1\nq,a\n");
 }
+
+/// S-51: `g&` over three sheets. A cell from the last sheet joined goes back
+/// to it; one from the inner join's left side stays an edit of the result
+/// (no live sheet behind it), never landing on another row.
+#[tokio::test(flavor = "multi_thread")]
+async fn join_all_edits_write_back_only_to_live_sheets() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |n: &str, text: &str| {
+        let p = dir.path().join(n);
+        std::fs::write(&p, text).unwrap();
+        p.display().to_string()
+    };
+    // C&B has rows 3, 2, 1; the result's rows 2, 1 are its rows 1, 2
+    let b = path("b.csv", "id,w\n1,x\n2,y\n3,t\n");
+    let c = path("c.csv", "id,z\n3,s\n2,q\n1,r\n");
+    let mut h = csv(b"id,v\n2,b\n1,a\n").await; // A
+    for p in [&b, &c] {
+        h.keys(":").await;
+        h.type_(&format!("open {p}")).await;
+    }
+    h.keys("!").await;
+    h.keys("g &").await;
+    h.type_("inner").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n2,q,y,b\n1,r,x,a\n");
+    h.keys("l e <C-u>").await;
+    h.type_("Q").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n2,Q,y,b\n1,r,x,a\n");
+    h.keys("l l e <C-u>").await;
+    h.type_("B").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n2,Q,y,B\n1,r,x,a\n");
+    let col = |i: usize, c: &str| -> Vec<Option<String>> {
+        let s = h.app.sheets.iter().nth(i).unwrap();
+        let df = s.view_plan().collect().unwrap();
+        let c = df.column(c).unwrap().str().unwrap();
+        c.iter().map(|v| v.map(str::to_string)).collect()
+    };
+    assert_eq!(col(0, "v"), [Some("B".into()), Some("a".into())]); // A
+    assert_eq!(
+        col(2, "z"),
+        [Some("s".into()), Some("q".into()), Some("r".into())]
+    ); // C
+}

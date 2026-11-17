@@ -668,13 +668,10 @@ impl App {
                 let col = self.sheets.active().view.col_cursor;
                 let sheet = self.sheets.active().clone();
                 self.spawn_job("go to selected", move || {
-                    let n = sheet
+                    let (row, _) = sheet
                         .rids_to_selected(at, forward)
                         .map_err(|e| e.to_string())?
-                        .ok_or("no selected row")?
-                        .len() as u64
-                        - 1;
-                    let row = if forward { at + n } else { at - n };
+                        .ok_or("no selected row")?;
                     Ok(JobDone::Jump { row, col })
                 });
             }
@@ -717,36 +714,23 @@ impl App {
                 let Some(v) = s.cursor_value(&column).map(|v| v.into_static()) else {
                     return;
                 };
-                // VisiData's `name[rowkey].column`; the row number without keys
-                let key: Vec<String> = (s.view.keys.iter())
-                    .map(|k| {
-                        s.cursor_value(k)
-                            .map_or(String::new(), |v| crate::sheet::any_text(&v))
-                    })
-                    .collect();
-                let key = match key.is_empty() {
-                    true => self.cursor_row().to_string(),
-                    false => key.join(","),
-                };
+                // VisiData's `name[rowkey].column`
+                let key = (s.window()).map_or(String::new(), |w| {
+                    s.row_key(w, s.view.row_cursor, self.cursor_row())
+                });
                 let name = format!("{}[{key}].{column}", s.name);
                 let id = self.sheets.alloc_id();
-                match Sheet::open_cell(id, name, &v) {
-                    Ok(child) => {
-                        self.sheets.push(child);
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
+                self.push_or_toast(Sheet::open_cell(id, name, &v));
             }
             Action::FreqKeys => {
-                let parent = self.sheets.active().clone();
-                if parent.view.keys.is_empty() {
+                if self.sheets.active().view.keys.is_empty() {
                     self.toast = Some("there are no key columns to group by".into());
                     return;
                 }
                 let id = self.sheets.alloc_id();
-                let keys = parent.view.keys.clone();
-                self.sheets.push(Sheet::freq_keys_from(&parent, id, &keys));
+                let parent = self.sheets.active();
+                let freq = Sheet::freq_keys_from(parent, id, &parent.view.keys);
+                self.sheets.push(freq);
                 self.spawn_materialize();
             }
             Action::Melt => {
@@ -1580,7 +1564,7 @@ impl App {
                 let at = self.cursor_row();
                 let sheet = self.sheets.active().clone();
                 self.spawn_job("select", move || {
-                    let rids = sheet
+                    let (_, rids) = sheet
                         .rids_to_selected(at, forward)
                         .map_err(|e| e.to_string())?
                         .ok_or("no selected row")?;
@@ -2043,15 +2027,9 @@ impl App {
             Origin::Freq { .. } => self.dive_freq(false),
             Origin::FreqKeys { .. } => self.dive_freq_keys(false),
             Origin::Cell => {
-                let row = self.cursor_row() as usize;
+                let row = self.cursor_row();
                 let id = self.sheets.alloc_id();
-                match self.sheets.active().open_cell_row(id, row) {
-                    Ok(child) => {
-                        self.sheets.push(child);
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
+                self.push_or_toast(self.sheets.active().open_cell_row(id, row));
             }
             Origin::Hits { parent } => {
                 let parent = *parent;
@@ -2162,14 +2140,9 @@ impl App {
         let id = self.sheets.alloc_id();
         self.spawn_job("dive", move || {
             // row ids are positions in the freq sheet's plan
-            const R: &str = "__vdrs_r";
-            let ids = Series::new("ids".into(), rids);
-            let wanted = (plan.with_row_index(R, None))
-                .filter(
-                    col(R)
-                        .cast(DataType::UInt64)
-                        .is_in(lit(ids).implode(false), false),
-                )
+            use crate::sheet::{ROW_ID, rid_in};
+            let wanted = (plan.with_row_index(ROW_ID, None))
+                .filter(rid_in(&rids))
                 .select(columns.iter().map(|c| col(c.as_str())).collect::<Vec<_>>())
                 .collect()
                 .map_err(|e| e.to_string())?;

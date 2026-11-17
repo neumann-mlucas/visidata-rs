@@ -335,38 +335,36 @@ impl Sheet {
 
     /// `<CR>` on a `zEnter` sheet (VisiData open-row there): the cursor row's
     /// visible cells as `key`/`value` rows, named `name[rowkey]`.
-    pub fn open_cell_row(&self, id: SheetId, row: usize) -> Result<Sheet, String> {
-        let df = self.view_plan().collect().map_err(|e| e.to_string())?;
-        let cell = |c: &Column| {
-            c.get(row)
-                .map(|v| v.into_static())
-                .map_err(|e| e.to_string())
-        };
+    pub fn open_cell_row(&self, id: SheetId, row: u64) -> Result<Sheet, String> {
+        let df = (self.view_plan().slice(row as i64, 1).collect()).map_err(|e| e.to_string())?;
         let mut obj = serde_json::Map::new();
-        let mut key = Vec::new();
         for c in df.columns() {
-            let v = cell(c)?;
-            if self.view.keys.iter().any(|k| k == c.name().as_str()) {
-                key.push(any_text(&v));
-            }
+            let v = c.get(0).map_err(|e| e.to_string())?;
             let j = match &v {
                 AnyValue::Null => serde_json::Value::Null,
-                AnyValue::String(t) => serde_json::Value::String(t.to_string()),
-                AnyValue::StringOwned(t) => serde_json::Value::String(t.to_string()),
+                v if v.get_str().is_some() => serde_json::Value::String(any_text(v)),
                 v => cell_json(v).unwrap_or_else(|| serde_json::Value::String(any_text(v))),
             };
             obj.insert(c.name().to_string(), j);
         }
-        let key = if key.is_empty() {
-            row.to_string()
-        } else {
-            key.join(",")
-        };
         Self::open_json(
             id,
-            format!("{}[{key}]", self.name),
+            format!("{}[{}]", self.name, self.row_key(&df, 0, row)),
             Some(serde_json::Value::Object(obj)),
         )
+    }
+
+    /// VisiData's rowkey for view row `row`, which is row `i` of `df`: its
+    /// key cells joined with `,`, or `row` without keys.
+    pub fn row_key(&self, df: &DataFrame, i: usize, row: u64) -> String {
+        if self.view.keys.is_empty() {
+            return row.to_string();
+        }
+        let cell = |k: &String| df.column(k).and_then(|c| c.get(i)).ok();
+        (self.view.keys.iter())
+            .map(|k| cell(k).map_or(String::new(), |v| any_text(&v)))
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     fn open_json(
@@ -394,16 +392,14 @@ impl Sheet {
             }
         };
         let (df, keys) = match parsed.ok_or_else(fail)? {
-            J::Array(items) if !items.is_empty() && items.iter().all(J::is_object) => {
-                let objs = items.into_iter().filter_map(|i| match i {
-                    J::Object(m) => Some(m),
-                    _ => None,
-                });
-                (rows(objs.collect())?, vec![])
-            }
             J::Array(items) => {
-                let one = |v: J| [(name.clone(), v)].into_iter().collect();
-                (rows(items.into_iter().map(one).collect())?, vec![])
+                // a list of objects is rows; anything else, one column
+                let objects = !items.is_empty() && items.iter().all(J::is_object);
+                let row = |v: J| match v {
+                    J::Object(m) if objects => m,
+                    v => [(name.clone(), v)].into_iter().collect(),
+                };
+                (rows(items.into_iter().map(row).collect())?, vec![])
             }
             J::Object(m) => {
                 let kv = m.into_iter().map(|(k, v)| {
@@ -428,12 +424,33 @@ impl Sheet {
 /// `None` for anything else. Dates and the like become JSON text, so a row of
 /// them reads back as text.
 fn cell_json(v: &AnyValue) -> Option<serde_json::Value> {
-    let j: serde_json::Value = match v {
-        AnyValue::String(t) => serde_json::from_str(t).ok()?,
-        AnyValue::StringOwned(t) => serde_json::from_str(t).ok()?,
-        v => serde_json::from_str(&crate::sheet::write::py_json(v)).ok()?,
+    match v.get_str() {
+        Some(t) => serde_json::from_str(t).ok(),
+        None => Some(any_json(v)),
+    }
+}
+
+/// `v` as JSON; a value JSON can't hold (NaN, inf, a date) as its text.
+fn any_json(v: &AnyValue) -> serde_json::Value {
+    use serde_json::Value as J;
+    let obj = |fields: &[Field], vals: &[AnyValue]| {
+        J::Object(
+            (fields.iter().zip(vals))
+                .map(|(f, v)| (f.name.to_string(), any_json(v)))
+                .collect(),
+        )
     };
-    Some(j)
+    match v {
+        AnyValue::List(s) | AnyValue::Array(s, _) => {
+            J::Array(s.iter().map(|v| any_json(&v)).collect())
+        }
+        AnyValue::Struct(_, _, fields) => obj(fields, &v._iter_struct_av().collect::<Vec<_>>()),
+        AnyValue::StructOwned(p) => obj(&p.1, &p.0),
+        v => {
+            let text = crate::sheet::write::py_json(v);
+            serde_json::from_str(&text).unwrap_or(J::String(text))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -458,6 +475,17 @@ mod tests {
     fn names(s: &Sheet) -> Vec<String> {
         let sc = s.view_plan().collect_schema().unwrap();
         sc.iter_names().map(|n| n.to_string()).collect()
+    }
+
+    /// A float list holding NaN or inf still opens: JSON can't hold them, so
+    /// they read as text.
+    #[test]
+    fn open_cell_takes_non_finite_floats() {
+        let v = AnyValue::List(Series::new("".into(), [1.5, f64::NAN, f64::INFINITY]));
+        let s = Sheet::open_cell(1, "t".into(), &v).unwrap();
+        let df = s.plan.clone().collect().unwrap();
+        let t: Vec<_> = df.column("t").unwrap().str().unwrap().iter().collect();
+        assert_eq!(t, [Some("1.5"), Some("NaN"), Some("Infinity")]);
     }
 
     #[test]

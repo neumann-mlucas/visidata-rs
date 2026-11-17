@@ -392,10 +392,9 @@ impl App {
                 .map(|s| s.name.as_str())
                 .collect();
             let name = format!("{} ({how})", names.join("&"));
-            let mut acc = left.clone();
-            for right in &others {
-                acc = Sheet::join_from(&acc, id, right, &keys, &how)?;
-            }
+            let mut acc = (others.iter()).try_fold(left, |acc, right| {
+                Sheet::join_from(&acc, id, right, &keys, &how)
+            })?;
             acc.name = name;
             acc.plan = acc
                 .plan

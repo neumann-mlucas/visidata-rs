@@ -2317,6 +2317,9 @@ fn py_strip(s: &Sheet) -> String {
     let mut out = String::new();
     if s.source.csv.blank_lines {
         out += ".filter(pl.any_horizontal(pl.all().is_not_null()))";
+    } else if s.source.csv.trailing_blanks > 0 {
+        let k = s.source.csv.trailing_blanks;
+        out += &format!(".filter(pl.int_range(pl.len()) < pl.len() - {k})");
     }
     if s.source.csv.stripped {
         out += ".with_columns(pl.col(pl.String).str.strip_chars_start(\" \"))";

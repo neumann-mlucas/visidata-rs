@@ -83,27 +83,7 @@ impl Sheet {
                     .select(names)
             }
         };
-        let plan = grouped
-            .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
-                / col(count).cast(DataType::Float64).sum())
-            .round(2, RoundMode::HalfAwayFromZero)
-            .alias(percent)])
-            .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
-                .str()
-                .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
-                .alias(histogram)]);
-        // Stable on a stable group-by: row order repeats across collects,
-        // since row ids (selection, freq dive) are positions in this plan.
-        let plan = if keep_order {
-            plan
-        } else {
-            plan.sort(
-                [count],
-                SortMultipleOptions::default()
-                    .with_order_descending(true)
-                    .with_maintain_order(true),
-            )
-        };
+        let plan = freq_stats(grouped, (count, percent, histogram), keep_order);
         let mut freq = Sheet::child(
             parent,
             id,
@@ -833,10 +813,15 @@ impl Sheet {
                 }
             }
         }
+        // `g&`'s inner joins carry the result's own id: no live sheet behind them
+        let left_cols = match parent.id == self.id {
+            true => Vec::new(),
+            false => shown(parent)?,
+        };
         Ok(Some(JoinSources {
             left: parent.id,
             right: right.id,
-            left_cols: shown(parent)?,
+            left_cols,
             right_cols,
             rows: ids(LRID)?.into_iter().zip(ids(RRID)?).collect(),
         }))
@@ -847,27 +832,17 @@ impl Sheet {
     /// `histogram` and the parent's aggregators, as `F`.
     // ponytail: groups by values, not a fmtstr's text as `F` does
     pub fn freq_keys_from(parent: &Sheet, id: SheetId, keys: &[String]) -> Self {
-        let (count, percent, histogram) = ("count", "percent", "histogram");
+        // `freq_count`… when any key is named like a stat column
+        let (count, percent, histogram) = (keys.iter().map(|k| freq_stat_names(k)))
+            .find(|n| n.0 != "count")
+            .unwrap_or(freq_stat_names(""));
         let aggs = columns::freq_aggregators(parent);
         let exprs: Vec<Expr> = std::iter::once(len().alias(count))
             .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
             .collect();
         let by: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-        let plan = (parent.view_plan().group_by_stable(by).agg(exprs))
-            .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
-                / col(count).cast(DataType::Float64).sum())
-            .round(2, RoundMode::HalfAwayFromZero)
-            .alias(percent)])
-            .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
-                .str()
-                .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
-                .alias(histogram)])
-            .sort(
-                [count],
-                SortMultipleOptions::default()
-                    .with_order_descending(true)
-                    .with_maintain_order(true),
-            );
+        let grouped = parent.view_plan().group_by_stable(by).agg(exprs);
+        let plan = freq_stats(grouped, (count, percent, histogram), false);
         let mut freq = Sheet::child(
             parent,
             id,
@@ -948,11 +923,13 @@ impl Sheet {
             .filter(|c| !parent.view.keys.iter().any(|k| k == c.name().as_str()))
             .filter(|c| c.name().as_str() != crate::reader::ERR_COL)
             .collect();
+        // one cast per column; per cell where it can't (lists, structs)
         let text = |c: &Column| -> Vec<Option<String>> {
-            let s = c.as_materialized_series();
-            s.iter()
-                .map(|v| (!v.is_null()).then(|| any_text(&v)))
-                .collect()
+            column_texts(c).unwrap_or_else(|_| {
+                (c.as_materialized_series().iter())
+                    .map(|v| (!v.is_null()).then(|| any_text(&v)))
+                    .collect()
+            })
         };
         let key_text: Vec<Vec<Option<String>>> = keys.iter().map(|c| text(c)).collect();
         let names = (0..df.height()).map(|i| match key_text.is_empty() {
@@ -970,7 +947,7 @@ impl Sheet {
                 .join("_"),
         };
         let names = crate::reader::unique_headers(std::iter::once(first).chain(names));
-        let cells: Vec<Vec<Option<String>>> = others.iter().map(|c| text(c)).collect();
+        let mut cells: Vec<Vec<Option<String>>> = others.iter().map(|c| text(c)).collect();
         let mut cols = vec![Column::new(
             names[0].as_str().into(),
             others
@@ -979,7 +956,7 @@ impl Sheet {
                 .collect::<Vec<_>>(),
         )];
         for (i, name) in names.iter().enumerate().skip(1) {
-            let row: Vec<Option<String>> = cells.iter().map(|c| c[i - 1].clone()).collect();
+            let row: Vec<Option<String>> = cells.iter_mut().map(|c| c[i - 1].take()).collect();
             cols.push(Column::new(name.as_str().into(), row));
         }
         let out = DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?;
@@ -1307,6 +1284,35 @@ pub struct JoinSources {
     pub left_cols: Vec<(String, String)>,
     pub right_cols: Vec<(String, String)>,
     pub rows: Vec<(Option<u64>, Option<u64>)>,
+}
+
+/// `F` and `gF` after the group-by: `percent` and `histogram` of `count`,
+/// by count descending unless `keep_order`. Stable on a stable group-by: row
+/// order repeats across collects, since row ids (selection, freq dive) are
+/// positions in this plan.
+fn freq_stats(
+    grouped: LazyFrame,
+    (count, percent, histogram): (&str, &str, &str),
+    keep_order: bool,
+) -> LazyFrame {
+    let plan = grouped
+        .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
+            / col(count).cast(DataType::Float64).sum())
+        .round(2, RoundMode::HalfAwayFromZero)
+        .alias(percent)])
+        .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
+            .str()
+            .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
+            .alias(histogram)]);
+    match keep_order {
+        true => plan,
+        false => plan.sort(
+            [count],
+            SortMultipleOptions::default()
+                .with_order_descending(true)
+                .with_maintain_order(true),
+        ),
+    }
 }
 
 /// Non-key columns both sides of an inner, left or full join show: VisiData

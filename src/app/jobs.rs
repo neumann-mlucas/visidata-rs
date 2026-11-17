@@ -345,6 +345,17 @@ impl App {
         self.spawn_count_if_stale();
     }
 
+    /// Push a sheet made on the UI thread and load it, or toast why it wasn't.
+    pub(super) fn push_or_toast(&mut self, made: Result<Sheet, String>) {
+        match made {
+            Ok(s) => {
+                self.sheets.push(s);
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(e),
+        }
+    }
+
     /// Materialize sheet `id`'s window (the active one, or the other pane's).
     pub(super) fn spawn_materialize_for(&mut self, id: SheetId) {
         let Some(s) = self.sheets.find_by_id_mut(id) else {

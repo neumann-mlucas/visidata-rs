@@ -1192,7 +1192,7 @@ impl Replay {
                 let rt = |e: PolarsError| Runtime(e.to_string());
                 let at = s.view_rids().map_err(rt)?.iter().position(|x| *x == rid);
                 let forward = r.longname == "select-to-next-selected";
-                let rids = s
+                let (_, rids) = s
                     .rids_to_selected(at.unwrap_or(0) as u64, forward)
                     .map_err(rt)?
                     .ok_or_else(|| Runtime("no selected row".into()))?;
@@ -1465,7 +1465,7 @@ impl Replay {
                 let slot = self.current_slot()?;
                 let df = (slot.sheet.view_plan().collect()).map_err(|e| Runtime(e.to_string()))?;
                 let i = resolve_row(&df, &slot.sheet.view.keys, &r.row)?;
-                let new = slot.sheet.open_cell_row(id, i).map_err(Runtime)?;
+                let new = slot.sheet.open_cell_row(id, i as u64).map_err(Runtime)?;
                 let name = new.name.clone();
                 self.push_sheet(name, new);
                 Ok(())

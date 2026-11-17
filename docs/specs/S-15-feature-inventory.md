@@ -27,7 +27,7 @@ Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming t
 
 | Format | Extensions | Backend | Behavior |
 |---|---|---|---|
-| CSV | `.csv` | Polars `LazyCsvReader` | first row = header; option `csv_skipinitialspace` (default on, VisiData's) strips leading blanks from names and text cells when inference saw any (`LoadedSource.csv.stripped`; export strips too; S-48); a file with blank lines drops its all-empty rows (S-49) |
+| CSV | `.csv` | Polars `LazyCsvReader` | first row = header; option `csv_skipinitialspace` (default on, VisiData's) strips leading blanks from names and text cells when inference saw any (`LoadedSource.csv.stripped`; export strips too; S-48); a file with blank lines inside its data drops its all-empty rows; blank lines only at the end drop just those rows (S-49) |
 | TSV | `.tsv`, `.tab` | Polars (`\t` separator) | first row = header; blank lines skipped as CSV (S-49) |
 | Parquet | `.parquet`, `.pq` | Polars `scan_parquet` | native lazy |
 | Arrow IPC | `.arrow`, `.ipc`, `.feather` | Polars `scan_ipc` | native lazy |
@@ -127,10 +127,10 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `ValueChange` / `NullChange { forward }` | `>` `<` / `z>` `z<` | VisiData go-next/prev-value, go-next/prev-null: down (up) the column to a different value / a null, loaded rows (S-50) |
 | `SortKeys { descending }` | `g[` / `g]` | VisiData sort-keys-asc/desc: sort by the key columns, replacing the sort; none → toast (S-50) |
 | `Melt` | `M` | VisiData melt: `Unpivot` of the visible non-key columns, keys as index (S-50) |
-| `Transpose` | `T` | VisiData transpose: `Sheet::transpose_from`, eager; a row per visible non-key column, a column per row named by its key values (`_`-joined; row number without keys), first column = key names (`column` without keys), all text (S-51) |
-| `FreqKeys` | `gF` | VisiData freq-keys: `Sheet::freq_keys_from`, group by every key column, then count, percent, histogram and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` (nulls match) (S-51) |
-| `JoinAll { how }` | `g&` | `:join-all <how>`, VisiData join-sheets-all: `join_from` chained over the sheets below, nearest first, on the active sheet's keys (S-51) |
-| `OpenCell` | `zEnter` | VisiData open-cell: `Sheet::open_cell`, list/struct/JSON text → table, one column or `key`/`value` rows (`Origin::Cell`); `<CR>` there → `open_cell_row`; mixed types → text; JSON and TOML keep source key order (S-51) |
+| `Transpose` | `T` | VisiData transpose: `Sheet::transpose_from`, eager; a row per visible non-key column, a column per row named by its key values (`_`-joined; row number without keys), first column = key names (`column` without keys), all text; repeated names get `_duplicated_<i>`, never another column's name (S-51) |
+| `FreqKeys` | `gF` | VisiData freq-keys: `Sheet::freq_keys_from`, group by every key column, then count, percent, histogram (`freq_*` when a key has one of those names) and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` (nulls match) (S-51) |
+| `JoinAll { how }` | `g&` | `:join-all <how>`, VisiData join-sheets-all: `join_from` chained over the sheets below, nearest first, on the active sheet's keys; an edit goes back to the last sheet joined, the inner joins' columns keep theirs (S-51) |
+| `OpenCell` | `zEnter` | VisiData open-cell: `Sheet::open_cell`, list/struct/JSON text → table, one column or `key`/`value` rows (`Origin::Cell`); `<CR>` there → `open_cell_row`; mixed types → text, NaN/inf too; JSON and TOML keep source key order (S-51) |
 | `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |
 | `ExPrompt { cmd }` | `o` / `Ctrl+S` / `&` | VisiData open-file, save-sheet, join-sheets-top2: the ex line holding `open ` / `save ` / `join <sheet below> ` (S-50) |
 | `SelectToSelected { forward }` | `z}` / `z{` | the cursor row through the next (previous) selected row, view order; none → `no selected row`; `Sheet::rids_to_selected`, background job (S-41 B) |
@@ -155,7 +155,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `OpenSheetSwitcher` | `S` | push meta-sheet listing stack; `<CR>` on row → `SwitchToSheet` |
 | `SwitchToSheet(id)` + `SubmitRow` | `<CR>` | pop sheet-switcher, activate selected |
 | `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
-| `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets, and pivot (key columns only)/unpivot/unfurl/`:sql`/join/Lua sheets: the first edit copies the rows into memory (`Sheet::make_editable`; `:refresh` drops the edits, `:export` refuses; S-45 A); a join's `e` also edits the open source sheets' rows (`Sheet::source_cells`) and every join row sharing them (S-45 B) |
+| `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets, and pivot (key columns only, for every write: `e`, `ge`, `g=`, paste, `:s`; `Sheet::check_writable`)/unpivot/unfurl/`:sql`/join/Lua sheets: the first edit copies the rows into memory (`Sheet::make_editable`; `:refresh` drops the edits, `:export` refuses; S-45 A); a join's `e` also edits the open source sheets' rows (`Sheet::source_cells`) and every join row sharing them (S-45 B) |
 | `StartSetExprInput` | `g=` | `:setexpr` prompt; source sheets only (S-21 B) |
 | `JumpPrev` | `<C-^>` / `<C-6>` | the sheet under the active one comes to the top (VisiData `jump-prev`); twice = back (S-26 A7) |
 | `HelpCommands` | `z<C-h>` / `z<F1>` / `z<BS>`, `:help` | push a `help` sheet: key, action (`to_ex`), description, menu per sheet-layer chord (S-26 A5); menu = VisiData's menu path for a key still bound as by default (`keymap::menu_path`, `src/menu.tsv` from `scripts/gen_menu.py`, S-37 P0d) |

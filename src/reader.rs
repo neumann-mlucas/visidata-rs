@@ -285,15 +285,22 @@ fn excel_text(d: &calamine::ExcelDateTime) -> String {
 /// Repeats (blank cells above all) get `_duplicated_<i>`, as Polars names CSV
 /// repeats; a DataFrame can't hold two columns of one name.
 pub(crate) fn unique_headers(names: impl Iterator<Item = String>) -> Vec<String> {
+    let names: Vec<String> = names.collect();
+    let mut taken: std::collections::HashSet<String> = names.iter().cloned().collect();
     let mut seen = std::collections::HashSet::new();
     names
+        .into_iter()
         .enumerate()
         .map(|(i, n)| {
             if seen.insert(n.clone()) {
-                n
-            } else {
-                format!("{n}_duplicated_{i}")
+                return n;
             }
+            // never a name another column has
+            let mut u = format!("{n}_duplicated_{i}");
+            while !taken.insert(u.clone()) {
+                u.push('_');
+            }
+            u
         })
         .collect()
 }
@@ -724,6 +731,8 @@ pub struct CsvRead {
     /// The file has blank lines, so rows with every cell empty are left out
     /// (VisiData skips blank lines, #3085; S-49).
     pub blank_lines: bool,
+    /// Blank lines ending a file without other ones: its last rows, left out.
+    pub trailing_blanks: u32,
 }
 
 /// Build the plan for a file of a known kind. Returns the kind actually used
@@ -777,23 +786,26 @@ fn scan(
     Ok((lazy, kind, CsvRead::default()))
 }
 
-/// A line with nothing on it (`\n\n`, `\n\r\n`) after the first line.
+/// Lines with nothing on them (`\n\n`, `\n\r\n`) after the first line:
+/// whether one has data after it, and how many end the file (Polars reads
+/// each as an all-null row).
 // ponytail: one pass over the file at open; blank lines inside a quoted cell
 // count too (harmless: only all-empty rows are dropped).
-fn has_blank_line(path: &Path) -> io::Result<bool> {
+fn blank_lines(path: &Path) -> io::Result<(bool, u32)> {
     use io::BufRead;
     let mut r = io::BufReader::with_capacity(1 << 16, std::fs::File::open(path)?);
-    let mut line_start = false;
+    let (mut line_start, mut blanks) = (false, 0u32);
     loop {
         let buf = r.fill_buf()?;
         if buf.is_empty() {
-            return Ok(false);
+            return Ok((false, blanks));
         }
         for &b in buf {
             match b {
-                b'\n' if line_start => return Ok(true),
+                b'\n' if line_start => blanks += 1,
                 b'\n' => line_start = true,
                 b'\r' => {}
+                _ if blanks > 0 => return Ok((true, 0)),
                 _ => line_start = false,
             }
         }
@@ -914,15 +926,17 @@ fn scan_csv(
         .with_schema(Some(schema.clone()))
         .with_infer_schema_length(Some(0)) // or each new plan infers again
         .finish()?;
-    let blank_lines = has_blank_line(path)?;
-    let lazy = match blank_lines {
-        true => lazy.filter(not_all_null()),
-        false => lazy,
+    let (blank_lines, trailing_blanks) = blank_lines(path)?;
+    let lazy = match (blank_lines, trailing_blanks) {
+        (true, _) => lazy.filter(not_all_null()),
+        (false, 0) => lazy,
+        (false, k) => lazy.filter(int_range(lit(0), len(), 1, IDX_DTYPE).lt(len() - lit(k))),
     };
     let stripped = skip && padded;
     let read = CsvRead {
         stripped,
         blank_lines,
+        trailing_blanks,
     };
     let lazy = match stripped {
         true => {
@@ -1188,6 +1202,31 @@ mod tests {
             .lazy
             .collect()
             .unwrap()
+    }
+
+    /// S-49: blank lines go; a `,` row (every cell empty) stays, as in
+    /// VisiData, even with trailing newlines at the end of the file.
+    #[test]
+    fn csv_skips_blank_lines_keeps_empty_rows() {
+        for text in [
+            "a,b\n1,2\n,\n3,4\n",
+            "a,b\n1,2\n,\n3,4\n\n\n",
+            "a,b\r\n1,2\r\n,\r\n3,4\r\n\r\n",
+        ] {
+            let df = open_text(".csv", text);
+            assert_eq!(df.height(), 3, "{text:?}: {df}");
+        }
+        let df = open_text(".csv", "a,b\n1,2\n\n3,4\n");
+        assert_eq!(df.height(), 2, "{df}");
+    }
+
+    #[test]
+    fn unique_headers_never_collide() {
+        let names = ["x", "x", "x_duplicated_1", "x"].map(String::from);
+        assert_eq!(
+            unique_headers(names.into_iter()),
+            ["x", "x_duplicated_1_", "x_duplicated_1", "x_duplicated_3"]
+        );
     }
 
     #[test]

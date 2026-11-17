@@ -637,9 +637,13 @@ impl Sheet {
         rid_values(&df)
     }
 
-    /// View rows from `at` to the next (`forward`) or previous selected row,
-    /// both ends included; None without one.
-    pub fn rids_to_selected(&self, at: u64, forward: bool) -> PolarsResult<Option<Vec<u64>>> {
+    /// That selected row's view index, and the rows from `at` to the next
+    /// (`forward`) or previous selected row, both ends included; None without one.
+    pub fn rids_to_selected(
+        &self,
+        at: u64,
+        forward: bool,
+    ) -> PolarsResult<Option<(u64, Vec<u64>)>> {
         let rids = rid_values(&self.sorted_plan(true).select([col(ROW_ID)]).collect()?)?;
         let at = (at as usize).min(rids.len().saturating_sub(1));
         let sel = &self.view.selected;
@@ -651,7 +655,7 @@ impl Sheet {
                 .map(|i| at + 1 + i),
             false => rids[..at].iter().rposition(|r| sel.contains(r)),
         };
-        Ok(hit.map(|h| rids[at.min(h)..=at.max(h)].to_vec()))
+        Ok(hit.map(|h| (h as u64, rids[at.min(h)..=at.max(h)].to_vec())))
     }
 
     /// `e` / `:edit`: set one cell (row id `rid`) of `column`.
@@ -782,16 +786,6 @@ impl Sheet {
         text: &str,
     ) -> Result<(), String> {
         self.make_editable()?;
-        // VisiData's pivot cells are computed: only its key columns take edits
-        // ponytail: paste and `:s` don't check this
-        let pivot_keys = match self.state.lineage.as_deref().map(|l| &l.how) {
-            Some(Derivation::PivotCount { keys, .. }) => Some(keys.clone()),
-            Some(Derivation::Pivot { index, .. }) => Some(vec![index.clone()]),
-            _ => None,
-        };
-        if pivot_keys.is_some_and(|k| !k.iter().any(|k| k == column)) {
-            return Err(format!("cannot edit readonly column {column}"));
-        }
         let (value, dtype) = self.edit_value(column, text)?;
         let step = PlanStep::SetCol {
             column: column.to_string(),
@@ -803,6 +797,20 @@ impl Sheet {
         self.insert_edit(column, step).map_err(|e| e.to_string())?;
         self.push_undo(before);
         Ok(())
+    }
+
+    /// VisiData's pivot cells are computed: only its key columns take edits.
+    pub(super) fn check_writable(&self, column: &str) -> Result<(), String> {
+        let keys = match self.state.lineage.as_deref().map(|l| &l.how) {
+            Some(Derivation::PivotCount { keys, .. }) => keys.as_slice(),
+            Some(Derivation::Pivot { index, .. }) => std::slice::from_ref(index),
+            _ => return Ok(()),
+        };
+        if keys.iter().any(|k| k == column) {
+            Ok(())
+        } else {
+            Err(format!("cannot edit readonly column {column}"))
+        }
     }
 
     /// The sheet's edit steps, in plan order.

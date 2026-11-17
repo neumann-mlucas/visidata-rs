@@ -1441,3 +1441,72 @@ fn adopt_drops_only_the_edit_the_new_rows_cant_take() {
     assert_eq!(names(&s), ["id", "z"]);
     assert!(s.view.hidden.is_empty());
 }
+
+/// VisiData's pivot cells are computed: every write path refuses them, and
+/// the key column still takes edits.
+#[test]
+fn pivot_aggregate_columns_refuse_every_write() {
+    let (parent, _t) = sheet_of("region,product,qty\nwest,a,1\neast,b,2\n");
+    let mut piv = Sheet::pivot_from(&parent, 1, "region", "product", "qty", "sum").unwrap();
+    Arc::make_mut(&mut piv.view.selected).extend([0u64, 1]);
+    let refused = |r: Result<(), String>| {
+        assert_eq!(r.unwrap_err(), "cannot edit readonly column a");
+    };
+    refused(piv.edit_cell("a", 0, "9"));
+    refused(piv.set_col("a", "9").map(drop));
+    refused(piv.set_expr("a", "9").map(drop));
+    let vals = Column::new("v".into(), ["7", "8"]);
+    refused(piv.paste_cells("a", &vals).map(drop));
+    piv.edit_cell("region", 0, "north").unwrap();
+    let df = piv.plan.clone().collect().unwrap();
+    let a: Vec<Option<i64>> = df.column("a").unwrap().i64().unwrap().iter().collect();
+    assert_eq!(a.iter().flatten().sum::<i64>(), 1); // unchanged
+}
+
+/// `{` `}` with the cursor past the last row (a stale window): the target is
+/// the selected row itself, not one counted from the stale cursor.
+#[test]
+fn rids_to_selected_gives_the_hit_row() {
+    let (mut s, _t) = make_sheet();
+    Arc::make_mut(&mut s.view.selected).insert(0);
+    assert_eq!(
+        s.rids_to_selected(10, false).unwrap(),
+        Some((0, vec![0, 1, 2]))
+    );
+    assert_eq!(
+        s.rids_to_selected(2, false).unwrap(),
+        Some((0, vec![0, 1, 2]))
+    );
+    assert_eq!(s.rids_to_selected(0, true).unwrap(), None);
+    Arc::make_mut(&mut s.view.selected).insert(2);
+    assert_eq!(
+        s.rids_to_selected(0, true).unwrap(),
+        Some((2, vec![0, 1, 2]))
+    );
+}
+
+/// `gF` on a key named like a stat column names its stats `freq_*`, as `F`
+/// does, instead of failing on a duplicate `count`.
+#[test]
+fn freq_keys_dodges_stat_names() {
+    let (p, _t) = sheet_of("count,g\n1,x\n1,x\n2,y\n");
+    let f = Sheet::freq_keys_from(&p, 1, &["count".into(), "g".into()]);
+    let df = f.plan.clone().collect().unwrap();
+    let names: Vec<String> = df
+        .get_column_names()
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    assert_eq!(
+        names,
+        ["count", "g", "freq_count", "freq_percent", "freq_histogram"]
+    );
+    let n: Vec<_> = df
+        .column("freq_count")
+        .unwrap()
+        .u32()
+        .unwrap()
+        .iter()
+        .collect();
+    assert_eq!(n, [Some(2), Some(1)]);
+}

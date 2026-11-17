@@ -505,6 +505,8 @@ impl Sheet {
     /// Unchanged on error; the undo step is the caller's.
     /// An expression edit also goes after the last writer of each column it reads.
     pub(super) fn insert_edit(&mut self, column: &str, step: PlanStep) -> PolarsResult<()> {
+        self.check_writable(column)
+            .map_err(|e| PolarsError::ComputeError(e.into()))?;
         let rids = step.edited_rids()?;
         let at = std::iter::once(column.to_string())
             .chain(step.reads())

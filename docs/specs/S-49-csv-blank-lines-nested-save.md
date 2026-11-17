@@ -8,12 +8,16 @@ Two VisiData fixes vdrs lacked, found by the parity probes (`docs/visidata-parit
 
 VisiData's csv and tsv loaders skip blank lines; Polars reads each as a row of nulls.
 
-- At open, one byte pass looks for an empty line (`\n\n`, `\n\r\n`) after the
-  first (`has_blank_line`). If there is one, the scan drops rows whose cells are
-  all null (`LoadedSource.csv.blank_lines`). A file without blank lines reads as before.
-- Ceiling: in such a file a `,,` line goes too (VisiData keeps it as an empty row).
-- `:export` repeats it: Polars `.filter(pl.any_horizontal(pl.all().is_not_null()))`,
-  DuckDB `WHERE NOT (a IS NULL AND …)`.
+- At open, one byte pass looks for empty lines (`\n\n`, `\n\r\n`) after the
+  first (`blank_lines`). If one has data after it, the scan drops rows whose cells
+  are all null (`LoadedSource.csv.blank_lines`). Blank lines that only end the
+  file drop that many last rows (`csv.trailing_blanks`), so a `,,` row stays.
+  A file without blank lines reads as before.
+- Ceiling: with a blank line inside the data, a `,,` line goes too (VisiData
+  keeps it as an empty row).
+- `:export` repeats it: Polars `.filter(pl.any_horizontal(pl.all().is_not_null()))`
+  (trailing only: `.filter(pl.int_range(pl.len()) < pl.len() - k)`),
+  DuckDB `WHERE NOT (a IS NULL AND …)` (DuckDB skips trailing blank lines itself).
 
 ## Nested cells in text saves (VisiData #2944, 3.5)
 
