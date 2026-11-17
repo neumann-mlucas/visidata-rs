@@ -2747,6 +2747,35 @@ mod tests {
         assert!(to_sql(&copy).unwrap().contains("regexp_matches"));
     }
 
+    /// S-49: blank lines between rows drop all-empty rows in both scripts;
+    /// ones only at the end drop just those rows (DuckDB skips them itself).
+    #[test]
+    fn csv_blank_lines_export_as_read() {
+        let open = |text: &str| {
+            let mut t = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+            t.write_all(text.as_bytes()).unwrap();
+            let s = Sheet::from_source(0, crate::reader::open(t.path().as_os_str(), None).unwrap());
+            (to_python(&s).unwrap(), to_sql(&s).unwrap(), t)
+        };
+        let (py, sql, _t) = open("a,b\n1,2\n,\n3,4\n\n\n");
+        assert!(
+            py.contains(".filter(pl.int_range(pl.len()) < pl.len() - 2)"),
+            "{py}"
+        );
+        assert!(!py.contains("any_horizontal"), "{py}");
+        assert!(!sql.contains("IS NULL"), "{sql}");
+        let (py, sql, _t) = open("a,b\n1,2\n\n3,4\n");
+        assert!(
+            py.contains("any_horizontal(pl.all().is_not_null())"),
+            "{py}"
+        );
+        assert!(!py.contains("int_range"), "{py}");
+        assert!(
+            sql.contains("WHERE NOT (\"a\" IS NULL AND \"b\" IS NULL)"),
+            "{sql}"
+        );
+    }
+
     #[test]
     fn python_strings_escape_control_characters() {
         assert_eq!(

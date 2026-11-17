@@ -1510,3 +1510,41 @@ fn freq_keys_dodges_stat_names() {
         .collect();
     assert_eq!(n, [Some(2), Some(1)]);
 }
+
+/// `T` on a list column: Polars can't cast it to text, so its cells go one
+/// by one, and the transpose still opens.
+#[test]
+fn transpose_takes_list_columns() {
+    let t = tempfile::Builder::new()
+        .suffix(".jsonl")
+        .tempfile()
+        .unwrap();
+    std::fs::write(
+        t.path(),
+        "{\"k\":\"a\",\"l\":[1,2]}\n{\"k\":\"b\",\"l\":null}\n",
+    )
+    .unwrap();
+    let mut p = Sheet::from_source(0, reader::open(t.path().as_os_str(), None).unwrap());
+    p.view.keys = vec!["k".into()];
+    let df = Sheet::transpose_from(&p, 1)
+        .unwrap()
+        .plan
+        .collect()
+        .unwrap();
+    let names: Vec<String> = df
+        .get_column_names()
+        .iter()
+        .map(|n| n.to_string())
+        .collect();
+    assert_eq!(names, ["k", "a", "b"]);
+    let a = df
+        .column("a")
+        .unwrap()
+        .str()
+        .unwrap()
+        .get(0)
+        .unwrap()
+        .to_string();
+    assert!(a.contains('1') && a.contains('2'), "{a}");
+    assert_eq!(df.column("b").unwrap().str().unwrap().get(0), None);
+}

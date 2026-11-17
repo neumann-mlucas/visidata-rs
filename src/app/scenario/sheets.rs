@@ -1234,3 +1234,31 @@ async fn join_all_edits_write_back_only_to_live_sheets() {
         [Some("s".into()), Some("q".into()), Some("r".into())]
     ); // C
 }
+
+/// S-51: `gF` over keys with empty cells: `g<CR>` on every row brings back
+/// every parent row (nulls match nulls); `g&` append needs no keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_keys_dive_matches_nulls_and_join_all_appends() {
+    let mut h = csv(b"k,g\na,\n,x\na,\n").await;
+    h.keys("! l ! g F").await;
+    assert!(
+        view_csv(&h).starts_with("k,g,count,percent,histogram\na,,2,"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("g s").await;
+    h.keys("g <CR>").await;
+    assert_eq!(view_csv(&h), "k,g\na,\n,x\na,\n", "{}", status(&h));
+
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("o.csv");
+    std::fs::write(&other, "k,g\nz,y\n").unwrap();
+    let mut h = csv(b"k,g\na,x\n").await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", other.display())).await;
+    h.keys("g &").await;
+    h.type_("append").await;
+    let s = h.app.sheets.active();
+    assert!(s.name.ends_with("(append)"), "{}", s.name);
+    assert_eq!(s.window().map(|w| w.height()), Some(2), "{}", view_csv(&h));
+}
