@@ -123,6 +123,12 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|
 | `SelectRow` / `ToggleSelectRow` / `UnselectRow` | `s` / `t` / `u` | View.selected (`BTreeSet<u64>` of row ids — position in the base plan); cursor moves down after, as VisiData |
 | `SelectBefore` / `UnselectBefore` | `zs` / `zu` | rows from the top to the cursor; background job |
+| `GotoSelected { forward }` | `}` / `{` | VisiData go-next/prev-selected: cursor to the next (previous) selected row, view order; `Sheet::rids_to_selected`, background job (S-50) |
+| `ValueChange` / `NullChange { forward }` | `>` `<` / `z>` `z<` | VisiData go-next/prev-value, go-next/prev-null: down (up) the column to a different value / a null, loaded rows (S-50) |
+| `SortKeys { descending }` | `g[` / `g]` | VisiData sort-keys-asc/desc: sort by the key columns, replacing the sort; none → toast (S-50) |
+| `Melt` | `M` | VisiData melt: `Unpivot` of the visible non-key columns, keys as index (S-50) |
+| `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |
+| `ExPrompt { cmd }` | `o` / `Ctrl+S` / `&` | VisiData open-file, save-sheet, join-sheets-top2: the ex line holding `open ` / `save ` / `join <sheet below> ` (S-50) |
 | `SelectToSelected { forward }` | `z}` / `z{` | the cursor row through the next (previous) selected row, view order; none → `no selected row`; `Sheet::rids_to_selected`, background job (S-41 B) |
 | `SelectAll` / `UnselectAll` | `gs` / `gu` | every row of the view (needs the row count) |
 | `SelectByRegex { regex, unselect, all }` | — | regex (case-insensitive, VisiData's `regex_flags` `I`) over the current col, or any visible col (`all`); whole view; `Sheet::rids_matching_any` (S-41 A) |

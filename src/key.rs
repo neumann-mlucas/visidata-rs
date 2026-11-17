@@ -80,7 +80,7 @@ impl FromStr for Key {
         if s.is_empty() {
             return Err("empty key".into());
         }
-        if !s.starts_with('<') {
+        if !s.starts_with('<') || s == "<" {
             let mut cs = s.chars();
             let c = cs.next().ok_or("empty")?;
             if cs.next().is_some() {

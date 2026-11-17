@@ -53,6 +53,9 @@ The comparison: every `addCommand` key on `BaseSheet`, `Sheet`, `TableSheet`,
 | Meta sheets | `gS` sheets-all, `zO` sheet options, `gO` open-config, `Ctrl+E` `gCtrl+E` `zCtrl+E` errors, `Ctrl+P` statuses, `Ctrl+T` threads, `gI` describe-all | `O`, `I` |
 | Python-only | `Ctrl+X` pyobj-expr, `Ctrl+Y` pyobj-row, `gCtrl+X` import-python, menus `Alt+…` | out of scope |
 
+S-50 bound `o`, `Ctrl+S`, `&`, `M`, `{` `}`, `<` `>`, `z<` `z>`, `c`, `g[` `g]`.
+Still open from those rows: `T`, `gF`, `zEnter`, `g&`.
+
 The first three rows matter most. A VisiData user presses `o`, `Ctrl+S`, `&`,
 `M`, `{`/`}` and `<`/`>` from muscle memory. Each is one keymap row to an
 action vdrs already has, or a small action.

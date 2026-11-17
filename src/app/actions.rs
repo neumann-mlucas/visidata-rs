@@ -639,8 +639,9 @@ impl App {
                     None => self.toast = Some("no other non-empty cell in this row".into()),
                 }
             }
-            Action::ValueChange { forward } => {
+            Action::ValueChange { forward } | Action::NullChange { forward } => {
                 // ponytail: the loaded rows only; a job over the view if it matters
+                let null = matches!(action, Action::NullChange { .. });
                 let s = self.sheets.active_mut();
                 let Some(df) = s.window() else { return };
                 let (r, c) = (s.view.row_cursor, s.view.col_cursor);
@@ -648,16 +649,77 @@ impl App {
                     return;
                 };
                 let here = col.get(r).map(|v| v.into_static()).ok();
-                let differs = |i: &usize| col.get(*i).map(|v| v.into_static()).ok() != here;
+                let hit = |i: &usize| match null {
+                    true => col.get(*i).is_ok_and(|v| v.is_null()),
+                    false => col.get(*i).map(|v| v.into_static()).ok() != here,
+                };
                 let hit = match forward {
-                    true => (r + 1..df.height()).find(differs),
-                    false => (0..r).rev().find(differs),
+                    true => (r + 1..df.height()).find(hit),
+                    false => (0..r).rev().find(hit),
                 };
                 match hit {
                     Some(i) => s.view.row_cursor = i,
+                    None if null => self.toast = Some("no null in the loaded rows".into()),
                     None => self.toast = Some("no other value in the loaded rows".into()),
                 }
             }
+            Action::GotoSelected { forward } => {
+                let at = self.cursor_row();
+                let col = self.sheets.active().view.col_cursor;
+                let sheet = self.sheets.active().clone();
+                self.spawn_job("go to selected", move || {
+                    let n = sheet
+                        .rids_to_selected(at, forward)
+                        .map_err(|e| e.to_string())?
+                        .ok_or("no selected row")?
+                        .len() as u64
+                        - 1;
+                    let row = if forward { at + n } else { at - n };
+                    Ok(JobDone::Jump { row, col })
+                });
+            }
+            Action::SortKeys { descending } => {
+                let s = self.sheets.active_mut();
+                if s.view.keys.is_empty() {
+                    self.toast = Some("no key columns to sort by".into());
+                    return;
+                }
+                let order = if descending {
+                    SortOrder::Desc
+                } else {
+                    SortOrder::Asc
+                };
+                s.view.sort = (s.view.keys.iter())
+                    .map(|k| SortKey {
+                        column: k.clone(),
+                        order,
+                    })
+                    .collect();
+                s.view.window_offset = 0;
+                s.view.row_cursor = 0;
+                s.view.row_offset = 0;
+            }
+            Action::Melt => {
+                let keys = self.sheets.active().view.keys.clone();
+                let on: Vec<String> = (self.column_names().into_iter())
+                    .filter(|c| !keys.contains(c))
+                    .collect();
+                self.open_unpivot(&on, &keys);
+            }
+            Action::ExPrompt { cmd } => {
+                let mut text = format!("{cmd} ");
+                if cmd == "join"
+                    && let Some(below) = self.sheets.iter().rev().nth(1)
+                {
+                    text += &crate::action::quote_arg(&below.name);
+                    text.push(' ');
+                }
+                self.start_input(Prompt::Ex);
+                if let Some((_, line)) = &mut self.input {
+                    line.set(&text);
+                }
+            }
+            Action::StartGoColRegexInput => self.start_input(Prompt::GoColRegex),
             Action::SearchCell { backward } => {
                 let s = self.sheets.active();
                 let Some(v) = self.current_column_name().and_then(|c| s.cursor_value(&c)) else {

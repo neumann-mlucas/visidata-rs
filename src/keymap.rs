@@ -129,6 +129,13 @@ impl Keymap {
             ch("0", GotoLeftmost, "leftmost column"),
             ch("g l", GotoRightmost, "rightmost column"),
             ch("z c", StartGoColInput, "go to column number (0-based, negative from the end)"),
+            ch("c", StartGoColRegexInput, "go to the next column whose name matches a regex"),
+            ch("<", ValueChange { forward: false }, "up the column to a different value"),
+            ch(">", ValueChange { forward: true }, "down the column to a different value"),
+            ch("z <", NullChange { forward: false }, "up the column to a null"),
+            ch("z >", NullChange { forward: true }, "down the column to a null"),
+            ch("{", GotoSelected { forward: false }, "go to the previous selected row"),
+            ch("}", GotoSelected { forward: true }, "go to the next selected row"),
             // column meta
             ch("-", HideCol, "hide current column"),
             ch("g v", UnhideAll, "unhide all columns"),
@@ -190,6 +197,9 @@ impl Keymap {
             // sort
             ch("[", SortAsc, "sort ascending by current column"),
             ch("]", SortDesc, "sort descending by current column"),
+            ch("g [", SortKeys { descending: false }, "sort ascending by the key columns"),
+            ch("g ]", SortKeys { descending: true }, "sort descending by the key columns"),
+            ch("M", Melt, "melt: non-key columns to variable/value rows"),
             ch("z o", OpenCellFile, "open the file or URL path in the current cell"),
             // derived sheets
             ch("F", OpenFreqTable, "frequency table of current column"),
@@ -272,6 +282,9 @@ impl Keymap {
             ch("<C-g>", CycleSidebar, "sidebar: next page (column, cell, help, plan)"),
             // ex-line
             ch(":", StartExInput, "ex command"),
+            ch("o", ExPrompt { cmd: "open" }, "open a file (:open)"),
+            ch("<C-s>", ExPrompt { cmd: "save" }, "save the sheet (:save)"),
+            ch("&", ExPrompt { cmd: "join" }, "join with the sheet below (:join)"),
             ch("<Space>", StartExInput, "ex command (any command by name)"),
             ch("=", StartDeriveInput, "new column from SQL expression"),
             // repeat / sheet stack / quit

@@ -384,6 +384,8 @@ enum Prompt {
     AddCol,
     /// `zc` (VisiData go-col-number): 0-based, negative from the end.
     GoCol,
+    /// `c` (VisiData go-col-regex).
+    GoColRegex,
     /// `zH` / `zL` (S-34): how many places to slide.
     Slide {
         left: bool,
@@ -525,6 +527,7 @@ impl Prompt {
             Prompt::Note => "note (empty deletes): ",
             Prompt::AddCol => "column name: ",
             Prompt::GoCol => "move to column number: ",
+            Prompt::GoColRegex => "move to column name matching regex: ",
             Prompt::Slide { left: true } => "slide col left n=",
             Prompt::Slide { left: false } => "slide col right n=",
             Prompt::Capture => "capture regex: ",

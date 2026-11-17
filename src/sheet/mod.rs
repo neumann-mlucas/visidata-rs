@@ -433,7 +433,7 @@ impl Sheets {
     pub fn summaries(&self) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
         self.stack.iter().map(|s| (s.id, s.name.as_str(), s.kind))
     }
-    pub fn iter(&self) -> impl Iterator<Item = &Sheet> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Sheet> {
         self.stack.iter()
     }
     pub fn find_by_id_mut(&mut self, id: SheetId) -> Option<&mut Sheet> {

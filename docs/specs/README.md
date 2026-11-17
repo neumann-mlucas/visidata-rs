@@ -54,6 +54,7 @@ File naming: `S-NN-slug.md`.
 | S-47 | Local replay corpus (`tests/vd_local`) | S-14 | **shipped 2026-11-16** → [`S-47-local-replay-corpus.md`](S-47-local-replay-corpus.md) |
 | S-48 | Option `csv_skipinitialspace` | S-43, S-47 | **shipped 2026-11-16** → [`S-48-csv-skipinitialspace.md`](S-48-csv-skipinitialspace.md) |
 | S-49 | CSV blank lines; nested cells save as JSON | S-47 | **shipped 2026-11-16** → [`S-49-csv-blank-lines-nested-save.md`](S-49-csv-blank-lines-nested-save.md) |
+| S-50 | VisiData default keys: `o` `Ctrl+S` `&` `M` `{` `}` `<` `>` `z<` `z>` `c` `g[` `g]` | S-26 | **shipped 2026-11-16** → [`S-50-visidata-default-keys.md`](S-50-visidata-default-keys.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

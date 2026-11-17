@@ -928,7 +928,7 @@ b("U", "unselect_row")               -- default: undo
 vd.unbind("sheet", "R")              -- default: redo
 b("x", "cut_cell")                   -- default: cut row
 b("H", "screen_top")                 -- default: slide column left
-b("M", "screen_middle")              -- default: unbound (:melt)
+b("M", "screen_middle")              -- default: melt (:melt here)
 b("L", "screen_bottom")              -- default: slide column right
 b({"z", "t"}, "scroll_top")
 b({"z", "b"}, "scroll_bottom")
@@ -936,8 +936,8 @@ b("w", "next_cell")
 b("b", "prev_cell")                  -- default: sidebar (<C-g> cycles it)
 b("e", "last_cell")                  -- default: edit (i here)
 b("i", "start_edit_input")
-b("}", "next_value")
-b("{", "prev_value")
+b("}", "next_value")                -- default: next selected row
+b("{", "prev_value")                -- default: previous selected row
 b("*", "search_cell")
 b("#", "searchr_cell")               -- default: int cast (z# here)
 b({"z", "#"}, "type_cast_int")
@@ -949,7 +949,7 @@ b({"<C-w>", "q"}, "close_pane")
 b({"Z", "Z"}, "pop_sheet")
 b("d", "operator_delete")             -- default: delete row (dd here)
 b("y", "operator_yank")               -- default: copy row (yy here)
-b("c", "operator_change")
+b("c", "operator_change")            -- default: go to column by regex
 b('"', "register_prefix")            -- default: selected rows as a sheet (:dupsel)
 b("m", "set_mark")                   -- default: record macro (q here)
 b("'", "go_mark")

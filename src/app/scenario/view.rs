@@ -1032,3 +1032,52 @@ async fn describe_select_cell() {
         .collect();
     assert_eq!(sel, [1, 2, 3, 4], "{}", status(&h));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn visidata_motion_sort_and_prompt_keys() {
+    let mut h = csv(b"n,k\n1,a\n1,b\n,c\n2,d\n").await;
+    let row = |h: &Harness| h.app.sheets.active().view.row_cursor;
+    h.keys(">").await; // 1 → the null differs
+    assert_eq!(row(&h), 2);
+    h.keys(">").await;
+    assert_eq!(row(&h), 3);
+    h.keys("z <").await;
+    assert_eq!(row(&h), 2);
+    h.keys("<").await;
+    assert_eq!(row(&h), 1);
+    h.keys("g g z >").await;
+    assert_eq!(row(&h), 2);
+
+    h.keys("g g s j s").await; // rows 0 and 2 selected, cursor on 3
+    h.keys("{").await;
+    assert_eq!(row(&h), 2, "{}", status(&h));
+    h.keys("{").await;
+    assert_eq!(row(&h), 0, "{}", status(&h));
+    h.keys("}").await;
+    assert_eq!(row(&h), 2, "{}", status(&h));
+
+    h.keys("c").await;
+    h.type_("^k$").await;
+    assert_eq!(h.app.sheets.active().view.col_cursor, 1);
+    h.keys("! g ]").await;
+    assert!(
+        view_csv(&h).starts_with("k,n\nd,2\nc,\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("M").await;
+    assert!(
+        view_csv(&h).starts_with("k,Variable,Value\n"),
+        "{}",
+        view_csv(&h)
+    );
+    let below = h.app.sheets.iter().rev().nth(1).unwrap().name.clone();
+
+    let line = |h: &Harness| h.app.input.as_ref().map(|(_, l)| l.text().to_string());
+    h.keys("o").await;
+    assert_eq!(line(&h).as_deref(), Some("open "));
+    h.keys("<Esc> <C-s>").await;
+    assert_eq!(line(&h).as_deref(), Some("save "));
+    h.keys("<Esc> &").await;
+    assert_eq!(line(&h), Some(format!("join {below} ")));
+}

@@ -419,6 +419,23 @@ impl App {
                 }
                 Err(_) => self.toast = Some(format!("go to column: not a number: {text}")),
             },
+            Prompt::GoColRegex => match regex::Regex::new(&text) {
+                Ok(re) => {
+                    let names = self.column_names();
+                    let s = self.sheets.active_mut();
+                    let at = s.view.col_cursor;
+                    let n = names.len();
+                    // after the cursor, wrapping round to it, as VisiData
+                    match (1..=n)
+                        .map(|i| (at + i) % n)
+                        .find(|&i| re.is_match(&names[i]))
+                    {
+                        Some(i) => s.view.col_cursor = i,
+                        None => self.toast = Some(format!("no column name matches /{text}/")),
+                    }
+                }
+                Err(e) => self.toast = Some(format!("go to column: {e}")),
+            },
             Prompt::Slide { left } => match text.trim().parse::<i64>() {
                 Ok(n) if n > 0 => {
                     let by = if left { -n } else { n };

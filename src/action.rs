@@ -37,6 +37,30 @@ pub enum Action {
     },
     /// `zc` (VisiData go-col-number): prompt for a column number.
     StartGoColInput,
+    /// `c` (VisiData go-col-regex): prompt for a regex, go to the next column
+    /// whose name matches.
+    StartGoColRegexInput,
+    /// `{` / `}` (VisiData go-prev/next-selected): cursor to the previous
+    /// (next) selected row.
+    GotoSelected {
+        forward: bool,
+    },
+    /// `z<` / `z>` (VisiData go-prev/next-null): up (down) the column to a null.
+    NullChange {
+        forward: bool,
+    },
+    /// `g[` / `g]` (VisiData sort-keys-asc/desc): sort by the key columns,
+    /// replacing the sort.
+    SortKeys {
+        descending: bool,
+    },
+    /// `M` (VisiData melt): unpivot the non-key columns, keys kept.
+    Melt,
+    /// `o` / `Ctrl+S` / `&` (VisiData open-file, save-sheet, join-sheets-top2):
+    /// the ex prompt holding `cmd ` (`join` adds the sheet below).
+    ExPrompt {
+        cmd: &'static str,
+    },
     /// `zo` (VisiData open-cell-file): open the path in the cursor cell.
     OpenCellFile,
     /// `_` (VisiData resize-col-max): toggle the column between full and default width.
@@ -821,6 +845,8 @@ impl Action {
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
             SelectToSelected { .. } => true,
+            GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
+            StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
             Substitute { .. } | SubstPrompted { .. } | Hits { .. } => true,
@@ -1097,6 +1123,17 @@ impl Action {
         ("prev_cell", CellMotion { to: -1 }),
         ("last_cell", CellMotion { to: 2 }),
         ("next_value", ValueChange { forward: true }),
+        ("next_null", NullChange { forward: true }),
+        ("prev_null", NullChange { forward: false }),
+        ("next_selected", GotoSelected { forward: true }),
+        ("prev_selected", GotoSelected { forward: false }),
+        ("sort_keys_asc", SortKeys { descending: false }),
+        ("sort_keys_desc", SortKeys { descending: true }),
+        ("start_go_col_regex_input", StartGoColRegexInput),
+        ("melt", Melt),
+        ("open_file", ExPrompt { cmd: "open" }),
+        ("save_sheet", ExPrompt { cmd: "save" }),
+        ("join_sheets_top2", ExPrompt { cmd: "join" }),
         ("prev_value", ValueChange { forward: false }),
         ("operator_delete", Operator { op: 'd', count: None }),
         ("operator_yank", Operator { op: 'y', count: None }),
@@ -1377,7 +1414,7 @@ impl Action {
 }
 
 /// One ex argument: bare when it splits back to itself, else double-quoted.
-fn quote_arg(s: &str) -> String {
+pub(crate) fn quote_arg(s: &str) -> String {
     let bare = !s.is_empty()
         && !s
             .chars()
