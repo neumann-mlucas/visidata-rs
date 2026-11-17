@@ -160,6 +160,12 @@ pub enum Derivation {
         aggs: Vec<(String, String)>,
     },
     Describe,
+    /// `T` (VisiData transpose): columns as rows.
+    Transpose,
+    /// `gF` (VisiData freq-keys): freq grouped by `columns`.
+    FreqKeys {
+        columns: Vec<String>,
+    },
     /// `zM`: a row per item of `column` (S-22); `empty`: `unfurl_empty`.
     Unfurl {
         column: String,
@@ -341,6 +347,18 @@ pub enum Origin {
         left: SheetId,
         right_name: String,
     },
+    /// `T` (VisiData transpose).
+    Transpose {
+        parent: SheetId,
+    },
+    /// `zEnter` (VisiData open-cell): a cell's list or dict; `<CR>` opens a
+    /// row as `key`/`value` rows.
+    Cell,
+    /// `gF` (VisiData freq-keys): `<CR>` dives on every column of `columns`.
+    FreqKeys {
+        parent: SheetId,
+        columns: Vec<String>,
+    },
 }
 
 impl Origin {
@@ -370,6 +388,9 @@ impl Origin {
             Origin::Copy { .. } => "copy",
             Origin::Parts { .. } => "parts",
             Origin::Join { .. } => "join",
+            Origin::Transpose { .. } => "transpose",
+            Origin::FreqKeys { .. } => "freq",
+            Origin::Cell => "cell",
         }
     }
 }

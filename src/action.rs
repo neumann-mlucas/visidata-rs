@@ -56,6 +56,17 @@ pub enum Action {
     },
     /// `M` (VisiData melt): unpivot the non-key columns, keys kept.
     Melt,
+    /// `T` (VisiData transpose): columns as rows (`Sheet::transpose_from`).
+    Transpose,
+    /// `gF` (VisiData freq-keys): freq over all key columns together.
+    FreqKeys,
+    /// `zEnter` (VisiData open-cell): the cursor cell's list or dict as a sheet.
+    OpenCell,
+    /// `g&` / `:join-all <how>` (VisiData join-sheets-all): this sheet joined
+    /// with every other sheet on the stack, top down, on its key columns.
+    JoinAll {
+        how: String,
+    },
     /// `o` / `Ctrl+S` / `&` (VisiData open-file, save-sheet, join-sheets-top2):
     /// the ex prompt holding `cmd ` (`join` adds the sheet below).
     ExPrompt {
@@ -846,6 +857,7 @@ impl Action {
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
+            Transpose | JoinAll { .. } | FreqKeys | OpenCell => true,
             StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
@@ -1131,6 +1143,10 @@ impl Action {
         ("sort_keys_desc", SortKeys { descending: true }),
         ("start_go_col_regex_input", StartGoColRegexInput),
         ("melt", Melt),
+        ("transpose", Transpose),
+        ("freq_keys", FreqKeys),
+        ("open_cell", OpenCell),
+        ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
         ("save_sheet", ExPrompt { cmd: "save" }),
         ("join_sheets_top2", ExPrompt { cmd: "join" }),
@@ -1278,6 +1294,7 @@ impl Action {
             Export { path } => format!("export {}", q(path)),
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
+            JoinAll { how } => format!("join-all {how}"),
             Derive { name, expr } if !name.contains('=') => format!("derive {} = {expr}", q(name)),
             Lookup {
                 source,
@@ -1456,6 +1473,7 @@ mod tests {
         use Action::*;
         let s = |v: &str| v.to_string();
         let cases = [
+            JoinAll { how: s("full") },
             CursorDown { count: Some(3) },
             CursorUp { count: Some(1) },
             CursorLeft { count: Some(2) },

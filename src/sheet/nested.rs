@@ -323,6 +323,119 @@ impl Sheet {
     }
 }
 
+impl Sheet {
+    /// `zEnter` (VisiData open-cell): cell `v` (a list, a struct, or text
+    /// holding a JSON array or object) as a sheet named `name`. A list of
+    /// objects is a table; a list of other values one column named `name`; an
+    /// object `key`/`value` rows keyed on `key`. Values of mixed types become
+    /// text (JSON for the nested ones), which `zEnter` reads again.
+    pub fn open_cell(id: SheetId, name: String, v: &AnyValue) -> Result<Sheet, String> {
+        Self::open_json(id, name, cell_json(v))
+    }
+
+    /// `<CR>` on a `zEnter` sheet (VisiData open-row there): the cursor row's
+    /// visible cells as `key`/`value` rows, named `name[rowkey]`.
+    pub fn open_cell_row(&self, id: SheetId, row: usize) -> Result<Sheet, String> {
+        let df = self.view_plan().collect().map_err(|e| e.to_string())?;
+        let cell = |c: &Column| {
+            c.get(row)
+                .map(|v| v.into_static())
+                .map_err(|e| e.to_string())
+        };
+        let mut obj = serde_json::Map::new();
+        let mut key = Vec::new();
+        for c in df.columns() {
+            let v = cell(c)?;
+            if self.view.keys.iter().any(|k| k == c.name().as_str()) {
+                key.push(any_text(&v));
+            }
+            let j = match &v {
+                AnyValue::Null => serde_json::Value::Null,
+                AnyValue::String(t) => serde_json::Value::String(t.to_string()),
+                AnyValue::StringOwned(t) => serde_json::Value::String(t.to_string()),
+                v => cell_json(v).unwrap_or_else(|| serde_json::Value::String(any_text(v))),
+            };
+            obj.insert(c.name().to_string(), j);
+        }
+        let key = if key.is_empty() {
+            row.to_string()
+        } else {
+            key.join(",")
+        };
+        Self::open_json(
+            id,
+            format!("{}[{key}]", self.name),
+            Some(serde_json::Value::Object(obj)),
+        )
+    }
+
+    fn open_json(
+        id: SheetId,
+        name: String,
+        parsed: Option<serde_json::Value>,
+    ) -> Result<Sheet, String> {
+        use serde_json::Value as J;
+        let fail = || "cannot dive deeper on this object".to_string();
+        let as_text = |v: J| match v {
+            J::String(t) => J::String(t),
+            J::Null => J::Null,
+            v => J::String(v.to_string()),
+        };
+        let rows = |pairs: Vec<serde_json::Map<String, J>>| -> Result<DataFrame, String> {
+            let objs = pairs.iter().cloned().map(J::Object).collect();
+            match crate::reader::records(objs) {
+                Ok(df) => Ok(df),
+                Err(_) => {
+                    let text = pairs
+                        .into_iter()
+                        .map(|m| J::Object(m.into_iter().map(|(k, v)| (k, as_text(v))).collect()));
+                    crate::reader::records(text.collect()).map_err(|e| e.to_string())
+                }
+            }
+        };
+        let (df, keys) = match parsed.ok_or_else(fail)? {
+            J::Array(items) if !items.is_empty() && items.iter().all(J::is_object) => {
+                let objs = items.into_iter().filter_map(|i| match i {
+                    J::Object(m) => Some(m),
+                    _ => None,
+                });
+                (rows(objs.collect())?, vec![])
+            }
+            J::Array(items) => {
+                let one = |v: J| [(name.clone(), v)].into_iter().collect();
+                (rows(items.into_iter().map(one).collect())?, vec![])
+            }
+            J::Object(m) => {
+                let kv = m.into_iter().map(|(k, v)| {
+                    [("key".to_string(), J::String(k)), ("value".to_string(), v)]
+                        .into_iter()
+                        .collect()
+                });
+                (rows(kv.collect())?, vec!["key".to_string()])
+            }
+            _ => return Err(fail()),
+        };
+        let src = crate::reader::LoadedSource::from_df(SourceKind::Json, name.clone(), None, df);
+        let mut sheet = Sheet::from_source(id, src);
+        sheet.name = name;
+        sheet.view.keys = keys;
+        sheet.origin = Origin::Cell;
+        Ok(sheet)
+    }
+}
+
+/// A list or struct cell as JSON, or text holding a JSON array or object;
+/// `None` for anything else. Dates and the like become JSON text, so a row of
+/// them reads back as text.
+fn cell_json(v: &AnyValue) -> Option<serde_json::Value> {
+    let j: serde_json::Value = match v {
+        AnyValue::String(t) => serde_json::from_str(t).ok()?,
+        AnyValue::StringOwned(t) => serde_json::from_str(t).ok()?,
+        v => serde_json::from_str(&crate::sheet::write::py_json(v)).ok()?,
+    };
+    Some(j)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

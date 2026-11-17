@@ -699,6 +699,56 @@ impl App {
                 s.view.row_cursor = 0;
                 s.view.row_offset = 0;
             }
+            Action::Transpose => {
+                let parent = self.sheets.active().clone();
+                let id = self.sheets.alloc_id();
+                self.spawn_job("transpose", move || {
+                    Ok(JobDone::PushSheet(Box::new(Sheet::transpose_from(
+                        &parent, id,
+                    )?)))
+                });
+            }
+            Action::JoinAll { how } => self.open_join_all(&how),
+            Action::OpenCell => {
+                let Some(column) = self.current_column_name() else {
+                    return;
+                };
+                let s = self.sheets.active();
+                let Some(v) = s.cursor_value(&column).map(|v| v.into_static()) else {
+                    return;
+                };
+                // VisiData's `name[rowkey].column`; the row number without keys
+                let key: Vec<String> = (s.view.keys.iter())
+                    .map(|k| {
+                        s.cursor_value(k)
+                            .map_or(String::new(), |v| crate::sheet::any_text(&v))
+                    })
+                    .collect();
+                let key = match key.is_empty() {
+                    true => self.cursor_row().to_string(),
+                    false => key.join(","),
+                };
+                let name = format!("{}[{key}].{column}", s.name);
+                let id = self.sheets.alloc_id();
+                match Sheet::open_cell(id, name, &v) {
+                    Ok(child) => {
+                        self.sheets.push(child);
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(e),
+                }
+            }
+            Action::FreqKeys => {
+                let parent = self.sheets.active().clone();
+                if parent.view.keys.is_empty() {
+                    self.toast = Some("there are no key columns to group by".into());
+                    return;
+                }
+                let id = self.sheets.alloc_id();
+                let keys = parent.view.keys.clone();
+                self.sheets.push(Sheet::freq_keys_from(&parent, id, &keys));
+                self.spawn_materialize();
+            }
             Action::Melt => {
                 let keys = self.sheets.active().view.keys.clone();
                 let on: Vec<String> = (self.column_names().into_iter())
@@ -1501,6 +1551,11 @@ impl App {
                     self.toast = Some(format!("nothing to {}", if undo { "undo" } else { "redo" }));
                 }
             }
+            Action::SubmitSelected
+                if matches!(self.sheets.active().origin, Origin::FreqKeys { .. }) =>
+            {
+                self.dive_freq_keys(true)
+            }
             Action::SubmitSelected => self.dive_freq(true),
             Action::SelectEqualCell => {
                 let s = self.sheets.active();
@@ -1986,6 +2041,18 @@ impl App {
                 }
             }
             Origin::Freq { .. } => self.dive_freq(false),
+            Origin::FreqKeys { .. } => self.dive_freq_keys(false),
+            Origin::Cell => {
+                let row = self.cursor_row() as usize;
+                let id = self.sheets.alloc_id();
+                match self.sheets.active().open_cell_row(id, row) {
+                    Ok(child) => {
+                        self.sheets.push(child);
+                        self.spawn_materialize();
+                    }
+                    Err(e) => self.toast = Some(e),
+                }
+            }
             Origin::Hits { parent } => {
                 let parent = *parent;
                 let s = self.sheets.active();
@@ -2070,6 +2137,46 @@ impl App {
         if !self.sheets.switch_to(id) {
             self.toast = Some(format!("no sheet with id {id}"));
         }
+    }
+
+    /// `gF` sheet: the parent's rows whose key values are the cursor row's
+    /// (`<CR>`) or any selected row's (`g<CR>`).
+    fn dive_freq_keys(&mut self, selected: bool) {
+        let s = self.sheets.active();
+        let Origin::FreqKeys { parent, columns } = s.origin.clone() else {
+            return;
+        };
+        let rids: Vec<u64> = match selected {
+            true => s.view.selected.iter().copied().collect(),
+            false => self.rid_at_cursor().into_iter().collect(),
+        };
+        if rids.is_empty() {
+            self.toast = Some("no rows selected".into());
+            return;
+        }
+        let plan = s.plan.clone();
+        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
+            self.toast = Some("dive: parent sheet was closed".into());
+            return;
+        };
+        let id = self.sheets.alloc_id();
+        self.spawn_job("dive", move || {
+            // row ids are positions in the freq sheet's plan
+            const R: &str = "__vdrs_r";
+            let ids = Series::new("ids".into(), rids);
+            let wanted = (plan.with_row_index(R, None))
+                .filter(
+                    col(R)
+                        .cast(DataType::UInt64)
+                        .is_in(lit(ids).implode(false), false),
+                )
+                .select(columns.iter().map(|c| col(c.as_str())).collect::<Vec<_>>())
+                .collect()
+                .map_err(|e| e.to_string())?;
+            let name = format!("{}_{}", parent.name, columns.join("_"));
+            let child = Sheet::rows_with_keys(&parent, id, &columns, wanted, name)?;
+            Ok(JobDone::PushSheet(Box::new(child)))
+        });
     }
 
     /// Freq sheet: open the parent's rows whose value is the cursor row's

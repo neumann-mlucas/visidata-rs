@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [x] S-51 — `T` transpose, `gF` freq-keys, `zEnter` open-cell, `g&` join-all; replay 97 (`test_quartiles`, `load-toml`) — shipped 2026-11-17
 - [x] S-50 — VisiData default keys `o` `Ctrl+S` `&` `M` `{` `}` `<` `>` `z<` `z>` `c` `g[` `g]` — shipped 2026-11-16
 - [x] S-49 — CSV/TSV blank lines skipped (#3085); csv/tsv save nested cells as JSON (#2944) — shipped 2026-11-16
 - [x] S-48 — option `csv_skipinitialspace` (VisiData's, default on) — shipped 2026-11-16

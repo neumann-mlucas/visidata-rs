@@ -200,9 +200,12 @@ impl Keymap {
             ch("g [", SortKeys { descending: false }, "sort ascending by the key columns"),
             ch("g ]", SortKeys { descending: true }, "sort descending by the key columns"),
             ch("M", Melt, "melt: non-key columns to variable/value rows"),
+            ch("T", Transpose, "transpose: columns as rows"),
             ch("z o", OpenCellFile, "open the file or URL path in the current cell"),
             // derived sheets
             ch("F", OpenFreqTable, "frequency table of current column"),
+            ch("g F", FreqKeys, "frequency table of the key columns together"),
+            ch("z <CR>", OpenCell, "open the cell's list or dict as a sheet"),
             ch("S", OpenSheetSwitcher, "list open sheets"),
             ch("g <CR>", SubmitSelected, "open rows of all selected values (freq)"),
             ch("g \"", DupSheet, "copy of this sheet"),
@@ -285,6 +288,7 @@ impl Keymap {
             ch("o", ExPrompt { cmd: "open" }, "open a file (:open)"),
             ch("<C-s>", ExPrompt { cmd: "save" }, "save the sheet (:save)"),
             ch("&", ExPrompt { cmd: "join" }, "join with the sheet below (:join)"),
+            ch("g &", ExPrompt { cmd: "join-all" }, "join with every sheet below (:join-all)"),
             ch("<Space>", StartExInput, "ex command (any command by name)"),
             ch("=", StartDeriveInput, "new column from SQL expression"),
             // repeat / sheet stack / quit

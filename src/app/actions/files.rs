@@ -372,6 +372,41 @@ impl App {
         });
     }
 
+    /// `g&` / `:join-all` (VisiData join-sheets-all): the active sheet joined
+    /// with each sheet below it, nearest first, on its key columns.
+    pub(super) fn open_join_all(&mut self, how: &str) {
+        let left = self.sheets.active().clone();
+        let others: Vec<Sheet> = self.sheets.iter().rev().skip(1).cloned().collect();
+        if others.is_empty() {
+            return self.fail("join-all: no other sheet".into());
+        }
+        let keyless = matches!(how, "append" | "concat");
+        if left.view.keys.is_empty() && !keyless {
+            return self.fail("join-all: no key columns".into());
+        }
+        let id = self.sheets.alloc_id();
+        let (keys, how) = (left.view.keys.clone(), how.to_string());
+        self.spawn_job("join", move || {
+            let names: Vec<&str> = std::iter::once(&left)
+                .chain(&others)
+                .map(|s| s.name.as_str())
+                .collect();
+            let name = format!("{} ({how})", names.join("&"));
+            let mut acc = left.clone();
+            for right in &others {
+                acc = Sheet::join_from(&acc, id, right, &keys, &how)?;
+            }
+            acc.name = name;
+            acc.plan = acc
+                .plan
+                .clone()
+                .collect()
+                .map_err(|e| e.to_string())?
+                .lazy();
+            Ok(JobDone::PushSheet(Box::new(acc)))
+        });
+    }
+
     /// `:lookup` (S-36 A): `cols` (their column, new name) of `source` by
     /// `key` = their `their_key`, after the cursor column. An open sheet stays
     /// linked (A4); a file is a snapshot.

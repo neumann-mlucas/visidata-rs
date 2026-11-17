@@ -135,7 +135,7 @@ join-merge	PASS
 join-non-unique-cols	SKIP serialize: datatypes of join keys don't match - `Date`: str on left does not match `Date`: date on right (and no other type was available to cast to)
 jump-sheet	PASS
 known-broken	NO_GOLDEN assertion-only (no golden in VisiData)
-listofdictobj	SKIP open-cell
+listofdictobj	FAIL line 1: want="imag\treal" got="y77d-th95.json[0].geolocation.coordinates"
 load-2d-matrix	SKIP runtime: open-file ../visidata/sample_data/arrays.npz: unknown format for ../visidata/sample_data/arrays.npz
 load-conllu	SKIP runtime: open-file ../visidata/sample_data/sample.conllu: unknown format for ../visidata/sample_data/sample.conllu
 load-dir	SKIP serialize: failed to retrieve first file schema (parquet): expanded paths were empty (path expansion input: 'paths: [PlRefPath { inner: "../visidata/bin/*.
@@ -166,7 +166,7 @@ load-png	SKIP runtime: open-file ../visidata/sample_data/vdlogo-160x24.png: unkn
 load-sqlite	PASS
 load-sqlite-view	PASS
 load-stata	SKIP runtime: open-file ../visidata/sample_data/co3.dta: unknown format for ../visidata/sample_data/co3.dta
-load-toml	SKIP open-cell
+load-toml	PASS
 load-usv	PASS
 load-xlsx	PASS
 load-xml	SKIP runtime: open-file ../visidata/sample_data/benchmark.xml: unknown format for ../visidata/sample_data/benchmark.xml
@@ -228,7 +228,7 @@ sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	PASS
 syspaste-crlf	SKIP open-syspaste
-test_quartiles	SKIP freq-keys
+test_quartiles	PASS
 transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
 unfurl-dict	SKIP runtime: unfurl: struct fields of different nested types

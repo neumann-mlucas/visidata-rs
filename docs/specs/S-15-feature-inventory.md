@@ -127,6 +127,10 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `ValueChange` / `NullChange { forward }` | `>` `<` / `z>` `z<` | VisiData go-next/prev-value, go-next/prev-null: down (up) the column to a different value / a null, loaded rows (S-50) |
 | `SortKeys { descending }` | `g[` / `g]` | VisiData sort-keys-asc/desc: sort by the key columns, replacing the sort; none → toast (S-50) |
 | `Melt` | `M` | VisiData melt: `Unpivot` of the visible non-key columns, keys as index (S-50) |
+| `Transpose` | `T` | VisiData transpose: `Sheet::transpose_from`, eager; a row per visible non-key column, a column per row named by its key values (`_`-joined; row number without keys), first column = key names (`column` without keys), all text (S-51) |
+| `FreqKeys` | `gF` | VisiData freq-keys: `Sheet::freq_keys_from`, group by every key column, then count, percent, histogram and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` (nulls match) (S-51) |
+| `JoinAll { how }` | `g&` | `:join-all <how>`, VisiData join-sheets-all: `join_from` chained over the sheets below, nearest first, on the active sheet's keys (S-51) |
+| `OpenCell` | `zEnter` | VisiData open-cell: `Sheet::open_cell`, list/struct/JSON text → table, one column or `key`/`value` rows (`Origin::Cell`); `<CR>` there → `open_cell_row`; mixed types → text; JSON and TOML keep source key order (S-51) |
 | `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |
 | `ExPrompt { cmd }` | `o` / `Ctrl+S` / `&` | VisiData open-file, save-sheet, join-sheets-top2: the ex line holding `open ` / `save ` / `join <sheet below> ` (S-50) |
 | `SelectToSelected { forward }` | `z}` / `z{` | the cursor row through the next (previous) selected row, view order; none → `no selected row`; `Sheet::rids_to_selected`, background job (S-41 B) |

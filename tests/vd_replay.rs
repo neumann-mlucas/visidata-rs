@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 95;
+const MIN_PASS: usize = 97;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -859,6 +859,52 @@ impl Replay {
                 self.push_sheet(name, new);
                 Ok(())
             }
+            "freq-keys" => {
+                let id = self.alloc();
+                let parent = self.current_slot()?;
+                let keys = parent.sheet.view.keys.clone();
+                if keys.is_empty() {
+                    return Err(Runtime("freq-keys: no key columns".into()));
+                }
+                let name = format!("{}_{}_freq", parent.name, keys.join("-"));
+                let new = Sheet::freq_keys_from(&parent.sheet, id, &keys);
+                self.push_sheet(name, new);
+                Ok(())
+            }
+            "transpose" => {
+                let id = self.alloc();
+                let parent = self.current_slot()?;
+                let name = format!("{}_T", parent.name);
+                let new = Sheet::transpose_from(&parent.sheet, id).map_err(Runtime)?;
+                self.push_sheet(name, new);
+                Ok(())
+            }
+            // VisiData `zEnter`: `name[rowkey].col`, the row number without keys
+            "open-cell" => {
+                let id = self.alloc();
+                let slot = self.current_slot()?;
+                let keys = slot.sheet.view.keys.clone();
+                let df = (slot.sheet.view_plan().collect()).map_err(|e| Runtime(e.to_string()))?;
+                let i = resolve_row(&df, &keys, &r.row)?;
+                let cell = |c: &str| -> Result<AnyValue<'static>, StepErr> {
+                    let column = df.column(c).map_err(|e| Runtime(e.to_string()))?;
+                    column
+                        .get(i)
+                        .map(|v| v.into_static())
+                        .map_err(|e| Runtime(e.to_string()))
+                };
+                let k = match keys.is_empty() {
+                    true => i.to_string(),
+                    false => (keys.iter())
+                        .map(|k| cell(k).map(|v| visidata_rs::sheet::any_text(&v)))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(","),
+                };
+                let name = format!("{}[{k}].{}", slot.name, r.col);
+                let new = Sheet::open_cell(id, name.clone(), &cell(&r.col)?).map_err(Runtime)?;
+                self.push_sheet(name, new);
+                Ok(())
+            }
             // VisiData `W`: key columns × the current column's values
             "pivot" => self.pivot(&r.col),
             // VisiData `M` melt: unpivot all non-key columns.
@@ -1410,6 +1456,20 @@ impl Replay {
             // load their first part directly: no sub-sheet to enter — noop.
             // For VisiData's columns-sheet / other meta-sheet workflows, this
             // is wrong but we skip those tests elsewhere.
+            // a `zEnter` sheet: the row as key/value rows
+            "dive-row" | "open-row"
+                if self.meta_mode.is_none()
+                    && matches!(self.current_slot()?.sheet.origin, Origin::Cell) =>
+            {
+                let id = self.alloc();
+                let slot = self.current_slot()?;
+                let df = (slot.sheet.view_plan().collect()).map_err(|e| Runtime(e.to_string()))?;
+                let i = resolve_row(&df, &slot.sheet.view.keys, &r.row)?;
+                let new = slot.sheet.open_cell_row(id, i).map_err(Runtime)?;
+                let name = new.name.clone();
+                self.push_sheet(name, new);
+                Ok(())
+            }
             "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
             "dive-selected" => self.freq_dive(None),
             // on the sheets stack: go to that sheet

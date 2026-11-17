@@ -10,6 +10,7 @@ use polars::prelude::*;
 mod archive;
 mod html;
 mod text;
+pub(crate) use text::records;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum SourceKind {
@@ -283,7 +284,7 @@ fn excel_text(d: &calamine::ExcelDateTime) -> String {
 
 /// Repeats (blank cells above all) get `_duplicated_<i>`, as Polars names CSV
 /// repeats; a DataFrame can't hold two columns of one name.
-fn unique_headers(names: impl Iterator<Item = String>) -> Vec<String> {
+pub(crate) fn unique_headers(names: impl Iterator<Item = String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     names
         .enumerate()

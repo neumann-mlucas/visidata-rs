@@ -1159,3 +1159,36 @@ async fn lookup_follows_keys_and_their_sheet() {
     h.keys("U U").await;
     assert!(!view_csv(&h).starts_with("id,price"), "{}", view_csv(&h));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_keys_transpose_join_all_and_open_cell() {
+    let mut h = csv(b"k,g,n\na,x,1\nb,x,2\na,x,3\n").await;
+    h.keys("!").await;
+    h.keys("T").await;
+    assert!(
+        view_csv(&h).starts_with("k,a,b,a_duplicated_3\ng,x,x,x\nn,1,2,3\n"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("q g F").await;
+    assert!(
+        view_csv(&h).starts_with("k,count,percent,histogram\na,2,66.67,"),
+        "{}",
+        view_csv(&h)
+    );
+    h.keys("<CR>").await;
+    assert_eq!(view_csv(&h), "k,g,n\na,x,1\na,x,3\n");
+    h.keys("q g &").await;
+    h.type_("inner").await;
+    let s = h.app.sheets.active();
+    assert!(s.name.ends_with("(inner)"), "{}", s.name);
+    assert_eq!(s.window().map(|w| w.height()), Some(3), "{}", view_csv(&h));
+
+    let mut h = csv(b"id,tags\n1,\"[{\"\"p\"\":1,\"\"q\"\":\"\"a\"\"},{\"\"p\"\":2}]\"\n").await;
+    h.keys("l z <CR>").await;
+    assert!(h.app.sheets.active().name.ends_with(".csv[0].tags"));
+    assert_eq!(view_csv(&h), "p,q\n1,a\n2,\n");
+    h.keys("<CR>").await;
+    assert!(h.app.sheets.active().name.ends_with(".csv[0].tags[0]"));
+    assert_eq!(view_csv(&h), "key,value\np,1\nq,a\n");
+}

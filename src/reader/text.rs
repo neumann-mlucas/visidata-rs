@@ -205,7 +205,7 @@ pub(super) fn jsonla(path: &Path) -> Result<DataFrame, OpenError> {
 
 /// Rows of JSON objects as a frame, columns typed from the values (nested
 /// values become lists and structs), as the JSON reader types them.
-fn records(rows: Vec<serde_json::Value>) -> Result<DataFrame, OpenError> {
+pub(crate) fn records(rows: Vec<serde_json::Value>) -> Result<DataFrame, OpenError> {
     let json = serde_json::to_vec(&serde_json::Value::Array(rows))
         .map_err(|e| OpenError::Polars(polars_err!(ComputeError: "{e}")))?;
     if json.len() <= 2 {

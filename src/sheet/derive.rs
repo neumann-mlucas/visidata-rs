@@ -842,6 +842,159 @@ impl Sheet {
         }))
     }
 
+    /// `gF` (VisiData freq-keys): rows counted by the values of `keys`
+    /// together, by count desc (ties in first-seen order), with `percent`,
+    /// `histogram` and the parent's aggregators, as `F`.
+    // ponytail: groups by values, not a fmtstr's text as `F` does
+    pub fn freq_keys_from(parent: &Sheet, id: SheetId, keys: &[String]) -> Self {
+        let (count, percent, histogram) = ("count", "percent", "histogram");
+        let aggs = columns::freq_aggregators(parent);
+        let exprs: Vec<Expr> = std::iter::once(len().alias(count))
+            .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
+            .collect();
+        let by: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
+        let plan = (parent.view_plan().group_by_stable(by).agg(exprs))
+            .with_columns([(col(count).cast(DataType::Float64) * lit(100.0f64)
+                / col(count).cast(DataType::Float64).sum())
+            .round(2, RoundMode::HalfAwayFromZero)
+            .alias(percent)])
+            .with_columns([lit("■".repeat(HISTOGRAM_WIDTH))
+                .str()
+                .head((col(count) * lit(HISTOGRAM_WIDTH as i64)).floor_div(col(count).max()))
+                .alias(histogram)])
+            .sort(
+                [count],
+                SortMultipleOptions::default()
+                    .with_order_descending(true)
+                    .with_maintain_order(true),
+            );
+        let mut freq = Sheet::child(
+            parent,
+            id,
+            format!("freq({}): {}", keys.join(","), parent.name),
+            plan,
+            Origin::FreqKeys {
+                parent: parent.id,
+                columns: keys.to_vec(),
+            },
+        )
+        .derived(
+            parent,
+            Derivation::FreqKeys {
+                columns: keys.to_vec(),
+            },
+        );
+        freq.view.keys = keys.to_vec();
+        if !aggs.is_empty() {
+            freq.view
+                .hidden
+                .extend([percent.to_string(), histogram.to_string()]);
+        }
+        freq
+    }
+
+    /// `gF` dive: `parent`'s rows whose `keys` hold one of `wanted`'s rows
+    /// (nulls match nulls).
+    pub fn rows_with_keys(
+        parent: &Sheet,
+        id: SheetId,
+        keys: &[String],
+        wanted: DataFrame,
+        name: String,
+    ) -> Result<Self, String> {
+        let df = parent
+            .view_plan_rid(true)
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
+        let args = JoinArgs {
+            nulls_equal: true,
+            ..JoinArgs::new(JoinType::Inner)
+        };
+        let hit = (df.clone().lazy())
+            .select(
+                [col(ROW_ID)]
+                    .into_iter()
+                    .chain(on.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .join(
+                wanted.lazy().unique(None, UniqueKeepStrategy::First),
+                on.clone(),
+                on,
+                args,
+            )
+            .select([col(ROW_ID)])
+            .collect()
+            .map_err(|e| e.to_string())?;
+        let keep = rid_values(&hit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
+        Self::rows_from(parent, id, df, &keep, name)
+    }
+
+    /// `T` (VisiData transpose): a row per visible non-key column, a column
+    /// per row named by its key values joined with `_` (its row number without
+    /// keys), the first column holding the old names (named after the keys).
+    /// Every cell as text, as VisiData's transposed sheet loses types (#2575).
+    // ponytail: eager, rows × columns strings; fine at the sizes it reads well
+    pub fn transpose_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
+        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
+        let keys: Vec<&Column> = (parent.view.keys.iter())
+            .filter_map(|k| df.column(k).ok())
+            .collect();
+        let others: Vec<&Column> = (df.columns().iter())
+            .filter(|c| !parent.view.keys.iter().any(|k| k == c.name().as_str()))
+            .filter(|c| c.name().as_str() != crate::reader::ERR_COL)
+            .collect();
+        let text = |c: &Column| -> Vec<Option<String>> {
+            let s = c.as_materialized_series();
+            s.iter()
+                .map(|v| (!v.is_null()).then(|| any_text(&v)))
+                .collect()
+        };
+        let key_text: Vec<Vec<Option<String>>> = keys.iter().map(|c| text(c)).collect();
+        let names = (0..df.height()).map(|i| match key_text.is_empty() {
+            true => i.to_string(),
+            false => (key_text.iter())
+                .map(|k| k[i].clone().unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("_"),
+        });
+        let first = match keys.is_empty() {
+            true => "column".to_string(),
+            false => (keys.iter())
+                .map(|c| c.name().to_string())
+                .collect::<Vec<_>>()
+                .join("_"),
+        };
+        let names = crate::reader::unique_headers(std::iter::once(first).chain(names));
+        let cells: Vec<Vec<Option<String>>> = others.iter().map(|c| text(c)).collect();
+        let mut cols = vec![Column::new(
+            names[0].as_str().into(),
+            others
+                .iter()
+                .map(|c| c.name().to_string())
+                .collect::<Vec<_>>(),
+        )];
+        for (i, name) in names.iter().enumerate().skip(1) {
+            let row: Vec<Option<String>> = cells.iter().map(|c| c[i - 1].clone()).collect();
+            cols.push(Column::new(name.as_str().into(), row));
+        }
+        let out = DataFrame::new_infer_height(cols).map_err(|e| e.to_string())?;
+        let mut sheet = Self::child(
+            parent,
+            id,
+            format!("{}_T", parent.name),
+            out.lazy(),
+            Origin::Transpose { parent: parent.id },
+        )
+        .derived(parent, Derivation::Transpose);
+        sheet.view.keys = vec![names[0].clone()];
+        Ok(sheet)
+    }
+
     /// Build an unpivot (melt) sheet. `on` = columns to unpivot; `index` = keep columns.
     pub fn unpivot_from(parent: &Sheet, id: SheetId, on: &[String], index: &[String]) -> Self {
         use polars::prelude::UnpivotArgsDSL;

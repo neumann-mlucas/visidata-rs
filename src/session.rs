@@ -327,6 +327,9 @@ impl Block {
                 self.ex(Action::PivotCurrent);
             }
             Derivation::Describe => self.ex(Action::Describe),
+            Derivation::Transpose => self.ex(Action::Transpose),
+            // the parent's keys, as `W` (ponytail: keys changed since `gF` regroup)
+            Derivation::FreqKeys { .. } => self.ex(Action::FreqKeys),
             Derivation::Unfurl { column, empty } => {
                 // the option this `zM` ran under (S-42 C)
                 self.ex(Action::SetOption {

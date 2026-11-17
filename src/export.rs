@@ -784,6 +784,11 @@ impl Script {
                 diff_code(py, &j, &l.parent, other, keys)?
             }
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
+            // ponytail: no script; Polars' transpose if exports of it matter
+            Derivation::Transpose => return Err("export: a transposed sheet has no script".into()),
+            Derivation::FreqKeys { .. } => {
+                return Err("export: gF's freq sheet has no script".into());
+            }
             Derivation::Unfurl { column, empty } => unfurl_code(py, &p, &l.parent, column, *empty)?,
             Derivation::PivotCount { keys, on, aggs } if !aggs.is_empty() => {
                 if py {

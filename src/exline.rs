@@ -189,6 +189,14 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 path: unquote(rest),
             }])
         }
+        "join-all" => match rest.trim() {
+            how @ ("inner" | "left" | "full" | "merge" | "extend" | "append" | "concat") => {
+                Ok(vec![Action::JoinAll { how: how.into() }])
+            }
+            _ => Err(ExError::Usage(
+                ":join-all <inner|left|full|merge|extend|append|concat>",
+            )),
+        },
         "join" => {
             const USAGE: &str = ":join <file|sheet> <key1,key2,...> [inner|left|full|merge|extend] | :join <file|sheet> [append|concat]";
             let a = split_args(rest, USAGE)?;
@@ -662,6 +670,7 @@ pub const COMMANDS: &[&str] = &[
     "hide",
     "hide-uniform",
     "join",
+    "join-all",
     "key",
     "ls",
     "melt",

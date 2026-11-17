@@ -18,6 +18,7 @@ impl Sheet {
                 | Origin::Sql { .. }
                 | Origin::Join { .. }
                 | Origin::Lua { .. }
+                | Origin::Cell
         ) {
             return Ok(());
         }
