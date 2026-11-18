@@ -832,17 +832,19 @@ impl Sheet {
                 }
             }
         }
-        // `g&`'s inner joins carry the result's own id: no live sheet behind them
-        let left_cols = match parent.id == self.id {
-            true => Vec::new(),
-            false => shown(parent)?,
+        // `g&`'s inner joins carry the result's own id: their cells come
+        // from the sheets they joined
+        let inner = match parent.id == self.id {
+            true => parent.join_sources()?.map(Arc::new),
+            false => None,
         };
         Ok(Some(JoinSources {
             left: parent.id,
             right: right.id,
-            left_cols,
+            left_cols: shown(parent)?,
             right_cols,
             rows: ids(LRID)?.into_iter().zip(ids(RRID)?).collect(),
+            inner,
         }))
     }
 
@@ -1278,6 +1280,34 @@ pub struct JoinSources {
     pub left_cols: Vec<(String, String)>,
     pub right_cols: Vec<(String, String)>,
     pub rows: Vec<(Option<u64>, Option<u64>)>,
+    /// The left side is `g&`'s join of the sheets before (no live sheet).
+    pub inner: Option<Arc<JoinSources>>,
+}
+
+impl JoinSources {
+    /// The source cells behind cell (`rid`, `column`), as `(sheet, row id,
+    /// column)`: a key's on both sides, another column's on the side that
+    /// has it, through `g&`'s inner joins.
+    pub fn cells(&self, rid: u64, column: &str) -> Vec<(SheetId, u64, String)> {
+        let Some(&(l, r)) = self.rows.get(rid as usize) else {
+            return Vec::new();
+        };
+        let name = |cols: &[(String, String)]| {
+            let c = cols.iter().find(|(shown, _)| shown == column)?;
+            Some(c.1.clone())
+        };
+        let left = match (l, name(&self.left_cols)) {
+            (Some(l), Some(n)) => match &self.inner {
+                Some(inner) => inner.cells(l, &n),
+                None => vec![(self.left, l, n)],
+            },
+            _ => Vec::new(),
+        };
+        let right = r
+            .zip(name(&self.right_cols))
+            .map(|(r, n)| (self.right, r, n));
+        left.into_iter().chain(right).collect()
+    }
 }
 
 /// `F` and `gF` after the group-by: `percent` and `histogram` of `count`,

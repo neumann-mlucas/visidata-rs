@@ -1193,11 +1193,10 @@ async fn freq_keys_transpose_join_all_and_open_cell() {
     assert_eq!(view_csv(&h), "key,value\np,1\nq,a\n");
 }
 
-/// S-51: `g&` over three sheets. A cell from the last sheet joined goes back
-/// to it; one from the inner join's left side stays an edit of the result
-/// (no live sheet behind it), never landing on another row.
+/// S-51: `g&` over three sheets. A cell goes back to the sheet it came from,
+/// the inner joins' sheets too (S-52), never landing on another row.
 #[tokio::test(flavor = "multi_thread")]
-async fn join_all_edits_write_back_only_to_live_sheets() {
+async fn join_all_edits_write_back_to_every_sheet() {
     let dir = tempfile::tempdir().unwrap();
     let path = |n: &str, text: &str| {
         let p = dir.path().join(n);
@@ -1222,17 +1221,47 @@ async fn join_all_edits_write_back_only_to_live_sheets() {
     h.keys("l l e <C-u>").await;
     h.type_("B").await;
     assert_eq!(view_csv(&h), "id,z,w,v\n2,Q,y,B\n1,r,x,a\n");
+    h.keys("h e <C-u>").await;
+    h.type_("W").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n2,Q,W,B\n1,r,x,a\n");
     let col = |i: usize, c: &str| -> Vec<Option<String>> {
         let s = h.app.sheets.iter().nth(i).unwrap();
         let df = s.view_plan().collect().unwrap();
         let c = df.column(c).unwrap().str().unwrap();
         c.iter().map(|v| v.map(str::to_string)).collect()
     };
-    assert_eq!(col(0, "v"), [Some("B".into()), Some("a".into())]); // A
-    assert_eq!(
-        col(2, "z"),
-        [Some("s".into()), Some("q".into()), Some("r".into())]
-    ); // C
+    let s = |v: &str| Some(v.to_string());
+    assert_eq!(col(0, "v"), [s("B"), s("a")]); // A
+    assert_eq!(col(1, "w"), [s("x"), s("W"), s("t")]); // B
+    assert_eq!(col(2, "z"), [s("s"), s("Q"), s("r")]); // C
+}
+
+/// S-52: a source row `g&` shows on two rows (the inner join doubled it):
+/// an edit of its cell shows on both, and lands once in its sheet.
+#[tokio::test(flavor = "multi_thread")]
+async fn join_all_edit_fans_out_through_inner_joins() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |n: &str, text: &str| {
+        let p = dir.path().join(n);
+        std::fs::write(&p, text).unwrap();
+        p.display().to_string()
+    };
+    let b = path("b.csv", "id,w\n1,x\n1,y\n");
+    let c = path("c.csv", "id,z\n1,s\n");
+    let mut h = csv(b"id,v\n1,a\n").await; // A
+    for p in [&b, &c] {
+        h.keys(":").await;
+        h.type_(&format!("open {p}")).await;
+    }
+    h.keys("!").await;
+    h.keys("g &").await;
+    h.type_("inner").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n1,s,x,a\n1,s,y,a\n");
+    h.keys("l e <C-u>").await;
+    h.type_("S").await;
+    assert_eq!(view_csv(&h), "id,z,w,v\n1,S,x,a\n1,S,y,a\n");
+    let c = h.app.sheets.iter().nth(2).unwrap();
+    assert_eq!(csv_text(c, b','), "id,z\n1,S\n");
 }
 
 /// S-51: `gF` over keys with empty cells: `g<CR>` on every row brings back

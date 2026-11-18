@@ -24,6 +24,14 @@ several columns, so it now is `F`'s sheet:
 - `:bar` on a `gF` sheet: bars labelled by its values joined with `,`.
 - Sessions replay `gF` as before (the parent's keys as they are then).
 
-Not done: `:join` over several sheets in one derivation (`g&` folds pairwise
-joins, so only the last joined sheet takes edits back), and folding `Origin`
-into `Derivation`.
+## `g&` write-back
+
+`g&` folds pairwise joins; each inner join carries the result's id, no live
+sheet. An edit used to reach only the last sheet joined. `JoinSources::inner`
+now holds the inner join's sources, and `JoinSources::cells` follows a left-side
+cell down to the sheet it came from, so every joined sheet takes edits back. A
+row the inner joins repeat shows the edit on every copy.
+
+Not done: one `Derivation::Join` over several sheets (no gain over the fold
+now), and folding `Origin` into `Derivation` (touches every sheet kind; the two
+say the same thing, but nothing breaks on it).

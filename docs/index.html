@@ -710,7 +710,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="pivot"><td><code>:pivot index on values [agg]</code></td><td>Pivot table.</td></tr>
 <tr data-ex="unpivot"><td><code>:unpivot a,b [-- id,…]</code>, <code>:melt</code></td><td>Columns to rows.</td></tr>
 <tr data-ex="join"><td><code>:join source [keys] [type]</code></td><td>Join with a file or sheet.</td></tr>
-<tr data-ex="join-all"><td><code>:join-all full</code></td><td>Join (<code>inner</code>, <code>left</code>, <code>full</code>, <code>merge</code>, <code>extend</code>, <code>append</code>, <code>concat</code>) this sheet with every sheet below it, nearest first, on this sheet's key columns (same names in the others); <code>append</code> and <code>concat</code> need no keys. An edit there goes back to the last sheet joined; the other sheets' columns keep their edits on the result.</td></tr>
+<tr data-ex="join-all"><td><code>:join-all full</code></td><td>Join (<code>inner</code>, <code>left</code>, <code>full</code>, <code>merge</code>, <code>extend</code>, <code>append</code>, <code>concat</code>) this sheet with every sheet below it, nearest first, on this sheet's key columns (same names in the others); <code>append</code> and <code>concat</code> need no keys. An edit there goes back to the sheet its cell came from, as with <code>:join</code>.</td></tr>
 <tr data-ex="lookup"><td><code>:lookup source key[=theirkey] [name=]col[,…]</code></td><td>Add another sheet's columns by key (XLOOKUP).</td></tr>
 <tr data-ex="diff"><td><code>:diff file [key1,key2]</code></td><td>Compare with a file.</td></tr>
 <tr data-ex="sql"><td><code>:sql query</code></td><td>SQL on <code>self</code> and <code>s&lt;id&gt;</code>.</td></tr>

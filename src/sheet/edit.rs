@@ -57,23 +57,7 @@ impl Sheet {
     /// `(sheet, row id, column)` (S-45 B): a key's on both sides, another
     /// column's on the side that has it. Rows added to the join have none.
     pub fn source_cells(&self, rid: u64, column: &str) -> Vec<(SheetId, u64, String)> {
-        let Some(j) = &self.state.join_sources else {
-            return Vec::new();
-        };
-        let Some(&(l, r)) = j.rows.get(rid as usize) else {
-            return Vec::new();
-        };
-        let side = |id: SheetId, rid: Option<u64>, cols: &[(String, String)]| {
-            let c = cols.iter().find(|(shown, _)| shown == column)?;
-            Some((id, rid?, c.1.clone()))
-        };
-        [
-            side(j.left, l, &j.left_cols),
-            side(j.right, r, &j.right_cols),
-        ]
-        .into_iter()
-        .flatten()
-        .collect()
+        (self.state.join_sources.as_deref()).map_or(Vec::new(), |j| j.cells(rid, column))
     }
 
     /// `text` typed into `column`, as stored (None for empty = null), and the
@@ -665,17 +649,9 @@ impl Sheet {
         self.make_editable()?;
         let sources = self.source_cells(rid, column);
         let rids: Arc<[u64]> = match self.state.join_sources.as_deref() {
-            Some(j) if !sources.is_empty() => {
-                let (l, r) = j.rows[rid as usize];
-                let shows = |cols: &[(String, String)]| cols.iter().any(|(c, _)| c == column);
-                let (on_l, on_r) = (shows(&j.left_cols), shows(&j.right_cols));
-                (0..j.rows.len() as u64)
-                    .filter(|&i| {
-                        let (li, ri) = j.rows[i as usize];
-                        (on_l && li.is_some() && li == l) || (on_r && ri.is_some() && ri == r)
-                    })
-                    .collect()
-            }
+            Some(j) if !sources.is_empty() => (0..j.rows.len() as u64)
+                .filter(|&i| j.cells(i, column).iter().any(|c| sources.contains(c)))
+                .collect(),
             _ => Arc::from([rid]),
         };
         self.set_rows(column, rids, text)
