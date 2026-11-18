@@ -58,11 +58,6 @@ impl Sheet {
             .is_ok_and(|s| s.contains(name))
     }
 
-    /// Row ids of view rows whose `column` (as text) matches `pattern`.
-    pub fn rows_matching(&self, column: &str, pattern: &str) -> PolarsResult<Vec<u64>> {
-        self.rids_matching(column, pattern, false)
-    }
-
     /// Row ids of view rows where any of `columns` (as text) matches
     /// `pattern`, ignoring case (VisiData's `regex_flags` default `I`).
     pub fn rids_matching_any(&self, columns: &[String], pattern: &str) -> PolarsResult<Vec<u64>> {
@@ -85,7 +80,8 @@ impl Sheet {
         rid_values(&df)
     }
 
-    /// `rows_matching`, or (`invert`, `:v`) the rows that don't match, empty
+    /// Row ids of view rows whose `column` (as text) matches `pattern`, or
+    /// (`invert`, `:v`) the rows that don't match, empty
     /// cells among them.
     pub fn rids_matching(
         &self,

@@ -15,6 +15,17 @@ lint:
 # Done-gate for humans, agents and CI
 check *ARGS: lint (test ARGS)
 
+# Line coverage of the test run (cargo install cargo-llvm-cov), HTML report.
+# Set VDRS_PYTHON to cover the Python export too. Without rustup's
+# llvm-tools, the system's llvm-cov/llvm-profdata stand in.
+cov *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! rustup component list --installed 2>/dev/null | grep -q llvm-tools; then
+        export LLVM_COV=${LLVM_COV:-$(command -v llvm-cov)} LLVM_PROFDATA=${LLVM_PROFDATA:-$(command -v llvm-profdata)}
+    fi
+    cargo llvm-cov nextest --locked --html {{ARGS}}
+
 # Write tests/vd_local goldens by running each script (or the named ones) in
 # VisiData, from the ../visidata checkout. Review the diff before committing.
 vd-golden *NAMES:

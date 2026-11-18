@@ -794,23 +794,6 @@ impl Plugins {
         }
         Ok(LoaderOutput::Parts(list))
     }
-
-    /// `vd.loaders()` as rows: name, extensions, patterns.
-    pub fn loader_rows(&self) -> Vec<Vec<String>> {
-        reg(&self.lua).map_or_else(Vec::new, |r| {
-            r.borrow()
-                .loaders
-                .iter()
-                .map(|l| {
-                    vec![
-                        l.name.clone().unwrap_or_default(),
-                        l.extensions.join(" "),
-                        l.patterns.join(" "),
-                    ]
-                })
-                .collect()
-        })
-    }
 }
 
 /// A built-in format by its `--format` name (`csv`, `xlsx`, …).
@@ -1996,22 +1979,6 @@ fn styled(t: &LuaTable) -> Rendered {
         text: t.get::<Option<String>>("text").ok().flatten(),
         style,
     }
-}
-
-/// `"true"` / `"false"`, for `vd.option` and `:set` (S-38 A).
-pub fn parse_bool_option(name: &str, value: &str) -> Result<bool, String> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(format!("{name} is \"true\" or \"false\"")),
-    }
-}
-
-/// `histogram_bins`: a count, 0 for ⌊√rows⌋.
-pub fn parse_histogram_bins(value: &str) -> Result<usize, String> {
-    value
-        .parse()
-        .map_err(|_| format!("histogram_bins is a count, 0 for √rows (got {value:?})"))
 }
 
 /// VisiData's float format, `%.2f` or `{:.2f}` (S-32): its decimals, 0–15.
