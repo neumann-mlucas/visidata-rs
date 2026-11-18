@@ -914,9 +914,24 @@ impl Sheet {
     /// per row named by its key values joined with `_` (its row number without
     /// keys), the first column holding the old names (named after the keys).
     /// Every cell as text, as VisiData's transposed sheet loses types (#2575).
-    // ponytail: eager, rows × columns strings; fine at the sizes it reads well
+    /// Built in memory, so refused past [`MAX_CELLS`].
     pub fn transpose_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
-        let df = parent.view_plan().collect().map_err(|e| e.to_string())?;
+        let e = |e: PolarsError| e.to_string();
+        let mut plan = parent.view_plan();
+        let width = plan.collect_schema().map_err(e)?.len();
+        let rows = (plan.clone().select([len()]).collect().map_err(e)?)
+            .column("len")
+            .ok()
+            .and_then(|c| c.get(0).ok()?.extract::<usize>())
+            .unwrap_or(0);
+        if rows * width > MAX_CELLS {
+            return Err(format!(
+                "transpose: {} cells is over the {} limit",
+                grouped((rows * width) as u64),
+                grouped(MAX_CELLS as u64)
+            ));
+        }
+        let df = plan.collect().map_err(e)?;
         let keys: Vec<&Column> = (parent.view.keys.iter())
             .filter_map(|k| df.column(k).ok())
             .collect();

@@ -1552,3 +1552,16 @@ fn transpose_takes_list_columns() {
     assert!(a.contains('1') && a.contains('2'), "{a}");
     assert_eq!(df.column("b").unwrap().str().unwrap().get(0), None);
 }
+
+#[test]
+fn transpose_refuses_past_max_cells() {
+    let (mut s, _t) = make_sheet();
+    let n = lit((MAX_CELLS / 2 + 1) as i64);
+    let ints = |c: &str| int_range(lit(0i64), n.clone(), 1, DataType::Int64).alias(c);
+    s.plan = DataFrame::empty().lazy().select([ints("a"), ints("b")]);
+    let e = Sheet::transpose_from(&s, 1).err().unwrap();
+    assert_eq!(
+        e,
+        "transpose: 10,000,002 cells is over the 10,000,000 limit"
+    );
+}

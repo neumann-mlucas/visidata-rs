@@ -424,7 +424,8 @@ impl Block {
                     }),
                     Err(e) => self.note(&format!("{} cells in {column} ({e})", patch.height())),
                 },
-                // ponytail: restored as a snapshot; the live link (A4) is lost
+                // ponytail: restored as a snapshot; the live link (A4) is lost. Replay
+                // `:lookup` on the source sheet when it's still open, if anyone misses the link
                 PlanStep::Lookup {
                     name, key, table, ..
                 } => match self.sidecar(n, table) {

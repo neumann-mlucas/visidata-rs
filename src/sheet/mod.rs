@@ -623,6 +623,9 @@ pub struct SortKey {
 }
 
 pub const DEFAULT_WINDOW_ROWS: u32 = 1024;
+/// Most cells a copy (`y`) or a transpose (`T`) holds in memory at once.
+// ponytail: fixed cap; raise on demand.
+pub const MAX_CELLS: usize = 10_000_000;
 /// CSVs at most this big move into RAM after opening.
 // ponytail: fixed cap, no look at free memory; `/proc/meminfo` or a setting if
 // it ever pushes a small machine into swap.

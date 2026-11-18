@@ -20,7 +20,8 @@ impl Sheet {
     /// `'` (VisiData `freeze-col`, S-46 A): `<column>_frozen`, a copy of
     /// `column` with its type, aggregators and format. Its name.
     // ponytail: a `Derive` copy, so an edit of `column` placed before it (no
-    // earlier writer) shows in the copy; VisiData's keeps the old values
+    // earlier writer) shows in the copy; VisiData's keeps the old values.
+    // Freeze the collected values (a `SetCells` patch) if that bites someone
     pub fn freeze_col(&mut self, column: &str) -> Result<String, String> {
         let name = format!("{column}_frozen");
         if self.has_column(&name) {

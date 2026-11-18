@@ -130,8 +130,8 @@ fn nested_as_json(df: &DataFrame) -> PolarsResult<DataFrame> {
 }
 
 /// Python's `json.dumps` spacing: `[1, 2]`, `{"k": "v"}`.
-// ponytail: floats print as Rust's `{:?}` (`1e20`, Python `1e+20`); dates and
-// other scalars as their text, quoted (`default=str`).
+// Floats as Python's `repr`, dates and other scalars as their text, quoted
+// (`default=str`).
 pub(crate) fn py_json(v: &AnyValue) -> String {
     let q = |t: &str| serde_json::to_string(t).unwrap_or_default();
     let obj = |fields: &[Field], vals: &[AnyValue]| {
@@ -164,6 +164,35 @@ fn py_float(f: f64) -> String {
     match f {
         f if f.is_nan() => "NaN".into(),
         f if f.is_infinite() => (if f > 0.0 { "Infinity" } else { "-Infinity" }).into(),
-        f => format!("{f:?}"),
+        // Rust's `{:?}` switches to an exponent where `repr` does; `repr`
+        // signs it and pads it to 2 digits (`1e16` → `1e+16`, `1e-5` → `1e-05`)
+        f => match format!("{f:?}").split_once('e') {
+            Some((m, e)) => {
+                let (sign, e) = e.strip_prefix('-').map_or(("+", e), |e| ("-", e));
+                format!("{m}e{sign}{e:0>2}")
+            }
+            None => format!("{f:?}"),
+        },
     }
+}
+
+#[cfg(test)]
+#[test]
+fn py_json_floats_as_python_repr() {
+    let got: Vec<String> = [1e16, 1e15, 1e-5, 1.5e300, -2.5e-7, 5e-324, 0.5]
+        .map(|f| py_json(&AnyValue::Float64(f)))
+        .into();
+    // json.dumps of the same floats
+    assert_eq!(
+        got,
+        [
+            "1e+16",
+            "1000000000000000.0",
+            "1e-05",
+            "1.5e+300",
+            "-2.5e-07",
+            "5e-324",
+            "0.5"
+        ]
+    );
 }

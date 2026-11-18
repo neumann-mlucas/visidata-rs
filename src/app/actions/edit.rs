@@ -201,8 +201,7 @@ impl App {
         clip: Option<crate::clipboard::Clipboard>,
         to: (Option<char>, bool),
     ) -> bool {
-        // ponytail: the register holds the copy in memory; refuse past 10M cells, raise on demand.
-        const MAX_CELLS: usize = 10_000_000;
+        use crate::sheet::MAX_CELLS; // the register holds the copy in memory
         let s = self.sheets.active();
         let Ok(schema) = s.view_plan().collect_schema() else {
             return false;
