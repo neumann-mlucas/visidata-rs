@@ -468,48 +468,42 @@ impl Script {
         let py = self.lang == Lang::Py;
         // a date `fmtstr` or a set number format groups freq by the text it
         // shows (S-35 C2, S-36 B)
-        let (fmt, num) = match &l.how {
-            Derivation::Freq { column, bins: None } => (
-                l.parent.date_fmt(column).map(|f| (column, f)),
-                l.parent.num_fmt(column).map(|n| (column, n)),
-            ),
-            _ => (None, None),
+        let shown: &[String] = match &l.how {
+            Derivation::Freq {
+                columns,
+                bins: None,
+            } => columns,
+            _ => &[],
         };
-        let p = match (fmt, num) {
-            (None, Some((c, n))) if py => {
-                format!(
-                    "{p}.with_columns({}.alias({c}))",
-                    n.py(&py_str(c)),
-                    c = py_str(c)
-                )
-            }
-            (None, Some((c, n))) => {
-                format!(
-                    "(SELECT * REPLACE ({} AS {c}) FROM {p})",
-                    n.sql(&q_ident(c)),
-                    c = q_ident(c)
-                )
-            }
-            (fmt, _) => match fmt {
-                Some((c, f)) if py => format!(
+        let p = (shown.iter()).fold(p, |p, c| {
+            match (l.parent.date_fmt(c), l.parent.num_fmt(c)) {
+                (Some(f), _) if py => format!(
                     "{p}.with_columns(pl.col({c}).dt.strftime({f}))",
                     c = py_str(c),
                     f = py_str(f)
                 ),
-                Some((c, f)) => format!(
+                (Some(f), _) => format!(
                     "(SELECT * REPLACE (strftime({c}, {f}) AS {c}) FROM {p})",
                     c = q_ident(c),
                     f = q_str(f)
                 ),
-                None => p,
-            },
-        };
+                (None, Some(n)) if py => {
+                    let c = py_str(c);
+                    format!("{p}.with_columns({}.alias({c}))", n.py(&c))
+                }
+                (None, Some(n)) => {
+                    let c = q_ident(c);
+                    format!("(SELECT * REPLACE ({} AS {c}) FROM {p})", n.sql(&c))
+                }
+                (None, None) => p,
+            }
+        });
         Ok(match &l.how {
             Derivation::Copy if py => p,
             Derivation::Copy => format!("SELECT * FROM {p}"),
-            Derivation::Freq { column, bins } if py => {
-                let (n, pct, hist) = freq_stat_names(column);
-                let order = if freq_keeps_order(&l.parent, column) {
+            Derivation::Freq { columns, bins } if py => {
+                let (n, pct, hist) = freq_stat_names(columns);
+                let order = if freq_keeps_order(&l.parent, columns) {
                     String::new()
                 } else {
                     format!(
@@ -522,9 +516,11 @@ impl Script {
                     .iter()
                     .map(|(c, a)| format!(", {}", py_agg(c, a)))
                     .collect();
-                let c = py_str(column);
+                let c = py_str(columns.first().map_or("", String::as_str));
+                let by: Vec<String> = columns.iter().map(|c| py_str(c)).collect();
                 let by_value = format!(
-                    "{p}.group_by({c}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
+                    "{p}.group_by({}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
+                    by.join(", "),
                     n = py_str(n)
                 );
                 let grouped = match bins {
@@ -577,7 +573,7 @@ impl Script {
                 )
             }
             Derivation::Freq {
-                column,
+                columns,
                 bins:
                     Some(Binning::Ranges {
                         min,
@@ -585,7 +581,8 @@ impl Script {
                         n: bins,
                     }),
             } => {
-                let (n, pct, hist) = freq_stat_names(column);
+                let column = columns.first().map_or("", String::as_str);
+                let (n, pct, hist) = freq_stat_names(columns);
                 let pairs = crate::sheet::columns::freq_aggregators(&l.parent);
                 let (c, nq) = (q_ident(column), q_ident(n));
                 let aggs: String = pairs
@@ -615,7 +612,7 @@ impl Script {
                     .iter()
                     .map(|l| q_str(l))
                     .collect();
-                let order = if freq_keeps_order(&l.parent, column) {
+                let order = if freq_keeps_order(&l.parent, columns) {
                     "__vdrs_bin NULLS LAST".to_string()
                 } else {
                     format!("{nq} DESC, __vdrs_bin NULLS LAST")
@@ -634,17 +631,17 @@ impl Script {
                     w = HISTOGRAM_WIDTH,
                 )
             }
-            Derivation::Freq { column, bins } => {
-                let (n, pct, hist) = freq_stat_names(column);
+            Derivation::Freq { columns, bins } => {
+                let (n, pct, hist) = freq_stat_names(columns);
                 // first-seen order: DuckDB keeps the scan's order
                 // (preserve_insertion_order)
                 let from = format!("(SELECT *, row_number() OVER () AS __pos FROM {p})");
                 // `numeric_binning` on few ints: one bin per value, ascending
                 let first = match bins {
-                    Some(_) => format!("{} NULLS LAST", q_ident(column)),
+                    Some(_) => format!("{} NULLS LAST", q_ident(&columns.concat())),
                     None => "min(__pos)".to_string(),
                 };
-                let order = if freq_keeps_order(&l.parent, column) {
+                let order = if freq_keeps_order(&l.parent, columns) {
                     first
                 } else {
                     format!("{n} DESC, {first}", n = q_ident(n))
@@ -657,7 +654,9 @@ impl Script {
                     "SELECT {c}, count(*) AS {n}{aggs}, round(count(*) * 100.0 / sum(count(*)) OVER (), 2) AS {pct},\n\
                      repeat('■', (count(*) * {w} // max(count(*)) OVER ())::INTEGER) AS {hist}\n\
                      FROM {from} GROUP BY {c} ORDER BY {order}",
-                    c = q_ident(column),
+                    c = (columns.iter().map(|c| q_ident(c)))
+                        .collect::<Vec<_>>()
+                        .join(", "),
                     n = q_ident(n),
                     pct = q_ident(pct),
                     hist = q_ident(hist),
@@ -786,9 +785,6 @@ impl Script {
             Derivation::Describe => describe_code(py, &p, &l.parent)?,
             // ponytail: no script; Polars' transpose if exports of it matter
             Derivation::Transpose => return Err("export: a transposed sheet has no script".into()),
-            Derivation::FreqKeys { .. } => {
-                return Err("export: gF's freq sheet has no script".into());
-            }
             Derivation::Unfurl { column, empty } => unfurl_code(py, &p, &l.parent, column, *empty)?,
             Derivation::PivotCount { keys, on, aggs } if !aggs.is_empty() => {
                 if py {
@@ -2580,11 +2576,13 @@ fn visible_columns(sheet: &Sheet) -> Result<Option<Vec<String>>, String> {
     if v.hidden.is_empty() && v.keys.is_empty() && v.order.is_empty() {
         return Ok(None);
     }
-    let schema = sheet
-        .view_plan()
-        .collect_schema()
-        .map_err(|e| e.to_string())?;
-    Ok(Some(schema.iter_names().map(|n| n.to_string()).collect()))
+    let names = |mut p: polars::prelude::LazyFrame| -> Result<Vec<String>, String> {
+        let schema = p.collect_schema().map_err(|e| e.to_string())?;
+        Ok(schema.iter_names().map(|n| n.to_string()).collect())
+    };
+    let shown = names(sheet.view_plan())?;
+    // keys already first, nothing hidden: no select
+    Ok((shown != names(sheet.plan.clone())?).then_some(shown))
 }
 
 fn sql_dtype(dt: &DataType) -> &'static str {

@@ -318,7 +318,7 @@ impl Sheet {
     /// `:bar` on a freq sheet: its rows (most common first) as bars.
     // ponytail: the first 1000 values; scroll the bars if someone needs more
     pub fn bars_from(parent: &Sheet, id: SheetId) -> Result<Self, String> {
-        let Origin::Freq { column, .. } = &parent.origin else {
+        let Origin::Freq { columns, .. } = &parent.origin else {
             return Err("bar: needs a frequency table (F)".into());
         };
         let e = |e: PolarsError| e.to_string();
@@ -330,16 +330,19 @@ impl Sheet {
             .iter_names()
             .map(|n| n.to_string())
             .collect();
-        // the count column follows the value column
+        // the count column follows the (last) value column
         let value = names
             .iter()
-            .position(|n| n == column)
+            .position(|n| Some(n) == columns.last())
             .and_then(|i| names.get(i + 1))
             .ok_or("bar: no count column")?
             .clone();
+        // `gF`'s values joined, `a,b`
+        let column = columns.join(",");
+        let label = (columns.iter()).map(|c| col(c.as_str()).cast(DataType::String));
         let df = lf
             .select([
-                col(column.as_str()).cast(DataType::String),
+                concat_str(label.collect::<Vec<_>>(), ",", false).alias(column.as_str()),
                 col(value.as_str()),
             ])
             .limit(1000)
@@ -347,7 +350,7 @@ impl Sheet {
             .map_err(e)?;
         let origin = Origin::Bars {
             parent: parent.id,
-            label: column.clone(),
+            label: column,
             value,
             horizontal: true,
         };

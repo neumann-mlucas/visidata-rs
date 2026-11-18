@@ -35,8 +35,8 @@ impl Sheet {
         let id = self.id;
         Ok(match &l.how {
             Derivation::Copy => Sheet::copy_from(parent, id),
-            Derivation::Freq { column, bins } => {
-                Sheet::freq_binned(parent, id, column, bins.clone())
+            Derivation::Freq { columns, bins } => {
+                Sheet::freq_binned(parent, id, columns, bins.clone())
             }
             Derivation::Rids(rids) => {
                 let df = parent
@@ -68,7 +68,6 @@ impl Sheet {
             }
             Derivation::Describe => Sheet::describe_from(parent, id)?,
             Derivation::Transpose => Sheet::transpose_from(parent, id)?,
-            Derivation::FreqKeys { columns } => Sheet::freq_keys_from(parent, id, columns),
             Derivation::Unfurl { column, empty } => Sheet::unfurl_from(parent, id, column, *empty)?,
             Derivation::Diff { other, keys } => {
                 Sheet::row_diff_from(parent, id, &live(other), keys)?

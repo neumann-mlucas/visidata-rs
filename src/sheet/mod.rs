@@ -121,9 +121,10 @@ pub struct Lineage {
 #[derive(Clone)]
 pub enum Derivation {
     Copy,
-    /// `bins`: `numeric_binning` (S-35 C1), fixed when `F` ran.
+    /// `F` (one column) or `gF` (the key columns, S-52). `bins`:
+    /// `numeric_binning` (S-35 C1) of the one column, fixed when `F` ran.
     Freq {
-        column: String,
+        columns: Vec<String>,
         bins: Option<Binning>,
     },
     /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
@@ -165,10 +166,6 @@ pub enum Derivation {
     Describe,
     /// `T` (VisiData transpose): columns as rows.
     Transpose,
-    /// `gF` (VisiData freq-keys): freq grouped by `columns`.
-    FreqKeys {
-        columns: Vec<String>,
-    },
     /// `zM`: a row per item of `column` (S-22); `empty`: `unfurl_empty`.
     Unfurl {
         column: String,
@@ -265,9 +262,10 @@ pub struct TailCache {
 #[derive(Debug, Clone)]
 pub enum Origin {
     File,
+    /// `F` or `gF`: rows of `parent` counted by `columns`.
     Freq {
         parent: SheetId,
-        column: String,
+        columns: Vec<String>,
     },
     Pivot {
         parent: SheetId,
@@ -357,11 +355,6 @@ pub enum Origin {
     /// `zEnter` (VisiData open-cell): a cell's list or dict; `<CR>` opens a
     /// row as `key`/`value` rows.
     Cell,
-    /// `gF` (VisiData freq-keys): `<CR>` dives on every column of `columns`.
-    FreqKeys {
-        parent: SheetId,
-        columns: Vec<String>,
-    },
 }
 
 impl Origin {
@@ -392,7 +385,6 @@ impl Origin {
             Origin::Parts { .. } => "parts",
             Origin::Join { .. } => "join",
             Origin::Transpose { .. } => "transpose",
-            Origin::FreqKeys { .. } => "freq",
             Origin::Cell => "cell",
         }
     }
@@ -1601,9 +1593,9 @@ pub fn pivot_df(
 }
 
 /// Names of a freq sheet's count, percent and histogram columns; prefixed
-/// when the grouped column already uses one.
-pub fn freq_stat_names(column: &str) -> (&'static str, &'static str, &'static str) {
-    if ["count", "percent", "histogram"].contains(&column) {
+/// when a grouped column already uses one.
+pub fn freq_stat_names(columns: &[String]) -> (&'static str, &'static str, &'static str) {
+    if (columns.iter()).any(|c| ["count", "percent", "histogram"].contains(&c.as_str())) {
         ("freq_count", "freq_percent", "freq_histogram")
     } else {
         ("count", "percent", "histogram")
@@ -1645,8 +1637,10 @@ pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
 }
 
 /// VisiData leaves a numeric (or date) freq table in first-seen order and
-/// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off).
-pub fn freq_keeps_order(parent: &Sheet, column: &str) -> bool {
+/// sorts the rest by count, desc (`freqtbl.py`, `numeric_binning` off); `gF`
+/// over several columns sorts.
+pub fn freq_keeps_order(parent: &Sheet, columns: &[String]) -> bool {
+    let [column] = columns else { return false };
     parent
         .view_dtype(column)
         .is_some_and(|d| d.is_numeric() || d.is_temporal())

@@ -1,0 +1,12 @@
+ freq(d,g): tests/golden/freq-keys-fmtstr/input.csv  csv · sheets 2            d 1/5  row 1/4 · 25%
+d str   g str   count u  percent f histogram str
+2024-01 a             3       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+2024-02 a             1      16.67 ■■■■■■■■■■■■
+·       b             1      16.67 ■■■■■■■■■■■■
+2024-01 b             1      16.67 ■■■■■■■■■■■■
+
+
+
+
+
+ hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q

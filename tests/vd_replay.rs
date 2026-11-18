@@ -297,7 +297,9 @@ impl Replay {
     fn freq_dive(&mut self, row: Option<&str>) -> Result<(), StepErr> {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
-        if let Origin::Freq { parent, column } = s.origin.clone() {
+        if let Origin::Freq { parent, columns } = s.origin.clone()
+            && let [column] = columns.as_slice()
+        {
             // the source rows with the cursor row's value (first column), as `<CR>`
             let vals = s
                 .plan
@@ -333,7 +335,7 @@ impl Replay {
             let sheet = Sheet::rows_with_values(
                 &p.sheet,
                 self.next_id,
-                &column,
+                column,
                 visidata_rs::sheet::DiveKey::Value,
                 picked,
             );
@@ -852,7 +854,12 @@ impl Replay {
                     true => {
                         let bins =
                             Sheet::numeric_bins(&parent_slot.sheet, &r.col, 0).map_err(Runtime)?;
-                        Sheet::freq_binned(&parent_slot.sheet, id, &r.col, bins)
+                        Sheet::freq_binned(
+                            &parent_slot.sheet,
+                            id,
+                            std::slice::from_ref(&r.col),
+                            bins,
+                        )
                     }
                     false => Sheet::freq_from(&parent_slot.sheet, id, &r.col),
                 };
@@ -867,7 +874,7 @@ impl Replay {
                     return Err(Runtime("freq-keys: no key columns".into()));
                 }
                 let name = format!("{}_{}_freq", parent.name, keys.join("-"));
-                let new = Sheet::freq_keys_from(&parent.sheet, id, &keys);
+                let new = Sheet::freq_binned(&parent.sheet, id, &keys, None);
                 self.push_sheet(name, new);
                 Ok(())
             }

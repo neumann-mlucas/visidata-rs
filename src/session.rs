@@ -129,7 +129,7 @@ fn dived_from(l: &crate::sheet::Lineage, below: &Sheet) -> bool {
     let (Derivation::Values { column, .. }, Some(fl)) = (&l.how, &below.state.lineage) else {
         return false;
     };
-    matches!(&fl.how, Derivation::Freq { column: c, .. } if c == column)
+    matches!(&fl.how, Derivation::Freq { columns, .. } if columns == std::slice::from_ref(column))
         && fl.parent.id == l.parent.id
 }
 
@@ -270,7 +270,10 @@ impl Block {
         };
         match how {
             Derivation::Copy => self.ex(Action::DupSheet),
-            Derivation::Freq { column, bins } => {
+            // the parent's keys, as `W` (ponytail: keys changed since `gF` regroup)
+            Derivation::Freq { columns, .. } if columns.len() > 1 => self.ex(Action::FreqKeys),
+            Derivation::Freq { columns, bins } => {
+                let column = columns.first().map_or("", String::as_str);
                 // the options this `F` ran under (S-38 A): a number column bins or not
                 let set = |name: &str, v: String| Action::SetOption {
                     name: name.into(),
@@ -328,8 +331,6 @@ impl Block {
             }
             Derivation::Describe => self.ex(Action::Describe),
             Derivation::Transpose => self.ex(Action::Transpose),
-            // the parent's keys, as `W` (ponytail: keys changed since `gF` regroup)
-            Derivation::FreqKeys { .. } => self.ex(Action::FreqKeys),
             Derivation::Unfurl { column, empty } => {
                 // the option this `zM` ran under (S-42 C)
                 self.ex(Action::SetOption {

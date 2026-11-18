@@ -10,14 +10,21 @@ impl Sheet {
     /// `percent` (count / total * 100, 2 decimals) and `histogram` (a `■` bar)
     /// follow `count`, as in VisiData's freq output.
     pub fn freq_from(parent: &Sheet, id: SheetId, col_name: &str) -> Self {
-        Self::freq_binned(parent, id, col_name, None)
+        Self::freq_binned(parent, id, &[col_name.to_string()], None)
     }
 
-    /// [`Self::freq_from`], numeric values grouped by `bins` (S-35 C1;
-    /// [`Self::numeric_bins`]).
-    pub fn freq_binned(parent: &Sheet, id: SheetId, col_name: &str, bins: Option<Binning>) -> Self {
-        let (count, percent, histogram) = freq_stat_names(col_name);
-        let keep_order = freq_keeps_order(parent, col_name);
+    /// [`Self::freq_from`] over `columns` together (`gF` groups by the key
+    /// columns, S-52), one column's numeric values grouped by `bins` (S-35
+    /// C1; [`Self::numeric_bins`]).
+    pub fn freq_binned(
+        parent: &Sheet,
+        id: SheetId,
+        columns: &[String],
+        bins: Option<Binning>,
+    ) -> Self {
+        let col_name = columns.first().map_or("", String::as_str);
+        let (count, percent, histogram) = freq_stat_names(columns);
+        let keep_order = freq_keeps_order(parent, columns);
         let aggs = columns::freq_aggregators(parent);
         let exprs = std::iter::once(len().alias(count));
         let exprs: Vec<Expr> = exprs
@@ -26,14 +33,18 @@ impl Sheet {
         let base = parent.view_plan();
         // a date `fmtstr` or a number format the user set groups by the text
         // it shows (S-35 C2, S-36 B K3)
-        let key = match (parent.date_fmt(col_name), parent.num_fmt(col_name)) {
-            (Some(f), _) => col(col_name).dt().strftime(f).alias(col_name),
-            (None, Some(n)) => n.text_expr(col(col_name)).alias(col_name),
-            (None, None) => col(col_name),
-        };
-        let key = parent.err_key(key).alias(col_name);
+        let keys: Vec<Expr> = (columns.iter())
+            .map(|c| {
+                let key = match (parent.date_fmt(c), parent.num_fmt(c)) {
+                    (Some(f), _) => col(c.as_str()).dt().strftime(f),
+                    (None, Some(n)) => n.text_expr(col(c.as_str())),
+                    (None, None) => col(c.as_str()),
+                };
+                parent.err_key(key).alias(c.as_str())
+            })
+            .collect();
         let grouped = match &bins {
-            None => base.group_by_stable([key]).agg(exprs),
+            None => base.group_by_stable(keys).agg(exprs),
             Some(Binning::Values { .. }) => base.group_by_stable([col(col_name)]).agg(exprs).sort(
                 [col_name],
                 SortMultipleOptions::default()
@@ -87,20 +98,21 @@ impl Sheet {
         let mut freq = Sheet::child(
             parent,
             id,
-            format!("freq({}): {}", col_name, parent.name),
+            format!("freq({}): {}", columns.join(","), parent.name),
             plan,
             Origin::Freq {
                 parent: parent.id,
-                column: col_name.to_string(),
+                columns: columns.to_vec(),
             },
         )
         .derived(
             parent,
             Derivation::Freq {
-                column: col_name.to_string(),
+                columns: columns.to_vec(),
                 bins,
             },
         );
+        freq.view.keys = columns.to_vec(); // as VisiData
         // VisiData hides percent and histogram once aggregators add columns.
         if !aggs.is_empty() {
             freq.view
@@ -303,17 +315,23 @@ impl Sheet {
                 width: *width,
                 n: *n,
             },
-            Derivation::Freq { column, .. } => match l.parent.date_fmt(column) {
-                Some(f) => DiveKey::Fmt(f.into()),
-                None => l
-                    .parent
-                    .num_fmt(column)
-                    .map_or(DiveKey::Value, |n| DiveKey::Num(n.text())),
+            Derivation::Freq { columns, .. } => match columns.as_slice() {
+                [column] => l.parent.dive_key(column),
+                _ => DiveKey::Value,
             },
             Derivation::Values { .. } if matches!(l.parent.origin, Origin::Freq { .. }) => {
                 l.parent.freq_dive_key()
             }
             _ => DiveKey::Value,
+        }
+    }
+
+    /// What a freq sheet of this sheet groups `column` by: the text its date
+    /// `fmtstr` or number format shows, else its value.
+    pub fn dive_key(&self, column: &str) -> DiveKey {
+        match self.date_fmt(column) {
+            Some(f) => DiveKey::Fmt(f.into()),
+            None => (self.num_fmt(column)).map_or(DiveKey::Value, |n| DiveKey::Num(n.text())),
         }
     }
 
@@ -828,53 +846,12 @@ impl Sheet {
         }))
     }
 
-    /// `gF` (VisiData freq-keys): rows counted by the values of `keys`
-    /// together, by count desc (ties in first-seen order), with `percent`,
-    /// `histogram` and the parent's aggregators, as `F`.
-    // ponytail: groups by values, not a fmtstr's text as `F` does
-    pub fn freq_keys_from(parent: &Sheet, id: SheetId, keys: &[String]) -> Self {
-        // `freq_count`… when any key is named like a stat column
-        let (count, percent, histogram) = (keys.iter().map(|k| freq_stat_names(k)))
-            .find(|n| n.0 != "count")
-            .unwrap_or(freq_stat_names(""));
-        let aggs = columns::freq_aggregators(parent);
-        let exprs: Vec<Expr> = std::iter::once(len().alias(count))
-            .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
-            .collect();
-        let by: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
-        let grouped = parent.view_plan().group_by_stable(by).agg(exprs);
-        let plan = freq_stats(grouped, (count, percent, histogram), false);
-        let mut freq = Sheet::child(
-            parent,
-            id,
-            format!("freq({}): {}", keys.join(","), parent.name),
-            plan,
-            Origin::FreqKeys {
-                parent: parent.id,
-                columns: keys.to_vec(),
-            },
-        )
-        .derived(
-            parent,
-            Derivation::FreqKeys {
-                columns: keys.to_vec(),
-            },
-        );
-        freq.view.keys = keys.to_vec();
-        if !aggs.is_empty() {
-            freq.view
-                .hidden
-                .extend([percent.to_string(), histogram.to_string()]);
-        }
-        freq
-    }
-
-    /// `gF` dive: `parent`'s rows whose `keys` hold one of `wanted`'s rows
-    /// (nulls match nulls).
+    /// `gF` dive: `parent`'s rows whose `keys` hold one of `wanted`'s rows,
+    /// each compared as the text its [`DiveKey`] gives (nulls match nulls).
     pub fn rows_with_keys(
         parent: &Sheet,
         id: SheetId,
-        keys: &[String],
+        keys: &[(String, DiveKey)],
         wanted: DataFrame,
         name: String,
     ) -> Result<Self, String> {
@@ -882,20 +859,21 @@ impl Sheet {
             .view_plan_rid(true)
             .collect()
             .map_err(|e| e.to_string())?;
-        let on: Vec<Expr> = keys.iter().map(|k| col(k.as_str())).collect();
+        let on: Vec<Expr> = keys.iter().map(|(k, _)| col(k.as_str())).collect();
         let args = JoinArgs {
             nulls_equal: true,
             ..JoinArgs::new(JoinType::Inner)
         };
+        let shown = keys.iter().map(|(k, d)| d.expr(k).alias(k.as_str()));
+        let wanted = wanted.lazy().select(
+            keys.iter()
+                .map(|(k, _)| col(k.as_str()).cast(DataType::String))
+                .collect::<Vec<_>>(),
+        );
         let hit = (df.clone().lazy())
-            .select(
-                [col(ROW_ID)]
-                    .into_iter()
-                    .chain(on.clone())
-                    .collect::<Vec<_>>(),
-            )
+            .select([col(ROW_ID)].into_iter().chain(shown).collect::<Vec<_>>())
             .join(
-                wanted.lazy().unique(None, UniqueKeepStrategy::First),
+                wanted.unique(None, UniqueKeepStrategy::First),
                 on.clone(),
                 on,
                 args,

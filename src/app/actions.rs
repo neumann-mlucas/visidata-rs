@@ -729,7 +729,7 @@ impl App {
                 }
                 let id = self.sheets.alloc_id();
                 let parent = self.sheets.active();
-                let freq = Sheet::freq_keys_from(parent, id, &parent.view.keys);
+                let freq = Sheet::freq_binned(parent, id, &parent.view.keys, None);
                 self.sheets.push(freq);
                 self.spawn_materialize();
             }
@@ -1535,11 +1535,6 @@ impl App {
                     self.toast = Some(format!("nothing to {}", if undo { "undo" } else { "redo" }));
                 }
             }
-            Action::SubmitSelected
-                if matches!(self.sheets.active().origin, Origin::FreqKeys { .. }) =>
-            {
-                self.dive_freq_keys(true)
-            }
             Action::SubmitSelected => self.dive_freq(true),
             Action::SelectEqualCell => {
                 let s = self.sheets.active();
@@ -2025,7 +2020,6 @@ impl App {
                 }
             }
             Origin::Freq { .. } => self.dive_freq(false),
-            Origin::FreqKeys { .. } => self.dive_freq_keys(false),
             Origin::Cell => {
                 let row = self.cursor_row();
                 let id = self.sheets.alloc_id();
@@ -2121,9 +2115,19 @@ impl App {
     /// (`<CR>`) or any selected row's (`g<CR>`).
     fn dive_freq_keys(&mut self, selected: bool) {
         let s = self.sheets.active();
-        let Origin::FreqKeys { parent, columns } = s.origin.clone() else {
+        let Origin::Freq { parent, columns } = s.origin.clone() else {
             return;
         };
+        // compared as the freq sheet grouped them (the parent's formats then)
+        let keys: Vec<_> = (columns.iter())
+            .map(|c| {
+                let l = s.state.lineage.as_deref();
+                (
+                    c.clone(),
+                    l.map_or(crate::sheet::DiveKey::Value, |l| l.parent.dive_key(c)),
+                )
+            })
+            .collect();
         let rids: Vec<u64> = match selected {
             true => s.view.selected.iter().copied().collect(),
             false => self.rid_at_cursor().into_iter().collect(),
@@ -2147,7 +2151,7 @@ impl App {
                 .collect()
                 .map_err(|e| e.to_string())?;
             let name = format!("{}_{}", parent.name, columns.join("_"));
-            let child = Sheet::rows_with_keys(&parent, id, &columns, wanted, name)?;
+            let child = Sheet::rows_with_keys(&parent, id, &keys, wanted, name)?;
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
@@ -2156,9 +2160,15 @@ impl App {
     /// (`<CR>`) or any selected row's (`g<CR>`) value.
     fn dive_freq(&mut self, selected: bool) {
         let s = self.sheets.active();
-        let Origin::Freq { parent, column } = s.origin.clone() else {
-            self.toast = Some("g<CR>: only on a frequency sheet".into());
-            return;
+        let (parent, column) = match &s.origin {
+            Origin::Freq { columns, .. } if columns.len() > 1 => {
+                return self.dive_freq_keys(selected);
+            }
+            Origin::Freq { parent, columns } => (*parent, columns.concat()),
+            _ => {
+                self.toast = Some("g<CR>: only on a frequency sheet".into());
+                return;
+            }
         };
         let rids: Vec<u64> = if selected {
             s.view.selected.iter().copied().collect()
@@ -2467,7 +2477,7 @@ impl App {
             let parent = self.sheets.active().clone();
             self.spawn_job("freq", move || {
                 let bins = Sheet::numeric_bins(&parent, &col_name, hist_bins)?;
-                let child = Sheet::freq_binned(&parent, id, &col_name, bins);
+                let child = Sheet::freq_binned(&parent, id, &[col_name], bins);
                 Ok(JobDone::PushSheet(Box::new(child)))
             });
             return;

@@ -110,7 +110,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 
 | Action | Key | Exline | Semantics |
 |---|---|---|---|
-| `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col with `count` + `percent` cols (2-decimal, round_series feature); `numeric_binning`: `freq_binned` ranges in a job, dive by bin index (S-35 C1) |
+| `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col (the freq sheet's key, S-52) with `count` + `percent` cols (2-decimal, round_series feature); `numeric_binning`: `freq_binned` ranges in a job, dive by bin index (S-35 C1) |
 | `Pivot { index, on, values, agg }` | — | `:pivot <index> <on> <values> [agg]` | `sheet::pivot_df` (Polars dropped `pivot_stable`); eager |
 | `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot`: VisiData's `Variable`/`Value`, row-major, nulls dropped, index columns as keys, S-44 error flag not melted |
 | `Diff { path, keys }` | — | `:diff <path> [key1,key2,...]` | schema diff or full outer join flagging only_a/only_b/changed |
@@ -128,7 +128,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SortKeys { descending }` | `g[` / `g]` | VisiData sort-keys-asc/desc: sort by the key columns, replacing the sort; none → toast (S-50) |
 | `Melt` | `M` | VisiData melt: `Unpivot` of the visible non-key columns, keys as index (S-50) |
 | `Transpose` | `T` | VisiData transpose: `Sheet::transpose_from`, eager, refused past `MAX_CELLS` (10M, as copy); a row per visible non-key column, a column per row named by its key values (`_`-joined; row number without keys), first column = key names (`column` without keys), all text; repeated names get `_duplicated_<i>`, never another column's name (S-51) |
-| `FreqKeys` | `gF` | VisiData freq-keys: `Sheet::freq_keys_from`, group by every key column, then count, percent, histogram (`freq_*` when a key has one of those names) and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` (nulls match) (S-51) |
+| `FreqKeys` | `gF` | VisiData freq-keys: `F`'s sheet (`Sheet::freq_binned`, S-52) over every key column, each grouped by its shown text (fmtstr, number format), then count, percent, histogram (`freq_*` when a key has one of those names) and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` on that text (nulls match); exports (S-51, S-52) |
 | `JoinAll { how }` | `g&` | `:join-all <how>`, VisiData join-sheets-all: `join_from` chained over the sheets below, nearest first, on the active sheet's keys; an edit goes back to the last sheet joined, the inner joins' columns keep theirs (S-51) |
 | `OpenCell` | `zEnter` | VisiData open-cell: `Sheet::open_cell`, list/struct/JSON text → table, one column or `key`/`value` rows (`Origin::Cell`); `<CR>` there → `open_cell_row`; mixed types → text, NaN/inf too; JSON and TOML keep source key order (S-51) |
 | `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |

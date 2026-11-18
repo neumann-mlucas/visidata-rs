@@ -1402,7 +1402,12 @@ fn numeric_bins_pick_ranges_or_values() {
         .unwrap();
     let i: Vec<Option<i64>> = i.columns()[0].i64().unwrap().iter().collect();
     assert_eq!(i, [Some(0), Some(2)]);
-    let f = Sheet::freq_binned(&s, 1, "x", Some(Binning::Ranges { min, width, n }));
+    let f = Sheet::freq_binned(
+        &s,
+        1,
+        &["x".into()],
+        Some(Binning::Ranges { min, width, n }),
+    );
     let df = f.plan.clone().collect().unwrap();
     let counts: Vec<_> = df
         .column("count")
@@ -1494,7 +1499,7 @@ fn rids_to_selected_gives_the_hit_row() {
 #[test]
 fn freq_keys_dodges_stat_names() {
     let (p, _t) = sheet_of("count,g\n1,x\n1,x\n2,y\n");
-    let f = Sheet::freq_keys_from(&p, 1, &["count".into(), "g".into()]);
+    let f = Sheet::freq_binned(&p, 1, &["count".into(), "g".into()], None);
     let df = f.plan.clone().collect().unwrap();
     let names: Vec<String> = df
         .get_column_names()

@@ -21,6 +21,7 @@ The four VisiData default keys S-50 left out, each a new sheet.
   aggregators, as `F`); count desc, ties first-seen. No keys → toast.
 - `<CR>` / `g<CR>`: `rows_with_keys`, the parent's rows holding those key values
   (nulls match). Grouped by values, not a fmtstr's text. `:export` refuses.
+  (S-52 makes it `F`'s sheet: grouped by shown text, exported.)
 
 ## `zEnter` open-cell
 
