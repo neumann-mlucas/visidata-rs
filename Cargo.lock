@@ -4828,6 +4828,7 @@ dependencies = [
  "clap",
  "crossterm",
  "flate2",
+ "memchr",
  "mlua",
  "polars",
  "portable-pty",

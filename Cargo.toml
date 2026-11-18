@@ -38,6 +38,7 @@ flate2 = "1"
 calamine = { version = "0.38", features = ["chrono"] }  # chrono already comes with polars
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json = { version = "1", features = ["preserve_order"] }  # already pulled in by polars; jsonla rows (S-42 B); source key order (S-51)
+memchr = "2"  # already pulled in by polars; CSV blank-line scan at open
 unicode-width = "0.2"  # already pulled in by ratatui; display widths of cells
 yaml-rust2 = "0.13.0"  # .yaml/.yml (S-42 D)
 toml = { version = "1.2.1", features = ["preserve_order"] }  # .toml; source key order (S-51)

@@ -800,14 +800,23 @@ fn blank_lines(path: &Path) -> io::Result<(bool, u32)> {
         if buf.is_empty() {
             return Ok((false, blanks));
         }
-        for &b in buf {
-            match b {
-                b'\n' if line_start => blanks += 1,
-                b'\n' => line_start = true,
+        let mut i = 0;
+        while i < buf.len() {
+            if !line_start {
+                // inside a line: jump to its end
+                let Some(j) = memchr::memchr(b'\n', &buf[i..]) else {
+                    break;
+                };
+                (i, line_start) = (i + j + 1, true);
+                continue;
+            }
+            match buf[i] {
+                b'\n' => blanks += 1,
                 b'\r' => {}
                 _ if blanks > 0 => return Ok((true, 0)),
                 _ => line_start = false,
             }
+            i += 1;
         }
         let n = buf.len();
         r.consume(n);
@@ -1231,6 +1240,17 @@ mod tests {
         );
         let rev = lazy.sort(["a"], Default::default()).collect().unwrap();
         assert_eq!(rev.height(), 3, "{rev}");
+        // lines and blank runs across the scan's 64 KiB reads
+        let long = "x".repeat(70_000);
+        for (text, want) in [
+            (format!("a\n{long}\n\n\n"), (false, 2)),
+            (format!("a\n{long}\n\nb\n"), (true, 0)),
+            (format!("a\n{}\n\r\n\r\nb\n", "y".repeat(65_530)), (true, 0)),
+        ] {
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            f.write_all(text.as_bytes()).unwrap();
+            assert_eq!(blank_lines(f.path()).unwrap(), want);
+        }
     }
 
     #[test]
