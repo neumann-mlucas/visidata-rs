@@ -390,6 +390,11 @@ impl Sheet {
         };
         let mut sheet = Sheet::meta(id, name, df, Origin::Columns { cols: cols.into() });
         sheet.view.row_cursor = row_cursor;
+        // VisiData's `nKeys = 2`: its rows are named `sheet,name`
+        sheet.view.keys = match sheets.len() {
+            1 => vec!["name".into()],
+            _ => vec!["sheet".into(), "name".into()],
+        };
         sheet
     }
 }

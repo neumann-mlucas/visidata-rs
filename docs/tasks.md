@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [ ] S-53 — replay blockers (keyed columns sheet, rename onto hidden; replay 98), XML and msgpack readers
 - [x] S-52 — one freq derivation for `F` and `gF`: `gF` groups by shown text, exports — shipped 2026-11-17
 - [x] S-51 — `T` transpose, `gF` freq-keys, `zEnter` open-cell, `g&` join-all; replay 97 (`test_quartiles`, `load-toml`) — shipped 2026-11-17
 - [x] S-50 — VisiData default keys `o` `Ctrl+S` `&` `M` `{` `}` `<` `>` `z<` `z>` `c` `g[` `g]` — shipped 2026-11-16

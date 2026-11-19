@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 97;
+const MIN_PASS: usize = 98;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -670,6 +670,30 @@ impl Replay {
                 &indexed
             }
             None => r,
+        };
+        // VisiData's `Date_re[0]` (a captured list's item) is vdrs's struct
+        // field `Date_re.0` (S-31)
+        let renamed;
+        let r = match r.col.strip_suffix(']').and_then(|c| c.rsplit_once('[')) {
+            Some((base, i)) if i.parse::<usize>().is_ok() => {
+                let field = format!("{base}.{i}");
+                let has = |s: &Sheet| {
+                    s.view_plan()
+                        .collect_schema()
+                        .is_ok_and(|s| s.contains(&field))
+                };
+                match self.current_slot().is_ok_and(|s| has(&s.sheet)) {
+                    true => {
+                        renamed = CmdlogRow {
+                            col: field,
+                            ..r.clone()
+                        };
+                        &renamed
+                    }
+                    false => r,
+                }
+            }
+            _ => r,
         };
         let filled;
         // A sheet's cursor starts on its first column.
@@ -2493,15 +2517,27 @@ fn view_rid(s: &Sheet, target: &str) -> Result<u64, StepErr> {
     let keyed = target.starts_with('キ') || target.parse::<usize>().is_err();
     let target = target.strip_prefix('キ').unwrap_or(target);
     let rt = |e: PolarsError| StepErr::Runtime(e.to_string());
-    if let Some(k) = s.view.keys.first()
-        && keyed
+    // VisiData's rowname: the key values joined with `,`
+    let parts: Vec<&str> = match s.view.keys.len() {
+        0 | 1 => vec![target],
+        n => target.splitn(n, ',').collect(),
+    };
+    if keyed
         && !target.is_empty()
-        && let Some(&rid) = s
-            .rids_with_values(k, &[AnyValue::String(target)])
-            .map_err(rt)?
-            .first()
+        && parts.len() == s.view.keys.len().max(1)
+        && !s.view.keys.is_empty()
     {
-        return Ok(rid);
+        let mut hit: Option<Vec<u64>> = None;
+        for (k, v) in s.view.keys.iter().zip(&parts) {
+            let rids = s.rids_with_values(k, &[AnyValue::String(v)]).map_err(rt)?;
+            hit = Some(match hit {
+                None => rids,
+                Some(h) => h.into_iter().filter(|r| rids.contains(r)).collect(),
+            });
+        }
+        if let Some(&rid) = hit.as_ref().and_then(|h| h.first()) {
+            return Ok(rid);
+        }
     }
     let rids = s.view_rids().map_err(rt)?;
     let i = if target.is_empty() {

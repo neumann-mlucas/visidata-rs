@@ -1378,7 +1378,7 @@ impl Sheet {
         if new == ROW_ID {
             return Err(format!("{ROW_ID} is reserved"));
         }
-        if new != old && self.has_column(new) {
+        if new != old && self.has_column(new) && !self.view.hidden.contains(new) {
             return Err(format!("column already exists: {new}"));
         }
         let reads = |p: &str| {
@@ -1398,6 +1398,14 @@ impl Sheet {
             return Err(format!(
                 "a :color rule reads {old}; clear it (:nocolor) first"
             ));
+        }
+        if new != old && self.has_column(new) {
+            // a hidden column moves aside to `<new>_1` (VisiData holds both names)
+            let free = (1..)
+                .map(|i| format!("{new}_{i}"))
+                .find(|n| !self.has_column(n))
+                .unwrap_or_default();
+            self.rename_col(new, &free)?;
         }
         let step = PlanStep::Rename {
             old: old.to_string(),

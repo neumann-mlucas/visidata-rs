@@ -1570,3 +1570,27 @@ fn transpose_refuses_past_max_cells() {
         "transpose: 10,000,002 cells is over the 10,000,000 limit"
     );
 }
+
+/// Renaming onto a hidden column's name moves that one aside (VisiData's
+/// `monthly-revenue`: `Date_re.0` becomes `Date` over the hidden `Date`).
+#[test]
+fn rename_onto_hidden_column_moves_it_aside() {
+    let (mut s, _t) = sheet_of("Date,Paid\n7/3/2018 1:47p,$5\n");
+    let name = s.capture("Date", r"(?i)(\d+/\d+)").unwrap();
+    s.expand(&name, 1).unwrap();
+    s.view.hidden.extend(["Date_re".into(), "Date".into()]);
+    s.rename_col("Date_re.0", "Date").unwrap();
+    let names: Vec<String> = s.all_columns().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["Date_1", "Paid", "Date_re", "Date"]);
+    let df = s.view_plan().collect().unwrap();
+    assert_eq!(
+        df.column("Date").unwrap().get(0).unwrap(),
+        AnyValue::String("7/3")
+    );
+    assert!(s.view.hidden.contains("Date_1"), "{:?}", s.view.hidden);
+    // a visible column still refuses
+    assert_eq!(
+        s.rename_col("Date", "Paid").unwrap_err(),
+        "column already exists: Paid"
+    );
+}

@@ -13,7 +13,7 @@ append	PASS
 avg-nulls	PASS
 bulk-rename-cols	UNTESTABLE setcol-expr
 capture-col-named	PASS
-column-copy	SKIP runtime: cannot locate row 'Robert Armstrong' (keys=[])
+column-copy	SKIP runtime: read-only: freq(Customer): ../visidata/sample_data/benchmark.csv is derived from ../visidata/sample_data/benchmark.csv
 column-name-__name__	PASS
 column-name-_fields	PASS
 column-name-length	PASS
@@ -63,7 +63,7 @@ freqtbl-openrow	PASS
 frozen-attrs	PASS
 full-join	PASS
 gMelt	UNTESTABLE addcol-expr
-getitem	SKIP runtime: cannot locate row 'geolocation' (keys=[])
+getitem	SKIP runtime: read-only: ../visidata/sample_data/y77d-th95.json.gz_columns is derived
 graph-cursor-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graph-sincos-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 graphpr-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
@@ -128,7 +128,7 @@ issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
 issue964-inner-join	PASS
 join-cols-single-sheet	SKIP join-cols
-join-concat	SKIP runtime: cannot locate row 'Customer' (keys=[])
+join-concat	FAIL line 1: want="Date\tDelilah\tSKU\tItem\tQuantity\tUnit\tPaid" got="Date\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid"
 join-different-types	SKIP allow-error
 join-extend-mult	PASS
 join-merge	PASS
@@ -178,7 +178,7 @@ long-title-xlsx-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 macro-param-col-nosave	NO_GOLDEN assertion-only (no golden in VisiData)
 melt-error	FAIL line 8: want="2016-01-01\tamt\t3" got="2016-01-01\tamt\t3.0"
 messenger-nosave	NO_GOLDEN golden is .dot
-monthly-revenue	SKIP runtime: column already exists: Date
+monthly-revenue	PASS
 numeric-cols	PASS
 numeric-names	PASS
 numeric_binning	PASS
