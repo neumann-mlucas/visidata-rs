@@ -276,6 +276,28 @@ fn toml_json(v: toml::Value) -> serde_json::Value {
     }
 }
 
+/// MessagePack (`.msgpack`), as JSON: a list → a row per item, another value
+/// one row (VisiData's `MsgpackSheet`). `.msgpackz` is brotli-compressed.
+pub(super) fn msgpack(path: &Path) -> Result<DataFrame, OpenError> {
+    use std::io::Read;
+    let mut data = std::fs::read(path)?;
+    let z = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("msgpackz"));
+    if z {
+        let mut out = Vec::new();
+        brotli::Decompressor::new(data.as_slice(), 4096).read_to_end(&mut out)?;
+        data = out;
+    }
+    let v: serde_json::Value = rmp_serde::from_slice(&data)
+        .map_err(|e| OpenError::Polars(polars_err!(ComputeError: "msgpack: {e}")))?;
+    let rows = match v {
+        serde_json::Value::Array(items) => items,
+        v => vec![v],
+    };
+    records(rows.into_iter().map(as_row).collect())
+}
+
 /// TOML (`.toml`): one row, a column per top-level key, as VisiData.
 pub(super) fn toml(path: &Path) -> Result<DataFrame, OpenError> {
     let text = std::fs::read_to_string(path)?;
@@ -299,5 +321,20 @@ mod tests {
         assert_eq!(spans("id  name\n1   ann\n22  bobby"), [(0, 2), (4, 9)]);
         // a right-justified header: data left of it moves the start
         assert_eq!(spans("  n x\n100 y"), [(0, 3), (4, 5)]);
+    }
+
+    #[test]
+    fn msgpack_reads_a_list_of_records_plain_or_brotli() {
+        let v = serde_json::json!([{"id": 1, "geo": {"xy": [1.5, 2.0]}}, {"id": 2, "geo": null}]);
+        let data = rmp_serde::to_vec_named(&v).unwrap();
+        let mut z = Vec::new();
+        brotli::BrotliCompress(&mut data.as_slice(), &mut z, &Default::default()).unwrap();
+        for (ext, bytes) in [(".msgpack", data), (".msgpackz", z)] {
+            let f = tempfile::Builder::new().suffix(ext).tempfile().unwrap();
+            std::fs::write(f.path(), bytes).unwrap();
+            let df = msgpack(f.path()).unwrap();
+            assert_eq!(df.get_column_names(), ["id", "geo"], "{ext}");
+            assert_eq!(df.height(), 2, "{ext}");
+        }
     }
 }

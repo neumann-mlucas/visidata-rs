@@ -31,7 +31,7 @@ use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 98;
+const MIN_PASS: usize = 102;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {

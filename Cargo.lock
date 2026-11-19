@@ -4824,6 +4824,7 @@ name = "visidata-rs"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "brotli",
  "calamine",
  "clap",
  "crossterm",
@@ -4832,8 +4833,10 @@ dependencies = [
  "mlua",
  "polars",
  "portable-pty",
+ "quick-xml 0.42.0",
  "ratatui",
  "regex",
+ "rmp-serde",
  "rusqlite",
  "scraper",
  "serde_json",

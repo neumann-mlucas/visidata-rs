@@ -267,10 +267,10 @@ impl Keymap {
             ch("g @", TypeSelected { name: "date" }, "columns sheet: selected columns date"),
             ch("g $", TypeSelected { name: "currency" }, "columns sheet: selected columns currency"),
             // nested data (S-22)
-            ch("(", ExpandCol { depth: 1 }, "expand struct column into a column per field"),
-            ch("z (", StartExpandDepthInput { all: false }, "expand struct column N levels deep"),
-            ch("g (", ExpandCols { depth: 1 }, "expand every visible struct column"),
-            ch("g z (", StartExpandDepthInput { all: true }, "expand every visible struct column N levels deep"),
+            ch("(", ExpandCol { depth: 1 }, "expand struct or list column into a column per field or item"),
+            ch("z (", StartExpandDepthInput { all: false }, "expand struct or list column N levels deep"),
+            ch("g (", ExpandCols { depth: 1 }, "expand every visible struct and list column"),
+            ch("g z (", StartExpandDepthInput { all: true }, "expand every visible struct and list column N levels deep"),
             ch(")", ContractCol, "fold expanded columns back into their struct"),
             ch("z M", UnfurlCol, "open a row per item of the current column's lists"),
             // editing (S-18 C)

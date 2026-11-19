@@ -72,8 +72,9 @@ pub enum PlanStep {
         dtype: DataType,
     },
     /// `(` (S-22): struct `column`'s fields as columns right after it.
-    /// `fields`: (path into the struct, new column name); `after`: the
-    /// columns that followed `column` when expanded.
+    /// `fields`: (path into the struct, new column name); a `[i]` in a path
+    /// is a list's item `i` (S-53); `after`: the columns that followed
+    /// `column` when expanded.
     Expand {
         column: String,
         fields: Vec<(Vec<String>, String)>,
@@ -293,11 +294,8 @@ impl PlanStep {
                 fields,
                 after,
             } => {
-                let kids = fields.iter().map(|(path, name)| {
-                    path.iter()
-                        .fold(col(column.as_str()), |e, f| e.struct_().field_by_name(f))
-                        .alias(name.as_str())
-                });
+                let kids = (fields.iter())
+                    .map(|(path, name)| path_expr(column, path).alias(name.as_str()));
                 let head = all().exclude_cols(after.clone()).as_expr();
                 let tail = cols(after.clone()).as_expr();
                 plan.select(
@@ -470,6 +468,20 @@ impl PlanStep {
             _ => Vec::new(),
         }
     }
+}
+
+/// A list item in an [`PlanStep::Expand`] path: `[3]` → 3.
+pub fn list_index(step: &str) -> Option<i64> {
+    step.strip_prefix('[')?.strip_suffix(']')?.parse().ok()
+}
+
+/// `column`'s value down `path`: struct fields, `[i]` list items (null past
+/// the end).
+pub fn path_expr(column: &str, path: &[String]) -> Expr {
+    path.iter().fold(col(column), |e, f| match list_index(f) {
+        Some(i) => e.list().get(lit(i), true),
+        None => e.struct_().field_by_name(f),
+    })
 }
 
 /// `;`'s struct fields: each group's name, else its index from 0 (VisiData

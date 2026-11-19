@@ -43,6 +43,9 @@ unicode-width = "0.2"  # already pulled in by ratatui; display widths of cells
 yaml-rust2 = "0.13.0"  # .yaml/.yml (S-42 D)
 toml = { version = "1.2.1", features = ["preserve_order"] }  # .toml; source key order (S-51)
 scraper = "0.29.0"  # .html tables
+quick-xml = "0.42"  # already pulled in by calamine; .xml (S-53)
+rmp-serde = "1.3"  # already pulled in by polars; .msgpack (S-53)
+brotli = "8"  # already pulled in by polars (parquet); .msgpackz (S-53)
 zip = { version = "9.4.1", default-features = false, features = ["deflate"] }  # .zip members; calamine already builds it
 
 [dev-dependencies]

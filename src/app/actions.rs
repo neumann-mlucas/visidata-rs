@@ -2273,7 +2273,8 @@ impl App {
         }
     }
 
-    /// `(` `z(` on the cursor column; `g(` `gz(` (`all`): every struct column.
+    /// `(` `z(` on the cursor column; `g(` `gz(` (`all`): every struct and
+    /// list column.
     fn expand(&mut self, depth: usize, all: bool) {
         let done = match all {
             // the cursor stays put: on the first new column, the struct hidden
@@ -2283,7 +2284,7 @@ impl App {
             },
             true => self.sheets.active_mut().expand_all(depth).map(|n| {
                 self.toast = Some(format!(
-                    "expanded {n} struct column{}",
+                    "expanded {n} column{}",
                     if n == 1 { "" } else { "s" }
                 ));
             }),

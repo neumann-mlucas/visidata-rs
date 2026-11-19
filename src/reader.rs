@@ -10,6 +10,7 @@ use polars::prelude::*;
 mod archive;
 mod html;
 mod text;
+mod xml;
 pub(crate) use text::records;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -33,6 +34,10 @@ pub enum SourceKind {
     Html,
     /// The members of a zip archive; `<CR>` opens one.
     Zip,
+    /// A row per element (S-53).
+    Xml,
+    /// MessagePack, read as JSON is; `.msgpackz` brotli-compressed (S-53).
+    Msgpack,
     #[value(skip)]
     Duckdb, // read through the `duckdb` program (crate::duckdb)
     #[value(skip)]
@@ -614,6 +619,8 @@ pub fn detect(path: &Path) -> Result<SourceKind, OpenError> {
         Some("toml") => Ok(SourceKind::Toml),
         Some("html" | "htm") => Ok(SourceKind::Html),
         Some("zip") => Ok(SourceKind::Zip),
+        Some("xml" | "svg") => Ok(SourceKind::Xml),
+        Some("msgpack" | "msgpackz") => Ok(SourceKind::Msgpack),
         _ => Err(OpenError::UnknownFormat {
             path: path.to_owned(),
         }),
@@ -777,6 +784,8 @@ fn scan(
         SourceKind::Toml => text::toml(path)?.lazy(),
         SourceKind::Html => html::index(path)?.lazy(),
         SourceKind::Zip => archive::index(path)?.lazy(),
+        SourceKind::Xml => xml::elements(path)?.lazy(),
+        SourceKind::Msgpack => text::msgpack(path)?.lazy(),
         // Always the table list, as VisiData; `<CR>` opens one (`open_part`).
         SourceKind::Duckdb => crate::duckdb::index(path)
             .map_err(OpenError::Duckdb)?

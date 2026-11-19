@@ -724,8 +724,11 @@ async fn expand_and_contract_a_struct_column() {
     h.keys("z (").await;
     h.type_("2").await;
     assert!(header(&h).contains("user.geo.lat"), "{}", header(&h));
+    h.keys("g (").await; // the list: a column per item, empty past the end
+    assert_eq!(status(&h), "expanded 1 column");
+    assert!(header(&h).contains("tags[1]"), "{}", header(&h));
     h.keys("g (").await;
-    assert_eq!(status(&h), "expanded 0 struct columns");
+    assert_eq!(status(&h), "expanded 0 columns");
 }
 
 #[tokio::test(flavor = "multi_thread")]

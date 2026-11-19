@@ -357,7 +357,9 @@ impl Script {
                         | SourceKind::Yaml
                         | SourceKind::Toml
                         | SourceKind::Html
-                        | SourceKind::Zip),
+                        | SourceKind::Zip
+                        | SourceKind::Xml
+                        | SourceKind::Msgpack),
                         _,
                     ) => return Err(format!("export: Polars has no {k:?} reader")),
                 })
@@ -452,7 +454,9 @@ impl Script {
                     | SourceKind::Yaml
                     | SourceKind::Toml
                     | SourceKind::Html
-                    | SourceKind::Zip) => {
+                    | SourceKind::Zip
+                    | SourceKind::Xml
+                    | SourceKind::Msgpack) => {
                         return Err(format!("export: DuckDB has no {k:?} reader"));
                     }
                 })
@@ -1756,7 +1760,10 @@ fn py_step(t: &str, step: &PlanStep) -> String {
             let kids = fields.iter().map(|(path, name)| {
                 let get: String = path
                     .iter()
-                    .map(|f| format!(".struct.field({})", py_str(f)))
+                    .map(|f| match crate::sheet::list_index(f) {
+                        Some(i) => format!(".list.get({i}, null_on_oob=True)"),
+                        None => format!(".struct.field({})", py_str(f)),
+                    })
                     .collect();
                 format!("pl.col({}){get}.alias({})", py_str(column), py_str(name))
             });
@@ -1949,9 +1956,13 @@ fn sql_step(q: String, step: &PlanStep) -> String {
             after,
         } => {
             let kids = fields.iter().map(|(path, name)| {
-                let get = path.iter().fold(q_ident(column), |e, f| {
-                    format!("struct_extract({e}, {})", q_str(f))
-                });
+                // DuckDB lists count from 1; past the end is NULL
+                let get =
+                    path.iter()
+                        .fold(q_ident(column), |e, f| match crate::sheet::list_index(f) {
+                            Some(i) => format!("({e})[{}]", i + 1),
+                            None => format!("struct_extract({e}, {})", q_str(f)),
+                        });
                 format!("{get} AS {}", q_ident(name))
             });
             let after: Vec<String> = after.iter().map(|c| q_ident(c)).collect();

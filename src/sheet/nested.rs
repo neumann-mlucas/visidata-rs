@@ -25,7 +25,7 @@ impl Sheet {
             .map_err(|e| e.to_string())?;
         let structs: Vec<String> = schema
             .iter()
-            .filter(|(_, d)| matches!(d, DataType::Struct(_)))
+            .filter(|(_, d)| matches!(d, DataType::Struct(_) | DataType::List(_)))
             .map(|(n, _)| n.to_string())
             .collect();
         let snap = self.snapshot();
@@ -58,11 +58,23 @@ impl Sheet {
         let dt = schema
             .get(column)
             .ok_or_else(|| format!("no column: {column}"))?;
-        if !matches!(dt, DataType::Struct(f) if !f.is_empty()) {
-            return Err(format!("{column} is not a struct"));
+        if !matches!(dt, DataType::Struct(f) if !f.is_empty()) && !matches!(dt, DataType::List(_)) {
+            return Err(format!("{column} is not a struct or a list"));
         }
         let mut taken: HashSet<String> = schema.iter_names().map(|n| n.to_string()).collect();
         let mut fields = Vec::new();
+        // the longest list down `path`: that many item columns
+        let plan = self.plan.clone();
+        let longest = |path: &[String]| -> usize {
+            let n =
+                plan.clone()
+                    .select([step::path_expr(column, path).list().len().max().alias("n")]);
+            let n = n
+                .collect()
+                .ok()
+                .and_then(|df| df.column("n").ok()?.get(0).ok()?.extract::<usize>());
+            n.unwrap_or(0)
+        };
         field_columns(
             dt,
             column,
@@ -70,6 +82,7 @@ impl Sheet {
             if depth == 0 { usize::MAX } else { depth },
             &mut taken,
             &mut fields,
+            &longest,
         );
         let after = schema
             .iter_names()
@@ -167,8 +180,11 @@ impl Sheet {
     }
 }
 
-/// `name`'s columns: one per field, structs `depth` levels down; a name
-/// already taken gets `_2`, `_3`, … (VisiData names, S-22 §2).
+/// `name`'s columns: one per field, structs `depth` levels down, and one
+/// per item of a list (`name[0]`…, `longest` of them, S-53); a name already
+/// taken gets `_2`, `_3`, … (VisiData names, S-22 §2).
+// ponytail: a column per item of the longest list, uncapped; cap it if a
+// long list ever floods the sheet
 fn field_columns(
     dt: &DataType,
     name: &str,
@@ -176,13 +192,32 @@ fn field_columns(
     depth: usize,
     taken: &mut HashSet<String>,
     out: &mut Vec<(Vec<String>, String)>,
+    longest: &dyn Fn(&[String]) -> usize,
 ) {
     match dt {
         DataType::Struct(fs) if depth > 0 && !fs.is_empty() => {
             for f in fs {
                 path.push(f.name.to_string());
                 let n = format!("{name}.{}", f.name);
-                field_columns(f.dtype(), &n, path, depth - 1, taken, out);
+                field_columns(f.dtype(), &n, path, depth - 1, taken, out, longest);
+                path.pop();
+            }
+        }
+        DataType::List(item)
+            if depth > 0
+                && let n @ 1.. = longest(path) =>
+        {
+            for i in 0..n {
+                path.push(format!("[{i}]"));
+                field_columns(
+                    item,
+                    &format!("{name}[{i}]"),
+                    path,
+                    depth - 1,
+                    taken,
+                    out,
+                    longest,
+                );
                 path.pop();
             }
         }

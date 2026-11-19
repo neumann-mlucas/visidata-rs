@@ -1,6 +1,6 @@
 # S-53 Replay blockers, XML and msgpack readers
 
-Status: in progress.
+Status: shipped 2026-11-19.
 
 Replay files whose first blocker looked cheap (`tests/vd_replay/triage.txt`).
 
@@ -26,7 +26,25 @@ Replay files whose first blocker looked cheap (`tests/vd_replay/triage.txt`).
   `issue3208-duplicates`): VisiData's output has two columns of one name, which
   a Polars frame can't hold.
 
-## C. Looked at, not done
+## C. XML and MessagePack readers
+
+- `.xml` / `.svg`: VisiData's XmlSheet, a row per element (`root.iter()`
+  order) with `tag`, `children`, `text` (raw whitespace kept, as lxml) and a
+  column per attribute. `load-xml` passes. Not done: dive into an element,
+  the hidden `sourceline prefix nstag path tail` columns, and `dive-xml-table`
+  (`xml-table`).
+- `.msgpack` / `.msgpackz` (brotli): `msgpack.unpackb` read as a JSON sheet.
+
+## D. List expansion
+
+- `(` `z(` `g(` `gz(` expand a list column too: a column per item of the
+  longest list, `col[0]`, `col[1]`…, null past a shorter list's end
+  (VisiData's `ExpandedColumn` over a list). A path step `[i]` in
+  `PlanStep::Expand`; exports use `.list.get(i, null_on_oob=True)` / DuckDB
+  `(c)[i+1]`. `load-json`, `load-msgpack`, `load-msgpackz` pass: replay 102.
+- ponytail: one column per item of the longest list, uncapped.
+
+## E. Looked at, not done
 
 - `pr2308`: `keymax`/`keymin` need the sheet's keys in every aggregator path
   (footer, `z+`, freq, pivot, both exports), and `zF` (freq-summary) is a new

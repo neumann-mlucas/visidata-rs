@@ -31,7 +31,7 @@ pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, pivot_prefi
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
-pub use step::{ADDED_RID, LookupLink, POS, PlanStep, capture_fields};
+pub use step::{ADDED_RID, LookupLink, POS, PlanStep, capture_fields, list_index};
 pub use undo::{Snapshot, UndoTree};
 pub use validate::Validation;
 pub use write::write_df_by_extension;
