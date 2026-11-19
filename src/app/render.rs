@@ -422,8 +422,8 @@ impl App {
         f.render_widget(p, rect);
     }
 
-    /// `name | kind · what shapes the view …| column | row`. The position
-    /// on the right always shows; the name gives up its head, the chips their tail.
+    /// `crumbs | what shapes the view …| column | row`. The position on the
+    /// right always shows; the crumbs give up their head, the chips their tail.
     pub(super) fn render_titlebar(
         &self,
         f: &mut ratatui::Frame<'_>,
@@ -443,12 +443,8 @@ impl App {
             .unwrap_or((0, 0));
         let abs_row = window_offset + row_cursor as u64 + u64::from(rows > 0); // 1-based
         let col = col_cursor + usize::from(cols > 0); // 1-based
-        let total = s.row_count();
-        let percent = total
-            .filter(|t| *t > 0)
-            .map_or_else(String::new, |t| format!(" · {}%", abs_row * 100 / t));
-        let total = total.map_or_else(|| "?".to_string(), grouped);
-        let position = format!(" row {}/{total}{percent} ", grouped(abs_row));
+        let total = s.row_count().map_or_else(|| "?".to_string(), grouped);
+        let position = format!(" row {}/{total} ", grouped(abs_row));
         let col_name = s
             .window()
             .and_then(|df| df.get_column_names().get(col_cursor).map(|n| n.to_string()))
@@ -460,17 +456,14 @@ impl App {
             .map(|i| SPINNER[i].to_string())
             .into_iter()
             .collect();
-        chips.push(format!("{:?}", s.kind).to_lowercase());
-        if self.sheets.len() > 1 {
-            chips.push(format!("sheets {}", self.sheets.len()));
-        }
         if let Some(fl) = &s.view.filter {
             chips.push(format!("filter {}~{}", fl.column, fl.regex));
         }
         if let Some(p) = &s.view.filter_expr {
             chips.push(format!("filter {p}"));
         }
-        if !s.view.sort.is_empty() {
+        // One key shows as the header's arrow.
+        if s.view.sort.len() > 1 {
             let keys: Vec<String> = s
                 .view
                 .sort
@@ -499,12 +492,15 @@ impl App {
                 .any(|j| j.label == "refresh" && j.sheet_id == s.id);
             chips.push(if behind { "⟳!" } else { "⟳" }.into());
         }
-        let chips = format!(" {} ", chips.join(" · "));
+        let chips = match chips.is_empty() {
+            true => String::new(),
+            false => format!(" {} ", chips.join(" · ")),
+        };
 
         let room = (area.width as usize).saturating_sub(position.width() + column.width());
         // Chips get at most a third of the room from a long name.
         let name_room = room.saturating_sub(chips.width().min(room / 3) + 2);
-        let name = format!(" {} ", truncate_head(&s.name, name_room));
+        let name = format!(" {} ", truncate_head(&crumbs(&self.sheets, s), name_room));
         let chips = fit(&chips, room.saturating_sub(name.width()));
         let th = &self.theme;
         let left = [
@@ -629,27 +625,54 @@ impl App {
                         .collect::<Vec<_>>()
                         .join(" · "),
                 ),
-                None => Line::from(
-                    " hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q ",
-                ),
+                None => Line::default(),
             },
         };
+        // VisiData's right side: the last command's keys and name.
+        let right = match self.input.is_some() || self.confirm.is_some() {
+            true => vec![],
+            false => vec![Span::styled(
+                format!(" {} ", self.last_cmd),
+                self.theme.statusbar().add_modifier(Modifier::DIM),
+            )],
+        };
+        let rec = self.recording.is_some() && self.input.is_none();
+        let rec =
+            rec.then(|| Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD)));
+        let width = area.width - rec.as_ref().map_or(0, |r| r.width() as u16);
         let mut text = match owned {
-            true => text,
+            true => crate::plugins::compose(text.spans, right, width),
             false => self
                 .lua_bar(
                     Bar::Status,
                     self.sheets.active(),
                     1,
-                    (&text.spans, &[]),
-                    area.width,
+                    (&text.spans, &right),
+                    width,
                 )
-                .unwrap_or(text),
+                .unwrap_or_else(|| crate::plugins::compose(text.spans, right, width)),
         };
-        if self.recording.is_some() && self.input.is_none() {
-            let rec = Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD));
+        if let Some(rec) = rec {
             text.spans.insert(0, rec);
         }
         f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
     }
+}
+
+/// `sales.csv › freq(region) › region=north`: the stack up to `s`, each
+/// name without the `: parent` its command appended.
+fn crumbs(sheets: &crate::sheet::Sheets, s: &Sheet) -> String {
+    let mut names: Vec<&str> = Vec::new();
+    for sh in sheets.iter() {
+        let short = sheets
+            .iter()
+            .filter(|p| p.id != sh.id)
+            .find_map(|p| sh.name.strip_suffix(p.name.as_str())?.strip_suffix(": "))
+            .unwrap_or(&sh.name);
+        names.push(short);
+        if sh.id == s.id {
+            break;
+        }
+    }
+    names.join(" › ")
 }

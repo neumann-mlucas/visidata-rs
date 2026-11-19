@@ -197,7 +197,9 @@ async fn renderer_output_sets_width_and_runs_once_per_value() {
     let first = h.screen();
     assert!(first.contains("id-1-rendered-wide#1 "), "{first}"); // not cut to the i64 width
     h.keys("j k").await;
-    assert_eq!(h.screen(), first);
+    // The status line names the last command; the table is the same.
+    let table = |s: &str| s.lines().take(5).collect::<Vec<_>>().join("\n");
+    assert_eq!(table(&h.screen()), table(&first));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -299,11 +301,11 @@ async fn source_runs_an_ex_script_step_by_step() {
     h.keys(":").await;
     h.type_(&format!("source {}", script.display())).await;
     assert!(
-        title(&h).contains("freq(name): ") && title(&h).contains("other file.csv"),
+        title(&h).contains("› freq(name) ") && title(&h).contains("other file.csv"),
         "{}",
         h.screen()
     );
-    assert!(title(&h).contains("sheets 3"), "{}", title(&h));
+    assert_eq!(title(&h).matches(" › ").count(), 2, "{}", title(&h));
     assert!(status(&h).contains("skipped (missing)") && status(&h).contains("gone.csv"));
     h.keys("q").await;
     assert_eq!(first_cell(&h), "3");

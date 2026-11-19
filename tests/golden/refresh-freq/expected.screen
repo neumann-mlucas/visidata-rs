@@ -1,7 +1,7 @@
- freq(region): tests/golden/refresh-freq/input.csv  csv · sheets 2        region 1/4  row 1/2 · 50%
-region str   count u  percent f histogram str
-a                  3       75.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-b                  1       25.0 ■■■■■■■■■■■■
+ tests/golden/refresh-freq/input.csv › freq(region)                             region 1/4  row 1/2
+region ~   count #  percent % histogram ~
+a                3       75.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+b                1       25.0 ■■■■■■■■■■■■
 
 
 
@@ -9,4 +9,4 @@ b                  1       25.0 ■■■■■■■■■■■■
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                     <C-r>  refresh

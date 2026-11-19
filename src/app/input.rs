@@ -147,6 +147,8 @@ impl App {
         }
         match self.keymap.resolve(Layer::Sheet, &self.pending, key) {
             Dispatch::Fire(actions) => {
+                let keys = self.pending.iter().chain([&key]);
+                self.last_keys = keys.map(|k| k.to_string()).collect::<Vec<_>>().join("");
                 self.pending.clear();
                 self.pending_candidates.clear();
                 let count = self.pending_count.take();

@@ -1,5 +1,5 @@
- tests/golden/delete-selected/input.csv  csv · sort qty▼                   note 3/3  row 3/3 · 100%
- id i  qty ▼ note str
+ tests/golden/delete-selected/input.csv                                           note 3/3  row 3/3
+ id #  qty ▼ note ~
     1      2 a
     5      1 e
     3      · x
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                               edit

@@ -1,5 +1,5 @@
- tests/golden/paste-rows/input.csv  csv · sel 2                              qty 2/5  row 1/7 · 14%
- id i  qty i ok bool  when date  note str
+ tests/golden/paste-rows/input.csv  sel 2                                          qty 2/5  row 1/7
+ id #  qty # ok bool  when @     note ~
     1     29 ✓        2024-01-01 a
     2      3 ✗        2024-02-29 b
     1      2 ✓        2024-01-01 a
@@ -9,4 +9,4 @@
     2      3 ✗        2024-02-29 b
 
 
-sel 2 · sum 5 · avg 2.5 · min 2 · max 3
+sel 2 · sum 5 · avg 2.5 · min 2 · max 3                                                        edit

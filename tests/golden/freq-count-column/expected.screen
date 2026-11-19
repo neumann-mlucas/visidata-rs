@@ -1,5 +1,5 @@
- freq(count): tests/golden/freq-count-column/input.csv  csv · sheets 2     count 1/4  row 1/2 · 50%
- count i  freq_count u  freq_percent f freq_histogram str
+ tests/golden/freq-count-column/input.csv › freq(count)                          count 1/4  row 1/2
+ count #  freq_count #  freq_percent % freq_histogram ~
        1             2           66.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
        2             1           33.33 ■■■■■■■■■■■■■■■■■■■
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 F  open_freq_table

@@ -1,5 +1,5 @@
- pivot(b): tests/golden/pivot-hidden-key/input.csv  csv · sheets 2            1 1/1  row 1/1 · 100%
- 1 i
+ tests/golden/pivot-hidden-key/input.csv › pivot(b)                                  1 1/1  row 1/1
+ 1 #
    2
 
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                   W  pivot_current

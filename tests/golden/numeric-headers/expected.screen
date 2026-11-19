@@ -1,5 +1,5 @@
- tests/golden/numeric-headers/input.csv  csv                               2023 1/2  row 1/1 · 100%
- 2023 i  2024 i
+ tests/golden/numeric-headers/input.csv                                           2023 1/2  row 1/1
+ 2023 #  2024 #
       5       6
 
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+

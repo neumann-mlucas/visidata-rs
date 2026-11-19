@@ -1,5 +1,5 @@
- tests/golden/expr-filter/input.csv  csv · filter qty > 2 AND price < 50      id 1/3  row 1/2 · 50%
- id i  qty i  price f
+ tests/golden/expr-filter/input.csv  filter qty > 2 AND price < 50                  id 1/3  row 1/2
+ id #  qty #  price %
     2      3     20.0
     3      5     7.25
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                        filter-expr

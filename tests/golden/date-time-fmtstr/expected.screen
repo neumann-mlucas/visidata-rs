@@ -1,5 +1,5 @@
- tests/golden/date-time-fmtstr/input.csv  csv                                  d 1/2  row 1/6 · 16%
-d dt                 v i
+ tests/golden/date-time-fmtstr/input.csv                                             d 1/2  row 1/6
+d @                  v #
 2018-07-03 13:47:00    1
 2018-07-03 10:05:00    2
 2018-07-04 09:30:15    3
@@ -9,4 +9,4 @@ d dt                 v i
 
 
 
-d: %Y-%m-%d %H:%M:%S
+d: %Y-%m-%d %H:%M:%S                                                                         fmtstr

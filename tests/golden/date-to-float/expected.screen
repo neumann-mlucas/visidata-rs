@@ -1,5 +1,5 @@
- tests/golden/date-to-float/input.csv  csv                                   day 2/2  row 1/4 · 25%
- id i   day f
+ tests/golden/date-to-float/input.csv                                              day 2/2  row 1/4
+ id #   day %
     1 19723.0
     2     1.0
     3       ·
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 %  type_cast_float

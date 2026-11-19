@@ -1,5 +1,5 @@
- tests/golden/us-dates-parsed-by-at/input.csv  csv                             d 1/2  row 1/2 · 50%
-d date      n i
+ tests/golden/us-dates-parsed-by-at/input.csv                                        d 1/2  row 1/2
+d @         n #
 2018-07-03    1
 2018-07-04    2
 
@@ -9,4 +9,4 @@ d date      n i
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                  @  type_cast_date

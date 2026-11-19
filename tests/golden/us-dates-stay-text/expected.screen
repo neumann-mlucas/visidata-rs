@@ -1,5 +1,5 @@
- tests/golden/us-dates-stay-text/input.csv  csv                                d 1/2  row 1/2 · 50%
-d str     n i
+ tests/golden/us-dates-stay-text/input.csv                                           d 1/2  row 1/2
+d ~       n #
 7/3/2018    1
 7/4/2018    2
 
@@ -9,4 +9,4 @@ d str     n i
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+

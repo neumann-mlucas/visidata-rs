@@ -31,7 +31,7 @@ async fn bad_user_input_is_rejected_without_breaking_the_sheet() {
     // sheet still healthy: derived sheets build
     h.keys("F").await;
     assert!(
-        title(&h).contains("freq(id)") && title(&h).contains("/30 "),
+        title(&h).contains("freq(id)") && title(&h).ends_with("/30"),
         "{}",
         title(&h)
     );
@@ -579,7 +579,10 @@ async fn a_sheet_changed_from_gc_redraws_when_raised_from_the_sheet_list() {
     h.keys("d").await; // hide the base sheet's `id`
     h.keys("S").await;
     h.keys("<CR>").await; // switcher row 1: the base sheet
-    assert!(!title(&h).contains("freq"), "{}", title(&h));
+    // The crumbs end at the active sheet, raised to the top.
+    let t = title(&h);
+    let crumb = t.rsplit('›').next().unwrap_or_default();
+    assert!(!crumb.contains("freq") && !crumb.contains("columns"), "{t}");
     let hd = h.screen().lines().nth(1).unwrap().to_string();
     assert!(!hd.contains("id") && hd.contains("name"), "{hd}");
 }
@@ -631,7 +634,7 @@ async fn refresh_walks_the_lineage_parents_first() {
     let mut h = csv(b"id,region\n1,a\n2,b\n3,a\n4,c\n").await;
     h.keys("g s \"").await; // a copy of all four rows (selected)
     h.keys("l F").await;
-    assert!(title(&h).contains("/3 "), "{}", title(&h));
+    assert!(title(&h).ends_with("/3"), "{}", title(&h));
     let base = h.app.sheets.iter().next().unwrap().name.clone();
     raise(&mut h, &base).await;
     h.keys("g z |").await; // filter the base
@@ -639,7 +642,7 @@ async fn refresh_walks_the_lineage_parents_first() {
     raise(&mut h, "freq(").await;
     assert!(title(&h).contains("freq("), "{}", title(&h));
     h.keys("<C-r>").await;
-    assert!(title(&h).contains("/1 "), "{}", title(&h));
+    assert!(title(&h).ends_with("/1"), "{}", title(&h));
 }
 
 /// Edits made on a derived sheet are replayed onto the refreshed rows.
@@ -708,7 +711,7 @@ async fn cell_notes_mark_cells_persist_and_jump() {
     assert!(status(&again).ends_with("check me"), "{}", status(&again));
     again.keys("<Esc> g g :").await;
     again.type_("notes").await;
-    assert!(title(&again).starts_with(" notes: "), "{}", title(&again));
+    assert!(title(&again).contains("› notes "), "{}", title(&again));
     let t = csv_text(again.app.sheets.active(), b'|');
     assert!(t.contains("2|id 1|name|check me|false|"), "{t}");
     again.keys("<CR>").await;
@@ -909,7 +912,7 @@ async fn plot_zoom_bins_the_view_and_box_selects_parent_rows() {
         format!("selected {want} rows in {}", parent.name)
     );
     h.keys("<CR>").await;
-    assert!(title(&h).contains(&format!("/{want} ")), "{}", title(&h));
+    assert!(title(&h).ends_with(&format!("/{want}")), "{}", title(&h));
     h.keys("q u").await;
     assert!(h.app.sheets.iter().next().unwrap().view.selected.is_empty());
 }

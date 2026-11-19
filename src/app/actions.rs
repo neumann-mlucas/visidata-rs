@@ -41,6 +41,12 @@ impl App {
         if actions.iter().any(|a| a.repeatable()) {
             self.last_action = Some(actions.clone());
         }
+        let name = actions.first().and_then(Action::to_ex);
+        let name = name.as_deref().and_then(|e| e.split(' ').next());
+        let keys = std::mem::take(&mut self.last_keys);
+        self.last_cmd = format!("{keys}  {}", name.unwrap_or_default())
+            .trim()
+            .to_string();
         let refused: Vec<String> = actions.iter().filter_map(|a| self.record(a)).collect();
         for a in actions {
             self.dispatch(a);

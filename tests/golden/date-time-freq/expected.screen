@@ -1,5 +1,5 @@
- freq(d): tests/golden/date-time-freq/input.csv  csv · sheets 2                d 1/4  row 1/3 · 33%
-d str       count u  percent f histogram str
+ tests/golden/date-time-freq/input.csv › freq(d)                                     d 1/4  row 1/3
+d ~         count #  percent % histogram ~
 2018-07-03        3       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 2018-07-04        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■
 ·                 1      16.67 ■■■■■■■■■■■■
@@ -9,4 +9,4 @@ d str       count u  percent f histogram str
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 F  open_freq_table

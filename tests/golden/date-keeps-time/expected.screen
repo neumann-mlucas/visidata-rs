@@ -1,5 +1,5 @@
- tests/golden/date-keeps-time/input.csv  csv · sort d▲                         d 1/2  row 1/6 · 16%
-d ▲         v i
+ tests/golden/date-keeps-time/input.csv                                              d 1/2  row 1/6
+d ▲         v #
 ·             5
 2018-07-03    6
 2018-07-03    2
@@ -9,4 +9,4 @@ d ▲         v i
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                        [  sort_asc

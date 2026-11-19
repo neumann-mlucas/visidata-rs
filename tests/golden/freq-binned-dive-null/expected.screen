@@ -1,5 +1,5 @@
- …in null bin: tests/golden/freq-binned-dive-null/input.csv  csv · sheets 3  qty 1/2  row 1/2 · 50%
- qty f name str
+ tests/golden/freq-binned-dive-null/input.csv › freq(qty) › qty in null bin        qty 1/2  row 1/2
+ qty % name ~
      · n7
    NaN n20
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                   <CR>  submit_row

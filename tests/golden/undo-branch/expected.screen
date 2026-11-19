@@ -1,5 +1,5 @@
- tests/golden/undo-branch/input.csv  csv                                     qty 2/2  row 1/2 · 50%
- id i  qty i
+ tests/golden/undo-branch/input.csv                                                qty 2/2  row 1/2
+ id #  qty #
     1      9
     2      3
 
@@ -9,4 +9,4 @@
 
 
 
-at state 1
+at state 1                                                                                  earlier

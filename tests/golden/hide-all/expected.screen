@@ -1,4 +1,4 @@
- tests/golden/hide-all/input.csv  csv · hidden 2                                0/0  row 1/1 · 100%
+ tests/golden/hide-all/input.csv  hidden 2                                             0/0  row 1/1
 <empty>
 
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                        -  hide_col

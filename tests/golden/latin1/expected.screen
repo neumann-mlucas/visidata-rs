@@ -1,5 +1,5 @@
- tests/golden/latin1/input.csv  csv                                           a 1/2  row 1/1 · 100%
- a i b str
+ tests/golden/latin1/input.csv                                                       a 1/2  row 1/1
+ a # b ~
    1 caf�
 
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+

@@ -1,12 +1,12 @@
- tests/golden/csv-keep-space/input.csv  csv                                 name 2/3  row 1/3 · 33%
- id i  name str   city str
-    1  ann         Oslo
-    2 bob         Rome
-    3  cy        Lima
+ tests/golden/csv-keep-space/input.csv                                            name 2/3  row 1/3
+ id #  name ~   city ~
+    1  ann       Oslo
+    2 bob       Rome
+    3  cy      Lima
 
 
 
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                    l  cursor_right

@@ -8,10 +8,12 @@ async fn title_shows_what_shapes_the_view_and_always_the_position() {
     assert!(!title(&h).contains("sel "), "{}", title(&h));
     h.keys("l [ s -").await; // s moves the cursor down
     let line = h.screen().lines().next().unwrap().to_string();
-    assert!(line.contains("row 2/5,000 · 0%"), "{line}");
-    for chip in ["csv", "sort name▲", "sel 1", "hidden 1"] {
+    assert!(line.trim_end().ends_with("row 2/5,000"), "{line}");
+    for chip in ["sel 1", "hidden 1"] {
         assert!(line.contains(chip), "{chip}: {line}");
     }
+    // One sort key shows as the header's arrow, not a chip; the kind not at all.
+    assert!(!line.contains("sort") && !line.contains(" csv "), "{line}");
     assert_eq!(line.width(), 99, "the row block ends the bar: {line:?}");
 
     h.app.sheets.active_mut().name = "x".repeat(300);
@@ -144,7 +146,7 @@ async fn navigate_search_filter_save_across_windows() {
     );
     h.keys("F").await;
     assert!(
-        title(&h).contains("freq(grp)") && title(&h).contains("/1 "),
+        title(&h).contains("freq(grp)") && title(&h).ends_with("/1"),
         "{}",
         title(&h)
     );
@@ -464,7 +466,7 @@ async fn a_cancelled_job_result_does_not_take_a_newer_jobs_place() {
 #[tokio::test(flavor = "multi_thread")]
 async fn selection_stats_follow_selection_and_column() {
     let mut h = csv(b"id,name,amt\n1,a,1.5\n2,b,\n3,a,-4.25\n4,c,1000\n").await;
-    assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
+    assert_eq!(status(&h), "", "no hint line");
     h.keys("l l s s s").await;
     assert_eq!(
         status(&h),
@@ -475,7 +477,7 @@ async fn selection_stats_follow_selection_and_column() {
     h.keys("j s").await;
     assert_eq!(status(&h), "sel 4 · count 4 · distinct 3");
     h.keys("g u").await;
-    assert!(status(&h).starts_with(" hjkl"), "{}", status(&h));
+    assert_eq!(status(&h), "", "no hint line");
 }
 
 /// S-26 A9: a click puts the cursor on the cell under it (the header: just
@@ -1080,4 +1082,24 @@ async fn visidata_motion_sort_and_prompt_keys() {
     assert_eq!(line(&h).as_deref(), Some("save "));
     h.keys("<Esc> &").await;
     assert_eq!(line(&h), Some(format!("join {below} ")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn title_crumbs_and_status_names_the_last_command() {
+    let mut h = Harness::new(5).await;
+    let base = h.app.sheets.active().name.clone();
+    assert!(h.screen().lines().last().unwrap().trim().is_empty());
+    h.keys("l l F").await;
+    assert!(
+        title(&h).starts_with(&format!(" {base} › freq(grp) ")),
+        "{}",
+        title(&h)
+    );
+    let last = h.screen().lines().last().unwrap().to_string();
+    assert!(last.trim_end().ends_with("F  open_freq_table"), "{last:?}");
+    h.keys("<CR>").await;
+    assert!(title(&h).contains(" › freq(grp) › grp="), "{}", title(&h));
+    h.keys(":").await;
+    h.type_("derive d = id * 2").await;
+    assert_eq!(h.screen().lines().last().unwrap().trim(), "derive");
 }

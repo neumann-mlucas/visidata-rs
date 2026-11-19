@@ -35,6 +35,7 @@ impl App {
                 .map(|k| k.to_string())
                 .collect::<Vec<_>>()
                 .join(" "),
+            last: &self.last_cmd,
         }
     }
 

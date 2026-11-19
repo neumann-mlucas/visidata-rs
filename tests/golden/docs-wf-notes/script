@@ -9,8 +9,8 @@ F
 :
 > link
 # Back to the orders: 5003 was refunded after all.
-<C-^>
+<C-6>
 e <C-u>
 > refunded
 # Back to the counts: they refreshed by themselves (<code>⟳</code> in the title).
-<C-^>
+<C-6>

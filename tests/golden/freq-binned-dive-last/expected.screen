@@ -1,5 +1,5 @@
- ….50 - 99.00: tests/golden/freq-binned-dive-last/input.csv  csv · sheets 3  qty 1/2  row 1/4 · 25%
- qty i name str
+ tests/golden/freq-binned-dive-last/input.csv › freq(qty) › qty in 74.50 - 99.00   qty 1/2  row 1/4
+ qty # name ~
     99 n3
     99 n6
     99 n11
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                   <CR>  submit_row

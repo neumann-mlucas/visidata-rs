@@ -1,5 +1,5 @@
- selected (2 rows): tests/golden/floats-exact/input.csv  csv · sheets 2        x 1/1  row 1/2 · 50%
-          x f
+ tests/golden/floats-exact/input.csv › selected (2 rows)                             x 1/1  row 1/2
+          x %
    1.00000001
 123456789.125
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                    "  dup_selected

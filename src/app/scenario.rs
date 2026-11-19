@@ -173,8 +173,15 @@ fn first_cell(h: &Harness) -> String {
         .to_string()
 }
 
+/// The status line's left side: without the last command on the right.
 fn status(h: &Harness) -> String {
-    h.screen().lines().last().unwrap_or_default().to_string()
+    let screen = h.screen();
+    let line = screen.lines().last().unwrap_or_default().trim_end();
+    let line = match h.app.last_cmd.is_empty() {
+        true => line,
+        false => line.strip_suffix(h.app.last_cmd.as_str()).unwrap_or(line),
+    };
+    line.trim_end().to_string()
 }
 
 async fn tail_sheet(h: &mut Harness, path: &std::path::Path) {

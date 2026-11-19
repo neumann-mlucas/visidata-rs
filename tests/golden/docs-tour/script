@@ -1,4 +1,4 @@
-# Open the file. Types come from the data: <code>i</code> integer, <code>date</code>, <code>str</code>, <code>f</code> float.
+# Open the file. Types come from the data: <code>#</code> integer, <code>@</code> date, <code>~</code> text, <code>%</code> float.
 # Move to <code>region</code> and open its frequency table.
 l l F
 # Dive into the <code>north</code> rows.

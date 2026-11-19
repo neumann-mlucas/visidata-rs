@@ -1,5 +1,5 @@
- tests/golden/delete-row/input.csv  csv                                     qty 2/3  row 3/3 · 100%
- id i  qty i note str
+ tests/golden/delete-row/input.csv                                                 qty 2/3  row 3/3
+ id #  qty # note ~
     1      2 a
     3     30 c
     4      5 d
@@ -9,4 +9,4 @@
 
 
 
-deleted 1 row
+deleted 1 row                                                                         d  delete_row

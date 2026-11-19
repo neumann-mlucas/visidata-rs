@@ -1,12 +1,12 @@
- tests/golden/macro-replay/input.csv  csv                                    dbl 2/4  row 2/3 · 66%
- id i  dbl i name str   qty i
-    1      4 a              2
-    2      7 b              3
-    3      · c              ·
+ tests/golden/macro-replay/input.csv                                               dbl 2/4  row 2/3
+ id #  dbl # name ~   qty #
+    1      4 a            2
+    2      7 b            3
+    3      · c            ·
 
 
 
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                               <F5>

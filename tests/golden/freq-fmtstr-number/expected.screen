@@ -1,12 +1,12 @@
- freq(amt): tests/golden/freq-fmtstr-number/input.csv  csv · sheets 2        amt 1/4  row 1/5 · 20%
-amt str   count u  percent f histogram str
-1               4       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-2               1       12.5 ■■■■■■■■■
-·               1       12.5 ■■■■■■■■■
-1,234           1       12.5 ■■■■■■■■■
-1,235           1       12.5 ■■■■■■■■■
+ tests/golden/freq-fmtstr-number/input.csv › freq(amt)                             amt 1/4  row 1/5
+amt ~   count #  percent % histogram ~
+1             4       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+2             1       12.5 ■■■■■■■■■
+·             1       12.5 ■■■■■■■■■
+1,234         1       12.5 ■■■■■■■■■
+1,235         1       12.5 ■■■■■■■■■
 
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 F  open_freq_table

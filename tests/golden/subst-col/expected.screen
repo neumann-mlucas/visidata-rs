@@ -1,12 +1,12 @@
- tests/golden/subst-col/input.csv  csv · sel 2                             name 2/3  row 4/4 · 100%
- id i name str  city str
-    1 lee, ann  oslo
-    2 bob  ray  rome
-    3 ·         kyiv
-    4 cid ox    oslo
+ tests/golden/subst-col/input.csv  sel 2                                          name 2/3  row 4/4
+ id # name ~   city ~
+    1 lee, ann oslo
+    2 bob  ray rome
+    3 ·        kyiv
+    4 cid ox   oslo
 
 
 
 
 
-replaced /o/ in name on 2 selected rows
+replaced /o/ in name on 2 selected rows                                                     s/o/0/g

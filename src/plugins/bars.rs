@@ -37,6 +37,8 @@ pub struct BarCtx<'a> {
     pub pane: u8,
     pub message: Option<&'a str>,
     pub keys: String,
+    /// The last bound command: its keys and name (`]  sort_desc`).
+    pub last: &'a str,
 }
 
 /// One bar's function, its last result and whether it broke.
@@ -241,6 +243,7 @@ impl Plugins {
         t.set("pane", ctx.pane)?;
         t.set("message", ctx.message)?;
         t.set("keys", ctx.keys.as_str())?;
+        t.set("last", ctx.last)?;
         let side = |spans: &[Span<'_>]| -> mlua::Result<LuaTable> {
             lua.create_sequence_from(
                 spans
@@ -357,6 +360,7 @@ mod tests {
             pane: 1,
             message: None,
             keys: String::new(),
+            last: "",
         }
     }
 

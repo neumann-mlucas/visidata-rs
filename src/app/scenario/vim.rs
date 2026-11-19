@@ -539,7 +539,7 @@ async fn macros_sheet_marks_then_commits() {
     assert_eq!(df.height(), 3, "{}", h.screen());
     assert!(
         h.screen()
-            .contains("<F5>      3          cursor_right macros.lua"),
+            .contains("<F5>    3        cursor_right macros.lua"),
         "{}",
         h.screen()
     );

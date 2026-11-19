@@ -1,5 +1,5 @@
- freq(d): tests/golden/freq-fmtstr/input.csv  csv · sheets 2                   d 1/4  row 1/4 · 25%
-d str    count u  percent f histogram str
+ tests/golden/freq-fmtstr/input.csv › freq(d)                                        d 1/4  row 1/4
+d ~      count #  percent % histogram ~
 2024-01        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 2024-02        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 ·              1      16.67 ■■■■■■■■■■■■■■■■■■■
@@ -9,4 +9,4 @@ d str    count u  percent f histogram str
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 F  open_freq_table

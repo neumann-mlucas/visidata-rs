@@ -1,5 +1,5 @@
- freq(qty): tests/golden/freq-binned/input.csv  csv · sheets 2               qty 1/4  row 1/5 · 20%
-qty str        count u  percent f histogram str
+ tests/golden/freq-binned/input.csv › freq(qty)                                    qty 1/4  row 1/5
+qty ~          count #  percent % histogram ~
 1.00 - 25.50        13       65.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 25.50 - 50.00        2       10.0 ■■■■■
 50.00 - 74.50        0        0.0
@@ -9,4 +9,4 @@ qty str        count u  percent f histogram str
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                 F  open_freq_table

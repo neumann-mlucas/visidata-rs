@@ -1,5 +1,5 @@
- tests/golden/setcol-clipboard/input.csv  csv · sort id▼ · sel 2            when 4/4  row 3/4 · 75%
- id ▼  qty i ok bool  when date
+ tests/golden/setcol-clipboard/input.csv  sel 2                                   when 4/4  row 3/4
+ id ▼  qty # ok bool  when @
     4      2 ·        2024-02-29
     3      3 ✓        2024-01-01
     2      2 ·        2024-02-29
@@ -9,4 +9,4 @@
 
 
 
-pasted into when on 2 rows
+pasted into when on 2 rows                                                         gzp  paste_cells

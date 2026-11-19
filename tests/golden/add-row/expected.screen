@@ -1,5 +1,5 @@
- tests/golden/add-row/input.csv  csv                                      twice 5/6  row 5/5 · 100%
- id i  qty i ok bool  when date   twice i note str
+ tests/golden/add-row/input.csv                                                  twice 5/6  row 5/5
+ id #  qty # ok bool  when @      twice # note ~
     1      2 ✓        2024-01-01        4 a
    10      7 ·        ·                14 ·
     ·      · ·        ·                 · ·
@@ -9,4 +9,4 @@
 
 
 
-deleted 1 row
+deleted 1 row                                                                         d  delete_row

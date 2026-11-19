@@ -54,7 +54,7 @@ async fn diff_uses_plugin_loader_and_tail_refuses_it() {
     h.keys(":").await;
     h.type_(&format!("diff {} id", ml.display())).await;
     assert!(
-        title(&h).contains("other.ml") && title(&h).contains("sheets 2"),
+        title(&h).contains("other.ml") && title(&h).contains(" › rowdiff(id)"),
         "{}",
         h.screen()
     );
@@ -79,7 +79,7 @@ async fn tail_on_parquet_directory_picks_up_new_files() {
     write(2);
     h.app.on_tail_tick();
     h.pump().await;
-    assert!(title(&h).contains("/4 "), "{}", title(&h));
+    assert!(title(&h).ends_with("/4"), "{}", title(&h));
 }
 
 #[tokio::test(flavor = "multi_thread")]

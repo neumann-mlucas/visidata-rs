@@ -1,5 +1,5 @@
- tests/golden/edit-typed/input.csv  csv                                     amt 4/4  row 2/2 · 100%
- id i ok bool  day date    amt f
+ tests/golden/edit-typed/input.csv                                                 amt 4/4  row 2/2
+ id # ok bool  day @       amt %
     1 ✗        2024-03-01    1.5
     2 ✗        2024-02-01    7.0
 
@@ -9,4 +9,4 @@
 
 
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                               edit

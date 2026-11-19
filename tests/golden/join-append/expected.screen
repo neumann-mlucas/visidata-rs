@@ -1,12 +1,12 @@
- …s/golden/join-append/input.csv&right.csv (append)  csv · sheets 2 · sort id id 1/6  row 1/8 · 12%
- id ▲ name str  grp str       amt f day date   city str
-    1 ann       a               1.5 2024-01-02 ·
-    1 ·         ·               1.5 ·          oslo
-    2 bob       b              2.25 2024-01-03 ·
-    2 ·         ·               9.0 ·          rome
-    3 cid       a                 · 2024-01-04 ·
-    4 dee       c               4.0 ·          ·
-    5 eve       b        1234567.89 2024-01-06 ·
-    6 ·         ·               1.0 ·          kyiv
+ …pend/input.csv › tests/golden/join-append/input.csv&right.csv (append)  hidden 1  id 1/6  row 1/8
+ id ▲ name ~  grp ~       amt % day @      city ~
+    1 ann     a             1.5 2024-01-02 ·
+    1 ·       ·             1.5 ·          oslo
+    2 bob     b            2.25 2024-01-03 ·
+    2 ·       ·             9.0 ·          rome
+    3 cid     a               · 2024-01-04 ·
+    4 dee     c             4.0 ·          ·
+    5 eve     b      1234567.89 2024-01-06 ·
+    6 ·       ·             1.0 ·          kyiv
 
- hjkl · gg/G · / search · [ ] sort · gz| filter · s sel · F freq · I describe · U undo · : ex · q
+                                                                                        [  sort_asc

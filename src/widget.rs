@@ -76,7 +76,7 @@ impl<'a> SheetWidget<'a> {
         let step = (height / Self::WIDTH_ROWS).max(1);
         let text = ColText::new(s, fmt);
         // Header width = name + " [dtype-badge]" so we don't truncate the badge.
-        let hdr = (s.name().width() + 2 + dtype_badge(s.dtype()).len()) as u16;
+        let hdr = (s.name().width() + 2 + type_icon(s.dtype()).width()) as u16;
         let data = (0..height)
             .step_by(step)
             .filter(|i| *i < s.len())
@@ -192,7 +192,7 @@ impl SheetWidget<'_> {
                     };
                     format!(" {arrow}{rank}")
                 }
-                None => format!(" {}", dtype_badge(cols[ci].dtype())),
+                None => format!(" {}", type_icon(cols[ci].dtype())),
             };
             // Numbers sit right, so the header does too; a tight column drops the badge.
             let name_width = name.width() as u16;
@@ -790,7 +790,20 @@ fn printable(s: &str) -> String {
         .collect()
 }
 
-/// Short dtype label for the column header badge.
+/// The header's type mark: VisiData's icon where it has one (`#` `%` `@`
+/// `~`), else the short label.
+pub fn type_icon(dt: &DataType) -> std::borrow::Cow<'static, str> {
+    match dt {
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "#".into(),
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => "#".into(),
+        DataType::Float32 | DataType::Float64 => "%".into(),
+        DataType::Date | DataType::Datetime(_, _) => "@".into(),
+        DataType::String => "~".into(),
+        other => dtype_badge(other).into(),
+    }
+}
+
+/// Short dtype label: the columns sheet's `type`, Lua's `dtype`.
 pub fn dtype_badge(dt: &DataType) -> String {
     match dt {
         DataType::Boolean => "bool".into(),
@@ -1138,7 +1151,7 @@ mod tests {
         assert!(dump.contains("alice"));
         assert!(dump.contains("bob"));
         // dtype badge rendered
-        assert!(dump.contains("str"), "str badge absent: {dump}");
+        assert!(dump.contains("name ~"), "str mark absent: {dump}");
         // numbers sit right, under a right-aligned header
         let lines: Vec<&str> = dump.lines().collect();
         let end = |line: &str, text: &str| line.find(text).map(|i| i + text.len());

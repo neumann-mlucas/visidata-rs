@@ -591,6 +591,10 @@ pub struct App {
     pending_candidates: Vec<Chord>,
     pending_count: Option<usize>,
     last_action: Option<Vec<Action>>,
+    /// The keys that fired the next `dispatch_sequence`, and the last
+    /// command's keys and name, for the status bar.
+    last_keys: String,
+    last_cmd: String,
     /// While `m` records (S-19): each step as a `vd.bind` list item, and
     /// what couldn't be recorded.
     recording: Option<Recording>,
@@ -704,6 +708,8 @@ impl App {
             pending_candidates: Vec::new(),
             pending_count: None,
             last_action: None,
+            last_keys: String::new(),
+            last_cmd: String::new(),
             recording: None,
             macro_queue: Default::default(),
             failed: false,

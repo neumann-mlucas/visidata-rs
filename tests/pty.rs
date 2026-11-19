@@ -166,7 +166,7 @@ fn steps(script: &str) -> Vec<Vec<u8>> {
                     "<Esc>" => out.push('\x1b'),
                     "<C-u>" => out.push('\x15'),
                     "<F5>" => out.push_str("\x1b[15~"),
-                    "<C-^>" => out.push('\x1e'),
+                    "<C-^>" | "<C-6>" => out.push('\x1e'),
                     k if k.chars().count() == 1 => out.push_str(k),
                     k => panic!("pty test can't type {k}"),
                 }
@@ -342,7 +342,8 @@ fn sessions_survive_a_restart() {
     let _ = vd.child.wait();
     let saved = home.path().join("state/vdrs/session.vdrs");
     // the title names the file by its absolute path now: compare the rest
-    let body = |t: &str| t.lines().skip(1).collect::<Vec<_>>().join("\n");
+    // and the status line, which names the last command: the header and rows
+    let body = |t: &str| t.lines().skip(1).take(5).collect::<Vec<_>>().join("\n");
     let again = Vdrs::spawn(&["-S", saved.to_str().unwrap()], home.path());
     let end = Instant::now() + Duration::from_secs(20);
     while body(&again.text()) != body(&freq) {
@@ -356,7 +357,7 @@ fn sessions_survive_a_restart() {
     drop(again);
     let named = Vdrs::spawn(&["-S", named.to_str().unwrap()], home.path());
     let end = Instant::now() + Duration::from_secs(20);
-    while !(named.text().contains("sort") && named.text().contains("row 2/")) {
+    while !(named.text().contains("region ▼") && named.text().contains("row 2/")) {
         assert!(Instant::now() < end, "{}", named.text());
         std::thread::sleep(Duration::from_millis(50));
     }
