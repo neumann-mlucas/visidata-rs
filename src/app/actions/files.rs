@@ -631,6 +631,41 @@ impl App {
     }
 }
 
+impl App {
+    pub(super) fn patch(&mut self, column: Option<String>, path: String) {
+        let read =
+            polars::prelude::LazyFrame::scan_parquet(path.as_str().into(), Default::default())
+                .and_then(|lf| lf.collect());
+        let done = read.map_err(|e| e.to_string()).and_then(|df| {
+            self.sheets
+                .active_mut()
+                .restore_patch(column.as_deref(), df)
+        });
+        match done {
+            Ok(()) => self.spawn_materialize(),
+            Err(e) => self.toast = Some(format!("patch {path}: {e}")),
+        }
+    }
+
+    pub(super) fn open_cell_file(&mut self) {
+        let s = self.sheets.active();
+        let path = self
+            .current_column_name()
+            .and_then(|c| {
+                let col = s.window()?.column(&c).ok()?;
+                crate::widget::cell_display(&s.view, &self.theme, col, s.view.row_cursor)
+            })
+            .unwrap_or_default();
+        if path.is_empty() {
+            self.toast = Some("no path given".into());
+        } else if !path.contains("://") && !std::path::Path::new(&path).exists() {
+            self.toast = Some(format!("file {path} does not exist"));
+        } else {
+            self.dispatch(Action::Open { path, format: None });
+        }
+    }
+}
+
 #[cfg(test)]
 mod source_tests {
     use super::*;

@@ -2,9 +2,17 @@
 
 use super::*;
 
+mod cols;
 mod edit;
 mod files;
+mod nav;
+mod select;
+mod sheets;
+mod ui;
+mod view;
 mod vim;
+
+use std::ops::ControlFlow::{self, Break, Continue};
 
 /// `:scale`'s colors when none are given.
 const SCALE_LOW: &str = "#2c7bb6";
@@ -152,34 +160,28 @@ impl App {
             self.register = unnamed;
             return;
         }
+        if self.route(action).is_break() {
+            return;
+        }
+        // `stale`: changed from a columns sheet while under it, now on top
+        // again (popped, or raised from the sheet list / undo tree)
+        let s = self.sheets.active_mut();
+        let stale = std::mem::take(&mut s.state.stale);
+        if stale || (affects && s.revision() == before_rev) {
+            self.spawn_materialize();
+        }
+    }
+
+    /// `dispatch` after its checks: what `action` does. `Break`: done, skip
+    /// the rematerialize check.
+    fn route(&mut self, action: Action) -> ControlFlow<()> {
         match action {
-            Action::Quit => {
-                let n: usize = self.sheets.iter().map(Sheet::unsaved_edits).sum::<usize>()
-                    + self.macro_edits.len();
-                if n == 0 {
-                    self.quit = true;
-                } else {
-                    self.ask(Confirm::Quit, format!("quit and discard {}?", edits(n)));
-                }
-            }
+            Action::Quit => self.quit(),
             Action::ForceQuit => self.quit = true,
             Action::ForcePopSheet => self.pop_sheet(),
             Action::CancelJobs => self.cancel_jobs(false),
             Action::CancelAllJobs => self.cancel_jobs(true),
-            Action::PopSheet => {
-                let s = self.sheets.active();
-                let pending = match s.origin {
-                    Origin::Macros => self.macro_edits.len(),
-                    _ => 0,
-                };
-                match s.unsaved_edits() + pending {
-                    0 => self.pop_sheet(),
-                    n => {
-                        let q = format!("discard {} to {}?", edits(n), s.name);
-                        self.ask(Confirm::Pop, q);
-                    }
-                }
-            }
+            Action::PopSheet => self.ask_pop_sheet(),
             Action::Redraw => {}
             Action::ToggleMacroRecord => match self.recording {
                 None => {
@@ -188,19 +190,7 @@ impl App {
                 }
                 Some(_) => self.start_input(Prompt::MacroKey),
             },
-            Action::Macro(steps) => {
-                // a macro a replayed step calls runs next; a key pressed while
-                // a replay still waits on a job queues behind it
-                if self.replaying {
-                    for a in steps.into_iter().rev() {
-                        self.macro_queue.push_front((a, false));
-                    }
-                } else {
-                    self.macro_queue
-                        .extend(steps.into_iter().map(|a| (a, false)));
-                }
-                self.pump_macro();
-            }
+            Action::Macro(steps) => self.run_macro(steps),
             Action::Lua(id) => self.run_lua(id, None),
             Action::LuaCommand { id, args } => self.run_lua(id, Some(&args)),
             Action::RepeatLast => {
@@ -241,16 +231,7 @@ impl App {
                 }
             }
             Action::UnfreezeAll => self.sheets.active_mut().view.frozen_left = 0,
-            Action::FreezeCol => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                let done = self.sheets.active_mut().freeze_col(&c).map(|name| {
-                    self.place_new_column(&name, Some(&c));
-                    format!("added {name}")
-                });
-                self.edit_done(done, "freeze-col: ");
-            }
+            Action::FreezeCol => self.freeze_col()?,
             Action::HideCol => {
                 if let Some(c) = self.current_column_name() {
                     self.sheets.active_mut().view.hidden.insert(c);
@@ -272,20 +253,7 @@ impl App {
                     self.spawn_materialize();
                 }
             }
-            Action::KeyCol => {
-                if let Some(c) = self.current_column_name() {
-                    let s = self.sheets.active_mut();
-                    let keys = &mut s.view.keys;
-                    if let Some(i) = keys.iter().position(|k| k == &c) {
-                        keys.remove(i);
-                    } else {
-                        keys.push(c.clone());
-                    }
-                    // Keying reorders columns; keep the cursor on the same column.
-                    self.goto_column(&c);
-                    self.spawn_materialize();
-                }
-            }
+            Action::KeyCol => self.key_col(),
             Action::UnkeyAll => {
                 let s = self.sheets.active_mut();
                 if !s.view.keys.is_empty() {
@@ -296,76 +264,20 @@ impl App {
             Action::StartRenameColInput => {
                 self.start_input(Prompt::Rename);
             }
-            Action::RenameCol { new_name } => {
-                let Some(old) = self.current_column_name() else {
-                    return;
-                };
-                let s = self.sheets.active_mut();
-                let before = s.snapshot();
-                match s.rename_col(&old, &new_name) {
-                    Ok(()) => {
-                        s.push_undo(before);
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
-            }
+            Action::RenameCol { new_name } => self.rename_col(new_name)?,
             Action::RenameColsFromRows { all, overwrite } => {
-                let columns = match all {
-                    true => self.visible_cols(),
-                    false => self.current_column_name().into_iter().collect(),
-                };
-                let selected: Vec<u64> =
-                    self.sheets.active().view.selected.iter().copied().collect();
-                let rids = match selected.is_empty() {
-                    true => self.rid_at_cursor().into_iter().collect(),
-                    false => selected,
-                };
-                self.scan_edit(
-                    "rename",
-                    move |s| s.names_from_rows(&rids, &columns, overwrite),
-                    |app, names| app.rename_columns(names),
-                );
+                self.rename_cols_from_rows(all, overwrite)
             }
             Action::TypeCastInt => self.push_type_cast(DataType::Int64),
             Action::TypeCastFloat => self.push_type_cast(DataType::Float64),
             Action::TypeCastString => self.push_type_cast(DataType::String),
-            Action::TypeCastDate => {
-                let Some(c) = self.current_column_name() else {
-                    return self.push_type_cast(DataType::Date);
-                };
-                let s = self.sheets.active();
-                let dt = crate::sheet::date_cast_type(s, &c);
-                let all = s
-                    .row_count()
-                    .zip(s.window())
-                    .is_some_and(|(n, w)| n <= w.height() as u64);
-                self.push_type_cast(dt.clone());
-                if dt == DataType::Date && !all {
-                    self.toast = Some(format!(
-                        "{c}: no time in the loaded rows, cast to date; `:type datetime` keeps later times"
-                    ));
-                }
-            }
+            Action::TypeCastDate => self.type_cast_date()?,
             Action::TypeCastDateAs { time: true } => {
                 self.push_type_cast(DataType::Datetime(TimeUnit::Microseconds, None))
             }
             Action::TypeCastDateAs { time: false } => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
-            Action::TypeCastJson => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                let c2 = c.clone();
-                self.scan_edit(
-                    "json",
-                    move |s| s.json_dtype(&c2),
-                    move |app, dt| match app.sheets.active_mut().json_decode_as(&c, dt) {
-                        Ok(()) => app.spawn_materialize(),
-                        Err(e) => app.toast = Some(e),
-                    },
-                );
-            }
+            Action::TypeCastJson => self.type_cast_json()?,
             Action::StartSearchInput {
                 all_columns,
                 backward,
@@ -403,22 +315,7 @@ impl App {
             }
             Action::SortAsc => self.sort_current_column(SortOrder::Asc),
             Action::SortDesc => self.sort_current_column(SortOrder::Desc),
-            Action::SetSort { column, descending } => {
-                let s = self.sheets.active_mut();
-                let order = if descending {
-                    SortOrder::Desc
-                } else {
-                    SortOrder::Asc
-                };
-                if let Some(k) = s.view.sort.iter_mut().find(|k| k.column == column) {
-                    k.order = order;
-                } else {
-                    s.view.sort.push(SortKey { column, order });
-                }
-                s.view.window_offset = 0;
-                s.view.row_cursor = 0;
-                s.view.row_offset = 0;
-            }
+            Action::SetSort { column, descending } => self.set_sort(column, descending),
             Action::ClearSort => {
                 let s = self.sheets.active_mut();
                 if !s.view.sort.is_empty() {
@@ -438,106 +335,13 @@ impl App {
             Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::Open { path, format } => self.open_file(&path, format.as_deref()),
             Action::Source { path } => self.source(&path, false),
-            Action::Patch { column, path } => {
-                let read = polars::prelude::LazyFrame::scan_parquet(
-                    path.as_str().into(),
-                    Default::default(),
-                )
-                .and_then(|lf| lf.collect());
-                let done = read.map_err(|e| e.to_string()).and_then(|df| {
-                    self.sheets
-                        .active_mut()
-                        .restore_patch(column.as_deref(), df)
-                });
-                match done {
-                    Ok(()) => self.spawn_materialize(),
-                    Err(e) => self.toast = Some(format!("patch {path}: {e}")),
-                }
-            }
-            Action::Hits { needle } => {
-                if let Err(e) = regex::Regex::new(&needle) {
-                    self.toast = Some(format!("bad regex: {e}"));
-                    return;
-                }
-                let parent = self.sheets.active().clone();
-                let id = self.sheets.alloc_id();
-                self.spawn_job("hits", move || {
-                    // ponytail: fixed cap; raise when someone needs more
-                    const CAP: usize = 100_000;
-                    let (s, capped) = Sheet::hits_from(&parent, id, &needle, CAP)?;
-                    if capped {
-                        return Ok(JobDone::PushSheetToast(
-                            Box::new(s),
-                            format!("{CAP}+ hits (capped)"),
-                        ));
-                    }
-                    Ok(JobDone::PushSheet(Box::new(s)))
-                });
-            }
-            Action::StartNoteInput => {
-                if self.notes_mut().is_none() {
-                    self.toast = Some("notes: only on sheets read from a file".into());
-                    return;
-                }
-                let old = self.cursor_note().map(|n| n.text.clone());
-                self.start_input(Prompt::Note);
-                if let (Some((_, line)), Some(old)) = (self.input.as_mut(), old) {
-                    line.set(&old);
-                }
-            }
-            Action::SetNote { text } => {
-                let Some((row, column)) = self.note_cell() else {
-                    self.toast = Some("note: no cell here".into());
-                    return;
-                };
-                let Some((path, notes)) = self.notes_mut() else {
-                    self.toast = Some("notes: only on sheets read from a file".into());
-                    return;
-                };
-                self.toast = Some(match notes.set(&path, row, &column, text.trim()) {
-                    Err(e) => format!("note: {e}"),
-                    Ok(()) if text.trim().is_empty() => "note deleted".into(),
-                    Ok(()) => "note saved".into(),
-                });
-            }
-            Action::Notes => {
-                let Some((_, notes)) = self.notes_mut() else {
-                    self.toast = Some("notes: only on sheets read from a file".into());
-                    return;
-                };
-                let notes = notes.clone();
-                let parent = self.sheets.active().clone();
-                let id = self.sheets.alloc_id();
-                self.spawn_job("notes", move || {
-                    Ok(JobDone::PushSheet(Box::new(Sheet::notes_from(
-                        &parent, id, &notes,
-                    )?)))
-                });
-            }
+            Action::Patch { column, path } => self.patch(column, path),
+            Action::Hits { needle } => self.hits(needle)?,
+            Action::StartNoteInput => self.start_note_input()?,
+            Action::SetNote { text } => self.set_note(text)?,
+            Action::Notes => self.notes()?,
             Action::Refresh => self.refresh(),
-            Action::HelpCommands => {
-                use crate::keymap::{Keymap, Layer, menu_path};
-                let defaults = Keymap::defaults();
-                let defaults = defaults.chords(Layer::Sheet);
-                let rows: Vec<_> = self
-                    .keymap
-                    .chords(Layer::Sheet)
-                    .iter()
-                    .map(|c| {
-                        let keys: Vec<String> = c.on.iter().map(|k| k.to_string()).collect();
-                        let keys = keys.join(" ");
-                        let run: Vec<String> = c.run.iter().filter_map(Action::to_ex).collect();
-                        // VisiData's menu, while the key still does what VisiData's does
-                        let stock = defaults.iter().any(|d| d.on == c.on && d.run == c.run);
-                        let menu = menu_path(&c.on).filter(|_| stock).unwrap_or_default();
-                        vec![keys, run.join(" ; "), c.desc.to_string(), menu.to_string()]
-                    })
-                    .collect();
-                let id = self.sheets.alloc_id();
-                let names = ["key", "action", "description", "menu"];
-                self.sheets.push(Sheet::listing(id, "help", &names, &rows));
-                self.spawn_materialize();
-            }
+            Action::HelpCommands => self.help_commands(),
             Action::Visual { block } => {
                 let s = self.sheets.active();
                 let row = s.view.window_offset + s.view.row_cursor as u64;
@@ -548,15 +352,7 @@ impl App {
             Action::SetMark => self.awaiting = Some(crate::app::Await::SetMark),
             Action::GoMark => self.awaiting = Some(crate::app::Await::GoMark),
             Action::PlayMacro => self.awaiting = Some(crate::app::Await::Play),
-            Action::RecordMacro => match self.recording.as_ref().map(|r| r.into) {
-                None => self.awaiting = Some(crate::app::Await::Record),
-                Some(None) => self.start_input(Prompt::MacroKey),
-                Some(Some(c)) => {
-                    let steps = self.recording.take().map(|r| r.steps).unwrap_or_default();
-                    self.toast = Some(format!("macro @{c}: {} steps", steps.len()));
-                    self.macros.insert(c, steps);
-                }
-            },
+            Action::RecordMacro => self.record_macro(),
             Action::Operator { op, count } => {
                 self.operator = Some(crate::app::Pending {
                     op,
@@ -564,43 +360,7 @@ impl App {
                     ..Default::default()
                 });
             }
-            Action::Registers => {
-                let mut all: Vec<(char, &Register)> =
-                    self.registers.iter().map(|(c, r)| (*c, r)).collect();
-                if let Some(r) = &self.register {
-                    all.insert(0, ('"', r));
-                }
-                let rows: Vec<Vec<String>> = all
-                    .iter()
-                    .map(|(c, r)| {
-                        let kind = match r.kind {
-                            RegisterKind::Rows => "rows",
-                            RegisterKind::Cells => "cells",
-                        };
-                        let first =
-                            r.df.get_row(0)
-                                .map(|row| {
-                                    row.0
-                                        .iter()
-                                        .map(crate::sheet::any_text)
-                                        .collect::<Vec<_>>()
-                                        .join(" · ")
-                                })
-                                .unwrap_or_default();
-                        vec![
-                            format!("\"{c}"),
-                            kind.into(),
-                            r.df.height().to_string(),
-                            first,
-                        ]
-                    })
-                    .collect();
-                let id = self.sheets.alloc_id();
-                let names = ["register", "kind", "rows", "first row"];
-                self.sheets
-                    .push(Sheet::listing(id, "registers", &names, &rows));
-                self.spawn_materialize();
-            }
+            Action::Registers => self.registers(),
             Action::HalfPage { down } => {
                 let count = Some((self.viewport_rows / 2).max(1));
                 self.dispatch(match down {
@@ -608,137 +368,18 @@ impl App {
                     false => Action::CursorUp { count },
                 });
             }
-            Action::ScreenRow { at } => {
-                let rows = self.viewport_rows;
-                let s = self.sheets.active_mut();
-                let loaded = s.window().map_or(0, |w| w.height());
-                let last = (s.view.row_offset + rows).min(loaded).saturating_sub(1);
-                s.view.row_cursor = match at {
-                    0 => s.view.row_offset,
-                    1 => (s.view.row_offset + last) / 2,
-                    _ => last,
-                };
-            }
-            Action::ScrollTo { at } => {
-                let rows = self.viewport_rows;
-                let v = &mut self.sheets.active_mut().view;
-                let back = match at {
-                    0 => 0,
-                    1 => rows / 2,
-                    _ => rows.saturating_sub(1),
-                };
-                v.row_offset = v.row_cursor.saturating_sub(back);
-            }
-            Action::CellMotion { to } => {
-                let s = self.sheets.active_mut();
-                let Some(df) = s.window() else { return };
-                let (r, c) = (s.view.row_cursor, s.view.col_cursor);
-                let full = |i: &usize| df.columns()[*i].get(r).is_ok_and(|v| !v.is_null());
-                let n = df.width();
-                let hit = match to {
-                    1 => (c + 1..n).find(full),
-                    -1 => (0..c).rev().find(full),
-                    _ => (0..n).rev().find(full),
-                };
-                match hit {
-                    Some(i) => s.view.col_cursor = i,
-                    None => self.toast = Some("no other non-empty cell in this row".into()),
-                }
-            }
+            Action::ScreenRow { at } => self.screen_row(at),
+            Action::ScrollTo { at } => self.scroll_to(at),
+            Action::CellMotion { to } => self.cell_motion(to)?,
             Action::ValueChange { forward } | Action::NullChange { forward } => {
-                // ponytail: the loaded rows only; a job over the view if it matters
-                let null = matches!(action, Action::NullChange { .. });
-                let s = self.sheets.active_mut();
-                let Some(df) = s.window() else { return };
-                let (r, c) = (s.view.row_cursor, s.view.col_cursor);
-                let Some(col) = df.columns().get(c) else {
-                    return;
-                };
-                let here = col.get(r).map(|v| v.into_static()).ok();
-                let hit = |i: &usize| match null {
-                    true => col.get(*i).is_ok_and(|v| v.is_null()),
-                    false => col.get(*i).map(|v| v.into_static()).ok() != here,
-                };
-                let hit = match forward {
-                    true => (r + 1..df.height()).find(hit),
-                    false => (0..r).rev().find(hit),
-                };
-                match hit {
-                    Some(i) => s.view.row_cursor = i,
-                    None if null => self.toast = Some("no null in the loaded rows".into()),
-                    None => self.toast = Some("no other value in the loaded rows".into()),
-                }
+                self.value_change(forward, action)?
             }
-            Action::GotoSelected { forward } => {
-                let at = self.cursor_row();
-                let col = self.sheets.active().view.col_cursor;
-                let sheet = self.sheets.active().clone();
-                self.spawn_job("go to selected", move || {
-                    let (row, _) = sheet
-                        .rids_to_selected(at, forward)
-                        .map_err(|e| e.to_string())?
-                        .ok_or("no selected row")?;
-                    Ok(JobDone::Jump { row, col })
-                });
-            }
-            Action::SortKeys { descending } => {
-                let s = self.sheets.active_mut();
-                if s.view.keys.is_empty() {
-                    self.toast = Some("no key columns to sort by".into());
-                    return;
-                }
-                let order = if descending {
-                    SortOrder::Desc
-                } else {
-                    SortOrder::Asc
-                };
-                s.view.sort = (s.view.keys.iter())
-                    .map(|k| SortKey {
-                        column: k.clone(),
-                        order,
-                    })
-                    .collect();
-                s.view.window_offset = 0;
-                s.view.row_cursor = 0;
-                s.view.row_offset = 0;
-            }
-            Action::Transpose => {
-                let parent = self.sheets.active().clone();
-                let id = self.sheets.alloc_id();
-                self.spawn_job("transpose", move || {
-                    Ok(JobDone::PushSheet(Box::new(Sheet::transpose_from(
-                        &parent, id,
-                    )?)))
-                });
-            }
+            Action::GotoSelected { forward } => self.goto_selected(forward),
+            Action::SortKeys { descending } => self.sort_keys(descending)?,
+            Action::Transpose => self.transpose(),
             Action::JoinAll { how } => self.open_join_all(&how),
-            Action::OpenCell => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let s = self.sheets.active();
-                let Some(v) = s.cursor_value(&column).map(|v| v.into_static()) else {
-                    return;
-                };
-                // VisiData's `name[rowkey].column`
-                let key = (s.window()).map_or(String::new(), |w| {
-                    s.row_key(w, s.view.row_cursor, self.cursor_row())
-                });
-                let name = format!("{}[{key}].{column}", s.name);
-                let id = self.sheets.alloc_id();
-                self.push_or_toast(Sheet::open_cell(id, name, &v));
-            }
-            Action::FreqKeys => {
-                if self.sheets.active().view.keys.is_empty() {
-                    self.toast = Some("there are no key columns to group by".into());
-                    return;
-                }
-                let id = self.sheets.alloc_id();
-                let parent = self.sheets.active();
-                let freq = Sheet::freq_binned(parent, id, &parent.view.keys, None);
-                self.sheets.push(freq);
-                self.spawn_materialize();
-            }
+            Action::OpenCell => self.open_cell()?,
+            Action::FreqKeys => self.freq_keys()?,
             Action::Melt => {
                 let keys = self.sheets.active().view.keys.clone();
                 let on: Vec<String> = (self.column_names().into_iter())
@@ -746,34 +387,9 @@ impl App {
                     .collect();
                 self.open_unpivot(&on, &keys);
             }
-            Action::ExPrompt { cmd } => {
-                let mut text = format!("{cmd} ");
-                if cmd == "join"
-                    && let Some(below) = self.sheets.iter().rev().nth(1)
-                {
-                    text += &crate::action::quote_arg(&below.name);
-                    text.push(' ');
-                }
-                self.start_input(Prompt::Ex);
-                if let Some((_, line)) = &mut self.input {
-                    line.set(&text);
-                }
-            }
+            Action::ExPrompt { cmd } => self.ex_prompt(cmd),
             Action::StartGoColRegexInput => self.start_input(Prompt::GoColRegex),
-            Action::SearchCell { backward } => {
-                let s = self.sheets.active();
-                let Some(v) = self.current_column_name().and_then(|c| s.cursor_value(&c)) else {
-                    return;
-                };
-                let text = crate::sheet::any_text(&v);
-                self.start_search(SearchState {
-                    pattern: format!("^{}$", regex::escape(&text)),
-                    all_columns: false,
-                    backward,
-                    expr: false,
-                    keys: false,
-                });
-            }
+            Action::SearchCell { backward } => self.search_cell(backward)?,
             Action::Reselect => match self.last_visual {
                 Some(v) if v.on(self.sheets.active()) => {
                     self.goto_row(v.end.0);
@@ -782,76 +398,20 @@ impl App {
                 }
                 _ => self.toast = Some("no visual range on this sheet".into()),
             },
-            Action::JumpBack => {
-                let cur = match self.jump_at {
-                    Some(i) => i,
-                    None => {
-                        self.jumps.push(self.here());
-                        self.jumps.len() - 1
-                    }
-                };
-                self.jump_at = Some(cur);
-                match cur.checked_sub(1) {
-                    Some(to) => self.go_jump(to),
-                    None => self.toast = Some("at the oldest jump".into()),
-                }
-            }
+            Action::JumpBack => self.jump_back(),
             Action::JumpForward => match self.jump_at {
                 Some(i) if i + 1 < self.jumps.len() => self.go_jump(i + 1),
                 _ => self.toast = Some("at the newest jump".into()),
             },
-            Action::Jumps => {
-                let name = |id| {
-                    self.sheets
-                        .iter()
-                        .find(|s| s.id == id)
-                        .map(|s| s.name.clone())
-                };
-                let rows: Vec<Vec<String>> = self
-                    .jumps
-                    .iter()
-                    .enumerate()
-                    .map(|(i, j)| {
-                        vec![
-                            if self.jump_at == Some(i) { ">" } else { "" }.into(),
-                            name(j.sheet).unwrap_or_else(|| "(closed)".into()),
-                            (j.row + 1).to_string(),
-                            j.column.clone().unwrap_or_default(),
-                        ]
-                    })
-                    .collect();
-                let id = self.sheets.alloc_id();
-                let names = ["at", "sheet", "row", "column"];
-                self.sheets.push(Sheet::listing(id, "jumps", &names, &rows));
-                self.spawn_materialize();
-            }
-            Action::JumpPrev => match self.sheets.len() {
-                0 | 1 => self.toast = Some("no previous sheet".into()),
-                n => {
-                    let id = self.sheets.iter().nth(n - 2).map(|s| s.id);
-                    if let Some(id) = id {
-                        self.sheets.switch_to(id);
-                        self.spawn_materialize();
-                    }
-                }
-            },
+            Action::Jumps => self.jumps(),
+            Action::JumpPrev => self.jump_prev(),
             Action::Suspend => self.suspend = true,
             Action::Plot { x, ys } => self.plot(x, ys),
             Action::PlotColumn => self.plot_keys(false),
             Action::PlotResize { .. } | Action::ZoomAll | Action::ZoomCursor => {
                 self.toast = Some("not a plot (. plots)".into());
             }
-            Action::Hist { bins } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let parent = self.sheets.active().clone();
-                let id = self.sheets.alloc_id();
-                self.spawn_job("hist", move || {
-                    let s = Sheet::hist_from(&parent, id, &column, bins.unwrap_or(20))?;
-                    Ok(JobDone::PushSheet(Box::new(s)))
-                });
-            }
+            Action::Hist { bins } => self.hist(bins)?,
             Action::Bars => {
                 let parent = self.sheets.active().clone();
                 let id = self.sheets.alloc_id();
@@ -866,39 +426,8 @@ impl App {
             | Action::SwapPanes => {
                 self.pane(&action);
             }
-            Action::Link { on } => {
-                let s = self.sheets.active_mut();
-                if on && s.state.lineage.is_none() {
-                    self.toast = Some("link: not a derived sheet".into());
-                    return;
-                }
-                s.state.linked = on;
-                self.toast = Some(
-                    if on {
-                        "linked: refreshes when its parent changes"
-                    } else {
-                        "unlinked"
-                    }
-                    .into(),
-                );
-            }
-            Action::CopyStats => {
-                let Some(stats) = self.current_sel_stats() else {
-                    self.toast = Some("stats: select rows first (and wait for the stats)".into());
-                    return;
-                };
-                let (h, v): (Vec<&str>, Vec<&str>) =
-                    stats.iter().map(|(k, v)| (*k, v.as_str())).unzip();
-                let text = format!("{}\n{}\n", h.join("\t"), v.join("\t"));
-                let clip = self.clipboard.clone();
-                self.spawn_job("copy", move || {
-                    let osc52 = clip.send(&text).map_err(|e| format!("clipboard: {e}"))?;
-                    Ok(JobDone::SysCopy {
-                        note: "copied the stats to clipboard".into(),
-                        osc52,
-                    })
-                });
-            }
+            Action::Link { on } => self.link(on)?,
+            Action::CopyStats => self.copy_stats()?,
             Action::StartSubstInput { mode } => match self.sheets.active().editable() {
                 Ok(()) => self.start_input(Prompt::Subst { mode }),
                 Err(e) => self.toast = Some(e),
@@ -926,16 +455,7 @@ impl App {
                     Err(e) => format!("mksession {}: {e}", path.display()),
                 });
             }
-            Action::SetCursor { row, column } => {
-                self.goto_row(row - 1);
-                if let Some(c) = column {
-                    if self.sheets.active().has_column(&c) {
-                        self.goto_column(&c);
-                    } else {
-                        self.fail(format!("no column: {c}"));
-                    }
-                }
-            }
+            Action::SetCursor { row, column } => self.set_cursor(row, column),
             Action::Save { path } => self.save_active(&path),
             Action::SubmitRow => self.submit_row(),
             // VisiData's s / t / u move the cursor down after
@@ -995,23 +515,7 @@ impl App {
                 Ok(()) => self.start_input(Prompt::AddRows),
                 Err(e) => self.toast = Some(e),
             },
-            Action::PasteAfter | Action::PasteBefore => {
-                let rows = match &self.register {
-                    Some(Register {
-                        kind: RegisterKind::Rows,
-                        df,
-                    }) => df.clone(),
-                    Some(_) => {
-                        self.toast = Some("p pastes rows: copy with y or gy".into());
-                        return;
-                    }
-                    None => {
-                        self.toast = Some("nothing copied".into());
-                        return;
-                    }
-                };
-                self.add_rows(0, Some(rows), action == Action::PasteAfter);
-            }
+            Action::PasteAfter | Action::PasteBefore => self.paste_rows(action)?,
             Action::OpenNew => {
                 let id = self.sheets.alloc_id();
                 self.sheets.push(Sheet::open_new(id));
@@ -1020,28 +524,8 @@ impl App {
             Action::DeleteSelected | Action::CutSelected => {
                 self.delete_rows(true, action == Action::CutSelected)
             }
-            Action::DedupeRows => {
-                let id = self.sheets.alloc_id();
-                let parent = self.sheets.active().clone();
-                self.spawn_job("dedupe", move || {
-                    Ok(JobDone::PushSheet(Box::new(Sheet::dedupe_from(
-                        &parent, id,
-                    )?)))
-                });
-            }
-            Action::SelectColDuplicates => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let sheet = self.sheets.active().clone();
-                self.spawn_job("select", move || {
-                    let rids = sheet
-                        .rids_col_duplicates(&column)
-                        .map_err(|e| e.to_string())?;
-                    let note = format!("selected {} repeated {column} values", rids.len());
-                    Ok(JobDone::Select { rids, note })
-                });
-            }
+            Action::DedupeRows => self.dedupe_rows(),
+            Action::SelectColDuplicates => self.select_col_duplicates()?,
             Action::TogglePlanPanel => {
                 self.sidebar = match self.sidebar {
                     Some(SidebarPage::Plan) => Some(SidebarPage::PlanOpt),
@@ -1055,36 +539,8 @@ impl App {
                     None => Some(self.sidebar_page.clone()),
                 };
             }
-            Action::CycleSidebar => {
-                let lua = self
-                    .plugins
-                    .as_ref()
-                    .map_or_else(Vec::new, |p| p.page_names());
-                let page = match &self.sidebar {
-                    Some(p) => p.next(&lua),
-                    None => self.sidebar_page.clone(),
-                };
-                (self.sidebar, self.sidebar_page) = (Some(page.clone()), page);
-            }
-            Action::ShowSidebar { page } => {
-                let lua = self
-                    .plugins
-                    .as_ref()
-                    .map_or_else(Vec::new, |p| p.page_names());
-                match &page {
-                    SidebarPage::Lua(n) if !lua.contains(n) => {
-                        let names = ["column", "cell", "help", "plan", "plan-opt"]
-                            .map(String::from)
-                            .into_iter()
-                            .chain(lua);
-                        self.toast = Some(format!(
-                            "no sidebar page {n} ({})",
-                            names.collect::<Vec<_>>().join(", ")
-                        ));
-                    }
-                    _ => (self.sidebar, self.sidebar_page) = (Some(page.clone()), page),
-                }
-            }
+            Action::CycleSidebar => self.cycle_sidebar(),
+            Action::ShowSidebar { page } => self.show_sidebar(page),
             Action::Join { source, keys, how } => self.open_join(&source, &keys, &how),
             Action::Lookup {
                 source,
@@ -1093,144 +549,18 @@ impl App {
                 cols,
             } => self.lookup(&source, &key, &their_key, &cols),
             Action::StartAddColInput | Action::StartCaptureInput => {
-                match self.sheets.active().editable() {
-                    Err(e) => self.toast = Some(e),
-                    Ok(()) if matches!(action, Action::StartAddColInput) => {
-                        self.start_input(Prompt::AddCol)
-                    }
-                    Ok(()) => self.start_input(Prompt::Capture),
-                }
+                self.start_add_col_input(action)
             }
             Action::StartSlideInput { left } => self.start_input(Prompt::Slide { left }),
-            Action::SlideCol { by } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let s = self.sheets.active_mut();
-                let snap = s.snapshot();
-                match s.slide_col(&column, by) {
-                    Ok(Some(at)) => {
-                        s.push_undo(snap);
-                        s.view.col_cursor = at;
-                        self.spawn_materialize();
-                    }
-                    Ok(None) => {}
-                    Err(e) => self.toast = Some(e),
-                }
-            }
-            Action::Order { columns } => {
-                let s = self.sheets.active_mut();
-                if let Some(c) = columns.iter().find(|c| !s.has_column(c)) {
-                    self.toast = Some(format!("no column: {c}"));
-                    return;
-                }
-                let snap = s.snapshot();
-                // bare `:order`: back to plan order
-                if s.set_order(&columns) {
-                    s.push_undo(snap);
-                    self.spawn_materialize();
-                }
-            }
-            Action::AddCol { name } => {
-                let at = self.current_column_name();
-                match self.sheets.active_mut().add_empty_col(&name) {
-                    Ok(()) => {
-                        self.place_new_column(&name, at.as_deref());
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(format!("addcol: {e}")),
-                }
-            }
-            Action::AddColIncr | Action::AddColIncrKey => {
-                let at = self.current_column_name();
-                let base = self.theme.incr_base;
-                let by_key = action == Action::AddColIncrKey;
-                self.scan_edit(
-                    "addcol-incr",
-                    move |s| match by_key {
-                        true => s.key_run_numbers(base),
-                        false => s.view_order_rids().map(|r| {
-                            let n = r.len() as i64;
-                            (r, (0..n).map(|i| base as i64 + i).collect())
-                        }),
-                    },
-                    move |app, (rids, nums)| match app
-                        .sheets
-                        .active_mut()
-                        .add_incr_col_with(rids, nums)
-                    {
-                        Ok(name) => {
-                            app.place_new_column(&name, at.as_deref());
-                            app.spawn_materialize();
-                        }
-                        Err(e) => app.toast = Some(format!("addcol-incr: {e}")),
-                    },
-                );
-            }
+            Action::SlideCol { by } => self.slide_col(by)?,
+            Action::Order { columns } => self.order(columns)?,
+            Action::AddCol { name } => self.add_col(name),
+            Action::AddColIncr | Action::AddColIncrKey => self.add_col_incr(action),
             Action::SetColIncr | Action::SetColFill | Action::Capture { .. } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let base = self.theme.incr_base;
-                match &action {
-                    Action::SetColIncr if self.sheets.active().view.selected.is_empty() => {
-                        self.toast = Some("no rows selected".into());
-                    }
-                    Action::SetColIncr => self.scan_edit(
-                        "setcol-incr",
-                        |s| s.selected_in_view_order().map_err(|e| e.to_string()),
-                        move |app, rids| {
-                            let s = app.sheets.active_mut();
-                            let done = s
-                                .set_incr_with(&column, rids, base)
-                                .map(|n| format!("set {column} to {base}…{}", base + n as u64 - 1));
-                            app.edit_done(done, "");
-                        },
-                    ),
-                    Action::SetColFill => {
-                        let c = column.clone();
-                        self.scan_edit(
-                            "fill",
-                            move |s| s.fill_scan(&c),
-                            move |app, (ids, vals)| {
-                                let s = app.sheets.active_mut();
-                                let done = s
-                                    .fill_apply(&column, ids, vals)
-                                    .map(|n| format!("filled {n} values"));
-                                app.edit_done(done, "");
-                            },
-                        );
-                    }
-                    Action::Capture { pattern } => {
-                        let done = self.sheets.active_mut().capture(&column, pattern);
-                        let done = done.map(|name| {
-                            self.place_new_column(&name, Some(&column));
-                            format!("added {name}; ( expands it")
-                        });
-                        self.edit_done(done, "");
-                    }
-                    _ => {}
-                }
+                self.set_col_fill(action)?
             }
             Action::PrecisionMore | Action::PrecisionLess | Action::SetPrecision { .. } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let (set, delta) = match action {
-                    Action::PrecisionMore => (None, 1),
-                    Action::PrecisionLess => (None, -1),
-                    Action::SetPrecision { digits } => (digits, 0),
-                    _ => return,
-                };
-                // VisiData starts from its default `{:.2f}`
-                let start = self.theme.float_digits.unwrap_or(2);
-                let s = self.sheets.active_mut();
-                self.toast = Some(match s.set_precision(&column, set, delta, start) {
-                    Ok(Some(1)) => format!("{column}: 1 decimal"),
-                    Ok(Some(d)) => format!("{column}: {d} decimals"),
-                    Ok(None) => format!("{column}: default precision"),
-                    Err(e) => e,
-                });
+                self.precision(action)?
             }
             Action::MacroSheet => self.open_macros(),
             Action::OptionsSheet => self.open_options(),
@@ -1246,47 +576,13 @@ impl App {
             }
             Action::SetFmtstr { fmt } => {
                 let Some(column) = self.current_column_name() else {
-                    return;
+                    return Break(());
                 };
                 let s = self.sheets.active_mut();
                 self.toast = Some(s.set_fmtstr(&column, &fmt).unwrap_or_else(|e| e));
             }
-            Action::Derive { name, expr } => {
-                let at = self.current_column_name();
-                let s = self.sheets.active_mut();
-                let new = !s.has_column(&name);
-                match s.derive(&name, &expr) {
-                    Ok(()) => {
-                        if new {
-                            self.place_new_column(&name, at.as_deref());
-                        }
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(format!("derive: {e}")),
-                }
-            }
-            Action::StartEditInput => {
-                let s = self.sheets.active();
-                if let Err(e) = s.editable() {
-                    self.toast = Some(e);
-                    return;
-                }
-                let text = self.current_column_name().and_then(|c| s.cursor_value(&c));
-                let text = text.map(|v| {
-                    if v.is_null() {
-                        String::new()
-                    } else {
-                        crate::sheet::any_text(&v)
-                    }
-                });
-                let Some(text) = text else {
-                    return; // empty view
-                };
-                self.start_input(Prompt::Edit);
-                if let Some((_, line)) = self.input.as_mut() {
-                    line.set(&text);
-                }
-            }
+            Action::Derive { name, expr } => self.derive(name, expr),
+            Action::StartEditInput => self.start_edit_input()?,
             Action::StartSetColInput => match self.sheets.active().editable() {
                 Ok(()) => self.start_input(Prompt::SetCol),
                 Err(e) => self.toast = Some(e),
@@ -1295,120 +591,25 @@ impl App {
                 Ok(()) => self.start_input(Prompt::SetExpr),
                 Err(e) => self.toast = Some(e),
             },
-            Action::SetExpr { expr } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                match self.sheets.active_mut().set_expr(&column, &expr) {
-                    Ok(n) => {
-                        self.toast = Some(format!("set {column} on {n} rows"));
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(format!("setexpr: {e}")),
-                }
-            }
+            Action::SetExpr { expr } => self.set_expr(expr)?,
             Action::Color {
                 column,
                 pred,
                 style,
-            } => self
-                .sheets
-                .active_mut()
-                .view
-                .formats
-                .push(crate::sheet::FormatRule {
-                    column,
-                    pred,
-                    style,
-                }),
-            Action::Validate { column, pred } => {
-                let warn = self.option_value("validation") == "warn";
-                let s = self.sheets.active_mut();
-                s.state.validation_warn = warn;
-                self.toast = Some(match s.set_validation(&column, pred.as_deref()) {
-                    Ok(note) => note,
-                    Err(e) => return self.fail(format!("validate: {e}")),
-                });
-            }
+            } => self.color(column, pred, style),
+            Action::Validate { column, pred } => self.validate(column, pred)?,
             Action::Validations => self.toast = Some(self.sheets.active().validations_text()),
             Action::Trust { arg } => self.trust(arg.as_deref()),
-            Action::Handlers => {
-                let rows = self
-                    .plugins
-                    .as_ref()
-                    .map(|p| p.handler_rows())
-                    .unwrap_or_default();
-                let id = self.sheets.alloc_id();
-                let names = ["id", "event", "group", "pattern", "once"];
-                self.sheets
-                    .push(Sheet::listing(id, "handlers", &names, &rows));
-                self.spawn_materialize();
-            }
+            Action::Handlers => self.handlers(),
             Action::Scale { column, colors } => {
                 let colors = colors.unwrap_or_else(|| (SCALE_LOW.into(), SCALE_HIGH.into()));
                 self.scale(column, Some(colors))
             }
             Action::DataBar { column } => self.scale(column, None),
-            Action::NoColor { column } => {
-                let s = self.sheets.active_mut();
-                let v = &mut s.view;
-                let before = v.formats.len() + v.scales.len();
-                v.formats.retain(|r| match column.as_deref() {
-                    None => false,
-                    Some("*") => r.column.is_some(),
-                    Some(c) => r.column.as_deref() != Some(c),
-                });
-                v.scales
-                    .retain(|r| column.as_deref().is_some_and(|c| r.column != c));
-                let n = before - v.formats.len() - v.scales.len();
-                self.toast = Some(format!(
-                    "{n} color rule{} cleared",
-                    if n == 1 { "" } else { "s" }
-                ));
-            }
-            Action::SetFilterExpr { expr } => {
-                let s = self.sheets.active_mut();
-                match s.set_filter_expr(expr.as_deref()) {
-                    // `affects_data`: dispatch re-materializes.
-                    Ok(()) => {
-                        (s.view.window_offset, s.view.row_cursor, s.view.row_offset) = (0, 0, 0)
-                    }
-                    Err(e) => self.toast = Some(format!("filter-expr: {e}")),
-                }
-            }
-            Action::EditCell { value } => {
-                let (Some(column), Some(rid)) = (self.current_column_name(), self.rid_at_cursor())
-                else {
-                    return;
-                };
-                match self.sheets.active_mut().edit_cell(&column, rid, &value) {
-                    Ok(()) => {
-                        // a join's edit goes to its source rows too (S-45 B)
-                        for (id, r, c) in self.sheets.active().source_cells(rid, &column) {
-                            let Some(s) = self.sheets.find_by_id_mut(id) else {
-                                continue;
-                            };
-                            if let Err(e) = s.edit_cell(&c, r, &value) {
-                                self.toast = Some(format!("{}: {e}", s.name));
-                            }
-                        }
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
-            }
-            Action::SetCol { value } => {
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                match self.sheets.active_mut().set_col(&column, &value) {
-                    Ok(n) => {
-                        self.toast = Some(format!("set {column} on {n} rows"));
-                        self.spawn_materialize();
-                    }
-                    Err(e) => self.toast = Some(format!("setcol: {e}")),
-                }
-            }
+            Action::NoColor { column } => self.no_color(column),
+            Action::SetFilterExpr { expr } => self.set_filter_expr(expr),
+            Action::EditCell { value } => self.edit_cell(value)?,
+            Action::SetCol { value } => self.set_col(value)?,
             Action::Sql { query } => self.open_sql(&query),
             Action::ExecSql { sql } => self.exec_sql(sql),
             Action::Export { path } => self.export(&path),
@@ -1437,96 +638,29 @@ impl App {
             Action::StartAggregateInput { memo, selected } => {
                 self.start_input(Prompt::Aggregate { memo, selected })
             }
-            Action::AggregateCol { names } => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                // undo step only once the names are checked
-                let s = self.sheets.active_mut();
-                let before = s.snapshot();
-                match s.add_aggregators(&c, &names) {
-                    Ok(()) => s.push_undo(before),
-                    Err(e) => self.toast = Some(e),
-                }
-            }
+            Action::AggregateCol { names } => self.aggregate_col(names)?,
             Action::MemoAggregate { names } => {
                 let Some(c) = self.current_column_name() else {
-                    return;
+                    return Break(());
                 };
                 self.toast = Some(match self.sheets.active().memo_aggregate(&c, &names) {
                     Ok(t) | Err(t) => t,
                 });
             }
-            Action::UnfurlCol => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                let id = self.sheets.alloc_id();
-                let empty = self.theme.unfurl_empty;
-                match Sheet::unfurl_from(self.sheets.active(), id, &c, empty) {
-                    Ok(s) => {
-                        self.sheets.push(s);
-                        self.spawn_materialize();
-                        self.goto_column(&format!("{c}_value"));
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
-            }
+            Action::UnfurlCol => self.unfurl_col()?,
             Action::DupSheet => {
                 let id = self.sheets.alloc_id();
                 let copy = Sheet::copy_from(self.sheets.active(), id);
                 self.sheets.push(copy);
                 self.spawn_materialize();
             }
-            Action::Describe => {
-                let id = self.sheets.alloc_id();
-                let parent = self.sheets.active().clone();
-                self.spawn_job("describe", move || {
-                    Ok(JobDone::PushSheet(Box::new(Sheet::describe_from(
-                        &parent, id,
-                    )?)))
-                });
-            }
-            Action::PivotCurrent => {
-                let Some(on) = self.current_column_name() else {
-                    return;
-                };
-                let id = self.sheets.alloc_id();
-                let parent = self.sheets.active().clone();
-                let keys = parent.view.keys.clone();
-                let aggs = crate::sheet::columns::freq_aggregators(&parent);
-                self.spawn_job("pivot", move || {
-                    let child = Sheet::pivot_current_from(&parent, id, &keys, &on, &aggs)?;
-                    Ok(JobDone::PushSheet(Box::new(child)))
-                });
-            }
-            Action::TimeWalk { n } => {
-                if self.sheets.active_mut().time_walk(n) {
-                    let at = self.sheets.active().state.undo.current();
-                    self.toast = Some(format!("at state {at}"));
-                    self.spawn_materialize();
-                } else {
-                    self.toast = Some(format!(
-                        "at the {} state",
-                        if n > 0 { "oldest" } else { "newest" }
-                    ));
-                }
-            }
+            Action::Describe => self.describe(),
+            Action::PivotCurrent => self.pivot_current()?,
+            Action::TimeWalk { n } => self.time_walk(n),
             Action::ExpandCol { depth } => self.expand(depth, false),
             Action::ExpandCols { depth } => self.expand(depth, true),
             Action::StartExpandDepthInput { all } => self.start_input(Prompt::ExpandDepth { all }),
-            Action::ContractCol => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                match self.sheets.active_mut().contract(&c) {
-                    Ok(parent) => {
-                        self.spawn_materialize();
-                        self.goto_column(&parent);
-                    }
-                    Err(e) => self.toast = Some(e),
-                }
-            }
+            Action::ContractCol => self.contract_col()?,
             Action::OpenUndoTree => {
                 let id = self.sheets.alloc_id();
                 let tree = Sheet::undo_tree_of(self.sheets.active(), id);
@@ -1542,106 +676,19 @@ impl App {
                 }
             }
             Action::SubmitSelected => self.dive_freq(true),
-            Action::SelectEqualCell => {
-                let s = self.sheets.active();
-                let Some(column) = self.current_column_name() else {
-                    return;
-                };
-                let Some(value) = s.cursor_value(&column).map(|v| v.into_static()) else {
-                    return;
-                };
-                let sheet = s.clone();
-                self.spawn_job("select", move || {
-                    let rids = sheet
-                        .rids_with_values(&column, std::slice::from_ref(&value))
-                        .map_err(|e| e.to_string())?;
-                    let text = crate::sheet::any_text(&value);
-                    let note = format!("selected {} rows where {column} = {text}", rids.len());
-                    Ok(JobDone::Select { rids, note })
-                });
-            }
+            Action::SelectEqualCell => self.select_equal_cell()?,
             Action::StartDiffInput => self.start_input(Prompt::Diff),
-            Action::SelectToSelected { forward } => {
-                let at = self.cursor_row();
-                let sheet = self.sheets.active().clone();
-                self.spawn_job("select", move || {
-                    let (_, rids) = sheet
-                        .rids_to_selected(at, forward)
-                        .map_err(|e| e.to_string())?
-                        .ok_or("no selected row")?;
-                    Ok(JobDone::SelectIn {
-                        sheet: sheet.id,
-                        select: true,
-                        rids,
-                    })
-                });
-            }
+            Action::SelectToSelected { forward } => self.select_to_selected(forward),
             // checkpointed when the rows arrive (`JobDone::SelectIn`)
             Action::SelectBefore | Action::UnselectBefore
                 if let Origin::Describe { parent } = self.sheets.active().origin =>
             {
                 self.select_described(parent, matches!(action, Action::SelectBefore));
             }
-            Action::SelectBefore | Action::UnselectBefore => {
-                let select = matches!(action, Action::SelectBefore);
-                let n = self.cursor_row() as usize;
-                let sheet = self.sheets.active().clone();
-                self.spawn_job("select", move || {
-                    let rids = sheet.view_rids_at(0, n).map_err(|e| e.to_string())?;
-                    Ok(JobDone::SelectIn {
-                        sheet: sheet.id,
-                        select,
-                        rids,
-                    })
-                });
-            }
+            Action::SelectBefore | Action::UnselectBefore => self.select_before(action),
             Action::StartGoColInput => self.start_input(Prompt::GoCol),
-            Action::OpenCellFile => {
-                let s = self.sheets.active();
-                let path = self
-                    .current_column_name()
-                    .and_then(|c| {
-                        let col = s.window()?.column(&c).ok()?;
-                        crate::widget::cell_display(&s.view, &self.theme, col, s.view.row_cursor)
-                    })
-                    .unwrap_or_default();
-                if path.is_empty() {
-                    self.toast = Some("no path given".into());
-                } else if !path.contains("://") && !std::path::Path::new(&path).exists() {
-                    self.toast = Some(format!("file {path} does not exist"));
-                } else {
-                    self.dispatch(Action::Open { path, format: None });
-                }
-            }
-            Action::ResizeColMax => {
-                let Some(c) = self.current_column_name() else {
-                    return;
-                };
-                let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
-                let render_cell = |c: &str, d: &polars::prelude::DataType, v: &AnyValue| {
-                    lua_render.and_then(|p| p.render(c, d, v))
-                };
-                let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
-                let s = self.sheets.active();
-                let Some((at, full)) = s.window().filter(|_| s.is_loaded()).and_then(|df| {
-                    let at = df.get_column_index(&c)?;
-                    let fmt = crate::widget::cell_fmt(&s.view, &self.theme, &df[at]);
-                    let w =
-                        crate::widget::SheetWidget::full_width(df.height(), &df[at], render, fmt);
-                    Some((at, w))
-                }) else {
-                    self.toast = Some("_: still loading".into());
-                    return;
-                };
-                // VisiData's toggleWidth: full width, or back to the default
-                let s = self.sheets.active_mut();
-                if s.state.widths.get(at) == Some(&full) {
-                    s.state.width_floor.remove(&c);
-                } else {
-                    s.state.width_floor.insert(c, full);
-                }
-                s.reset_widths();
-            }
+            Action::OpenCellFile => self.open_cell_file(),
+            Action::ResizeColMax => self.resize_col_max()?,
             Action::ShowVersion => {
                 self.toast = Some(format!("vdrs {}", env!("CARGO_PKG_VERSION")));
             }
@@ -1650,13 +697,7 @@ impl App {
             | Action::InputBackspace
             | Action::InputNormal => {}
         }
-        // `stale`: changed from a columns sheet while under it, now on top
-        // again (popped, or raised from the sheet list / undo tree)
-        let s = self.sheets.active_mut();
-        let stale = std::mem::take(&mut s.state.stale);
-        if stale || (affects && s.revision() == before_rev) {
-            self.spawn_materialize();
-        }
+        Continue(())
     }
 
     fn move_cursor_rows(&mut self, delta: isize) {

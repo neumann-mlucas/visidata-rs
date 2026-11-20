@@ -491,3 +491,148 @@ impl App {
         });
     }
 }
+
+impl App {
+    pub(super) fn start_note_input(&mut self) -> ControlFlow<()> {
+        if self.notes_mut().is_none() {
+            self.toast = Some("notes: only on sheets read from a file".into());
+            return Break(());
+        }
+        let old = self.cursor_note().map(|n| n.text.clone());
+        self.start_input(Prompt::Note);
+        if let (Some((_, line)), Some(old)) = (self.input.as_mut(), old) {
+            line.set(&old);
+        }
+        Continue(())
+    }
+
+    pub(super) fn set_note(&mut self, text: String) -> ControlFlow<()> {
+        let Some((row, column)) = self.note_cell() else {
+            self.toast = Some("note: no cell here".into());
+            return Break(());
+        };
+        let Some((path, notes)) = self.notes_mut() else {
+            self.toast = Some("notes: only on sheets read from a file".into());
+            return Break(());
+        };
+        self.toast = Some(match notes.set(&path, row, &column, text.trim()) {
+            Err(e) => format!("note: {e}"),
+            Ok(()) if text.trim().is_empty() => "note deleted".into(),
+            Ok(()) => "note saved".into(),
+        });
+        Continue(())
+    }
+
+    pub(super) fn notes(&mut self) -> ControlFlow<()> {
+        let Some((_, notes)) = self.notes_mut() else {
+            self.toast = Some("notes: only on sheets read from a file".into());
+            return Break(());
+        };
+        let notes = notes.clone();
+        let parent = self.sheets.active().clone();
+        let id = self.sheets.alloc_id();
+        self.spawn_job("notes", move || {
+            Ok(JobDone::PushSheet(Box::new(Sheet::notes_from(
+                &parent, id, &notes,
+            )?)))
+        });
+        Continue(())
+    }
+
+    pub(super) fn copy_stats(&mut self) -> ControlFlow<()> {
+        let Some(stats) = self.current_sel_stats() else {
+            self.toast = Some("stats: select rows first (and wait for the stats)".into());
+            return Break(());
+        };
+        let (h, v): (Vec<&str>, Vec<&str>) = stats.iter().map(|(k, v)| (*k, v.as_str())).unzip();
+        let text = format!("{}\n{}\n", h.join("\t"), v.join("\t"));
+        let clip = self.clipboard.clone();
+        self.spawn_job("copy", move || {
+            let osc52 = clip.send(&text).map_err(|e| format!("clipboard: {e}"))?;
+            Ok(JobDone::SysCopy {
+                note: "copied the stats to clipboard".into(),
+                osc52,
+            })
+        });
+        Continue(())
+    }
+
+    pub(super) fn paste_rows(&mut self, action: Action) -> ControlFlow<()> {
+        let rows = match &self.register {
+            Some(Register {
+                kind: RegisterKind::Rows,
+                df,
+            }) => df.clone(),
+            Some(_) => {
+                self.toast = Some("p pastes rows: copy with y or gy".into());
+                return Break(());
+            }
+            None => {
+                self.toast = Some("nothing copied".into());
+                return Break(());
+            }
+        };
+        self.add_rows(0, Some(rows), action == Action::PasteAfter);
+        Continue(())
+    }
+
+    pub(super) fn start_edit_input(&mut self) -> ControlFlow<()> {
+        let s = self.sheets.active();
+        if let Err(e) = s.editable() {
+            self.toast = Some(e);
+            return Break(());
+        }
+        let text = self.current_column_name().and_then(|c| s.cursor_value(&c));
+        let text = text.map(|v| {
+            if v.is_null() {
+                String::new()
+            } else {
+                crate::sheet::any_text(&v)
+            }
+        });
+        let Some(text) = text else {
+            return Break(()); // empty view
+        };
+        self.start_input(Prompt::Edit);
+        if let Some((_, line)) = self.input.as_mut() {
+            line.set(&text);
+        }
+        Continue(())
+    }
+
+    pub(super) fn validate(&mut self, column: String, pred: Option<String>) -> ControlFlow<()> {
+        let warn = self.option_value("validation") == "warn";
+        let s = self.sheets.active_mut();
+        s.state.validation_warn = warn;
+        self.toast = Some(match s.set_validation(&column, pred.as_deref()) {
+            Ok(note) => note,
+            Err(e) => {
+                self.fail(format!("validate: {e}"));
+                return Break(());
+            }
+        });
+        Continue(())
+    }
+
+    pub(super) fn edit_cell(&mut self, value: String) -> ControlFlow<()> {
+        let (Some(column), Some(rid)) = (self.current_column_name(), self.rid_at_cursor()) else {
+            return Break(());
+        };
+        match self.sheets.active_mut().edit_cell(&column, rid, &value) {
+            Ok(()) => {
+                // a join's edit goes to its source rows too (S-45 B)
+                for (id, r, c) in self.sheets.active().source_cells(rid, &column) {
+                    let Some(s) = self.sheets.find_by_id_mut(id) else {
+                        continue;
+                    };
+                    if let Err(e) = s.edit_cell(&c, r, &value) {
+                        self.toast = Some(format!("{}: {e}", s.name));
+                    }
+                }
+                self.spawn_materialize();
+            }
+            Err(e) => self.toast = Some(e),
+        }
+        Continue(())
+    }
+}

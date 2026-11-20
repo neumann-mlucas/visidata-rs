@@ -45,7 +45,8 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
 2. Check `../visidata` `addCommand`/`bindkey` for its key and longname.
 3. `src/action.rs`: `Action` variant; a `NAMED` entry (no arguments) or a
    `to_ex` arm plus a case in `to_ex_round_trips_through_the_ex_parser`.
-4. Handle it in `App::dispatch` (`src/app/actions.rs`).
+4. Handle it in `App::route` (`src/app/actions.rs`): a one-line arm, a
+   longer body as a method in the topic file under `src/app/actions/`.
 5. `Keymap::defaults` entry with its desc; `exline::parse` arm.
 6. `Harness` test in `src/app/scenario/<topic>.rs`.
 7. Guide: key list row, prose, `data-ex` row. S-15 row.

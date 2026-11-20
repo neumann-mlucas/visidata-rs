@@ -509,3 +509,54 @@ impl App {
         }
     }
 }
+
+impl App {
+    pub(super) fn record_macro(&mut self) {
+        match self.recording.as_ref().map(|r| r.into) {
+            None => self.awaiting = Some(crate::app::Await::Record),
+            Some(None) => self.start_input(Prompt::MacroKey),
+            Some(Some(c)) => {
+                let steps = self.recording.take().map(|r| r.steps).unwrap_or_default();
+                self.toast = Some(format!("macro @{c}: {} steps", steps.len()));
+                self.macros.insert(c, steps);
+            }
+        }
+    }
+
+    pub(super) fn registers(&mut self) {
+        let mut all: Vec<(char, &Register)> = self.registers.iter().map(|(c, r)| (*c, r)).collect();
+        if let Some(r) = &self.register {
+            all.insert(0, ('"', r));
+        }
+        let rows: Vec<Vec<String>> = all
+            .iter()
+            .map(|(c, r)| {
+                let kind = match r.kind {
+                    RegisterKind::Rows => "rows",
+                    RegisterKind::Cells => "cells",
+                };
+                let first =
+                    r.df.get_row(0)
+                        .map(|row| {
+                            row.0
+                                .iter()
+                                .map(crate::sheet::any_text)
+                                .collect::<Vec<_>>()
+                                .join(" · ")
+                        })
+                        .unwrap_or_default();
+                vec![
+                    format!("\"{c}"),
+                    kind.into(),
+                    r.df.height().to_string(),
+                    first,
+                ]
+            })
+            .collect();
+        let id = self.sheets.alloc_id();
+        let names = ["register", "kind", "rows", "first row"];
+        self.sheets
+            .push(Sheet::listing(id, "registers", &names, &rows));
+        self.spawn_materialize();
+    }
+}
