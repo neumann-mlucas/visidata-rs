@@ -666,10 +666,11 @@ impl App {
 fn crumbs(sheets: &crate::sheet::Sheets, s: &Sheet) -> String {
     let mut names: Vec<&str> = Vec::new();
     for sh in sheets.iter() {
-        let short = sheets
-            .iter()
-            .filter(|p| p.id != sh.id)
-            .find_map(|p| sh.name.strip_suffix(p.name.as_str())?.strip_suffix(": "))
+        let short = sh
+            .origin
+            .parent()
+            .and_then(|id| sheets.iter().find(|p| p.id == id))
+            .and_then(|p| sh.name.strip_suffix(p.name.as_str())?.strip_suffix(": "))
             .unwrap_or(&sh.name);
         names.push(short);
         if sh.id == s.id {

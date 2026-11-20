@@ -31,7 +31,7 @@ ts ~                level ~  service ~  msg ~                           latency_
 2024-06-03T08:41:56 ERROR    billing    card declined: gateway timeout            76
                                                                                    <CR>  submit_row
 --- frame
- app.jsonl › freq(level) › level=ERROR › freq(service): level=ERROR            service 1/4  row 1/3
+ app.jsonl › freq(level) › level=ERROR › freq(service)                         service 1/4  row 1/3
 service ~   count #  percent % histogram ~
 billing          27      81.82 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 search            3       9.09 ■■■■

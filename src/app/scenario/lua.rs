@@ -261,7 +261,11 @@ async fn push_hook_sees_the_origin_and_cannot_loop() {
     h.keys("l l F").await;
     // the hook's own freq sheet fires nothing: two freq sheets, then quiet
     assert_eq!(h.app.sheets.len(), 3, "{}", h.screen());
-    assert!(title(&h).contains("freq(grp): freq(grp)"), "{}", title(&h));
+    assert!(
+        title(&h).contains("freq(grp) › freq(grp) "),
+        "{}",
+        title(&h)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

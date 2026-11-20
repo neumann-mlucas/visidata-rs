@@ -388,6 +388,36 @@ impl Origin {
             Origin::Cell => "cell",
         }
     }
+
+    /// The sheet this one was made from, if one.
+    pub fn parent(&self) -> Option<SheetId> {
+        match self {
+            Origin::Freq { parent, .. }
+            | Origin::Pivot { parent }
+            | Origin::Unpivot { parent }
+            | Origin::Unfurl { parent }
+            | Origin::UndoTree { parent }
+            | Origin::Hits { parent }
+            | Origin::Bars { parent, .. }
+            | Origin::Plot { parent, .. }
+            | Origin::Selected { parent }
+            | Origin::Sql { parent }
+            | Origin::Describe { parent }
+            | Origin::Lua { parent }
+            | Origin::Copy { parent }
+            | Origin::Transpose { parent } => Some(*parent),
+            Origin::Diff { left, .. } | Origin::Join { left, .. } => Some(*left),
+            Origin::File
+            | Origin::SheetSwitcher
+            | Origin::Columns { .. }
+            | Origin::Tail { .. }
+            | Origin::Listing
+            | Origin::Macros
+            | Origin::Options
+            | Origin::Parts { .. }
+            | Origin::Cell => None,
+        }
+    }
 }
 
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.

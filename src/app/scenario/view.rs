@@ -1103,3 +1103,16 @@ async fn title_crumbs_and_status_names_the_last_command() {
     h.type_("derive d = id * 2").await;
     assert_eq!(h.screen().lines().last().unwrap().trim(), "derive");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn title_crumbs_cut_only_the_parents_name() {
+    let mut h = Harness::new(5).await;
+    let base = h.app.sheets.active().name.clone();
+    h.keys("l l F").await;
+    h.keys("<CR>").await;
+    h.keys("F").await;
+    // `freq(id): grp=1: <base>`: its parent is `grp=1: <base>`, not the base,
+    // whose name it also ends in.
+    let want = format!(" {base} › freq(grp) › grp=1 › freq(id) ");
+    assert!(title(&h).starts_with(&want), "{}", title(&h));
+}
