@@ -1,6 +1,6 @@
 # S-46 — More VisiData commands
 
-Status: **A shipped 2026-11-16; B draft, to refine.**
+Status: **A shipped 2026-11-16; B draft, to refine (`gF`, `z<CR>` shipped in S-51).**
 Depends on: S-25 (replay), S-34 (column order), S-35 (freq).
 
 Commands VisiData's replay corpus uses that vdrs lacks (triage `SKIP <longname>`).
@@ -25,12 +25,10 @@ VisiData's copy keeps the old values.
 ## B — New commands (draft)
 
 Each is a part of its own, with a spec section, `Harness` test, guide rows and replay
-translation when built. Order by value.
+translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>` shipped in S-51.
 
 | Command | Key | Sketch | Open questions |
 |---|---|---|---|
-| `freq-keys` | `gF` | freq grouped by every key column: `group_by_stable(keys)`; dive matches all keys | `Origin::Freq { column }` holds one column: extend to `columns`; binning with several keys (none?) |
-| `open-cell` | `z<CR>` | the cell's list / struct as a sheet (rows of a list, fields of a struct) | `z<CR>` is also `dive-except` on freq sheets (VisiData binds both by sheet type); text cells holding JSON? |
 | `dive-except` | `z<CR>` on freq | parent rows not in the cursor row's bin: `rows_with_values` negated | `DiveKey::Bin` too |
 | `addcol-aggregate` | — | `<col>_<agg>` per key group: `agg_expr(col).over(keys)` as a `Derive`-like step | aggregators the window can't take (mode, percentiles?); no keys = whole sheet |
 | `addcol-rank-sheet` | — | rank of each row by the key columns: `rank(Ordinal)` over the key tuple | ties (VisiData: sorted position); nulls |

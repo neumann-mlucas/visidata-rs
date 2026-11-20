@@ -639,7 +639,9 @@ impl App {
         let rec = self.recording.is_some() && self.input.is_none();
         let rec =
             rec.then(|| Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD)));
-        let width = area.width - rec.as_ref().map_or(0, |r| r.width() as u16);
+        let width = area
+            .width
+            .saturating_sub(rec.as_ref().map_or(0, |r| r.width() as u16));
         let mut text = match owned {
             true => crate::plugins::compose(text.spans, right, width),
             false => self

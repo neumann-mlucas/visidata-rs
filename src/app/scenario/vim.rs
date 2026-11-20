@@ -20,6 +20,14 @@ async fn macro_records_relative_steps_and_replays_on_another_sheet() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn recording_on_a_terminal_narrower_than_the_rec_mark_draws() {
+    let mut h = Harness::new(3).await;
+    h.term = Terminal::new(ratatui::backend::TestBackend::new(4, 5)).unwrap();
+    h.keys("m").await; // panicked: `area.width - rec.width()` underflowed
+    assert!(h.app.recording.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn macro_playback_waits_for_jobs_between_steps() {
     let mut h = Harness::new(5000).await;
     h.keys("m l l F").await;
