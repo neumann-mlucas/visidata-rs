@@ -1,6 +1,6 @@
 # S-37 — Native GUI frontend (egui), with a toolbar, settings and real plots
 
-Status: **drafted 2026-11-14**, rough.
+Status: **P0c/P0d shipped 2026-11-15**; P0a/P0b open; P1+ gated on a GUI decision. Drafted 2026-11-14.
 
 - Part P0 is worth doing for the TUI alone.
 - P1 onward is gated: start only once a GUI is decided.

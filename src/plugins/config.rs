@@ -45,7 +45,7 @@ b("y", "operator_yank")               -- default: copy row (yy here)
 b("c", "operator_change")            -- default: go to column by regex
 b('"', "register_prefix")            -- default: selected rows as a sheet (:dupsel)
 b("m", "set_mark")                   -- default: record macro (q here)
-b("'", "go_mark")
+b("'", "go_mark")                   -- default: frozen copy (:freeze-col here)
 b("q", "record_macro")               -- default: pop sheet (ZZ, :q here)
 b("@", "play_macro")                 -- default: date cast (z@ here)
 b({"z", "@"}, "type_cast_date")

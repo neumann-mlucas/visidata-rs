@@ -23,7 +23,7 @@ vdrs --head N                limit --headless row count
 
 Entry point: `src/main.rs`. A missing file fails before the TUI starts, naming the path.
 
-## 2. Readers (eight formats + decompression)
+## 2. Readers (nineteen formats + stdin and gzip)
 
 | Format | Extensions | Backend | Behavior |
 |---|---|---|---|
@@ -315,7 +315,7 @@ History: file-persisted, `<Up>`/`<Down>` cycle, dedup against last entry, trimme
 Each returns a new `Sheet` with an `Origin` enum entry so the lineage is visible:
 
 - `Origin::File` — opened via reader
-- `Origin::Freq { parent, column }` — count + percent per distinct value, sorted desc
+- `Origin::Freq { parent, columns }` — `F` (one column) / `gF` (the key columns): count + percent per distinct value, sorted desc
 - `Origin::Pivot { parent }`
 - `Origin::Unpivot { parent }`
 - `Origin::Diff { left, right_name }`
@@ -414,25 +414,20 @@ CSV and TSV files up to 1 GiB move into memory in the background after opening, 
 Enumerated here so no one re-asks:
 
 - **No Python-expression eval** (direction §9.5): `qty*amt`, `curcol.casefold()`, `date.isocalendar()[2]`, `curcol.strip()`, `str.lower(curcol)`. Users write Lua instead; VisiData golden corpus tests encoding Python expressions are UNTESTABLE in S-14.
-- **No options fallback chain** (direction §1): no 4-level default→global→class→instance resolution, no per-sheet options. A flat `vd.option` is planned (§10.1).
+- **No options fallback chain** (direction §1): no 4-level default→global→class→instance resolution, no per-sheet options. Options are flat: `vd.option`, `:set`, the `O` sheet (S-37 P0c).
 - **No `.vd` / `.vdj` runtime** (direction §9.5): the cmdlog format exists only in the S-14 test harness, not the `vdrs` binary.
 - **No VisiData state file compat** (direction §9.5): no `~/.visidata`, no `.visidatarc` import.
-- **No save-all** (`g^S`) and no `^S` binding: saving is the `:save <path.ext>` ex-command only.
+- **No save-all** (`g^S`): `^S` (S-50) puts `save ` on the ex line, one sheet at a time.
 - **No LLM-on-cells**.
 
 ### 10.1 Not yet supported (planned or open)
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **Plots** (`plot-column`, histograms): plan [`S-23-layout-sidebar-splits-plots.md`](S-23-layout-sidebar-splits-plots.md) part C.
-- **Options**: flat `vd.option(name, value)` (S-18 D6), data-changing subset in S-25 P6.
-- **Expression keys** `g=` / `:setexpr`, `:filter-expr` (S-21 B); `=`, `z/`, `z|`, `:select` shipped (S-21 A).
-- **Everything else on the roadmap** (S-18 … S-30): `../tasks.md`.
-- **Cell/row editing + clipboard** (`delete-row`, `add-row`, `open-new`, `paste-*`, `setcol-clipboard`; copy to the register shipped in S-18 A, `syscopy-*` in S-18 B, `edit-cell`/`setcol-input` in S-18 C) — a must-have, deferred (decision 2026-11-07). Plan: [`S-18-editing-clipboard.md`](S-18-editing-clipboard.md) (phases A–G).
-- **Macro extras**: `macro-param-*`, `gm` macros sheet, VisiData `.vdj` macro files (S-19 ships `m` record + `macros.lua`).
-- **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05); `vd.toast`, `vd.sheet`, function bindings and `vd.push_sheet` shipped.
-- **Export** of `vd.push_sheet` sheets (the data lives only in Lua).
-- **Export**: schema diff and Lua-aggregator pivots.
+- **More VisiData commands** (S-46 B): `dive-except`, `addcol-aggregate`, `addcol-rank-sheet`, `z#` type-len, `gS` sheets-all, `g Ctrl+S` save-all, `gP` open-syspaste, `join-cols`, `commit-sheet` for duckdb/sqlite.
+- **Macro extras**: `macro-param-*`, VisiData `.vdj` macro files (S-19 ships `m` record + `macros.lua`, S-36 E the `gm` sheet).
+- **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05).
+- **Export** of `vd.push_sheet` sheets (the data lives only in Lua), schema diff and Lua-aggregator pivots.
 - **DuckDB backend** — replaced by Polars SQL for `:sql` / `:derive` (decision 2026-11-05). `.duckdb` *files* are read and written through the `duckdb` program (S-09, 2026-11-08); the engine stays Polars.
 
 ## 11. File map (where to look)
@@ -440,15 +435,16 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 | Concern | File |
 |---|---|
 | Sheet / View / LazyFrame plan | `src/sheet/mod.rs`; derived sheets `derive.rs`, diff `diff.rs`, tail `tail.rs`, `PlanStep` `step.rs`, undo tree `undo.rs`, tests `tests.rs` |
-| Reader (CSV/TSV/Parquet/Arrow/Jsonl/Json/Xlsx/Sqlite/stdin + gzip) | `src/reader.rs` |
+| Reader (every format in §2, stdin, gzip) | `src/reader.rs`; html, xml, zip, fixed/usv/lsv text in `src/reader/` |
 | App loop, jobs, prompts | `src/app.rs`; rendering `src/app/render.rs`; unit tests `src/app/tests.rs`; `scenario` end-to-end tests `src/app/scenario.rs` |
-| Action dispatch + handlers | `src/app/actions.rs` |
+| Action dispatch + handlers | `src/app/actions.rs` (`dispatch` checks, `route` table); longer handlers by topic in `src/app/actions/` |
 | Keymap / chord resolution | `src/keymap.rs` |
 | Key parsing | `src/key.rs` |
 | Action enum + `affects_data()` + `repeatable()` | `src/action.rs` |
 | Ex-line parser + history | `src/exline.rs` |
 | Sheet widget + `clamp_view` | `src/widget.rs` |
-| Lua plugin host (`vd.*` API, aggregators, renderers, hot reload, `plugins::open`) | `src/plugins.rs` |
+| Lua plugin host (aggregators, renderers, hot reload) | `src/plugins.rs`; `vd.*` API `plugins/api.rs`, loaders + `plugins::open` `plugins/loaders.rs`, `vd.on` `plugins/events.rs`, config files `plugins/config.rs`, bars `plugins/bars.rs` |
+| `:export` scripts | `src/export.rs`; Python `export/python.rs`, SQL `export/sql.rs`, derived sheets `export/derived.rs` |
 | Theme | `src/theme.rs` |
 | Binary entry | `src/main.rs` |
 | Library façade (re-exports for integration tests) | `src/lib.rs` |

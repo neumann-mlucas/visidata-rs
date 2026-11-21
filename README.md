@@ -11,8 +11,8 @@ VisiData is open in one of my terminals most days. Treating everything as a
 sheet, with a frequency table one keystroke away, changed how I look at data,
 and nothing else in the terminal comes close. visidata-rs is not a fork. It
 rebuilds that tool in Rust: same keys, same behavior, different insides.
-VisiData's own test corpus is replayed against it: about 70 of the 195 scripts
-it can address pass today (see `MIN_PASS` in `tests/vd_replay.rs`).
+VisiData's own test corpus is replayed against it: 102 of the 193 scripts it
+can address pass today (see `MIN_PASS` in `tests/vd_replay.rs`).
 
 The insides matter because that's where VisiData's open issues pile up:
 
@@ -72,10 +72,11 @@ vdrs book.xlsx:Sheet2      # one worksheet
 vdrs -S monday.vdrs        # restore a session (:mksession)
 ```
 
-Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON
-arrays, Excel/ODS, SQLite (several sheets/tables → a list; `book.xlsx:Sheet2`
-opens one) and DuckDB (through the `duckdb` program), and any of these gzipped;
-Lua loaders add more. Files are scanned lazily: only a 1024-row window is
+Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON,
+Excel/ODS, SQLite and DuckDB (through the `duckdb` program), plus fixed width,
+USV/LSV, YAML, TOML, HTML tables, XML, MessagePack and zip members, and any of
+these gzipped. A file with several sheets or tables opens on a list
+(`book.xlsx:Sheet2` opens one); Lua loaders add more. Files are scanned lazily: only a 1024-row window is
 materialized, and row counts, searches and pivots run in the background. Edits
 never touch the file you opened until `:save`.
 

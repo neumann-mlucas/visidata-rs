@@ -230,7 +230,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <!-- /golden -->
 <p>From here:</p>
 <ul>
-<li>On <code>region</code>, <kbd>z</kbd><kbd>|</kbd> <code>^n</code> <kbd>Enter</kbd> keeps the regions starting with <em>n</em> (<a href="#find">Search, sort, filter</a>).</li>
+<li>On <code>region</code>, <kbd>g</kbd><kbd>z</kbd><kbd>|</kbd> <code>^n</code> <kbd>Enter</kbd> keeps the regions starting with <em>n</em> (<a href="#find">Search, sort, filter</a>).</li>
 <li>While you type <code>:pivot region date total</code>, the right half of the screen says what comes next and previews the result (<a href="#sheets">Sheets</a>).</li>
 <li><kbd>U</kbd> undoes a step. <code>:save north.parquet</code> writes the view; <code>:export north.py</code> writes a Python script that rebuilds it from <code>sales.csv</code>.</li>
 </ul>
@@ -242,7 +242,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <!-- /golden -->
 <ul>
 <li><strong>Title bar</strong>: the open sheets as a path, <code>sales.csv › freq(region) › region=north</code>, ending at the one shown; chips for what shapes the view (a spinner while work runs, <code>filter</code>, <code>sort</code> when sorting by several columns, <code>sel</code> count, <code>hidden</code> columns); then the current column with its position, and <code>row N/total</code> (<code>?</code> while rows are still being counted). The path is shortened from the left so the position stays visible.</li>
-<li><strong>Header</strong>: column names with a dim type mark, as in VisiData (<code>#</code> integer, <code>%</code> float, <code>~</code> text, <code>@</code> date or datetime; others by name: <code>bool</code>, <code>list</code>, <code>struct</code>, …). On a sorted column the badge becomes <code>▲</code> or <code>▼</code>, followed by its rank when sorting by several columns (<code>▼2</code>). Numbers and their headers sit on the right.</li>
+<li><strong>Header</strong>: column names with a dim type mark, as in VisiData (<code>#</code> integer, <code>%</code> float, <code>~</code> text, <code>@</code> date or datetime; others by name: <code>bool</code>, <code>list</code>, <code>struct</code>, …). On a sorted column the mark becomes <code>▲</code> or <code>▼</code>, followed by its rank when sorting by several columns (<code>▼2</code>). Numbers and their headers sit on the right.</li>
 <li><strong>Status line</strong>: on the right, dim, the keys and name of the last command (<code>]  sort_desc</code>), as in VisiData. On the left: messages, prompts (<code>/</code>, <code>:</code>, …), <code>working: …</code> while a long command runs in the background, a pending count (<code>count: 3</code>) or a pending key chord. When you press the first key of a chord (for example <kbd>g</kbd> or <kbd>z</kbd>), a popup lists what can follow.</li>
 </ul>
 <p>Messages stay until your next key press.</p>
@@ -1025,7 +1025,7 @@ print(t3.collect())</code></pre>
 <tr data-vim-keys="R"><td><kbd>R</kbd></td><td>unbound</td><td>default: redo</td></tr>
 <tr data-vim-keys="x"><td><kbd>x</kbd></td><td><code>cut_cell</code></td><td>default: cut row</td></tr>
 <tr data-vim-keys="H"><td><kbd>H</kbd></td><td><code>screen_top</code></td><td>default: slide column left</td></tr>
-<tr data-vim-keys="M"><td><kbd>M</kbd></td><td><code>screen_middle</code></td><td>default: unbound (:melt)</td></tr>
+<tr data-vim-keys="M"><td><kbd>M</kbd></td><td><code>screen_middle</code></td><td>default: melt (<code>:melt</code> here)</td></tr>
 <tr data-vim-keys="L"><td><kbd>L</kbd></td><td><code>screen_bottom</code></td><td>default: slide column right</td></tr>
 <tr data-vim-keys="z t"><td><kbd>z</kbd> <kbd>t</kbd></td><td><code>scroll_top</code></td><td></td></tr>
 <tr data-vim-keys="z b"><td><kbd>z</kbd> <kbd>b</kbd></td><td><code>scroll_bottom</code></td><td></td></tr>
@@ -1033,8 +1033,8 @@ print(t3.collect())</code></pre>
 <tr data-vim-keys="b"><td><kbd>b</kbd></td><td><code>prev_cell</code></td><td>default: sidebar (&lt;C-g&gt; cycles it)</td></tr>
 <tr data-vim-keys="e"><td><kbd>e</kbd></td><td><code>last_cell</code></td><td>default: edit (i here)</td></tr>
 <tr data-vim-keys="i"><td><kbd>i</kbd></td><td><code>start_edit_input</code></td><td></td></tr>
-<tr data-vim-keys="}"><td><kbd>}</kbd></td><td><code>next_value</code></td><td></td></tr>
-<tr data-vim-keys="{"><td><kbd>{</kbd></td><td><code>prev_value</code></td><td></td></tr>
+<tr data-vim-keys="}"><td><kbd>}</kbd></td><td><code>next_value</code></td><td>default: next selected row</td></tr>
+<tr data-vim-keys="{"><td><kbd>{</kbd></td><td><code>prev_value</code></td><td>default: previous selected row</td></tr>
 <tr data-vim-keys="*"><td><kbd>*</kbd></td><td><code>search_cell</code></td><td></td></tr>
 <tr data-vim-keys="#"><td><kbd>#</kbd></td><td><code>searchr_cell</code></td><td>default: int cast (z# here)</td></tr>
 <tr data-vim-keys="z #"><td><kbd>z</kbd> <kbd>#</kbd></td><td><code>type_cast_int</code></td><td></td></tr>
@@ -1045,10 +1045,10 @@ print(t3.collect())</code></pre>
 <tr data-vim-keys="&lt;C-w&gt; q"><td><kbd>&lt;C-w&gt;</kbd> <kbd>q</kbd></td><td><code>close_pane</code></td><td></td></tr>
 <tr data-vim-keys="d"><td><kbd>d</kbd></td><td><code>operator_delete</code></td><td>delete row: here <kbd>d</kbd><kbd>d</kbd>; <kbd>d</kbd> + a motion cuts its rows</td></tr>
 <tr data-vim-keys="y"><td><kbd>y</kbd></td><td><code>operator_yank</code></td><td>copy row: here <kbd>y</kbd><kbd>y</kbd></td></tr>
-<tr data-vim-keys="c"><td><kbd>c</kbd></td><td><code>operator_change</code></td><td>(free): sets the column on the rows, after a prompt</td></tr>
+<tr data-vim-keys="c"><td><kbd>c</kbd></td><td><code>operator_change</code></td><td>go to column by regex: sets the column on the rows, after a prompt</td></tr>
 <tr data-vim-keys="&quot;"><td><kbd>"</kbd></td><td><code>register_prefix</code></td><td>"a y copies into register a, "a p pastes from it, "+ is the system clipboard; selected rows as a sheet: <code>:dupsel</code></td></tr>
 <tr data-vim-keys="m"><td><kbd>m</kbd></td><td><code>set_mark</code></td><td>record macro: here <kbd>q</kbd>; <kbd>m</kbd><kbd>a</kbd> marks the cell as <kbd>a</kbd></td></tr>
-<tr data-vim-keys="'"><td><kbd>'</kbd></td><td><code>go_mark</code></td><td>(free): <kbd>'</kbd><kbd>a</kbd> goes to mark <kbd>a</kbd>, on its sheet</td></tr>
+<tr data-vim-keys="'"><td><kbd>'</kbd></td><td><code>go_mark</code></td><td>frozen copy of the column (<code>:freeze-col</code> here): <kbd>'</kbd><kbd>a</kbd> goes to mark <kbd>a</kbd>, on its sheet</td></tr>
 <tr data-vim-keys="q"><td><kbd>q</kbd></td><td><code>record_macro</code></td><td>pop sheet: here <kbd>Z</kbd><kbd>Z</kbd> or <code>:q</code>; <kbd>q</kbd><kbd>a</kbd> records into register <kbd>a</kbd>, <kbd>q</kbd> stops</td></tr>
 <tr data-vim-keys="@"><td><kbd>@</kbd></td><td><code>play_macro</code></td><td>date cast: here <kbd>z</kbd><kbd>@</kbd>; <kbd>@</kbd><kbd>a</kbd> plays register <kbd>a</kbd>, <kbd>@</kbd><kbd>@</kbd> the last one</td></tr>
 <tr data-vim-keys="z @"><td><kbd>z</kbd> <kbd>@</kbd></td><td><code>type_cast_date</code></td><td></td></tr>
@@ -1109,7 +1109,7 @@ if vd.api_version &lt; 2 then error("needs a newer vdrs") end  -- 2: functions i
 <pre><code>vd.command("hello", function(args) vd.toast("hello " .. args) end)  -- :hello world</code></pre>
 
 <h3 id="lua-loader">vd.register_loader { name?, extensions?, patterns?, open }</h3>
-<p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads natively (CSV, TSV, Parquet, Arrow, JSON Lines) and returns the path of the result; that path's extension picks the format. <code>extensions</code> is a string or a list, without the dot, matched ignoring case (<code>"log"</code> also takes <code>app.LOG</code>); <code>patterns</code> takes file-name globs instead or as well (<code>"export_*.txt"</code>, as <code>vd.on</code>'s <code>pattern</code>). The last loader registered that claims a file wins, so a project's <code>.vdrs.lua</code> beats <code>init.lua</code>. <code>name</code> picks a loader by hand: <code>vdrs -f name file</code>, <code>:open file name</code> (also from Lua, through <code>vd.exec</code>), even for a file no extension or pattern claims; an unknown name lists the built-in formats and loader names. <code>vd.loaders()</code> returns <code>{ name, extensions, patterns }</code> per loader. Loaders read files, not stdin. Used when opening files from the command line and by <code>:open</code>, <code>:diff</code> and <code>:join</code>; <code>:tail</code> refuses such files. <code>open</code> runs on the UI thread, so vdrs waits until it returns: keep it quick, or convert big files ahead of time.</p>
+<p>Teach vdrs a new file format. <code>open(path)</code> converts the file to one vdrs reads (CSV, Parquet, JSON Lines, any format in <a href="#open">Opening data</a>) and returns the path of the result; that path's extension picks the format. <code>extensions</code> is a string or a list, without the dot, matched ignoring case (<code>"log"</code> also takes <code>app.LOG</code>); <code>patterns</code> takes file-name globs instead or as well (<code>"export_*.txt"</code>, as <code>vd.on</code>'s <code>pattern</code>). The last loader registered that claims a file wins, so a project's <code>.vdrs.lua</code> beats <code>init.lua</code>. <code>name</code> picks a loader by hand: <code>vdrs -f name file</code>, <code>:open file name</code> (also from Lua, through <code>vd.exec</code>), even for a file no extension or pattern claims; an unknown name lists the built-in formats and loader names. <code>vd.loaders()</code> returns <code>{ name, extensions, patterns }</code> per loader. Loaders read files, not stdin. Used when opening files from the command line and by <code>:open</code>, <code>:diff</code> and <code>:join</code>; <code>:tail</code> refuses such files. <code>open</code> runs on the UI thread, so vdrs waits until it returns: keep it quick, or convert big files ahead of time.</p>
 <pre><code>vd.register_loader {
   extensions = { "log" },
   open = function(path)
@@ -1152,7 +1152,7 @@ end }</code></pre>
 <p><code>fn</code> receives the values of one pivot cell as a Lua array and returns a number, a string or <code>nil</code> (an empty cell). Empty values are holes in the array, so loop with <code>pairs</code>: <code>ipairs</code> stops at the first one, and <code>#values</code> is unreliable. Use the name as the last argument of <code>:pivot</code>. It runs in the background, cell by cell; an error stops the pivot and is shown in the status line.</p>
 
 <h3>vd.register_renderer { column | dtype, render }</h3>
-<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as shown in the header (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument. Empty cells arrive as <code>nil</code>; if <code>render</code> raises an error, the cell is shown normally.</p>
+<p><code>render(value)</code> returns the text to show for cells of that column name, or of that type as the columns sheet's <code>type</code> shows it (<code>i64</code>, <code>f64</code>, <code>str</code>, <code>date</code>, <code>bool</code>, …). Returning <code>nil</code> keeps the normal display. It changes the display only, not sorting, filtering or saved files. Column widths follow the rendered text. Each distinct value is rendered once and remembered, so <code>render</code> should depend only on its argument. Empty cells arrive as <code>nil</code>; if <code>render</code> raises an error, the cell is shown normally.</p>
 <p>From <code>vd.api_version</code> 10, <code>render</code> can return a table instead, to style the cell: <code>{ text = "(5)", fg = "red", bg = "#202020", bold = true }</code>. Every field is optional: no <code>text</code> keeps the normal text. Colors are those of <code>:color</code>; a color it doesn't know is left out. Styles also support <code>italic</code>, <code>underline</code> and <code>reverse</code>. The cursor row and selected rows keep their own colors, and <code>:color</code> rules paint over the renderer's style.</p>
 
 <h3>vd.sheet(), vd.toast(message)</h3>
@@ -1346,7 +1346,7 @@ vd.register_loader { name = "access-log", patterns = { "access.log", "access.log
 <p>Then: <kbd>F</kbd> on <code>status</code>, <kbd>z</kbd><kbd>|</kbd> <code>status &gt;= 500</code>, and <kbd>W</kbd> with <kbd>+</kbd> on <code>bytes</code> for the bytes per path.</p>
 
 <h3 id="recipe-logs">Tidy every log file as it opens</h3>
-<p>An <a href="#lua"><code>vd.on</code></a> handler in a group, for files named <code>*.log.csv</code> only: newest first, and the column nobody reads hidden. Loading the config again doesn't add the handler twice, as <code>vd.augroup</code> clears the group.</p>
+<p>A <a href="#lua"><code>vd.on</code></a> handler in a group, for files named <code>*.log.csv</code> only: newest first, and the column nobody reads hidden. Loading the config again doesn't add the handler twice, as <code>vd.augroup</code> clears the group.</p>
 <pre><code>local g = vd.augroup("logs")
 vd.on("open", { group = g, pattern = "*.log.csv" }, function(s)
   vd.exec(":sort -ts")

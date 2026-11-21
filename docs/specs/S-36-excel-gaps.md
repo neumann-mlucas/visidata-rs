@@ -1,6 +1,6 @@
 # S-36 — Excel gaps: number formats, macros sheet, totals footer, lookups, validation, named views
 
-Status: **drafted 2026-11-14** (rough; refine before each part starts). Decisions K1, K2, K4, K5
+Status: **A–E shipped 2026-11-15**; F (named views) evidence-gated. Drafted 2026-11-14. Decisions K1, K2, K4, K5
 agreed 2026-11-14; K3 agreed 2026-11-14 (option b).
 Depends on: S-35 C2 (`fmtstr`), S-32 (precision), S-19 (macros), S-25 P4 (aggregators), S-30 A
 (`:link`) and C (selection stats), S-18 (edits, `SetCells` patches), S-27 (formats), S-29 (sessions).

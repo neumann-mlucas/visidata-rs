@@ -1,6 +1,6 @@
 # S-40 — Lua config: event groups, project config, multi-sheet loaders, bars and sidebar pages
 
-Status: **drafted 2026-11-15**, rough. K1–K7 decided 2026-11-15 (§9).
+Status: **shipped 2026-11-15** (A–G). Drafted 2026-11-15. K1–K7 decided 2026-11-15 (§9).
 Depends on: S-09 (plugin shapes), S-10 (API versioning), S-29 (`vd.on`, `vd.exec`, `:source`),
 S-39 A (a loader may return rows), S-37 P0c (`options.lua`), S-23 A (sidebar pages).
 

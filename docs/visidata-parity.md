@@ -43,12 +43,12 @@ The comparison: every `addCommand` key on `BaseSheet`, `Sheet`, `TableSheet`,
 
 | Gap | VisiData keys | vdrs today |
 |---|---|---|
-| Core file and sheet keys | `o` open-file, `Ctrl+S` save-sheet, `g Ctrl+S` save-all, `&` join, `g&` join-all, `M` melt, `T` transpose, `` ` `` open-source, `Q` quit-sheet-free, `gU` undo-last-quit | `:open`, `:save`, `:join`, `:unpivot`; no transpose |
-| Movement | `{` `}` prev/next selected, `<` `>` prev/next value, `z<` `z>` prev/next null, `c` go-col-regex, `zr` go-row-number, `Ctrl+Left/Right` page left/right | — |
-| Selection | `g,` `z,` `gz,` select-equal-row / exact-cell / exact-row, `gzs` `gzu` select/unselect after, `gt` `zt` `gzt` toggles, `\` `g\` `z\` unselect by regex/expr | `s` `u` `gs` `gu` `,` `\|` exist |
-| Sorting | `g[` `g]` sort by keys, `gz[` `gz]` add key sorts, `z[` `z]` change one level | `[` `]` |
+| Core file and sheet keys | `g Ctrl+S` save-all, `` ` `` open-source, `Q` quit-sheet-free, `gU` undo-last-quit | `o` `Ctrl+S` `&` `g&` `M` `T` bound (S-50, S-51) |
+| Movement | `zr` go-row-number, `Ctrl+Left/Right` page left/right | `{` `}` `<` `>` `z<` `z>` `c` bound (S-50) |
+| Selection | `g,` `z,` `gz,` select-equal-row / exact-cell / exact-row, `gzs` `gzu` select/unselect after, `gt` `zt` `gzt` toggles | `s` `u` `gs` `gu` `,` `\|` `\` `g\` `z\` exist |
+| Sorting | `gz[` `gz]` add key sorts, `z[` `z]` change one level | `[` `]` `g[` `g]` |
 | Columns | `w` addcol-window, `z;` addcol-shell, `gza` addcol-bulk, `zi` `gzi` incr-step, `z=` setcell-expr, `gz=` setcol-iter, `z#` type-len, `z@` custom date, `z%` floatsi, `z~` type-any (and the `g`/`gz` selected forms on ColumnsSheet) | `=`, `g=`, `i`, `gi` |
-| Freq and dive | `gF` freq-keys, `zF` freq-summary, `zEnter` open-cell, `gzEnter` dive-selected-cells, `zEnter`/`gzEnter` dive-except on freq | S-46 B drafts |
+| Freq and dive | `zF` freq-summary, `gzEnter` dive-selected-cells, `zEnter`/`gzEnter` dive-except on freq | `gF`, `zEnter` open-cell (S-51); dive-except in S-46 B |
 | Layout | `z-` `z_` `gz_` `g_` resize, `zv` `gzv` row height, `v` multiline, `zj zk zh zl` (with `gz`) scroll cells, `zZ` split input | — |
 | Meta sheets | `gS` sheets-all, `zO` sheet options, `gO` open-config, `Ctrl+E` `gCtrl+E` `zCtrl+E` errors, `Ctrl+P` statuses, `Ctrl+T` threads, `gI` describe-all | `O`, `I` |
 | Python-only | `Ctrl+X` pyobj-expr, `Ctrl+Y` pyobj-row, `gCtrl+X` import-python, menus `Alt+…` | out of scope |
@@ -56,9 +56,8 @@ The comparison: every `addCommand` key on `BaseSheet`, `Sheet`, `TableSheet`,
 S-50 bound `o`, `Ctrl+S`, `&`, `M`, `{` `}`, `<` `>`, `z<` `z>`, `c`, `g[` `g]`.
 S-51 added `T`, `gF`, `zEnter` and `g&`.
 
-The first three rows matter most. A VisiData user presses `o`, `Ctrl+S`, `&`,
-`M`, `{`/`}` and `<`/`>` from muscle memory. Each is one keymap row to an
-action vdrs already has, or a small action.
+The keys a VisiData user presses from muscle memory (`o`, `Ctrl+S`, `&`, `M`,
+`{`/`}`, `<`/`>`) are bound now; what is left in the table is rarer.
 
 ### 2.2 v3.x commands with no vdrs counterpart
 
@@ -88,7 +87,7 @@ case by case.
 - **cmdlog:** `set-envvar` (3.5).
 - **CLI:** `-o` and `-of` (batch save), `-O` output-cell, `-f` per path.
 - **Readers:**
-  - vdrs leaves out on purpose (S-15): xml, stata/sas/xpt, hdf5, npy, msgpack, png, http.
+  - vdrs leaves out on purpose (S-15): stata/sas/xpt, hdf5, npy, png, http. xml and msgpack read since S-53.
   - Also missing: `.psv`, grep output, `.rec`, `.vcf`, postgres, s3, `.zstd`.
 
 ## 3. VisiData bug fixes, checked against vdrs
@@ -128,8 +127,8 @@ For each: whether vdrs avoids it or should copy it.
   (#2271). Polars evaluates once, vectorized.
 - Saved text formats get displayed values, not raw ones: `1,370` (#2014).
   - vdrs saves the frame, so likely raw (*not verified with a fmtstr*). Keep it.
-- Scientific notation on string columns (#2404); a transposed sheet losing types
-  (#2575). Not applicable; vdrs has no transpose.
+- Scientific notation on string columns (#2404): not applicable. A transposed sheet
+  losing types (#2575): vdrs's `T` (S-51) makes every cell text too, as VisiData.
 
 **Where VisiData's choice is the reference, and vdrs differs or must decide:**
 
