@@ -22,19 +22,12 @@ jobs:
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: just,cargo-nextest
-      - name: VisiData replay corpus (pinned; tests/vd_replay.rs reads ../visidata)
+      - name: DuckDB CLI (golden cases run the exported SQL)
         run: |
-          git init -q ../visidata
-          git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata 5f67ff8af28c59a8f7429e396601606f2ac8dd47
-          git -C ../visidata checkout -q FETCH_HEAD
-      - name: Export round-trip tools (golden cases run the generated scripts)
-        run: |
-          python3 -m venv "$HOME/rt"
-          "$HOME/rt/bin/pip" install -q polars
           curl -fsSL https://install.duckdb.org | sh
           echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+      # Same recipes as local runs: setup fetches the pinned VisiData corpus and polars.
+      - run: just setup
       - run: just check --no-fail-fast
         env:
-          CARGO_TARGET_DIR: target # rust-cache caches ./target, not .cargo/config.toml's shared dir
-          VDRS_PYTHON: /home/runner/rt/bin/python
-          VDRS_REQUIRE_ROUNDTRIP: "1"
+          CARGO_TARGET_DIR: target # rust-cache caches ./target, not the justfile's cache dir

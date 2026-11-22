@@ -174,8 +174,8 @@ mod tests {
     fn save_index_open_exec_round_trip() {
         if !have_duckdb() {
             assert!(
-                std::env::var_os("VDRS_REQUIRE_ROUNDTRIP").is_none(),
-                "VDRS_REQUIRE_ROUNDTRIP: duckdb isn't usable"
+                std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
+                "VDRS_REQUIRE_TOOLS: duckdb isn't usable"
             );
             return;
         }

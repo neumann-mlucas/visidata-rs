@@ -1,6 +1,6 @@
 """VisiData menu paths keyed by default key: `<vdrs keys>\t<menu path>` lines.
 
-Usage: python3 scripts/gen_menu.py ../visidata/visidata > src/menu.tsv
+Usage: python3 scripts/gen_menu.py "$VDRS_VISIDATA/visidata" > src/menu.tsv
 """
 import pathlib
 import re

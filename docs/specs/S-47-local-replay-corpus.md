@@ -12,7 +12,7 @@ VisiData to make a golden, then replayed by vdrs (`vd_replay_local` in
 - `tests/vd_local/*.vd`: cmdlog scripts (all 7 columns; empty sheet = current).
 - `tests/vd_local/data/`: fixtures, paths relative to the repo root.
 - `tests/vd_local/golden/<name>.tsv`: VisiData's output. `just vd-golden [names]`
-  regenerates them (needs `../visidata`; `$VD_TESTTMP` is a scratch dir for saves).
+  regenerates them (needs `just setup`; `$VD_TESTTMP` is a scratch dir for saves).
 - `tests/vd_local/quarantine.txt`: known divergences, one reason each.
 - Strict: every case not quarantined must PASS (no `MIN_PASS` floor).
   `VDRS_REPLAY_TRIAGE=1` writes `tests/vd_local/triage.txt`;
