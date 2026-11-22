@@ -136,13 +136,18 @@ proptest! {
         }
     }
 
-    /// §3 (3): a click at a column's start picks that column.
+    /// §3 (3): a click anywhere in the area picks the visible column drawn
+    /// there, and a click past the last column picks none.
     #[test]
     fn column_at_finds_each_visible_column((w, a, v) in layout()) {
-        for (i, x) in visible_columns(&v, &w, a) {
-            if x < a.x + a.width {
-                prop_assert_eq!(column_at(&v, &w, x - a.x), Some(i), "x {}", x - a.x);
-            }
+        let vis = visible_columns(&v, &w, a);
+        for dx in 0..a.width {
+            let x = usize::from(a.x + dx);
+            let want = vis.iter().find(|&&(i, start)| {
+                let start = usize::from(start);
+                start <= x && x < start + usize::from(w[i]) + usize::from(PAD)
+            });
+            prop_assert_eq!(column_at(&v, &w, dx), want.map(|(i, _)| *i), "x {}", dx);
         }
     }
 
@@ -183,18 +188,21 @@ proptest! {
     }
 
     /// §3 (5): drawing any cells in any area, as the app does after a clamp,
-    /// never panics.
+    /// never panics and never draws outside the area.
     #[test]
     fn sheet_widget_draws_any_cells(
-        cells in proptest::collection::vec(proptest::collection::vec(cell(), 1..5), 0..6),
+        (cells, set_widths) in (1..5usize).prop_flat_map(|cols| (
+            proptest::collection::vec(proptest::collection::vec(cell(), cols), 0..6),
+            proptest::option::of(proptest::collection::vec(
+                prop_oneof![0..12u16, 0..300u16, (u16::MAX - 3)..=u16::MAX], cols)),
+        )),
         a in area(),
-        set_widths in proptest::option::of(widths()),
         (frozen_left, col_cursor, row_cursor) in (0..6usize, 0..6usize, 0..8usize),
     ) {
-        let cols = cells.first().map_or(1, Vec::len);
+        let cols = set_widths.as_ref().map_or_else(|| cells.first().map_or(1, Vec::len), Vec::len);
         let columns: Vec<Column> = (0..cols)
             .map(|c| {
-                let v: Vec<String> = cells.iter().map(|r| r.get(c).cloned().unwrap_or_default()).collect();
+                let v: Vec<String> = cells.iter().map(|r| r[c].clone()).collect();
                 Column::new(format!("c{c}").into(), v)
             })
             .collect();
@@ -203,15 +211,18 @@ proptest! {
         sheet.set_window(df.clone());
         let theme = Theme::dark();
         refresh_widths(&mut sheet, None, &theme);
-        if let Some(w) = set_widths.filter(|w| w.len() == cols) {
+        if let Some(w) = set_widths {
             sheet.state.widths = w;
         }
         sheet.view.frozen_left = frozen_left;
         sheet.view.col_cursor = col_cursor;
         sheet.view.row_cursor = row_cursor;
         let widths = sheet.state.widths.clone();
+        // A one-cell border around the area must stay blank.
+        let outer = Rect { x: a.x, y: a.y, width: a.width + 2, height: a.height + 2 };
+        let a = Rect { x: a.x + 1, y: a.y + 1, ..a };
         clamp_view(&mut sheet.view, &df, a, &widths);
-        let mut buf = Buffer::empty(a);
+        let mut buf = Buffer::empty(outer);
         SheetWidget {
             sheet: &sheet,
             theme: &theme,
@@ -221,6 +232,11 @@ proptest! {
             visual: None,
         }
         .render(a, &mut buf);
+        for (x, y) in outer.positions().map(|p| (p.x, p.y)) {
+            if !a.contains((x, y).into()) {
+                prop_assert_eq!(&buf[(x, y)], &ratatui::buffer::Cell::EMPTY, "drew at {},{}", x, y);
+            }
+        }
     }
 }
 

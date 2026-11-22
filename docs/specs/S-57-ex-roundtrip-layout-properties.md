@@ -57,8 +57,9 @@ Tests in `src/widget/props.rs`. Widths go up to `u16::MAX`. Areas go from
    scrolled columns from `col_offset`. Each column starts where the one
    before it ends, plus `CELL_PAD`. Only the last scrolled column may start
    or end past the right edge.
-3. **`column_at` agrees with `visible_columns`.** For each visible column
-   that starts inside the area, `column_at` at that `x` returns that column.
+3. **`column_at` agrees with `visible_columns`.** For each `x` in the area,
+   `column_at` returns the visible column drawn at `x`. Past the last
+   column, it returns none.
 4. **`clamp_view` keeps the cursor on screen.**
    - The row cursor is in range, and between `row_offset` and the last
      visible data row.
@@ -66,9 +67,10 @@ Tests in `src/widget/props.rs`. Widths go up to `u16::MAX`. Areas go from
    - If the frozen columns and the cursor column fit in the area, the cursor
      column ends inside the area.
    - A second `clamp_view` changes nothing (idempotent).
-5. **Render does not panic.** `SheetWidget` draws a sheet with generated
-   cell text (wide Unicode, empty, 70,000 characters) in any area, with any
-   cursor and frozen count.
+5. **Render stays in its area.** `SheetWidget` draws a sheet with generated
+   cell text (wide Unicode, empty, 70,000 characters) and generated widths
+   (up to `u16::MAX`) in any area, with any cursor and frozen count. It does
+   not panic. A one-cell border around the area stays blank.
 
 ## 4. Running
 
