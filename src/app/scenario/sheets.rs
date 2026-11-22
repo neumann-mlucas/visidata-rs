@@ -376,7 +376,7 @@ async fn duckdb_index_exec_sql_open_and_save() {
         .is_ok_and(|o| o.status.success());
     if !have {
         assert!(
-            std::env::var_os("VDRS_REQUIRE_ROUNDTRIP").is_none(),
+            std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
             "duckdb isn't usable"
         );
         return;

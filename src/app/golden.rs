@@ -30,7 +30,7 @@
 //!
 //! Each case's exported scripts then run through DuckDB and Polars
 //! (`VDRS_PYTHON` = an interpreter with polars) and must print the same table.
-//! Missing tools skip that step, unless `VDRS_REQUIRE_ROUNDTRIP` is set (CI).
+//! Missing tools skip that step, unless `VDRS_REQUIRE_TOOLS` is set (`just` sets it).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -413,8 +413,8 @@ fn tool_ok(cmd: &str, arg: &str) -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     assert!(
-        ok || std::env::var_os("VDRS_REQUIRE_ROUNDTRIP").is_none(),
-        "VDRS_REQUIRE_ROUNDTRIP: {cmd} isn't usable"
+        ok || std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
+        "VDRS_REQUIRE_TOOLS: {cmd} isn't usable"
     );
     ok
 }
@@ -445,8 +445,8 @@ fn roundtrip(h: &Harness, dir: &Path, want: &str, fails: &mut Vec<String>) {
         .output()
         .is_ok_and(|o| o.status.success());
     assert!(
-        has_polars || std::env::var_os("VDRS_REQUIRE_ROUNDTRIP").is_none(),
-        "VDRS_REQUIRE_ROUNDTRIP: {python} lacks polars"
+        has_polars || std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
+        "VDRS_REQUIRE_TOOLS: {python} lacks polars"
     );
     if has_polars {
         let py = crate::export::to_python(sheet);

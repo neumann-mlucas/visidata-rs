@@ -4,17 +4,17 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
 
 ## Commands
 
-- `just check`: fmt check, clippy `-D warnings`, full nextest run. Done = exit 0.
+- `just setup` once: it fetches the pinned VisiData checkout and a Python venv with polars, and checks the DuckDB CLI.
+- `just check`: fmt check, clippy `-D warnings`, full nextest run. Done = exit 0. A missing corpus or tool fails it, as in CI.
 - `just test <filter>` for a narrow run first.
-- Builds go to `../.visidata-rs-target`, shared by the checkout and its worktrees (`.cargo/config.toml`). Dev profile keeps line tables only. `cargo clean` there when it grows.
+- `just` builds into `~/.cache/vdrs/target`, shared by the checkout and its worktrees (`CARGO_TARGET_DIR` in the justfile). Plain `cargo` builds into `./target`. Dev profile keeps line tables only. `cargo clean` there when it grows.
 - `prek run --files <changed>` before committing (`prek install` once). Test data under `tests/golden/`, `tests/vd_replay/`, `tests/vd_local/` and `docs/fixtures/` is byte-exact, so the hooks skip it.
 - `UPDATE_GOLDEN=1` rewrites `tests/golden/` cases. Review the diff before committing.
-- `VDRS_PYTHON=<python with polars>` runs exported scripts in golden cases.
-- `tests/vd_replay.rs` reads the VisiData checkout at `../visidata`.
+- The justfile sets `VDRS_VISIDATA` (VisiData checkout, default `~/.cache/vdrs/visidata`), `VDRS_PYTHON` (Python with polars, for exported scripts) and `VDRS_REQUIRE_TOOLS=1`. Set the first two yourself to use other ones.
 
 ## Rules
 
-- Default keys are VisiData's. Check `../visidata/visidata/**/*.py`
+- Default keys are VisiData's. Check `$VDRS_VISIDATA/visidata/**/*.py`
   (`addCommand`/`bindkey`) before binding one. Vim/TUI meanings go only in
   the opt-in `vd.option("keymap", "vim")` profile.
 - A feature starts as a spec in `docs/specs/S-NN-*.md`. Status is tracked in `docs/tasks.md`.
@@ -42,7 +42,7 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
 ## Adding a command
 
 1. Spec, plus a row in `docs/specs/README.md` and `docs/tasks.md`.
-2. Check `../visidata` `addCommand`/`bindkey` for its key and longname.
+2. Check `$VDRS_VISIDATA` `addCommand`/`bindkey` for its key and longname.
 3. `src/action.rs`: `Action` variant; a `NAMED` entry (no arguments) or a
    `to_ex` arm plus a case in `to_ex_round_trips_through_the_ex_parser`.
 4. Handle it in `App::route` (`src/app/actions.rs`): a one-line arm, a

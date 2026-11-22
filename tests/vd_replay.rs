@@ -5,9 +5,9 @@
 )]
 //! S-14 — Golden corpus replay harness.
 //!
-//! Walks `../visidata/tests/*.vd{,j,x}`, translates each cmdlog longname into a
+//! Walks `$VDRS_VISIDATA/tests/*.vd{,j,x}`, translates each cmdlog longname into a
 //! sheet-level operation, materializes, and diffs the TSV against the paired
-//! golden at `../visidata/tests/golden/<stem>.tsv`.
+//! golden at `$VDRS_VISIDATA/tests/golden/<stem>.tsv`.
 //!
 //! Semantics (see S-14 §Shape):
 //!   PASS         — longname-covered, output matches golden byte-for-byte post-normalize.
@@ -29,7 +29,6 @@ use visidata_rs::reader::{self, LoadedSource, SourceKind};
 use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, SortOrder};
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
-const CORPUS: &str = "../visidata/tests";
 /// Raise when coverage grows; never lower without saying why.
 const MIN_PASS: usize = 102;
 
@@ -2759,13 +2758,17 @@ fn json_and_csv_goldens_read_as_tsv() {
 
 #[test]
 fn vd_replay_corpus() {
-    let corpus = Path::new(CORPUS);
-    if !corpus.exists() {
-        eprintln!(
-            "vd_replay: skipping — corpus not at {CORPUS}. Need a sibling checkout of saulpw/visidata.",
+    // `just setup` fetches the pinned checkout and the justfile points here.
+    let corpus = std::env::var_os("VDRS_VISIDATA").map(|d| PathBuf::from(d).join("tests"));
+    let Some(corpus) = corpus.filter(|c| c.exists()) else {
+        assert!(
+            std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
+            "VDRS_REQUIRE_TOOLS: no VisiData corpus at $VDRS_VISIDATA/tests; run `just setup`"
         );
+        eprintln!("vd_replay: skipping — set VDRS_VISIDATA to a saulpw/visidata checkout");
         return;
-    }
+    };
+    let corpus = corpus.as_path();
     let root = corpus.parent().unwrap().to_path_buf();
     run_corpus(corpus, root, Path::new("tests/vd_replay"), MIN_PASS, false);
 }

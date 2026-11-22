@@ -122,21 +122,13 @@ guide's [changed keys](https://neumann-mlucas.github.io/visidata-rs/#breaking).
 `just check` is the done-gate. Commands, rules and test switches are in
 [`CLAUDE.md`](CLAUDE.md).
 
-The VisiData corpus replay (`tests/vd_replay.rs`) needs a checkout at
-`../visidata`, at the commit CI pins; without it that test skips:
+Run `just setup` once. It fetches the VisiData checkout CI pins (for the corpus
+replay, `tests/vd_replay.rs`) and a Python venv with polars (for the golden cases'
+exported scripts) into `~/.cache/vdrs`. It also checks that the DuckDB CLI is on
+`PATH`. `just check` then runs the same tests as CI, and a missing tool fails it.
 
-```text
-git init -q ../visidata
-git -C ../visidata fetch -q --depth 1 https://github.com/saulpw/visidata 5f67ff8af28c59a8f7429e396601606f2ac8dd47
-git -C ../visidata checkout -q FETCH_HEAD
-```
-
-Optional:
-
-- `duckdb` on `PATH` and a Python with polars in `VDRS_PYTHON` run the golden
-  cases' exported scripts; `VDRS_REQUIRE_ROUNDTRIP=1` makes them required, as in CI.
 - `prek install` once for the pre-commit hooks.
-- Builds go to `../.visidata-rs-target`, shared with worktrees.
+- `just` builds into `~/.cache/vdrs/target`, shared with worktrees.
 
 ## License
 
