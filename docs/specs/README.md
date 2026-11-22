@@ -54,11 +54,11 @@ File naming: `S-NN-slug.md`.
 | S-47 | Local replay corpus (`tests/vd_local`) | S-14 | **shipped 2026-11-16** → [`S-47-local-replay-corpus.md`](S-47-local-replay-corpus.md) |
 | S-48 | Option `csv_skipinitialspace` | S-43, S-47 | **shipped 2026-11-16** → [`S-48-csv-skipinitialspace.md`](S-48-csv-skipinitialspace.md) |
 | S-49 | CSV blank lines; nested cells save as JSON | S-47 | **shipped 2026-11-16** → [`S-49-csv-blank-lines-nested-save.md`](S-49-csv-blank-lines-nested-save.md) |
+| S-50 | VisiData default keys: `o` `Ctrl+S` `&` `M` `{` `}` `<` `>` `z<` `z>` `c` `g[` `g]` | S-26 | **shipped 2026-11-16** → [`S-50-visidata-default-keys.md`](S-50-visidata-default-keys.md) |
 | S-51 | `T` transpose, `gF` freq-keys, `zEnter` open-cell, `g&` join-all | S-50 | **shipped 2026-11-17** → [`S-51-transpose-freqkeys-opencell-joinall.md`](S-51-transpose-freqkeys-opencell-joinall.md) |
 | S-52 | One freq derivation for `F` and `gF` | S-51 | **shipped 2026-11-17** → [`S-52-one-freq-derivation.md`](S-52-one-freq-derivation.md) |
 | S-53 | Replay blockers (keyed columns sheet, rename onto hidden), XML and msgpack readers, list expansion | S-52 | **shipped 2026-11-19** → [`S-53-replay-blockers-xml-msgpack.md`](S-53-replay-blockers-xml-msgpack.md) |
 | S-54 | Title bar crumbs, VisiData status line (last command on the right), `ctx.last` | S-40 D | **shipped 2026-11-19** → [`S-54-bars.md`](S-54-bars.md) |
-| S-50 | VisiData default keys: `o` `Ctrl+S` `&` `M` `{` `}` `<` `>` `z<` `z>` `c` `g[` `g]` | S-26 | **shipped 2026-11-16** → [`S-50-visidata-default-keys.md`](S-50-visidata-default-keys.md) |
 
 **Not drafted yet** (draft only when the work starts):
 
