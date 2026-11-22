@@ -76,7 +76,7 @@ impl<'a> SheetWidget<'a> {
         let step = (height / Self::WIDTH_ROWS).max(1);
         let text = ColText::new(s, fmt);
         // Header width = name + " [dtype-badge]" so we don't truncate the badge.
-        let hdr = (s.name().width() + 2 + type_icon(s.dtype()).width()) as u16;
+        let hdr = s.name().width() + 2 + type_icon(s.dtype()).width();
         let data = (0..height)
             .step_by(step)
             .filter(|i| *i < s.len())
@@ -86,12 +86,12 @@ impl<'a> SheetWidget<'a> {
                 Some(
                     custom
                         .map_or_else(|| text.cell(&av, i).0, |t| printable(&t))
-                        .width() as u16,
+                        .width(),
                 )
             })
             .max()
             .unwrap_or(0);
-        hdr.max(data)
+        u16::try_from(hdr.max(data)).unwrap_or(u16::MAX)
     }
 }
 
@@ -542,7 +542,9 @@ pub fn visible_columns(view: &View, widths: &[u16], area: Rect) -> Vec<(usize, u
     let mut cur = area.x;
     for i in (0..frozen).chain(scroll_start..n) {
         visible.push((i, cur));
-        cur = cur.saturating_add(widths[i] + SheetWidget::CELL_PAD);
+        cur = cur
+            .saturating_add(widths[i])
+            .saturating_add(SheetWidget::CELL_PAD);
         if i >= frozen && cur >= area.x + area.width {
             break;
         }
@@ -863,7 +865,9 @@ pub fn column_at(view: &View, widths: &[u16], x: u16) -> Option<usize> {
     let scrolled = (frozen + view.col_offset).min(widths.len())..widths.len();
     let mut end = 0u16;
     (0..frozen).chain(scrolled).find(|&i| {
-        end = end.saturating_add(widths[i] + SheetWidget::CELL_PAD);
+        end = end
+            .saturating_add(widths[i])
+            .saturating_add(SheetWidget::CELL_PAD);
         x < end
     })
 }
@@ -898,7 +902,7 @@ pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
     // Scroll right until the cursor column fits after the frozen block.
     let span = |w: &[u16]| {
         w.iter()
-            .map(|w| (w + SheetWidget::CELL_PAD) as usize)
+            .map(|w| usize::from(*w) + usize::from(SheetWidget::CELL_PAD))
             .sum::<usize>()
     };
     let room = (area.width as usize).saturating_sub(span(&widths[..frozen]));

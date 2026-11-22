@@ -776,6 +776,16 @@ async fn resize_col_max_on_a_copy_maxes_first() {
     assert_eq!(width(&h), default);
 }
 
+/// `_` on a cell wider than `u16::MAX` saturates; it doesn't wrap to a sliver.
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_col_max_saturates_on_a_huge_cell() {
+    let long = "x".repeat(usize::from(u16::MAX) + 5);
+    let mut h = csv(format!("a,b\n1,{long}\n").as_bytes()).await;
+    h.keys("l _").await;
+    let width = h.app.sheets.active().state.widths[1];
+    assert_eq!(width, u16::MAX);
+}
+
 /// `_` before the window loads leaves the width alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn resize_col_max_while_loading_toasts() {
