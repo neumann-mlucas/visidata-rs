@@ -160,7 +160,7 @@ impl SheetWidget<'_> {
         );
         for &(ci, x) in &visible {
             let name = cols[ci].name();
-            let w = widths[ci];
+            let w = drawable(x, widths[ci]);
             let hi = ci == view.col_cursor;
             let name_style = if hi {
                 Style::default()
@@ -296,7 +296,7 @@ impl SheetWidget<'_> {
                 line,
             );
             for (slot, &(ci, x)) in visible.iter().enumerate() {
-                let w = widths[ci];
+                let w = drawable(x, widths[ci]);
                 let av = cols[ci].get(ri).unwrap_or(AnyValue::Null);
                 let (mut text, dtype_hint) = texts[slot].cell(&av, ri - row_start);
                 let custom = self
@@ -505,6 +505,9 @@ pub(crate) fn take_width(
 }
 
 fn paint_cell(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style, right: bool) {
+    if w == 0 {
+        return; // no room even for the ellipsis
+    }
     let truncated: String = if text.width() > w as usize {
         // Keep whole characters that fit in w-1 cells, then the ellipsis.
         let mut s: String = take_width(text.chars(), (w as usize).saturating_sub(1)).collect();
@@ -530,6 +533,14 @@ fn paint_run(buf: &mut Buffer, x: u16, y: u16, w: u16, text: &str, style: Style)
         // Width-aware: wide chars take two cells and never straddle the edge.
         buf.set_stringn(x, y, text, (max_x - x) as usize, style);
     }
+}
+
+/// The width of a column at `x` that keeps `x + width` in `u16`: a column
+/// widened past 65,535 cells (`_` on a huge cell) can't overflow the adds
+/// that place its text. On screen nothing changes, as the clipped part is
+/// past every terminal's edge.
+fn drawable(x: u16, w: u16) -> u16 {
+    w.min(u16::MAX - x)
 }
 
 /// (column, x) of each column on screen in `area`: every frozen one, then
@@ -579,7 +590,7 @@ pub fn paint_footer(
     let mut items: Vec<(u16, u16, String)> = Vec::new();
     for (slot, &(ci, x)) in visible.iter().enumerate() {
         match total(ci) {
-            Some((_, t)) => items.push((x, widths[ci], t.clone())),
+            Some((_, t)) => items.push((x, drawable(x, widths[ci]), t.clone())),
             None if slot == 0 => items.push((x, 0, format!("Σ {}", crate::sheet::grouped(rows)))),
             None => {}
         }
@@ -1064,6 +1075,9 @@ impl Widget for PlotWidget<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod props;
 
 #[cfg(test)]
 mod tests {

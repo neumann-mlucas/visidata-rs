@@ -11,6 +11,7 @@ VisiData-compatible terminal data explorer: Polars + Ratatui + mlua.
 - `prek run --files <changed>` before committing (`prek install` once). Test data under `tests/golden/`, `tests/vd_replay/`, `tests/vd_local/` and `docs/fixtures/` is byte-exact, so the hooks skip it.
 - `UPDATE_GOLDEN=1` rewrites `tests/golden/` cases. Review the diff before committing.
 - The justfile sets `VDRS_VISIDATA` (VisiData checkout, default `~/.cache/vdrs/visidata`), `VDRS_PYTHON` (Python with polars, for exported scripts) and `VDRS_REQUIRE_TOOLS=1`. Set the first two yourself to use other ones.
+- Property tests (proptest, S-57) live in `props.rs` files. `PROPTEST_CASES=<n>` changes the case count. Commit the seeds proptest writes to `proptest-regressions/`.
 
 ## Rules
 

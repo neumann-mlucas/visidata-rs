@@ -786,6 +786,20 @@ async fn resize_col_max_saturates_on_a_huge_cell() {
     assert_eq!(width, u16::MAX);
 }
 
+/// A frozen column after one widened past the screen draws (S-57): its `x`
+/// sits near `u16::MAX`, and placing its header text used to overflow.
+#[tokio::test(flavor = "multi_thread")]
+async fn frozen_column_after_a_huge_one_draws() {
+    let long = "x".repeat(usize::from(u16::MAX) + 5);
+    let mut h = csv(format!("a,b,c\n{long},1,2\n").as_bytes()).await;
+    h.keys("_ l :").await;
+    h.type_("freeze").await;
+    let s = h.app.sheets.active();
+    assert_eq!(s.view.frozen_left, 2);
+    assert_eq!(s.state.widths[0], u16::MAX);
+    assert!(h.screen().contains("xxx"), "{}", h.screen());
+}
+
 /// `_` before the window loads leaves the width alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn resize_col_max_while_loading_toasts() {
