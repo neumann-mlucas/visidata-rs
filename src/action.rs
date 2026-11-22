@@ -1242,12 +1242,21 @@ impl Action {
     /// The ex command that runs this action (S-19 macros): its name when it
     /// takes no arguments, else `:` syntax without the colon. `None`: no ex
     /// form (a Lua function, a macro, an argument the ex syntax can't spell).
+    /// The line never holds a newline: macros and sessions store a line each.
     pub fn to_ex(&self) -> Option<String> {
-        use Action::*;
         if let Some((n, _)) = Self::NAMED.iter().find(|(_, a)| a == self) {
             return Some(n.to_string());
         }
+        self.payload_ex().filter(|l| !l.contains(['\n', '\r']))
+    }
+
+    /// `to_ex` for an action with arguments.
+    fn payload_ex(&self) -> Option<String> {
+        use Action::*;
         let q = quote_arg;
+        // Rest-of-line text goes in unquoted and the parser trims it, so only
+        // non-empty text without spaces at its ends reads back the same.
+        let raw = |s: &str| !s.is_empty() && s.trim() == s;
         // `,` and ` -- ` separate list items; names holding them can't be spelled.
         let list = |v: &[String]| {
             v.iter()
@@ -1262,10 +1271,10 @@ impl Action {
             RenameCol { new_name } => format!("rename {}", q(new_name)),
             TypeCastDateAs { time: true } => "type datetime".into(),
             TypeCastDateAs { time: false } => "type date-only".into(),
-            SetFilter { column, regex } if !regex.is_empty() && regex.trim() == regex => {
+            SetFilter { column, regex } if !column.is_empty() && raw(regex) => {
                 format!("filter {} {regex}", q(column))
             }
-            SetSort { column, descending } => {
+            SetSort { column, descending } if !column.is_empty() => {
                 let sign = if *descending { "-" } else { "+" };
                 format!("sort {}", q(&format!("{sign}{column}")))
             }
@@ -1285,7 +1294,7 @@ impl Action {
                 format!("tail {}{}", q(path), if *follow { " --follow" } else { "" })
             }
             ShowSidebar { page } => format!("sidebar {}", page.name()),
-            SelectExpr { expr, unselect } => {
+            SelectExpr { expr, unselect } if raw(expr) => {
                 format!("{} {expr}", if *unselect { "unselect" } else { "select" })
             }
             TimeWalk { n } if *n > 0 => format!("earlier {n}"),
@@ -1295,16 +1304,18 @@ impl Action {
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
             JoinAll { how } => format!("join-all {how}"),
-            Derive { name, expr } if !name.contains('=') => format!("derive {} = {expr}", q(name)),
+            Derive { name, expr } if !name.is_empty() && !name.contains('=') && raw(expr) => {
+                format!("derive {} = {expr}", q(name))
+            }
             Lookup {
                 source,
                 key,
                 their_key,
                 cols,
-            } if !key.contains('=')
+            } if [key, their_key].iter().all(|k| raw(k) && !k.contains('='))
                 && cols
                     .iter()
-                    .all(|(c, n)| !c.contains('=') && !n.contains('=')) =>
+                    .all(|(c, n)| [c, n].iter().all(|s| raw(s) && !s.contains('='))) =>
             {
                 let key = match key == their_key {
                     true => key.clone(),
@@ -1322,16 +1333,16 @@ impl Action {
                     .collect();
                 format!("lookup {} {} {}", q(source), q(&key), q(&list(&cols)?))
             }
-            Sql { query } => format!("sql {query}"),
-            ExecSql { sql } => format!("exec-sql {sql}"),
-            SetExpr { expr } => format!("setexpr {expr}"),
-            SetFilterExpr { expr: Some(e) } => format!("filter-expr {e}"),
+            Sql { query } if raw(query) => format!("sql {query}"),
+            ExecSql { sql } if raw(sql) => format!("exec-sql {sql}"),
+            SetExpr { expr } if raw(expr) => format!("setexpr {expr}"),
+            SetFilterExpr { expr: Some(e) } if raw(e) => format!("filter-expr {e}"),
             SetFilterExpr { expr: None } => "filter-expr".into(),
             Color {
                 column,
                 pred,
                 style,
-            } => format!(
+            } if raw(pred) && column.as_deref() != Some("*") => format!(
                 "color {} {pred} {style}",
                 column.as_deref().map_or("*".into(), q)
             ),
@@ -1351,7 +1362,7 @@ impl Action {
             Validate {
                 column,
                 pred: Some(p),
-            } => format!("validate {} {p}", q(column)),
+            } if raw(p) => format!("validate {} {p}", q(column)),
             NoColor { column: Some(c) } => format!("nocolor {}", q(c)),
             SetCol { value } => format!("setcol {}", q(value)),
             EditCell { value } => format!("edit {}", q(value)),
@@ -1373,7 +1384,7 @@ impl Action {
             ),
             MkSession { path: None } => "mksession".into(),
             MkSession { path: Some(p) } => format!("mksession {}", q(p)),
-            AggregateCol { names } => format!("aggregate {names}"),
+            AggregateCol { names } if raw(names) => format!("aggregate {names}"),
             HideNamed { column } => format!("hide {}", q(column)),
             Patch { column: None, path } => format!("patch rows {}", q(path)),
             Patch {
@@ -1381,21 +1392,23 @@ impl Action {
                 path,
             } => format!("patch cells {} {}", q(c), q(path)),
             ExpandCol { depth } => format!("expand {depth}"),
-            Hits { needle } => format!("hits {needle}"),
+            Hits { needle } if raw(needle) => format!("hits {needle}"),
             Hist { bins } => bins.map_or("hist".into(), |b| format!("hist {b}")),
             Plot { x, ys } => std::iter::once(x)
                 .chain(ys)
                 .fold("plot".to_string(), |s, c| s + " " + &q(c)),
-            SetNote { text } => format!("note {text}").trim_end().to_string(),
+            SetNote { text } if text.is_empty() => "note".into(),
+            SetNote { text } if raw(text) => format!("note {text}"),
             AddCol { name } => format!("addcol {}", q(name)),
-            Capture { pattern } => format!("capture {pattern}"),
+            Capture { pattern } if raw(pattern) => format!("capture {pattern}"),
             SetPrecision { digits: Some(d) } => format!("precision {d}"),
             SetPrecision { digits: None } => "precision".into(),
-            SetFmtstr { fmt } => format!("fmtstr {fmt}").trim_end().to_string(),
+            SetFmtstr { fmt } if fmt.is_empty() => "fmtstr".into(),
+            SetFmtstr { fmt } if raw(fmt) => format!("fmtstr {fmt}"),
             SetOption {
                 name,
                 value: Some(v),
-            } => format!("set {name} {v}"),
+            } if raw(v) => format!("set {name} {v}"),
             SetOption { name, value: None } => format!("set {name}"),
             SlideCol { by } if *by < 0 => format!("slide_left {}", by.unsigned_abs()),
             SlideCol { by } => format!("slide_right {by}"),
@@ -1406,7 +1419,10 @@ impl Action {
                 pattern,
                 replacement,
                 all,
-            } => {
+            } if !pattern.is_empty()
+                && pattern.chars().rev().take_while(|c| *c == '\\').count() % 2 == 0 =>
+            {
+                // a trailing lone `\` would escape the delimiter after it
                 let d = ['/', '|', '#', ',', ';', '!', '@', '%', '~']
                     .into_iter()
                     .find(|d| !pattern.contains(*d) && !replacement.contains(*d))?;
@@ -1451,6 +1467,9 @@ pub(crate) fn quote_arg(s: &str) -> String {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1463,6 +1482,28 @@ mod tests {
                 html.contains(&format!("<code>{name}</code>")),
                 "docs/index.html misses {name}"
             );
+        }
+    }
+
+    /// Text the ex syntax can't spell has no ex form (S-57).
+    #[test]
+    fn unspellable_text_has_no_ex_form() {
+        let s = |v: &str| v.to_string();
+        for a in [
+            Action::Hits {
+                needle: s("trail "),
+            },
+            Action::Sql { query: s("") },
+            Action::RenameCol {
+                new_name: s("a\nb"),
+            },
+            Action::Color {
+                column: Some(s("*")),
+                pred: s("x > 1"),
+                style: s("red"),
+            },
+        ] {
+            assert_eq!(a.to_ex(), None, "{a:?}");
         }
     }
 
@@ -1491,6 +1532,15 @@ mod tests {
             SetFilter {
                 column: s("my col"),
                 regex: s("^n.*\\d"),
+            },
+            // S-57: a quote inside a quoted first argument
+            SetFilter {
+                column: s("q\"t"),
+                regex: s("x"),
+            },
+            Validate {
+                column: s("a \"b\""),
+                pred: Some(s("x > 1")),
             },
             SetSort {
                 column: s("amt"),

@@ -59,6 +59,7 @@ File naming: `S-NN-slug.md`.
 | S-52 | One freq derivation for `F` and `gF` | S-51 | **shipped 2026-11-17** → [`S-52-one-freq-derivation.md`](S-52-one-freq-derivation.md) |
 | S-53 | Replay blockers (keyed columns sheet, rename onto hidden), XML and msgpack readers, list expansion | S-52 | **shipped 2026-11-19** → [`S-53-replay-blockers-xml-msgpack.md`](S-53-replay-blockers-xml-msgpack.md) |
 | S-54 | Title bar crumbs, VisiData status line (last command on the right), `ctx.last` | S-40 D | **shipped 2026-11-19** → [`S-54-bars.md`](S-54-bars.md) |
+| S-57 | Ex round trip and layout properties (proptest) | S-19, S-29 C | **shipped 2026-11-22** → [`S-57-ex-roundtrip-layout-properties.md`](S-57-ex-roundtrip-layout-properties.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

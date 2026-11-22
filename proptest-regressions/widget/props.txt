@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b63140d5ba87511adbf0f96db2f97c5ee215af879a8be27e1aa3eaa573f52413 # shrinks to cells = [["", "", ""]], a = Rect { x: 0, y: 0, width: 1, height: 2 }, set_widths = Some([65532, 0, 2]), (frozen_left, col_cursor, row_cursor) = (2, 0, 0)
+cc bd5d726092a9ec1db3bdbdbef558cd8c6f20a657af44611d90d4f6a68335607a # shrinks to (w, a, mut v, rows) = ([216, 184], Rect { x: 65, y: 1, width: 117, height: 83 }, View { row_cursor: 0, col_cursor: 1, row_offset: 0, col_offset: 0, frozen_left: 0, window_offset: 0, window_rows: 1024, search: None, filter: None, filter_expr: None, sort: [], selected: {}, hidden: {}, keys: [], type_casts: [], aggregators: [], precision: [], fmtstrs: [], order: [], colname_ctr: 0, total_rows: None, count_key: None, jump_bottom: false, formats: [], scales: [], validations: [] }, 43)
+cc 9efa808a6f3838cba07c00845841076601ff2e18bf9f4eb7cd1a2b4e3b128f29 # shrinks to (w, a, v) = ([2, 190], Rect { x: 152, y: 38, width: 3, height: 60 }, View { row_cursor: 0, col_cursor: 0, row_offset: 0, col_offset: 0, frozen_left: 0, window_offset: 0, window_rows: 1024, search: None, filter: None, filter_expr: None, sort: [], selected: {}, hidden: {}, keys: [], type_casts: [], aggregators: [], precision: [], fmtstrs: [], order: [], colname_ctr: 0, total_rows: None, count_key: None, jump_bottom: false, formats: [], scales: [], validations: [] })

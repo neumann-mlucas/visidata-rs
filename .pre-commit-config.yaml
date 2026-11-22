@@ -1,7 +1,7 @@
 # prek (or pre-commit) hooks: `prek install` once, `prek run --all-files` to check everything.
 # Clippy and the tests stay in `just check` (too slow for every commit).
-# Test data is byte-exact: golden files, replay corpus, fixtures.
-exclude: ^(tests/golden/|tests/vd_replay/|tests/vd_local/|docs/fixtures/|LICENSE$)
+# Test data is byte-exact: golden files, replay corpus, fixtures, proptest seeds.
+exclude: ^(tests/golden/|tests/vd_replay/|tests/vd_local/|docs/fixtures/|proptest-regressions/|LICENSE$)
 repos:
   - repo: local
     hooks:

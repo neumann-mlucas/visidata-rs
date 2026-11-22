@@ -913,11 +913,27 @@ pub(crate) fn split_args(s: &str, usage: &'static str) -> Result<Vec<String>, Ex
 fn first_arg<'a>(s: &'a str, usage: &'static str) -> Result<(String, &'a str), ExError> {
     let s = s.trim_start();
     let end = match s.chars().next() {
-        Some(q @ ('"' | '\'')) => s[1..].find(q).map(|i| i + 2).ok_or(ExError::Usage(usage))?,
+        Some(q @ ('"' | '\'')) => closing_quote(&s[1..], q).ok_or(ExError::Usage(usage))? + 2,
         _ => s.find(char::is_whitespace).unwrap_or(s.len()),
     };
     let first = split_args(&s[..end], usage)?.pop().unwrap_or_default();
     Ok((first, s[end..].trim()))
+}
+
+/// Byte index in `s` of the quote `q` that closes an argument opened by `q`:
+/// inside `"..."` a backslash escapes the next char, as in `split_args`.
+fn closing_quote(s: &str, q: char) -> Option<usize> {
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if q == '"' => {
+                chars.next();
+            }
+            c if c == q => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Exactly one (possibly quoted) argument.
