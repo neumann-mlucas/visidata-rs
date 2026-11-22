@@ -1,12 +1,12 @@
  tests/golden/late-type-change/input.csv                                         a 1/2  row 151/151
-a ~  b ~
-142  x
-143  x
-144  x
-145  x
-146  x
-147  x
-148  x
-149  x
-abc  y
+a str  b str
+142    x
+143    x
+144    x
+145    x
+146    x
+147    x
+148    x
+149    x
+abc    y
                                                                                      G  goto_bottom

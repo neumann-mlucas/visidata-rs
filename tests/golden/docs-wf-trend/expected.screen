@@ -1,12 +1,12 @@
  sales.csv                                                                      date 1/5  row 1/300
-date @      id # region ~   qty #  price %
-2024-10-05 33352 south          3  1176.47
-2024-12-28 38834 south          4   405.75
-2024-06-06 23982 east           5   882.27
-2024-04-22 24036 north          5   198.31
-2024-06-24 26692 north          1   137.04
-2024-12-29 33137 south          2  1149.49
-2024-02-17  3146 north          2  1239.61
+date date   id i region str   qty i  price f
+2024-10-05 33352 south            3  1176.47
+2024-12-28 38834 south            4   405.75
+2024-06-06 23982 east             5   882.27
+2024-04-22 24036 north            5   198.31
+2024-06-24 26692 north            1   137.04
+2024-12-29 33137 south            2  1149.49
+2024-02-17  3146 north            2  1239.61
                                                                                          !  key_col
 --- frame
  sales.csv › plot(date→price)                                                   date 1/3  row 1/150
@@ -32,11 +32,11 @@ date @      id # region ~   qty #  price %
                                                                                                hist
 --- frame
  sales.csv › freq(region)                                                       region 1/4  row 1/4
-region ~   count #  percent % histogram ~
-north          116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-south           72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
-east            66       22.0 ■■■■■■■■■■■■■■■■■■■■■
-west            46      15.33 ■■■■■■■■■■■■■■■
+region str   count u  percent f histogram str
+north            116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+south             72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
+east              66       22.0 ■■■■■■■■■■■■■■■■■■■■■
+west              46      15.33 ■■■■■■■■■■■■■■■
 
 
 

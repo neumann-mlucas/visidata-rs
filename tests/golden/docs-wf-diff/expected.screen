@@ -1,5 +1,5 @@
  prices_v2.csv                                                                    sku 1/4  row 1/41
-sku ~    product ~          price %  stock #
+sku str  product str        price f  stock i
 SKU-1001 Desk lamp A          200.9       43
 SKU-1002 Office chair A      302.68        2
 SKU-1003 Monitor arm A       196.26       11
@@ -10,21 +10,21 @@ SKU-1008 Headset A           263.56       11
 
 --- frame
  prices_v2.csv › rowdiff(sku): prices_v2.csv ↔ prices_v1.csv                      sku 1/8  row 1/16
-sku ~    product ~        price %  stock # product_right ~    price_right %  stock_right # __diff ~
-SKU-1001 Desk lamp A        200.9       43 Desk lamp A                200.9             28 changed
-SKU-1004 USB-C hub A        198.5       65 USB-C hub A               180.45             65 changed
-SKU-1005 Keyboard A          70.9       95 Keyboard A                  70.9             80 changed
-SKU-1006 Mouse A           206.02      104 Mouse A                   206.02             89 changed
-SKU-1008 Headset A         263.56       11 Headset A                  239.6             11 changed
-SKU-1010 Cable kit A        64.46       56 Cable kit A                 58.6             56 changed
-SKU-1015 Monitor arm B      84.54      131 Monitor arm B              84.54            116 changed
+sku str  product str      price f  stock i product_right str   price_right f  stock_right i __diff s
+SKU-1001 Desk lamp A        200.9       43 Desk lamp A                 200.9             28 changed
+SKU-1004 USB-C hub A        198.5       65 USB-C hub A                180.45             65 changed
+SKU-1005 Keyboard A          70.9       95 Keyboard A                   70.9             80 changed
+SKU-1006 Mouse A           206.02      104 Mouse A                    206.02             89 changed
+SKU-1008 Headset A         263.56       11 Headset A                   239.6             11 changed
+SKU-1010 Cable kit A        64.46       56 Cable kit A                  58.6             56 changed
+SKU-1015 Monitor arm B      84.54      131 Monitor arm B               84.54            116 changed
                                                                                                diff
 --- frame
  prices_v2.csv › rowdiff(sku): prices_v2.csv ↔ prices_v1.csv › freq(__diff)     __diff 1/4  row 1/3
-__diff ~   count #  percent % histogram ~
-changed         11      68.75 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-only_a           3      18.75 ■■■■■■■■■■
-only_b           2       12.5 ■■■■■■
+__diff str   count u  percent f histogram str
+changed           11      68.75 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+only_a             3      18.75 ■■■■■■■■■■
+only_b             2       12.5 ■■■■■■
 
 
 
@@ -32,10 +32,10 @@ only_b           2       12.5 ■■■■■■
                                                                                  F  open_freq_table
 --- frame
  …sv › rowdiff(sku): prices_v2.csv ↔ prices_v1.csv › freq(__diff) › __diff=only_a  sku 1/8  row 1/3
-sku ~    product ~        price %  stock # product_right ~    price_right %  stock_right # __diff ~
-SKU-1041 Standing desk A    449.0       10 ·                              ·              · only_a
-SKU-1042 Standing desk B    499.0       20 ·                              ·              · only_a
-SKU-1043 Standing desk C    549.0       30 ·                              ·              · only_a
+sku str  product str      price f  stock i product_right str   price_right f  stock_right i __diff s
+SKU-1041 Standing desk A    449.0       10 ·                               ·              · only_a
+SKU-1042 Standing desk B    499.0       20 ·                               ·              · only_a
+SKU-1043 Standing desk C    549.0       30 ·                               ·              · only_a
 
 
 

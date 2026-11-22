@@ -1,5 +1,5 @@
  tests/golden/freq-binned-dive-last/input.csv › freq(qty) › qty in 74.50 - 99.00   qty 1/2  row 1/4
- qty # name ~
+ qty i name str
     99 n3
     99 n6
     99 n11

@@ -1,5 +1,5 @@
  tests/golden/pivot-null-text/input.csv › pivot(a)                                null 1/3  row 1/1
- null #    #  x #
+ null i    i  x i
       1    1    1
 
 

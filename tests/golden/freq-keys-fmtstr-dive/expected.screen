@@ -1,8 +1,8 @@
  …str-dive/input.csv › freq(d,g) › tests/golden/freq-keys-fmtstr-dive/input.csv_d_g  d 1/3  row 1/3
-d @        g ~   v #
-2024-01    a       1
-2024-01    a       2
-2024-01    a       6
+d date     g str   v i
+2024-01    a         1
+2024-01    a         2
+2024-01    a         6
 
 
 

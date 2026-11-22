@@ -1,5 +1,5 @@
  tests/golden/us-dates-stay-text/input.csv                                           d 1/2  row 1/2
-d ~       n #
+d str     n i
 7/3/2018    1
 7/4/2018    2
 

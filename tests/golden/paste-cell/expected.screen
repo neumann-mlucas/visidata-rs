@@ -1,5 +1,5 @@
  tests/golden/paste-cell/input.csv                                                note 4/4  row 3/4
- id #  qty # ok bool  note ~
+ id i  qty i ok bool  note str
     1      2 ✓        a
     2      2 ✗        b
     3      · ✓        d

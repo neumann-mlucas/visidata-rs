@@ -1,5 +1,5 @@
  tests/golden/pivot-no-keys/input.csv › pivot(grp)                                   a 1/3  row 1/1
- a #  b #  c #
+ a i  b i  c i
    2    2    1
 
 

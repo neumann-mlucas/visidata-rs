@@ -1,8 +1,8 @@
  …/input.csv › sql: SELECT grp, count(*) AS n FROM self GROUP BY grp ORDER BY grp  grp 1/2  row 1/3
-grp ~   n #
-a         2
-b         2
-c         1
+grp str   n u
+a           2
+b           2
+c           1
 
 
 

@@ -1,5 +1,5 @@
  tests/golden/delete-selected/input.csv                                           note 3/3  row 3/3
- id #  qty ▼ note ~
+ id i  qty ▼ note str
     1      2 a
     5      1 e
     3      · x

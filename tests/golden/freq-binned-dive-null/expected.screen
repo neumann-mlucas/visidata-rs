@@ -1,5 +1,5 @@
  tests/golden/freq-binned-dive-null/input.csv › freq(qty) › qty in null bin        qty 1/2  row 1/2
- qty % name ~
+ qty f name str
      · n7
    NaN n20
 

@@ -1,5 +1,5 @@
  tests/golden/date-to-float/input.csv                                              day 2/2  row 1/4
- id #   day %
+ id i   day f
     1 19723.0
     2     1.0
     3       ·

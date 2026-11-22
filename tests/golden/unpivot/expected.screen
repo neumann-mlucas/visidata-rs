@@ -1,9 +1,9 @@
  tests/golden/unpivot/input.csv › unpivot(x,y)                                       k 1/3  row 1/4
-k ~  Variable ~   Value #
-a    x                  1
-a    y                  2
-b    x                  3
-b    y                  4
+k str  Variable str   Value i
+a      x                    1
+a      y                    2
+b      x                    3
+b      y                    4
 
 
 

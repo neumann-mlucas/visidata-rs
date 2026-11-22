@@ -397,7 +397,7 @@ vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; insid
 
 Colours are 24-bit RGB when `COLORTERM` is `truecolor`/`24bit`, else each frame maps them to the nearest xterm-256 index; `NO_COLOR` (non-empty) strips colors, keeping the cursor as reverse and the selection as bold (`theme::downgrade`, S-26 A4). Numbers are right-aligned; a sorted column's header shows ▲/▼ in place of its type (with its rank under a multi-column sort); a `│` follows the pinned columns.
 
-The title bar reads the sheet stack as crumbs (`sales.csv › freq(region)`), then what shapes the view (`filter`, `sort` of several keys, `sel`, `hidden`; each only when in use), then the cursor column and row (S-54). The status line's right side shows the last command's keys and name, as VisiData's. A spinner joins it after 150 ms of background work, and rows from a window that's still loading dim.
+The title bar reads the sheet stack as crumbs (`sales.csv › freq(region)`), then what shapes the view (`filter`, `sort` of several keys, `sel`, `hidden`; each only when in use), then the cursor column and row (S-54). The status line's right side shows the last command's keys and name, as VisiData's. A spinner joins it after 150 ms of background work, and rows from a window that's still loading dim. Column headers show the short type name (`i` `f` `str` `date`), not VisiData's `#` `%` `~` `@`.
 
 CSV and TSV files up to 1 GiB move into memory in the background after opening, unless edited first; compressed files stay on disk.
 

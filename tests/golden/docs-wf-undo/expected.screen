@@ -1,42 +1,42 @@
  sales.csv                                                                   revenue 2/6  row 1/300
- id #  revenue % date @     region ~   qty #  price %
-33352    3529.41 2024-10-05 south          3  1176.47
-38834     1623.0 2024-12-28 south          4   405.75
-23982    4411.35 2024-06-06 east           5   882.27
-24036     991.55 2024-04-22 north          5   198.31
-26692     137.04 2024-06-24 north          1   137.04
-33137    2298.98 2024-12-29 south          2  1149.49
- 3146    2479.22 2024-02-17 north          2  1239.61
+ id i  revenue f date date  region str   qty i  price f
+33352    3529.41 2024-10-05 south            3  1176.47
+38834     1623.0 2024-12-28 south            4   405.75
+23982    4411.35 2024-06-06 east             5   882.27
+24036     991.55 2024-04-22 north            5   198.31
+26692     137.04 2024-06-24 north            1   137.04
+33137    2298.98 2024-12-29 south            2  1149.49
+ 3146    2479.22 2024-02-17 north            2  1239.61
                                                                                              derive
 --- frame
  sales.csv                                                                     price 6/6  row 1/300
- id #  revenue % date @     region ~   qty #  price ▼
- 3477    1299.72 2024-01-16 south          1  1299.72
- 5119     5186.8 2024-12-25 north          4   1296.7
- 9373    1294.58 2024-02-08 north          1  1294.58
-15814    5172.08 2024-06-23 west           4  1293.02
- 6440    1285.12 2024-06-18 north          1  1285.12
-33826    2569.42 2024-04-05 east           2  1284.71
-19436     6367.6 2024-07-19 south          5  1273.52
+ id i  revenue f date date  region str   qty i  price ▼
+ 3477    1299.72 2024-01-16 south            1  1299.72
+ 5119     5186.8 2024-12-25 north            4   1296.7
+ 9373    1294.58 2024-02-08 north            1  1294.58
+15814    5172.08 2024-06-23 west             4  1293.02
+ 6440    1285.12 2024-06-18 north            1  1285.12
+33826    2569.42 2024-04-05 east             2  1284.71
+19436     6367.6 2024-07-19 south            5  1273.52
                                                                                        ]  sort_desc
 --- frame
  sales.csv                                                                      date 3/6  row 1/300
- id #  revenue % date ▲     region ~   qty #  price %
-17727     2276.2 2024-01-02 south          4   569.05
- 1171    4272.68 2024-01-02 west           4  1068.17
- 4127     2409.4 2024-01-03 east           2   1204.7
-15774     456.56 2024-01-04 north          2   228.28
-49471    2438.28 2024-01-06 south          4   609.57
-37420     2481.4 2024-01-07 south          4   620.35
-22331     5051.6 2024-01-07 north          4   1262.9
+ id i  revenue f date ▲     region str   qty i  price f
+17727     2276.2 2024-01-02 south            4   569.05
+ 1171    4272.68 2024-01-02 west             4  1068.17
+ 4127     2409.4 2024-01-03 east             2   1204.7
+15774     456.56 2024-01-04 north            2   228.28
+49471    2438.28 2024-01-06 south            4   609.57
+37420     2481.4 2024-01-07 south            4   620.35
+22331     5051.6 2024-01-07 north            4   1262.9
                                                                                         [  sort_asc
 --- frame
  sales.csv › sales.csv_undo  hidden 1                                            state 1/4  row 4/4
- state #  parent # current ~  change ~
-       0         ·            opened
-       1         0              derive revenue = qty * price
-       2         1                sort -price
-       3         1 *              sort date
+ state u  parent u current str  change str
+       0         ·              opened
+       1         0                derive revenue = qty * price
+       2         1                  sort -price
+       3         1 *                sort date
 
 
 

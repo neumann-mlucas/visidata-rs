@@ -1,8 +1,8 @@
  tests/golden/edit-cell/input.csv                                                  qty 3/3  row 3/3
- id # name ~   qty #
-    1 zed          2
-    2 b            ·
-    3 c            9
+ id i name str   qty i
+    1 zed            2
+    2 b              ·
+    3 c              9
 
 
 

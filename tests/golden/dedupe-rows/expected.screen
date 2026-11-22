@@ -1,9 +1,9 @@
  tests/golden/dedupe-rows/input.csv › dedupe (4 rows)                              grp 1/2  row 1/4
-grp ~  name ~
-a      x
-b      y
-c      z
-b      w
+grp str  name str
+a        x
+b        y
+c        z
+b        w
 
 
 

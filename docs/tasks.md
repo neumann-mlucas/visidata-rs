@@ -7,7 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
-- [x] S-54 — header type icons `#` `%` `@` `~`; title bar crumbs, no kind chip / percent / one-key sort chip; status line shows the last command (VisiData), `ctx.last` — shipped 2026-11-19
+- [x] S-54 — header type icons `#` `%` `@` `~` (reverted 2026-11-22 to type names `i` `f` `str`); title bar crumbs, no kind chip / percent / one-key sort chip; status line shows the last command (VisiData), `ctx.last` — shipped 2026-11-19
 - [x] S-53 — replay blockers (keyed columns sheet, rename onto hidden), XML and msgpack readers, list expansion; replay 102 — shipped 2026-11-19
 - [x] S-52 — one freq derivation for `F` and `gF`: `gF` groups by shown text, exports — shipped 2026-11-17
 - [x] S-51 — `T` transpose, `gF` freq-keys, `zEnter` open-cell, `g&` join-all; replay 97 (`test_quartiles`, `load-toml`) — shipped 2026-11-17

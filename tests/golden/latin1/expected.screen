@@ -1,5 +1,5 @@
  tests/golden/latin1/input.csv                                                       a 1/2  row 1/1
- a # b ~
+ a i b str
    1 caf�
 
 

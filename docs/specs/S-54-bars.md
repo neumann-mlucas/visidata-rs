@@ -17,8 +17,9 @@ the sort twice (title chip and header arrow) and chips that rarely change.
 - Lua: `ctx.last` holds that text; `vd.bar.statusline(ctx).right` the segment.
   `vd.api_version` 22.
 - Header type mark: VisiData's icons, `#` integer, `%` float, `@` date or
-  datetime, `~` text (`type_icon`); other types keep their short name. The
-  columns sheet and Lua `dtype` keep the names (`dtype_badge`).
+  datetime, `~` text. Reverted 2026-11-22: the header shows the short
+  type name (`dtype_badge`: `i` `f` `str` `date`) again, as the columns
+  sheet and Lua `dtype` do.
 - Config stays in Lua (`vd.statusline`, `vd.titlebar`); no format-string
   options.
 

@@ -1,5 +1,5 @@
  tests/golden/open-new/input.csv › unnamed                                           A 1/1  row 2/3
-A ~
+A str
 hello
 mid
 world

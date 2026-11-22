@@ -1,5 +1,5 @@
  tests/golden/sort-nulls/input.csv                                                 qty 2/2  row 1/5
- id #  qty ▼
+ id i  qty ▼
     3      5
     1      2
     4      1

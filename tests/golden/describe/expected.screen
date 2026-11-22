@@ -1,10 +1,10 @@
  tests/golden/describe/input.csv › describe  hidden 2                          column 1/11  row 1/5
-column ~   errors #  nulls #  distinct # mode ~     min ~      max ~      sum ~      median ~     me
-id                0        0           5 1          1          5          15         3
-name              0        0           5 ann        ·          ·          ·          ·
-grp               0        0           3 a          ·          ·          ·          ·
-amt               0        1           5 1.5        1.5        1234567.89 1234575.64 3.125     30864
-day               0        1           5 2024-01-02 2024-01-02 2024-01-06 ·          ·
+column str   errors u  nulls u  distinct u mode str   min str    max str    sum str    median str
+id                  0        0           5 1          1          5          15         3
+name                0        0           5 ann        ·          ·          ·          ·
+grp                 0        0           3 a          ·          ·          ·          ·
+amt                 0        1           5 1.5        1.5        1234567.89 1234575.64 3.125       3
+day                 0        1           5 2024-01-02 2024-01-02 2024-01-06 ·          ·
 
 
 
