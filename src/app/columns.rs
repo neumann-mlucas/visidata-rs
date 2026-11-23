@@ -360,6 +360,11 @@ impl App {
             self.toast = Some("that sheet was closed".into());
             return;
         };
+        // a freq reads the view, which leaves hidden columns out
+        if parent.view.hidden.contains(&c) {
+            self.toast = Some(format!("freq: {c} is hidden; unhide it first"));
+            return;
+        }
         let freq = Sheet::freq_from(parent, id, &c);
         self.sheets.push(freq);
         self.spawn_materialize();

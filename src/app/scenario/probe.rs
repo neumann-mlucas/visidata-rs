@@ -5,7 +5,7 @@
 use super::*;
 
 /// Edge-case CSVs: header only, wide Unicode, one cell, blank cells.
-const FILES: &[(&str, &str)] = &[
+pub(in crate::app) const FILES: &[(&str, &str)] = &[
     ("header", "a,b\n"),
     ("wide", "名前,emo\n日本語テキスト,👍🏽\né,x\n,\n"),
     ("one", "x\n1\n"),
@@ -13,7 +13,7 @@ const FILES: &[(&str, &str)] = &[
 ];
 
 /// Default sheet chords as key strings, with their descriptions.
-fn chords() -> Vec<(String, String)> {
+pub(in crate::app) fn chords() -> Vec<(String, String)> {
     Keymap::defaults()
         .chords(crate::keymap::Layer::Sheet)
         .iter()
@@ -25,7 +25,7 @@ fn chords() -> Vec<(String, String)> {
 }
 
 /// A chord that may write a file in the working directory or quit.
-fn unsafe_chord(desc: &str) -> bool {
+pub(in crate::app) fn unsafe_chord(desc: &str) -> bool {
     desc.contains("save") || desc.contains("write") || desc.contains("quit")
 }
 

@@ -1,6 +1,7 @@
 # S-56 Metamorphic relations
 
-Status: drafted 2026-11-22.
+Status: shipped 2026-11-22. Relations 12 and 13 wait: the S-55 generator
+makes no struct or list columns.
 Depends on: S-55 (generators), `Harness` (`src/app/scenario.rs`).
 
 ## 1. Problem
@@ -145,7 +146,16 @@ Notation: `rows(S)` is the multiset of rows of sheet `S` (`csv_text`).
 
 - All relations run in process through the `Harness`, on tables from the
   S-55 generator. They need no external tool, so they run in `just check`.
-- One proptest per section, with a low case count (about 32 each).
+- One proptest per relation (6 and 7, 22 and 23 share one), 12 cases each
+  in `just check`. Before shipping, all passed 64 cases.
+- Relation 19 skips a sheet where a `:derive` replaced a column: `y` copies
+  the shown value, and the paste goes under the derive again.
+- Relation 20 checks only the row count of a `.jsonl` save of no rows: such a
+  file holds no column names.
+
+Bugs found: a mixed-type unpivot lost values like `false` next to a number
+(it now melts them as text), and an empty `.jsonl` file failed to open.
+
 - A relation that fails on a VisiData-compatible behavior is wrong, not
   the code. Remove or fix the relation, and give the reason in §4.
 

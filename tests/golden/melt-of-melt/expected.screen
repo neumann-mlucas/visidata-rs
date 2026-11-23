@@ -1,0 +1,12 @@
+ …ts/golden/melt-of-melt/input.csv › unpivot(id,n) › unpivot(Variable,Value)  Variable 1/2  row 1/6
+Variable str  Value str
+Variable      id
+Value         1
+Variable      n
+Value         2.5
+Variable      id
+Value         2
+
+
+
+                                                                                            M  melt
