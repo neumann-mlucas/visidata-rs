@@ -1564,8 +1564,8 @@ impl Replay {
     /// `# % ~` / `@`: a view cast, as the app does.
     fn cast(&mut self, name: &str, dtype: DataType) -> Result<(), StepErr> {
         let s = &mut self.current_slot_mut()?.sheet;
-        s.set_type_cast(name.to_string(), dtype);
-        Ok(())
+        s.set_type_cast(name.to_string(), dtype)
+            .map_err(StepErr::Runtime)
     }
 
     fn cast_date(&mut self, name: &str) -> Result<(), StepErr> {

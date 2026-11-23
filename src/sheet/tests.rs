@@ -628,7 +628,7 @@ fn describe_counts_failed_casts_as_errors() {
         0,
         LoadedSource::from_df(SourceKind::Csv, "t".into(), None, df),
     );
-    parent.set_type_cast("n".into(), DataType::Int32);
+    parent.set_type_cast("n".into(), DataType::Int32).unwrap();
     let d = Sheet::describe_from(&parent, 1).unwrap();
     let out = d.view_plan().collect().unwrap();
     let get = |c: &str| out.column(c).unwrap().get(0).unwrap().to_string();
@@ -1196,7 +1196,7 @@ fn freq_adds_aggregator_columns_in_view_order() {
 #[test]
 fn copied_rows_keep_base_values_under_a_view_cast() {
     let (mut s, _t) = sheet_of("name,price\na,2.75\nb,1.5\n");
-    s.set_type_cast("price".into(), DataType::Int64);
+    s.set_type_cast("price".into(), DataType::Int64).unwrap();
     s.view.sort.push(SortKey {
         column: "price".into(),
         order: SortOrder::Asc,
@@ -1211,7 +1211,7 @@ fn copied_rows_keep_base_values_under_a_view_cast() {
     assert_eq!(names, ["name", "price"]);
     // derived sheets number their rows the same way
     let mut d = Sheet::child(&s, 1, "d".into(), s.data_plan(), Origin::Copy { parent: 0 });
-    d.set_type_cast("price".into(), DataType::Int64);
+    d.set_type_cast("price".into(), DataType::Int64).unwrap();
     d.view.selected = Arc::new([0u64].into());
     let row = d.copy_rows(None, true).unwrap();
     assert_eq!(get(&row, "price"), AnyValue::Float64(2.75));

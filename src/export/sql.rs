@@ -9,6 +9,17 @@ impl Script {
         rid: bool,
         errs: bool,
     ) -> Result<String, String> {
+        // DuckDB folds the case of identifiers, quoted ones too; a derive or
+        // rename makes a clash the source didn't have, in any sheet read
+        let mut seen = std::collections::HashSet::new();
+        for (name, _) in s.all_columns() {
+            if !seen.insert(name.to_lowercase()) {
+                return Err(format!(
+                    "export: DuckDB can't hold columns differing only by case: {:?}",
+                    name.to_lowercase()
+                ));
+            }
+        }
         let base = self.base(s)?;
         let v = &s.view;
         let deleted = s.deleted_rids();

@@ -765,8 +765,10 @@ impl App {
             self.toast = Some("no column to type-cast".into());
             return;
         };
-        self.sheets.active_mut().set_type_cast(name, dt);
-        self.spawn_materialize();
+        match self.sheets.active_mut().set_type_cast(name, dt) {
+            Ok(()) => self.spawn_materialize(),
+            Err(e) => self.toast = Some(format!("type: {e}")),
+        }
     }
 
     /// VisiData `$` currency cast: strip `[^0-9.\-]` then cast to float.

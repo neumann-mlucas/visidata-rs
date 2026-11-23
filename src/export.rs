@@ -54,16 +54,13 @@ pub fn to_python(sheet: &Sheet) -> Result<String, String> {
 }
 
 pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
-    // DuckDB folds the case of identifiers, quoted ones too; a derive or
-    // rename can make the clash the source didn't have.
-    let mut seen = std::collections::HashSet::new();
-    for (name, _) in sheet.all_columns() {
-        if !seen.insert(name.to_lowercase()) {
-            return Err(format!(
-                "export: DuckDB can't hold columns differing only by case: {:?}",
-                name.to_lowercase()
-            ));
-        }
+    // DuckDB has no SELECT of no columns
+    if sheet
+        .view_plan()
+        .collect_schema()
+        .is_ok_and(|s| s.is_empty())
+    {
+        return Err("export: every column is hidden; nothing left to export".into());
     }
     let mut sc = Script::new(Lang::Sql);
     let q = sc.view_query(sheet, false, false)?;
@@ -709,12 +706,17 @@ impl Script {
                 key,
                 values,
             } => {
+                // as `Sheet::rows_with_values`: a float `-0.0` matches as `0.0`
+                let float = matches!(key, DiveKey::Value) && l.parent.is_float_column(column);
                 let text: Vec<&String> = values.iter().flatten().collect();
                 let null = values.iter().any(Option::is_none);
                 if py {
                     let list: Vec<String> = text.iter().map(|t| py_str(t)).collect();
                     let c = py_str(column);
                     let k = match key {
+                        DiveKey::Value if float => {
+                            format!("pl.when(pl.col({c}) == 0).then(0.0).otherwise(pl.col({c}))")
+                        }
                         DiveKey::Value => format!("pl.col({c})"),
                         DiveKey::Fmt(f) => format!("pl.col({c}).dt.strftime({})", py_str(f)),
                         DiveKey::Num(f) => num_fmt(f)?.py(&c),
@@ -733,6 +735,9 @@ impl Script {
                     let list: Vec<String> = text.iter().map(|t| q_str(t)).collect();
                     let c = q_ident(column);
                     let k = match key {
+                        DiveKey::Value if float => {
+                            format!("(CASE WHEN {c} = 0 THEN 0.0 ELSE {c} END)")
+                        }
                         DiveKey::Value => c.clone(),
                         DiveKey::Fmt(f) => format!("strftime({c}, {})", q_str(f)),
                         DiveKey::Num(f) => num_fmt(f)?.sql(&c),
@@ -841,7 +846,7 @@ impl Script {
                 }
             }
             Derivation::Unpivot { on, index } if py => format!(
-                "{p}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"Variable\", value_name=\"Value\")\
+                "{p}{text}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"Variable\", value_name=\"Value\")\
                  .filter(pl.col(\"Value\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")",
                 on.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", "),
                 index
@@ -852,6 +857,14 @@ impl Script {
                     .collect::<Vec<_>>()
                     .join(", "),
                 m = MELT_ROW,
+                // as `Sheet::unpivot_from`: mixed types melt as text
+                text = match l.parent.melt_as_text(on, index).as_slice() {
+                    [] => String::new(),
+                    t => format!(
+                        ".with_columns(pl.col({}).cast(pl.Utf8))",
+                        t.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", ")
+                    ),
+                },
             ),
             Derivation::Unpivot { on, index } => {
                 let keep: Vec<String> = index
@@ -859,6 +872,13 @@ impl Script {
                     .map(|c| q_ident(c))
                     .chain(["\"Variable\"".into(), "\"Value\"".into()])
                     .collect();
+                let text: Vec<String> = (l.parent.melt_as_text(on, index).iter())
+                    .map(|c| format!("CAST({0} AS VARCHAR) AS {0}", q_ident(c)))
+                    .collect();
+                let p = match text.is_empty() {
+                    true => p.to_string(),
+                    false => format!("(SELECT * REPLACE ({}) FROM {p})", text.join(", ")),
+                };
                 format!(
                     "SELECT {} FROM {p} UNPIVOT (\"Value\" FOR \"Variable\" IN ({}))",
                     keep.join(", "),
@@ -1325,5 +1345,8 @@ mod tests {
         let mut s = Sheet::from_source(0, loaded);
         s.derive("a", "\"A\" * 2").unwrap();
         assert!(to_sql(&s).unwrap_err().contains("only by case"));
+        // S-55: no column shown
+        s.view.hidden.extend(["A".to_string(), "a".to_string()]);
+        assert!(to_sql(&s).unwrap_err().contains("every column is hidden"));
     }
 }
