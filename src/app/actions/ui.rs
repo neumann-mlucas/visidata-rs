@@ -53,6 +53,9 @@ impl App {
 
     pub(super) fn ex_prompt(&mut self, cmd: &'static str) {
         let mut text = format!("{cmd} ");
+        if cmd == "open-syspaste" {
+            text += "tsv"; // VisiData's default filetype
+        }
         if cmd == "join"
             && let Some(below) = self.sheets.iter().rev().nth(1)
         {

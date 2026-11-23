@@ -345,6 +345,7 @@ impl App {
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::Open { path, format } => self.open_file(&path, format.as_deref()),
+            Action::OpenSysPaste { format } => self.open_syspaste(&format),
             Action::Source { path } => self.source(&path, false),
             Action::Patch { column, path } => self.patch(column, path),
             Action::Hits { needle } => self.hits(needle)?,

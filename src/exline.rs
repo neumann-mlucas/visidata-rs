@@ -192,6 +192,12 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         }
         "join-cols" => Ok(vec![Action::JoinCols]),
         "addcol-rank-sheet" => Ok(vec![Action::AddColRankSheet]),
+        "open-syspaste" => Ok(vec![Action::OpenSysPaste {
+            format: match unquote(rest) {
+                f if f.is_empty() => "tsv".into(), // VisiData's default
+                f => f,
+            },
+        }]),
         "addcol-aggregate" => match rest.trim() {
             "" => Err(ExError::Usage(":addcol-aggregate <aggregator> …")),
             aggs => Ok(vec![Action::AddColAggregate { aggs: aggs.into() }]),
@@ -687,6 +693,7 @@ pub const COMMANDS: &[&str] = &[
     "set",
     "patch",
     "open",
+    "open-syspaste",
     "select-ids",
     "source",
     "derive",

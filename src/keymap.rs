@@ -235,6 +235,7 @@ impl Keymap {
             ch("g a", StartAddRowsInput, "add N blank rows after current row"),
             ch("p", PasteAfter, "paste copied rows after current row"),
             ch("P", PasteBefore, "paste copied rows before current row"),
+            ch("g P", ExPrompt { cmd: "open-syspaste" }, "open the clipboard as a new sheet"),
             ch("A", OpenNew, "new empty sheet"),
             // delete / cut rows (S-18 E)
             ch("d", DeleteRow, "delete current row"),

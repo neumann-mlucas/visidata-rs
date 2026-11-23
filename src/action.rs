@@ -487,6 +487,11 @@ pub enum Action {
         path: String,
         format: Option<String>,
     },
+    /// `gP` / `:open-syspaste [filetype]` (VisiData open-syspaste, S-46 B6):
+    /// the clipboard's text as a new sheet `syspaste` of that filetype.
+    OpenSysPaste {
+        format: String,
+    },
     /// `:cursor <row> [column]`: row counts from 1 in the view.
     SetCursor {
         row: u64,
@@ -879,6 +884,7 @@ impl Action {
             | ToggleMacroRecord => false,
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
+            OpenSysPaste { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HelpCommands | JumpPrev | Suspend => false,
             JumpBack | JumpForward | Jumps => false,
@@ -1193,6 +1199,7 @@ impl Action {
         ("addcol_aggregate", ExPrompt { cmd: "addcol-aggregate" }),
         ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
+        ("open_syspaste", ExPrompt { cmd: "open-syspaste" }),
         ("save_sheet", ExPrompt { cmd: "save" }),
         ("join_sheets_top2", ExPrompt { cmd: "join" }),
         ("prev_value", ValueChange { forward: false }),
@@ -1434,6 +1441,7 @@ impl Action {
             EditCell { value } => format!("edit {}", q(value)),
             ExCommand(s) => s.clone(),
             Open { path, format: None } => format!("open {}", q(path)),
+            OpenSysPaste { format } => format!("open-syspaste {}", q(format)),
             Open {
                 path,
                 format: Some(f),
@@ -1584,6 +1592,7 @@ mod tests {
             AddColAggregate {
                 aggs: s("sum rank"),
             },
+            OpenSysPaste { format: s("csv") },
             AddColAgg {
                 name: s("q ty_rank"),
                 agg: s("rank"),

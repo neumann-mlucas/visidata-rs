@@ -76,6 +76,36 @@ impl App {
         });
     }
 
+    /// `gP` (S-46 B6): the clipboard's text, read by the paste command in the
+    /// background, or the last terminal paste (SSH), as sheet `syspaste`.
+    pub(super) fn open_syspaste(&mut self, format: &str) {
+        let Some(kind) = crate::plugins::builtin_format(format) else {
+            self.toast = Some(format!("open-syspaste: unknown filetype {format}"));
+            return;
+        };
+        let (argv, pasted) = (self.paste_cmd.clone(), self.pasted.clone());
+        if argv.is_none() && pasted.is_none() {
+            self.toast = Some("nothing pasted: paste with the terminal first".into());
+            return;
+        }
+        let id = self.sheets.alloc_id();
+        self.spawn_job("open", move || {
+            let text = match (argv, pasted) {
+                (Some(argv), _) => crate::clipboard::read(&argv)?,
+                (None, text) => text.unwrap_or_default(),
+            };
+            // VisiData strips the text first
+            let text = text.trim();
+            if text.is_empty() {
+                return Err("nothing to open".into());
+            }
+            let loaded =
+                crate::reader::open_bytes(text.as_bytes().to_vec(), "syspaste", Some(kind))
+                    .map_err(|e| e.to_string())?;
+            Ok(JobDone::PushSheet(Box::new(Sheet::opened(id, loaded))))
+        });
+    }
+
     /// `:source`: each line of an ex script becomes a macro step (blank lines
     /// and `#` comments skipped). A block from `:open`/`:tail` of a missing
     /// file to the next one is skipped whole: its steps were for that file.

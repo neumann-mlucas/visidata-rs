@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 105;
+const MIN_PASS: usize = 106;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -191,6 +191,8 @@ struct Replay {
     unfurl_empty: bool,
     /// `set-option name_joiner` / `value_joiner` (S-46 B3).
     joiners: (String, String),
+    /// `clipboard_paste_cmd`, which `open-syspaste` reads (`cat <file>` only).
+    paste_cmd: Option<String>,
     /// `set-option header N` for every sheet type (S-43 A).
     header: usize,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
@@ -261,6 +263,7 @@ impl Replay {
             filetype: None,
             unfurl_empty: false,
             joiners: ("_".into(), " ".into()),
+            paste_cmd: None,
             header: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
@@ -1403,6 +1406,30 @@ impl Replay {
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
+            "set-option" if r.row == "clipboard_paste_cmd" => {
+                self.paste_cmd = Some(r.input.clone());
+                Ok(())
+            }
+            // the app's `gP`: the clipboard's text in a tempfile, as `syspaste`
+            "open-syspaste" => {
+                let cmd = self.paste_cmd.clone().unwrap_or_default();
+                let Some(file) = cmd.strip_prefix("cat ") else {
+                    return Err(Runtime(format!(
+                        "open-syspaste: clipboard_paste_cmd {cmd:?}"
+                    )));
+                };
+                let text = fs::read_to_string(self.path(file.trim()))
+                    .map_err(|e| Runtime(format!("open-syspaste: {e}")))?;
+                let format = if r.input.is_empty() { "tsv" } else { &r.input };
+                let kind = visidata_rs::plugins::builtin_format(format)
+                    .ok_or_else(|| Runtime(format!("open-syspaste: filetype {format}")))?;
+                let loaded =
+                    reader::open_bytes(text.trim().as_bytes().to_vec(), "syspaste", Some(kind))
+                        .map_err(|e| Runtime(e.to_string()))?;
+                let sheet = self.open_sheet(loaded);
+                self.push_sheet("syspaste".into(), sheet);
+                Ok(())
+            }
             "set-option" if r.row == "name_joiner" => {
                 self.joiners.0 = r.input.clone();
                 Ok(())

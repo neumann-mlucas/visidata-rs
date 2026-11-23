@@ -1337,3 +1337,29 @@ async fn sheets_all_reopens_a_quit_sheet() {
     h.keys("g S").await; // open again: listed once, on the stack
     assert_eq!(h.app.sheets.active().window().unwrap().height(), 2);
 }
+
+/// S-46 B6: `gP` asks for a filetype (default `tsv`) and opens the
+/// clipboard's text as sheet `syspaste`: the last terminal paste, or the
+/// paste command's output. CRLF line ends read as on disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn open_syspaste_opens_the_clipboard() {
+    let mut h = csv(b"a\n1\n").await;
+    h.keys("g P").await;
+    assert_eq!(status(&h), ":open-syspaste tsv");
+    h.keys("<CR>").await;
+    assert_eq!(status(&h), "nothing pasted: paste with the terminal first");
+    h.paste("k\tv\r\nx\t1\r\n\n").await;
+    h.keys("g P").await;
+    h.keys("<CR>").await;
+    h.pump().await;
+    assert_eq!(h.app.sheets.active().name, "syspaste");
+    assert_eq!(view_csv(&h), "k,v\nx,1\n");
+    h.app.paste_cmd = Some(vec!["printf".into(), "p,q\\n3,4\\n".into()]);
+    h.keys(":").await;
+    h.type_("open-syspaste csv").await;
+    h.pump().await;
+    assert_eq!(view_csv(&h), "p,q\n3,4\n");
+    h.keys(":").await;
+    h.type_("open-syspaste nope").await;
+    assert_eq!(status(&h), "open-syspaste: unknown filetype nope");
+}

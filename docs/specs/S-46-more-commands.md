@@ -35,7 +35,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `type-len` | `z#` | shipped: B2 | — |
 | `sheets-all` | `gS` | shipped: B5 | — |
 | `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
-| `open-syspaste` | `gP` | clipboard text as a new sheet, filetype asked (default tsv) | tests stub the paste command (`paste_cmd_for`) |
+| `open-syspaste` | `gP` | shipped: B6 | — |
 | `join-cols` | — (columns sheet) | shipped: B3 | — |
 | `commit-sheet` | `z<C-s>` | VisiData writes a duckdb/sqlite sheet's edits back to its table; vdrs's commits the macros/options sheets | edits → `UPDATE`/`INSERT`/`DELETE` by primary key; no key |
 
@@ -127,6 +127,18 @@ Replay 105 → 105. Both corpus files run but are quarantined:
 Replay stays 105. `extend` runs `sheets-all` as `sheets-stack` (it quits no sheet).
 A freq sheet's replay name is now VisiData's `<sheet>_<col>_freq`. `extend` then stops
 on the extend join: VisiData joins sheets with different key counts.
+
+### B6 — `open-syspaste` (shipped)
+
+- `gP` opens the ex prompt with `open-syspaste tsv`: VisiData asks for the filetype, `tsv` first.
+- `:open-syspaste [filetype]` takes a built-in format. A Lua loader needs a path, so it is not offered.
+- The text comes as for `zP`: the paste command in a job, else the last terminal paste.
+  VisiData strips it first. Empty text fails with "nothing to open".
+- `reader::open_bytes` writes the bytes to a tempfile and scans it. Stdin uses it too.
+  CRLF line ends read as from a file, as VisiData #2571.
+- Replay: `clipboard_paste_cmd` must be `cat <file>`. The replay reads the file and runs no command.
+
+Replay 105 → 106: syspaste-crlf.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.

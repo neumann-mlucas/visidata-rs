@@ -227,7 +227,7 @@ sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	PASS
-syspaste-crlf	SKIP open-syspaste
+syspaste-crlf	PASS
 test_quartiles	PASS
 transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)
