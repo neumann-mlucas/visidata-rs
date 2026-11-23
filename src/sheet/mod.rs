@@ -1174,6 +1174,17 @@ impl Sheet {
         lf
     }
 
+    /// The `:filter-expr` still evaluates on the current plan and casts. A
+    /// derive or cast that changes a column it reads can break it.
+    pub(crate) fn filter_expr_holds(&self) -> Result<(), String> {
+        match self.view.filter_expr.as_deref() {
+            Some(p) => self
+                .check_predicate(p)
+                .map_err(|e| format!(":filter-expr {p} fails ({e}); clear it (:unfilter) first")),
+            None => Ok(()),
+        }
+    }
+
     /// `:filter-expr <pred>`: replace the predicate filter; `None` clears it.
     pub fn set_filter_expr(&mut self, pred: Option<&str>) -> Result<(), String> {
         if let Some(p) = pred {
@@ -1217,6 +1228,10 @@ impl Sheet {
         };
         let plan = step.apply(self.plan.clone()).map_err(|e| e.to_string())?;
         plan.clone().collect_schema().map_err(|e| e.to_string())?;
+        let old = std::mem::replace(&mut self.plan, plan);
+        let holds = self.filter_expr_holds();
+        let plan = std::mem::replace(&mut self.plan, old);
+        holds?;
         self.checkpoint();
         self.plan = plan;
         self.state.steps.push(step);

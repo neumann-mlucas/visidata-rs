@@ -257,7 +257,12 @@ impl Sheet {
                 ));
             }
         };
+        let before = (self.view.type_casts.clone(), self.view.fmtstrs.clone());
         self.set_type_cast(column.into(), dt);
+        if let Err(e) = self.filter_expr_holds() {
+            (self.view.type_casts, self.view.fmtstrs) = before;
+            return Err(e);
+        }
         Ok(())
     }
 

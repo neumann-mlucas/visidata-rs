@@ -766,6 +766,24 @@ fn filter_expr_keeps_matching_rows_with_the_regex_filter() {
     assert_eq!(ints(&s, "key"), [Some(3), Some(4)]);
 }
 
+/// S-55: a predicate that only fails on evaluation is refused, and a derive
+/// or cast that would break the current one is refused too.
+#[test]
+fn filter_expr_must_evaluate_and_keep_evaluating() {
+    let (mut s, _t) = sheet_of("id,t\n1,x\n2,y\n");
+    let e = s.set_filter_expr(Some("t + 'x' > 0")).unwrap_err();
+    assert!(e.contains("cannot compare string"), "{e}");
+    assert_eq!(s.view.filter_expr, None);
+    s.set_filter_expr(Some("upper(t) = 'X'")).unwrap();
+    let e = s.derive("t", "id * 0.5").unwrap_err();
+    assert!(e.contains(":filter-expr upper(t) = 'X' fails"), "{e}");
+    assert!(s.state.steps.is_empty(), "the derive left no step");
+    let e = s.cast_column("t", "float").unwrap_err();
+    assert!(e.contains("fails"), "{e}");
+    assert!(s.view.type_casts.is_empty(), "the cast is undone");
+    assert_eq!(ints(&s, "id"), [Some(1)]);
+}
+
 #[test]
 fn a_stale_window_or_count_never_lands() {
     let (mut s, _t) = sheet_of("id\n1\n2\n");

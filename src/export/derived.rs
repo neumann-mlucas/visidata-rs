@@ -427,9 +427,10 @@ pub(super) fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String,
                     None => c.clone(),
                 };
                 let cnt = format!("{c}.count().over({c})");
+                // `when` evaluates every branch: `get` on no values must not fail
                 let median = format!(
                     "pl.when({c}.count() == 0).then(pl.lit(None, dtype=pl.Utf8))\
-                     .when({c}.count() % 2 == 1).then({c}.drop_nulls().sort().get({c}.count() // 2).cast(pl.Utf8))\
+                     .when({c}.count() % 2 == 1).then({c}.drop_nulls().sort().get({c}.count() // 2, null_on_oob=True).cast(pl.Utf8))\
                      .otherwise({})",
                     text(numeric, format!("{c}.median()"))
                 );
@@ -495,7 +496,8 @@ pub(super) fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String,
                     text(!nested, mode),
                     text(ordered, format!("min({c})")),
                     text(ordered, format!("max({c})")),
-                    text(numeric, format!("sum({c})")),
+                    // a sum of no values is 0, as in Polars and VisiData
+                    text(numeric, format!("coalesce(sum({c}), 0)")),
                     if ordered { median } else { text(false, String::new()) },
                     float(numeric, format!("avg({c})")),
                     float(numeric, format!("stddev_samp({c})")),
