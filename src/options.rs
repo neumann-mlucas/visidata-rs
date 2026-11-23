@@ -11,6 +11,8 @@ pub enum Kind {
     Command,
     /// `%.Nf` / `{:.Nf}`, N up to 15.
     FloatFmt,
+    /// Any text, kept as typed: blanks count (`value_joiner` is a space).
+    Text,
 }
 
 #[derive(Debug)]
@@ -104,6 +106,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "wheel and clicks move the cursor",
     },
     Opt {
+        name: "name_joiner",
+        kind: Kind::Text,
+        default: "_",
+        live: true,
+        help: "text between column names that :join-cols joins",
+    },
+    Opt {
         name: "numeric_binning",
         kind: Kind::Bool,
         default: "false",
@@ -130,6 +139,13 @@ pub const OPTIONS: &[Opt] = &[
         default: "refuse",
         live: true,
         help: "an edit failing :validate: refused, or kept with a warning",
+    },
+    Opt {
+        name: "value_joiner",
+        kind: Kind::Text,
+        default: " ",
+        live: true,
+        help: "text between the values that :join-cols joins",
     },
 ];
 
@@ -163,6 +179,7 @@ pub fn check(name: &str, value: &str) -> Result<String, String> {
         },
         Kind::Command if v.is_empty() => Err(format!("{name} is empty")),
         Kind::Command => Ok(value.into()),
+        Kind::Text => Ok(value.into()),
         Kind::FloatFmt => match crate::plugins::float_fmt_digits(v) {
             Some(_) => Ok(v.into()),
             None => Err(format!(
@@ -193,6 +210,7 @@ mod tests {
         assert!(check("duckdb_cmd", " ").is_err());
         assert_eq!(check("disp_float_fmt", "{:.3f}").unwrap(), "{:.3f}");
         assert!(check("disp_float_fmt", "%d").is_err());
+        assert_eq!(check("value_joiner", " ").unwrap(), " ");
         assert!(
             check("nope", "x")
                 .unwrap_err()

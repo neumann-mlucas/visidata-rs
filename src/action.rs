@@ -63,6 +63,9 @@ pub enum Action {
     /// `zEnter` (VisiData open-cell): the cursor cell's list or dict as a sheet.
     /// On a freq sheet it is [`Action::DiveExcept`], as VisiData binds it there.
     OpenCell,
+    /// `:join-cols` on a columns sheet (VisiData join-cols, S-46 B3): a new
+    /// text column joining the selected columns' values.
+    JoinCols,
     /// `zEnter` / `gzEnter` on a freq sheet (VisiData dive-except,
     /// dive-except-selected): the source rows outside the cursor row's
     /// (selected rows') bins.
@@ -869,6 +872,7 @@ impl Action {
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
             Transpose | JoinAll { .. } | FreqKeys | OpenCell | DiveExcept { .. } => true,
+            JoinCols => true,
             StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
@@ -1161,6 +1165,7 @@ impl Action {
         ("open_cell", OpenCell),
         ("dive_except", DiveExcept { selected: false }),
         ("dive_except_selected", DiveExcept { selected: true }),
+        ("join_cols", JoinCols),
         ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
         ("save_sheet", ExPrompt { cmd: "save" }),

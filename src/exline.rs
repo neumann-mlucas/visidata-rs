@@ -190,6 +190,7 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 path: unquote(rest),
             }])
         }
+        "join-cols" => Ok(vec![Action::JoinCols]),
         "join-all" => match rest.trim() {
             how @ ("inner" | "left" | "full" | "merge" | "extend" | "append" | "concat") => {
                 Ok(vec![Action::JoinAll { how: how.into() }])
@@ -672,6 +673,7 @@ pub const COMMANDS: &[&str] = &[
     "hide-uniform",
     "join",
     "join-all",
+    "join-cols",
     "key",
     "ls",
     "melt",

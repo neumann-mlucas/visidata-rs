@@ -1513,3 +1513,30 @@ async fn type_len_casts_and_reverts() {
     h.keys("q").await;
     assert_eq!(view_csv(&h), "a,b\n2,4\n");
 }
+
+/// S-46 B3: `:join-cols` on the columns sheet joins the selected columns'
+/// values (null as empty) before the cursor row's column; the joiner options
+/// name and separate them.
+#[tokio::test(flavor = "multi_thread")]
+async fn join_cols_from_the_columns_sheet() {
+    let mut h = csv(b"a,b,c\nx,1,p\ny,,q\n").await;
+    h.keys("C").await;
+    h.keys("s s").await;
+    h.keys(":").await;
+    h.type_("join-cols").await;
+    h.keys("q").await;
+    assert_eq!(view_csv(&h), "a,b,a_b,c\nx,1,x 1,p\ny,,y ,q\n");
+    h.keys(":").await;
+    h.type_("set name_joiner +").await;
+    h.keys(":").await;
+    h.type_("set value_joiner -").await;
+    h.keys("C").await;
+    h.keys("g g s s g g").await;
+    h.keys(":").await;
+    h.type_("join-cols").await;
+    h.keys("q").await;
+    assert_eq!(view_csv(&h), "a+b,a,b,a_b,c\nx-1,x,1,x 1,p\ny-,y,,y ,q\n");
+    h.keys(":").await;
+    h.type_("join-cols").await;
+    assert_eq!(status(&h), "only on the columns sheet (C)");
+}

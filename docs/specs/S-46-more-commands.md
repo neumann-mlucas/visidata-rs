@@ -36,7 +36,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `sheets-all` | `gS` | every open sheet, not only the stack | vdrs has one stack: same as `S` plus closed-but-kept sheets? |
 | `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
 | `open-syspaste` | `gP` | clipboard text as a new sheet, filetype asked (default tsv) | tests stub the paste command (`paste_cmd_for`) |
-| `join-cols` | — (columns sheet) | a new column concatenating the selected columns | separator (VisiData: none?); types → text |
+| `join-cols` | — (columns sheet) | shipped: B3 | — |
 | `commit-sheet` | `z<C-s>` | VisiData writes a duckdb/sqlite sheet's edits back to its table; vdrs's commits the macros/options sheets | edits → `UPDATE`/`INSERT`/`DELETE` by primary key; no key |
 
 Decisions (2026-11-23): all nine ship on one branch, one commit each. New
@@ -72,6 +72,21 @@ Replay 102 → 103: freq-dive-except.
 - The vim profile keeps `z#` as the int cast; `:type len` works there.
 
 Replay 103 → 104: 1410c.
+
+### B3 — `join-cols` (shipped)
+
+- `:join-cols` on the columns sheet joins the selected columns. VisiData binds no key.
+- `Sheet::join_cols` adds a `Derive`. Its SQL runs in Polars and DuckDB alike:
+  `COALESCE(CAST(c AS VARCHAR), '') || ' ' || …`. So undo, export and sessions need nothing new.
+- A null joins as empty text, as VisiData's display value `''`.
+- Options `name_joiner` (`_`) and `value_joiner` (one space) are VisiData's.
+  The new option kind `Text` keeps blanks: `check` trims every other kind.
+- The column goes before the cursor row's column, as VisiData's `index=cursorRowIndex`.
+- The columns must come from one sheet (`gC` can list several).
+- Ponytail: values join as their plain text, not their display format
+  (`fmtstr`, precision). VisiData joins display values.
+
+Replay 104 → 105: join-cols-single-sheet.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.

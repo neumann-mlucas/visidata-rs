@@ -5,6 +5,26 @@
 use super::*;
 
 impl Sheet {
+    /// `:join-cols` (VisiData join-cols, S-46 B3): a `Derive` of `columns`'
+    /// values as text with `values` between them (null as empty), named
+    /// after them joined by `names`, placed after column `after`. Its name.
+    pub fn join_cols(
+        &mut self,
+        columns: &[&str],
+        (names, values): (&str, &str),
+        after: Option<&str>,
+    ) -> Result<String, String> {
+        let name = columns.join(names);
+        let sep = format!(" || {} || ", crate::duckdb::lit(values));
+        let expr = (columns.iter())
+            .map(|c| format!("COALESCE(CAST({} AS VARCHAR), '')", crate::duckdb::ident(c)))
+            .collect::<Vec<_>>()
+            .join(&sep);
+        self.derive(&name, &expr)?;
+        self.place_col(&name, after)?;
+        Ok(name)
+    }
+
     /// `za` / `:addcol`: an empty text column `name`.
     pub fn add_empty_col(&mut self, name: &str) -> Result<(), String> {
         self.make_editable()?;

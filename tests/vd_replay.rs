@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 104;
+const MIN_PASS: usize = 105;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -189,6 +189,8 @@ struct Replay {
     filetype: Option<SourceKind>,
     /// `set-option unfurl_empty` (S-42 C).
     unfurl_empty: bool,
+    /// `set-option name_joiner` / `value_joiner` (S-46 B3).
+    joiners: (String, String),
     /// `set-option header N` for every sheet type (S-43 A).
     header: usize,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
@@ -258,6 +260,7 @@ impl Replay {
             incr_base: 1,
             filetype: None,
             unfurl_empty: false,
+            joiners: ("_".into(), " ".into()),
             header: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
@@ -541,6 +544,30 @@ impl Replay {
             "select-rows" => {
                 self.loaded[slot].sheet.view.selected = Arc::new((0..cols.len() as u64).collect());
                 return Some(Ok(()));
+            }
+            // VisiData join-cols: before the cursor row's column. `s` moved
+            // the cursor down from the logged row, or (no row logged, `.vd`)
+            // from the last selected row.
+            "join-cols" => {
+                let picked: Vec<(SheetId, String)> =
+                    selected().iter().map(|&i| cols[i].clone()).collect();
+                let Some((id, _)) = picked.first().cloned() else {
+                    return Some(Err(rt("join-cols: no rows selected".into())));
+                };
+                let anchor = row(&r.row).ok().or_else(|| selected().into_iter().max());
+                let after = anchor.map(|i| cols[i].1.clone());
+                let names: Vec<&str> = picked.iter().map(|(_, c)| c.as_str()).collect();
+                let joiners = (self.joiners.0.clone(), self.joiners.1.clone());
+                let Some(t) = self.loaded.iter_mut().find(|l| l.sheet.id == id) else {
+                    return Some(Err(rt("columns sheet: that sheet is gone".into())));
+                };
+                if let Err(e) =
+                    t.sheet
+                        .join_cols(&names, (&joiners.0, &joiners.1), after.as_deref())
+                {
+                    return Some(Err(rt(e)));
+                }
+                (Vec::new(), "rebuild")
             }
             "key-selected" => (selected(), "key"),
             "key-off-selected" => (selected(), "unkey"),
@@ -1350,6 +1377,14 @@ impl Replay {
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
+            "set-option" if r.row == "name_joiner" => {
+                self.joiners.0 = r.input.clone();
+                Ok(())
+            }
+            "set-option" if r.row == "value_joiner" => {
+                self.joiners.1 = r.input.clone();
+                Ok(())
+            }
             "set-option" if r.row == "unfurl_empty" => {
                 self.unfurl_empty = r.input == "True";
                 Ok(())

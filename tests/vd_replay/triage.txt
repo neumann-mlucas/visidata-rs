@@ -127,7 +127,7 @@ issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
 issue964-inner-join	PASS
-join-cols-single-sheet	SKIP join-cols
+join-cols-single-sheet	PASS
 join-concat	FAIL line 1: want="Date\tDelilah\tSKU\tItem\tQuantity\tUnit\tPaid" got="Date\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid"
 join-different-types	SKIP allow-error
 join-extend-mult	PASS

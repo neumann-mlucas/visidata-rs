@@ -636,6 +636,7 @@ impl App {
             }
             Action::KeySelected { .. }
             | Action::TypeSelected { .. }
+            | Action::JoinCols
             | Action::AggregateCols { .. }
             | Action::StartAggregateInput { selected: true, .. } => {
                 self.toast = Some("only on the columns sheet (C)".into());
