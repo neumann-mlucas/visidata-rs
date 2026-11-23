@@ -270,10 +270,17 @@ impl Sheet {
             .select([e.clone().alias("__vdrs_pred")])
             .collect_schema()
             .map_err(|e| format!("expr: {e}"))?;
-        match schema.get("__vdrs_pred") {
-            Some(DataType::Boolean) => Ok(e.fill_null(false)),
-            _ => Err(format!("expr: not a boolean: {pred}")),
+        if schema.get("__vdrs_pred") != Some(&DataType::Boolean) {
+            return Err(format!("expr: not a boolean: {pred}"));
         }
+        // The schema passes some type errors (text compared with a number)
+        // that only evaluation raises: evaluate the first row too.
+        lf.clone()
+            .slice(0, 1)
+            .select([e.clone()])
+            .collect()
+            .map_err(|e| format!("expr: {e}"))?;
+        Ok(e.fill_null(false))
     }
 
     /// View rows (positions in view order) where `pred` holds (`z/`).

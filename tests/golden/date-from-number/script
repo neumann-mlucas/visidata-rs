@@ -1,0 +1,8 @@
+:
+> cursor 1 f
+:
+> type date
+:
+> cursor 1 b
+:
+> type date

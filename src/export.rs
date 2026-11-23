@@ -54,6 +54,17 @@ pub fn to_python(sheet: &Sheet) -> Result<String, String> {
 }
 
 pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
+    // DuckDB folds the case of identifiers, quoted ones too; a derive or
+    // rename can make the clash the source didn't have.
+    let mut seen = std::collections::HashSet::new();
+    for (name, _) in sheet.all_columns() {
+        if !seen.insert(name.to_lowercase()) {
+            return Err(format!(
+                "export: DuckDB can't hold columns differing only by case: {:?}",
+                name.to_lowercase()
+            ));
+        }
+    }
     let mut sc = Script::new(Lang::Sql);
     let q = sc.view_query(sheet, false, false)?;
     let head: String = sc.head.iter().map(|l| l.clone() + "\n").collect();
@@ -1308,5 +1319,11 @@ mod tests {
         let s = Sheet::from_source(0, loaded);
         assert!(to_sql(&s).unwrap_err().contains("only by case"));
         assert!(to_python(&s).is_ok());
+        // S-55: a derive makes the clash
+        std::fs::write(t.path(), "A\n1\n").unwrap();
+        let loaded = crate::reader::open(t.path().as_os_str(), None).unwrap();
+        let mut s = Sheet::from_source(0, loaded);
+        s.derive("a", "\"A\" * 2").unwrap();
+        assert!(to_sql(&s).unwrap_err().contains("only by case"));
     }
 }

@@ -38,6 +38,8 @@ use crate::widget::{SheetWidget, clamp_view, refresh_widths};
 mod actions;
 mod columns;
 #[cfg(test)]
+mod generated;
+#[cfg(test)]
 mod golden;
 mod hooks;
 mod input;
