@@ -391,15 +391,13 @@ pub(super) fn table(csv: &str, ordered: bool) -> Vec<String> {
     };
     // `{:?}` keeps commas, quotes and line breaks in a cell apart from the
     // separator.
-    let mut lines = csv_records(csv)
-        .into_iter()
-        .filter(|r| r.len() > 1 || r.first().is_some_and(|f| !f.is_empty()))
-        .map(|r| {
-            r.iter()
-                .map(|c| format!("{:?}", norm(c)))
-                .collect::<Vec<_>>()
-                .join(",")
-        });
+    // an empty line is a row: one null cell (a one-column view)
+    let mut lines = csv_records(csv).into_iter().map(|r| {
+        r.iter()
+            .map(|c| format!("{:?}", norm(c)))
+            .collect::<Vec<_>>()
+            .join(",")
+    });
     let header = lines.next().unwrap_or_default();
     let mut rows: Vec<String> = lines.collect();
     if !ordered {

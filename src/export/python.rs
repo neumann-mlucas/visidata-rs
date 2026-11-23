@@ -362,9 +362,11 @@ pub(super) fn py_csv_args(s: &Sheet) -> Result<String, String> {
     let mut args =
         ", infer_schema_length=None, truncate_ragged_lines=True, encoding=\"utf8-lossy\""
             .to_string();
-    if s.source.csv.stripped {
-        // the names without their blanks
-        let names: Vec<String> = csv_columns(s)?.iter_names().map(|n| py_str(n)).collect();
+    let columns = csv_columns(s)?;
+    // the names without their blanks, or with a quoted header's `""` read as
+    // `"` (Polars keeps the escape; `reader::unescape_header`)
+    if s.source.csv.stripped || columns.iter_names().any(|n| n.contains('"')) {
+        let names: Vec<String> = columns.iter_names().map(|n| py_str(n)).collect();
         args += &format!(", new_columns=[{}]", names.join(", "));
     }
     if s.kind == SourceKind::Tsv {

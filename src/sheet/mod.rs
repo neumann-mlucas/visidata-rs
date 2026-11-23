@@ -229,9 +229,14 @@ pub enum DiveKey {
 }
 
 impl DiveKey {
-    /// `column`'s key, as text.
-    pub fn expr(&self, column: &str) -> Expr {
+    /// `column`'s key, as text. `float`: the column holds floats, whose
+    /// `-0.0` groups with `0.0` (as in VisiData) and so matches as `0.0`.
+    pub fn expr(&self, column: &str, float: bool) -> Expr {
         let e = match self {
+            // not `x + 0.0`: the optimizer drops it
+            DiveKey::Value if float => when(col(column).eq(lit(0.0)))
+                .then(lit(0.0))
+                .otherwise(col(column)),
             DiveKey::Value => col(column),
             DiveKey::Fmt(f) => col(column).dt().strftime(f),
             DiveKey::Num(f) => match crate::numfmt::NumFmt::parse(f) {
@@ -1483,7 +1488,8 @@ impl Sheet {
 
     /// `# % ~ @`: show `name` as `dt` (a view cast; the base plan is untouched).
     /// A date `fmtstr` outlives only a cast to another date type.
-    pub fn set_type_cast(&mut self, name: String, dt: DataType) {
+    pub fn set_type_cast(&mut self, name: String, dt: DataType) -> Result<(), String> {
+        let before = (self.view.type_casts.clone(), self.view.fmtstrs.clone());
         if !matches!(dt, DataType::Date | DataType::Datetime(..)) {
             self.view.fmtstrs.retain(|(c, _)| *c != name);
         }
@@ -1491,6 +1497,10 @@ impl Sheet {
             Some(entry) => entry.1 = dt,
             None => self.view.type_casts.push((name, dt)),
         }
+        // unchanged when the cast would break the `:filter-expr`
+        self.filter_expr_holds().inspect_err(|_| {
+            (self.view.type_casts, self.view.fmtstrs) = before;
+        })
     }
 }
 

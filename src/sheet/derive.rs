@@ -350,12 +350,20 @@ impl Sheet {
         key: DiveKey,
         values: Vec<Option<String>>,
     ) -> Self {
+        let float = matches!(key, DiveKey::Value) && parent.is_float_column(column);
+        let values = match float {
+            true => values
+                .into_iter()
+                .map(|v| v.map(|t| zero_unsigned(&t)))
+                .collect(),
+            false => values,
+        };
         let text: Vec<&str> = values.iter().flatten().map(String::as_str).collect();
         let mut pred = key
-            .expr(column)
+            .expr(column, float)
             .is_in(lit(Series::new("v".into(), &text)).implode(false), false);
         if values.iter().any(Option::is_none) {
-            pred = pred.or(key.expr(column).is_null());
+            pred = pred.or(key.expr(column, float).is_null());
         }
         let shown = |v: &Option<String>| match (&key, v) {
             (DiveKey::Bin { min, width, n }, Some(i)) => i
@@ -401,6 +409,34 @@ impl Sheet {
                 values,
             },
         )
+    }
+
+    /// The columns an unpivot of `on` (empty: all but `index`) melts as text:
+    /// all of them when their types differ, so `false` next to a number stays
+    /// `false` (VisiData keeps each value), none when they share a type.
+    pub(crate) fn melt_as_text(&self, on: &[String], index: &[String]) -> Vec<String> {
+        let Ok(schema) = self.view_plan().collect_schema() else {
+            return Vec::new();
+        };
+        let melted: Vec<(String, DataType)> = (schema.iter())
+            .filter(|(n, _)| match on.is_empty() {
+                true => !index.iter().any(|i| i == n.as_str()),
+                false => on.iter().any(|o| o == n.as_str()),
+            })
+            .map(|(n, t)| (n.to_string(), t.clone()))
+            .collect();
+        match melted.windows(2).all(|w| w[0].1 == w[1].1) {
+            true => Vec::new(),
+            false => melted.into_iter().map(|(n, _)| n).collect(),
+        }
+    }
+
+    /// `column` of the view holds floats.
+    pub(crate) fn is_float_column(&self, column: &str) -> bool {
+        let schema = self.view_plan().collect_schema().ok();
+        schema
+            .and_then(|s| s.get(column).cloned())
+            .is_some_and(|t| t.is_float())
     }
 
     /// `g"` / `:dup`: an independent copy of what `parent` shows.
@@ -866,10 +902,17 @@ impl Sheet {
             nulls_equal: true,
             ..JoinArgs::new(JoinType::Inner)
         };
-        let shown = keys.iter().map(|(k, d)| d.expr(k).alias(k.as_str()));
+        // a float `-0.0` matches as `0.0` on both sides (`DiveKey::expr`)
+        let float = |k: &str, d: &DiveKey| matches!(d, DiveKey::Value) && parent.is_float_column(k);
+        let shown = keys
+            .iter()
+            .map(|(k, d)| d.expr(k, float(k, d)).alias(k.as_str()));
         let wanted = wanted.lazy().select(
             keys.iter()
-                .map(|(k, _)| col(k.as_str()).cast(DataType::String))
+                .map(|(k, d)| match float(k, d) {
+                    true => DiveKey::Value.expr(k, true),
+                    false => col(k.as_str()).cast(DataType::String),
+                })
                 .collect::<Vec<_>>(),
         );
         let hit = (df.clone().lazy())
@@ -985,8 +1028,12 @@ impl Sheet {
             value_name: Some("Value".into()),
         };
         // VisiData's names and row-major order; it leaves out null values
+        let text: Vec<Expr> = (parent.melt_as_text(on, index).iter())
+            .map(|c| col(c.as_str()).cast(DataType::String))
+            .collect();
         let plan = parent
             .view_plan()
+            .with_columns(text)
             .with_row_index(MELT_ROW, None)
             .unpivot(args)
             .filter(col("Value").is_not_null())
@@ -1359,4 +1406,12 @@ fn join_collisions(
         .into_iter()
         .filter(|n| !keys.contains(n) && r.contains(n))
         .collect())
+}
+
+/// A float's text with `-0.0` read as `0.0`, the way a freq dive matches it.
+pub(crate) fn zero_unsigned(text: &str) -> String {
+    match text.parse::<f64>() {
+        Ok(f) if f == 0.0 && text.starts_with('-') => text[1..].to_string(),
+        _ => text.to_string(),
+    }
 }

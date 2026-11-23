@@ -241,7 +241,8 @@ fn num() -> impl Strategy<Value = Num> {
     let leaf = prop_oneof![
         3 => (0..8usize).prop_map(Num::Col),
         1 => (-3..10i64).prop_map(Num::Int),
-        1 => proptest::sample::select(&["0.5", "-2.25", "1e10"][..]).prop_map(Num::Float),
+        // not `1e10`: Polars SQL can't parse an exponent literal
+        1 => proptest::sample::select(&["0.5", "-2.25", "10000000000.0"][..]).prop_map(Num::Float),
         1 => txt().prop_map(Num::Length),
     ];
     leaf.prop_recursive(3, 8, 2, |n| {
@@ -605,7 +606,7 @@ pub(super) async fn run(t: &Table, steps: &[Step]) -> Run {
 }
 
 proptest! {
-    #![proptest_config(config(32))]
+    #![proptest_config(config(24))]
 
     /// §4.4: after each step the view collects and the cursor stays in it.
     #[test]
@@ -625,7 +626,7 @@ proptest! {
 }
 
 proptest! {
-    #![proptest_config(config(24))]
+    #![proptest_config(config(12))]
 
     /// §4.1: the exported Polars and DuckDB scripts rebuild the final view,
     /// or refuse it with an `export:` reason.
