@@ -25,8 +25,8 @@ describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-0
 describe-error	FAIL line 2: want="\t0\t10\t1" got="\t0\t9\t2"
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP runtime: join-sheets: unsupported jointype 'diff'
-duckdb-commit-changes	SKIP commit-sheet
-duckdb-commit-composite-pk	SKIP runtime: cannot locate row '2' (keys=[])
+duckdb-commit-changes	PASS
+duckdb-commit-composite-pk	PASS
 duckdb-commit-no-pk	SKIP allow-error
 duckdb-exec-sql	PASS
 duckdb-index	PASS

@@ -302,7 +302,7 @@ impl Keymap {
             ch("g .", PlotNumerics, "plot the numeric columns against the key column"),
             ch("m", ToggleMacroRecord, "record macro / stop"),
             ch("g m", MacroSheet, "macros sheet: d deletes, e rebinds, z Ctrl-s commits"),
-            ch("z <C-s>", CommitSheet, "commit the sheet's changes (macros, options sheet)"),
+            ch("z <C-s>", CommitSheet, "commit the sheet's changes (macros, options sheet, database table)"),
             ch("O", OptionsSheet, "options sheet: e sets, z Ctrl-s saves to options.lua"),
             ch("*", StartSubstInput { mode: crate::action::SubstMode::NewColumn }, "new column: regex replace of this one"),
             ch("g *", StartSubstInput { mode: crate::action::SubstMode::Selected }, "regex replace in selected rows"),

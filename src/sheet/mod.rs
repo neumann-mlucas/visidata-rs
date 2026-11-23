@@ -9,6 +9,7 @@ use crate::reader::{LoadedSource, SourceKind};
 
 mod builders;
 pub(crate) mod columns;
+mod commit;
 mod derive;
 mod diff;
 mod edit;

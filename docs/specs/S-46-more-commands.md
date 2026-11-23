@@ -1,6 +1,6 @@
 # S-46 — More VisiData commands
 
-Status: **A shipped 2026-11-16; B draft, to refine (`gF`, `z<CR>` shipped in S-51).**
+Status: **A shipped 2026-11-16; B shipped 2026-11-23 (`gF`, `z<CR>` shipped in S-51).**
 Depends on: S-25 (replay), S-34 (column order), S-35 (freq).
 
 Commands VisiData's replay corpus uses that vdrs lacks (triage `SKIP <longname>`).
@@ -37,7 +37,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `save-all` | `g<C-s>` | shipped: B7 | — |
 | `open-syspaste` | `gP` | shipped: B6 | — |
 | `join-cols` | — (columns sheet) | shipped: B3 | — |
-| `commit-sheet` | `z<C-s>` | VisiData writes a duckdb/sqlite sheet's edits back to its table; vdrs's commits the macros/options sheets | edits → `UPDATE`/`INSERT`/`DELETE` by primary key; no key |
+| `commit-sheet` | `z<C-s>` | shipped: B8 | — |
 
 Decisions (2026-11-23): all nine ship on one branch, one commit each. New
 columns from `addcol-aggregate` and `addcol-rank-sheet` are live `Derive`
@@ -152,6 +152,29 @@ Replay 105 → 106: syspaste-crlf.
   VisiData's names would be `<sheet>_<col>_freq` and so on.
 
 Replay stays 106. The only corpus file, `issue2309`, saves to `.vds`, which vdrs doesn't write.
+
+### B8 — `commit-sheet` (shipped)
+
+- `z Ctrl+S` on a table of a `.duckdb` or SQLite file asks, as VisiData's `confirmOverwrite`.
+  On `y`, a job writes the changes. On the macros and options sheets it does what it did.
+- `Sheet::commit_plan` names the table and holds the rows as read and as they are now.
+  Both carry row ids. Only shown table columns are written, as VisiData's `visibleCols`.
+- `CommitPlan::changes` diffs them by row id:
+  - A deleted row id is a `DELETE`.
+  - An added row id (from `ADDED_RID`) is an `INSERT`.
+  - A row whose shown columns differ as text is an `UPDATE`.
+- Rows match by the table's primary key, with its values as read. So a key edit works too.
+- DuckDB: `duckdb_constraints()` gives the key. The frames go as Parquet tempfiles.
+  One `BEGIN … COMMIT` runs `DELETE … USING`, `UPDATE … FROM`, `INSERT … SELECT`.
+- SQLite: `PRAGMA table_info` gives the key. rusqlite runs the statements in one transaction.
+- Without a key, edits and deletes refuse: "cannot modify rows in tables without primary key".
+- The sheet then reads the table again. Its view stays and its selection clears.
+- Ponytail: VisiData matches SQLite rows by `rowid`. vdrs needs a primary key there too.
+- Replay: `.vdx` lines without a `row` use VisiData's cursor for row commands.
+  A numeric row sets it, add-row moves it down, and it clamps to the rows left.
+
+Replay 106 → 108: duckdb-commit-changes, duckdb-commit-composite-pk.
+`duckdb-commit-no-pk` stays SKIP on `allow-error`. `sqlite-commit` saves to `.sqlite`.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.

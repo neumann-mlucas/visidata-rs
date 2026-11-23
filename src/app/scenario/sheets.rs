@@ -1408,3 +1408,105 @@ async fn save_all_writes_every_sheet() {
         "save-all: 2 sheets can't go in one file; end the path with / or use .duckdb"
     );
 }
+
+/// S-46 B8: `z Ctrl+S` on a DuckDB table asks, then writes the edits, the
+/// added rows and the deleted rows back by primary key; the sheet then shows
+/// the table as committed. A table without a primary key takes no edits.
+#[tokio::test(flavor = "multi_thread")]
+async fn commit_sheet_writes_a_duckdb_table() {
+    let have = std::process::Command::new("duckdb")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !have {
+        assert!(
+            std::env::var_os("VDRS_REQUIRE_TOOLS").is_none(),
+            "duckdb isn't usable"
+        );
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("c.duckdb");
+    crate::duckdb::exec(
+        &db,
+        "CREATE TABLE edit_pk (id INTEGER PRIMARY KEY, note VARCHAR); \
+         INSERT INTO edit_pk VALUES (1, 'a'), (2, 'b'), (3, 'c'); \
+         CREATE TABLE no_pk (id INTEGER, note VARCHAR); INSERT INTO no_pk VALUES (1, 'x')",
+    )
+    .unwrap();
+    let rows = |q: &str| {
+        let mut df = crate::duckdb::exec(&db, q).unwrap().unwrap();
+        let mut out = Vec::new();
+        CsvWriter::new(&mut out).finish(&mut df).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
+    let mut app = App::new(Sheet::parts_list(0, loaded, Vec::new()), None, None);
+    app.spawn_materialize();
+    let mut h = Harness::from_app(app).await;
+    h.keys("<CR>").await; // main.edit_pk
+    h.keys("l e").await; // `e` starts from the cell's text
+    h.type_("a").await;
+    h.keys("j d").await;
+    h.keys("a").await;
+    h.keys("h e").await;
+    h.type_("9").await;
+    h.keys("l e").await;
+    h.type_("new").await;
+    h.keys("z <C-s>").await;
+    assert_eq!(
+        status(&h),
+        "really commit the changes to main.edit_pk? (not undoable) y/N"
+    );
+    h.keys("y").await;
+    h.pump().await;
+    assert_eq!(
+        status(&h),
+        "committed 1 changed, 1 added, 1 deleted rows to main.edit_pk"
+    );
+    assert_eq!(
+        rows("SELECT * FROM edit_pk ORDER BY id"),
+        "id,note\n1,aa\n3,c\n9,new\n"
+    );
+    assert_eq!(h.app.sheets.active().window().unwrap().height(), 3);
+    assert!(h.app.sheets.active().edits().is_empty());
+    h.keys("q j <CR>").await; // main.no_pk
+    h.keys("l e").await;
+    h.type_("y").await;
+    h.keys("z <C-s> y").await;
+    h.pump().await;
+    assert!(status(&h).contains("without primary key"), "{}", status(&h));
+    assert_eq!(rows("SELECT * FROM no_pk"), "id,note\n1,x\n");
+}
+
+/// S-46 B8: a SQLite file of one table commits its edits by primary key;
+/// `n` keeps the table as it was. A CSV sheet has nothing to commit.
+#[tokio::test(flavor = "multi_thread")]
+async fn commit_sheet_writes_a_sqlite_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("c.sqlite");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE t (k TEXT PRIMARY KEY, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2);",
+    )
+    .unwrap();
+    let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
+    let mut h = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
+    h.keys("j l e").await; // `e` starts from the cell's text
+    h.type_("0").await;
+    h.keys("z <C-s> n").await;
+    assert_eq!(status(&h), "not committed");
+    h.keys("z <C-s> y").await;
+    h.pump().await;
+    assert_eq!(
+        status(&h),
+        "committed 1 changed, 0 added, 0 deleted rows to t"
+    );
+    let n: i64 = conn
+        .query_row("SELECT n FROM t WHERE k = 'b'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 20);
+    let mut h = csv(b"a\n1\n").await;
+    h.keys("z <C-s>").await;
+    assert_eq!(status(&h), "commit-sheet: nothing to commit on this sheet");
+}

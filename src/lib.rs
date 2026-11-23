@@ -21,6 +21,7 @@
 pub mod action;
 pub mod app;
 pub mod clipboard;
+pub mod commit;
 pub mod duckdb;
 pub mod exline;
 pub mod export;

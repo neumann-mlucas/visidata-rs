@@ -106,12 +106,107 @@ pub fn index(db: &Path) -> Result<DataFrame, String> {
 pub fn open_table(db: &Path, part: &str) -> Result<(LazyFrame, NamedTempFile), String> {
     // ponytail: first dot splits; a schema name holding a dot can't be opened.
     // Match the part against the table list (schema, name) if one shows up.
-    let (schema, table) = part.split_once('.').unwrap_or(("main", part));
-    let tmp = copy_out(db, &format!("FROM {}.{}", ident(schema), ident(table)))?;
+    let tmp = copy_out(db, &format!("FROM {}", table_ref(part)))?;
     let path = PlRefPath::try_from_path(tmp.path()).map_err(|e| e.to_string())?;
     let lazy =
         LazyFrame::scan_parquet(path, ScanArgsParquet::default()).map_err(|e| e.to_string())?;
     Ok((lazy, tmp))
+}
+
+/// `schema.table` (no dot: `main`) quoted.
+fn table_ref(part: &str) -> String {
+    let (schema, table) = part.split_once('.').unwrap_or(("main", part));
+    format!("{}.{}", ident(schema), ident(table))
+}
+
+/// The primary key's columns of table `part`, in key order; empty: none.
+pub fn primary_key(db: &Path, part: &str) -> Result<Vec<String>, String> {
+    let (schema, table) = part.split_once('.').unwrap_or(("main", part));
+    let q = format!(
+        "SELECT unnest(constraint_column_names) AS k FROM duckdb_constraints() \
+         WHERE schema_name = {} AND table_name = {} AND constraint_type = 'PRIMARY KEY'",
+        lit(schema),
+        lit(table)
+    );
+    let out = run(db, true, &q)?;
+    let rows: Vec<serde_json::Value> = match out.trim() {
+        "" => Vec::new(),
+        o => serde_json::from_str(o).map_err(|e| e.to_string())?,
+    };
+    Ok(rows
+        .iter()
+        .filter_map(|r| r["k"].as_str().map(String::from))
+        .collect())
+}
+
+/// `z Ctrl+S` (S-46 B8): `c` into table `part` in one transaction, rows
+/// matched by `keys` as read. Each frame goes as a Parquet tempfile.
+pub fn commit(
+    db: &Path,
+    part: &str,
+    keys: &[String],
+    c: &crate::commit::Changes,
+) -> Result<(), String> {
+    let t = table_ref(part);
+    let old = |k: &str| format!("__old_{k}");
+    let matched = |other: &str, from: &dyn Fn(&str) -> String| -> String {
+        let m: Vec<String> = (keys.iter())
+            .map(|k| {
+                format!(
+                    "t.{} IS NOT DISTINCT FROM {other}.{}",
+                    ident(k),
+                    ident(&from(k))
+                )
+            })
+            .collect();
+        m.join(" AND ")
+    };
+    let mut tmps = Vec::new();
+    let mut file = |df: &DataFrame| -> Result<String, String> {
+        let tmp = parquet_tmp()?;
+        ParquetWriter::new(tmp.as_file())
+            .finish(&mut df.clone())
+            .map_err(|e| e.to_string())?;
+        let from = format!("read_parquet({})", lit(&tmp.path().to_string_lossy()));
+        tmps.push(tmp);
+        Ok(from)
+    };
+    let mut sql = vec!["BEGIN TRANSACTION".to_string()];
+    if c.deleted.height() > 0 {
+        let d = file(&c.deleted)?;
+        sql.push(format!(
+            "DELETE FROM {t} AS t USING {d} AS d WHERE {}",
+            matched("d", &|k| k.to_string())
+        ));
+    }
+    if c.new.height() > 0 {
+        // the new values beside the keys as read
+        let mut both = c.new.clone();
+        for k in keys {
+            let s = c.old.column(k).map_err(|e| e.to_string())?;
+            both.with_column(s.clone().with_name(old(k).into()))
+                .map_err(|e| e.to_string())?;
+        }
+        let u = file(&both)?;
+        let set: Vec<String> = (c.new.get_column_names().iter())
+            .map(|n| format!("{} = u.{}", ident(n), ident(n)))
+            .collect();
+        sql.push(format!(
+            "UPDATE {t} AS t SET {} FROM {u} AS u WHERE {}",
+            set.join(", "),
+            matched("u", &old)
+        ));
+    }
+    if c.added.height() > 0 {
+        let a = file(&c.added)?;
+        let names: Vec<String> = (c.added.get_column_names().iter())
+            .map(|n| ident(n))
+            .collect();
+        let names = names.join(", ");
+        sql.push(format!("INSERT INTO {t} ({names}) SELECT {names} FROM {a}"));
+    }
+    sql.push("COMMIT".into());
+    run(db, false, &sql.join("; ")).map(drop)
 }
 
 /// `:save x.duckdb`: the view becomes table `table`, replacing one of that

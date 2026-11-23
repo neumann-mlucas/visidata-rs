@@ -1000,7 +1000,7 @@ print(t3.collect())</code></pre>
 <tr class="kgroup"><th colspan="2">Macros, quit &amp; the rest</th></tr>
 <tr data-keys="m"><td><kbd>m</kbd></td><td>record a macro / stop and bind it</td></tr>
 <tr data-keys="g m"><td><kbd>g</kbd><kbd>m</kbd></td><td>the macros sheet</td></tr>
-<tr data-keys="z &lt;C-s&gt;"><td><kbd>z</kbd><kbd>Ctrl-s</kbd></td><td>commit the macros sheet's changes; on the options sheet, save to <code>options.lua</code></td></tr>
+<tr data-keys="z &lt;C-s&gt;"><td><kbd>z</kbd><kbd>Ctrl-s</kbd></td><td>commit the macros sheet's changes; on the options sheet, save to <code>options.lua</code>; on a table of a <code>.duckdb</code> or SQLite file, write its edits, added rows and deleted rows back to the table after a <kbd>y</kbd> (VisiData's <code>commit-sheet</code>; it can't be undone). Rows match by the table's primary key, as read; a table without one takes added rows only. Hidden columns and new columns aren't written. The sheet then shows the table as committed.</td></tr>
 <tr data-keys="O"><td><kbd>O</kbd></td><td>the options sheet</td></tr>
 <tr data-keys="q"><td><kbd>q</kbd></td><td>close sheet (quit on the last)</td></tr>
 <tr data-keys="g q"><td><kbd>g</kbd><kbd>q</kbd></td><td>quit</td></tr>

@@ -116,6 +116,41 @@ impl App {
         });
     }
 
+    /// `z Ctrl+S` on a DuckDB or SQLite table (VisiData commit-sheet, S-46
+    /// B8): asks first, as VisiData; the commit can't be undone.
+    pub(super) fn ask_commit_sheet(&mut self) {
+        match self.sheets.active().commit_plan() {
+            Ok(p) => {
+                let q = format!(
+                    "really commit the changes to {}? (not undoable)",
+                    p.table.part
+                );
+                self.ask(Confirm::Commit, q);
+            }
+            Err(e) => self.toast = Some(format!("commit-sheet: {e}")),
+        }
+    }
+
+    /// The commit [`Self::ask_commit_sheet`] asked for, in a job; then the
+    /// table is read again in place of the sheet's source.
+    pub(in crate::app) fn commit_sheet(&mut self) {
+        let plan = match self.sheets.active().commit_plan() {
+            Ok(p) => p,
+            Err(e) => return self.toast = Some(format!("commit-sheet: {e}")),
+        };
+        let header = self.theme.header;
+        self.spawn_job("commit", move || {
+            let note = crate::commit::commit(&plan)?;
+            let t = &plan.table;
+            let loaded = crate::reader::open_part_with(&t.db, t.kind, &t.part, header)
+                .map_err(|e| e.to_string())?;
+            Ok(JobDone::Committed {
+                note,
+                loaded: Box::new(loaded),
+            })
+        });
+    }
+
     /// `:open`: like the command line, a multi-part file opens on its list.
     pub(super) fn open_file(&mut self, path: &str, format: Option<&str>) {
         let Ok(opened) = self.open_with_format("open", path, format) else {

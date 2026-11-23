@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 106;
+const MIN_PASS: usize = 108;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -193,6 +193,9 @@ struct Replay {
     joiners: (String, String),
     /// `clipboard_paste_cmd`, which `open-syspaste` reads (`cat <file>` only).
     paste_cmd: Option<String>,
+    /// VisiData's cursor row (slot, index), for the row commands of a `.vdx`
+    /// line without a `row`: set by a numeric row, moved down by add-row.
+    row_cursor: Option<(usize, usize)>,
     /// `set-option header N` for every sheet type (S-43 A).
     header: usize,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
@@ -264,6 +267,7 @@ impl Replay {
             unfurl_empty: false,
             joiners: ("_".into(), " ".into()),
             paste_cmd: None,
+            row_cursor: None,
             header: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
@@ -449,6 +453,29 @@ impl Replay {
             }
         }
         Ok(())
+    }
+
+    /// A row command's row where the log gives none: VisiData's cursor,
+    /// clamped to the rows left (it stays put when the row under it goes).
+    /// Also moves the cursor as the command does.
+    fn cursor_row(&mut self, r: &CmdlogRow) -> Option<String> {
+        let rowish = matches!(
+            r.longname.as_str(),
+            "edit-cell" | "delete-row" | "add-row" | "add-rows" | "paste-after" | "paste-before"
+        );
+        let cur = self.current?;
+        let at = match (r.row.parse::<usize>(), self.row_cursor) {
+            (Ok(i), _) => Some(i),
+            (Err(_), Some((slot, i))) if rowish && r.row.is_empty() && slot == cur => {
+                let n = self.loaded[cur].sheet.view_rids().map_or(0, |v| v.len());
+                Some(i.min(n.saturating_sub(1)))
+            }
+            _ => None,
+        };
+        let i = at?;
+        let down = matches!(r.longname.as_str(), "add-row" | "add-rows");
+        self.row_cursor = Some((cur, i + usize::from(down)));
+        (r.row.is_empty()).then(|| i.to_string())
     }
 
     fn set_current(&mut self, new: usize) {
@@ -713,6 +740,14 @@ impl Replay {
                     ..r.clone()
                 };
                 &indexed
+            }
+            None => r,
+        };
+        let cursored;
+        let r = match self.cursor_row(r) {
+            Some(row) => {
+                cursored = CmdlogRow { row, ..r.clone() };
+                &cursored
             }
             None => r,
         };
@@ -1623,6 +1658,21 @@ impl Replay {
                 Ok(())
             }
             "reload-sheet" | "reload-selected" => Ok(()),
+            // the app's `z Ctrl+S` on a database table, then the table read again
+            "commit-sheet" => {
+                let slot = self.current_slot_mut()?;
+                let plan = slot.sheet.commit_plan().map_err(Runtime)?;
+                visidata_rs::commit::commit(&plan).map_err(Runtime)?;
+                let t = &plan.table;
+                let loaded = reader::open_part_with(&t.db, t.kind, &t.part, self.header)
+                    .map_err(|e| Runtime(e.to_string()))?;
+                let slot = self.current_slot_mut()?;
+                let mut fresh = Sheet::from_source(slot.sheet.id, loaded);
+                fresh.view = slot.sheet.view.clone();
+                fresh.view.selected = Default::default();
+                slot.sheet = fresh;
+                Ok(())
+            }
             other => Err(MissingLongname(other.to_string())),
         }
     }

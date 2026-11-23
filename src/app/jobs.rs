@@ -133,6 +133,18 @@ impl App {
                 self.toast = Some(note);
                 self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
             }
+            Ok(JobDone::Committed { note, loaded }) => {
+                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
+                    // the table as committed; the view stays, the edits are in it now
+                    let mut fresh = Sheet::from_source(s.id, *loaded);
+                    fresh.name = s.name.clone();
+                    fresh.view = s.view.clone();
+                    fresh.view.selected = Default::default();
+                    *s = fresh;
+                }
+                self.toast = Some(note);
+                self.spawn_materialize();
+            }
             Ok(JobDone::SavedAll {
                 note,
                 edits,

@@ -106,7 +106,10 @@ impl App {
                 match c {
                     Confirm::Pop => self.pop_sheet(),
                     Confirm::Quit => self.quit = true,
+                    Confirm::Commit => self.commit_sheet(),
                 }
+            } else if c == Confirm::Commit {
+                self.toast = Some("not committed".into());
             } else {
                 self.toast = Some("kept the edits".into());
             }

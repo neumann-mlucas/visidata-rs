@@ -581,9 +581,7 @@ impl App {
             }
             Action::MacroSheet => self.open_macros(),
             Action::OptionsSheet => self.open_options(),
-            Action::CommitSheet => {
-                self.toast = Some("commit-sheet: nothing to commit on this sheet".into())
-            }
+            Action::CommitSheet => self.ask_commit_sheet(),
             Action::ToggleFooter => {
                 let on = (!self.theme.footer).to_string();
                 self.toast = Some(self.set_option("disp_footer", Some(&on)));
@@ -1325,7 +1323,7 @@ impl App {
     }
 
     /// The question stays in the status line until a key answers it.
-    fn ask(&mut self, c: Confirm, question: String) {
+    pub(super) fn ask(&mut self, c: Confirm, question: String) {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 

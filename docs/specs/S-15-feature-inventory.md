@@ -198,6 +198,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `StartDeriveInput` | `=` | new column from a SQL expression, named after it; `name = expr` names it when `name` is new |
 | `Save { path }` | — | `:save path.ext` — writes every row of the active sheet's `save_plan()` (`view_plan()`: casts + filter + sort + visible cols; on a sheet with error rows every cell as text, `#ERR` on those rows, S-44 A); writer by extension (csv/tsv/parquet/ipc/jsonl/json); csv/tsv write list/struct cells as Python `json.dumps` text (S-49); unknown extension errors without touching the file; `:w` and `:write` aliases |
 | `SaveAll { path }` | `g Ctrl+S` | VisiData save-all: every stacked sheet's `save_plan()`; `dir/` → `<table_name>.tsv` each, `.duckdb` → a table each, a repeated name `_2`; another file refuses several sheets (S-46 B7) |
+| `CommitSheet` | `z Ctrl+S` | macros / options sheets as before; a DuckDB or SQLite table: VisiData commit-sheet, `Sheet::commit_plan` → `commit::commit`, the diff by row id written by primary key in one transaction after a `y`, then the table read again (S-46 B8) |
 | `Quit` | `gq`, `<C-q>` | exit |
 | `CancelJobs` / `CancelAllJobs` | `<C-c>` / `g<C-c>` | drop the active sheet's / every background job (`working: …`); the window load and row count are not cancelled |
 | `RepeatLast` | `:repeat-last` (`.` plots since S-23 C1) | capture of resolved Action (not keystrokes) |
