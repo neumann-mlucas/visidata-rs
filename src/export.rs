@@ -26,7 +26,7 @@ use crate::sheet::{
     HISTOGRAM_WIDTH, Lineage, Origin, PlanStep, Sheet, SortOrder, TIME_OF_DAY, err_col,
     freq_keeps_order, freq_stat_names, pivot_prefixes,
 };
-use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW};
+use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, MELT_VAL, MELT_VAR};
 
 /// Script for `sheet`, language picked by `path`'s extension.
 pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
@@ -846,8 +846,9 @@ impl Script {
                 }
             }
             Derivation::Unpivot { on, index } if py => format!(
-                "{p}{text}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"Variable\", value_name=\"Value\")\
-                 .filter(pl.col(\"Value\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")",
+                "{p}{text}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"{var}\", value_name=\"{val}\")\
+                 .filter(pl.col(\"{val}\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")\
+                 .rename({{\"{var}\": \"Variable\", \"{val}\": \"Value\"}})",
                 on.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", "),
                 index
                     .iter()
@@ -857,6 +858,8 @@ impl Script {
                     .collect::<Vec<_>>()
                     .join(", "),
                 m = MELT_ROW,
+                var = MELT_VAR,
+                val = MELT_VAL,
                 // as `Sheet::unpivot_from`: mixed types melt as text
                 text = match l.parent.melt_as_text(on, index).as_slice() {
                     [] => String::new(),
@@ -870,7 +873,10 @@ impl Script {
                 let keep: Vec<String> = index
                     .iter()
                     .map(|c| q_ident(c))
-                    .chain(["\"Variable\"".into(), "\"Value\"".into()])
+                    .chain([
+                        format!("{MELT_VAR} AS \"Variable\""),
+                        format!("{MELT_VAL} AS \"Value\""),
+                    ])
                     .collect();
                 let text: Vec<String> = (l.parent.melt_as_text(on, index).iter())
                     .map(|c| format!("CAST({0} AS VARCHAR) AS {0}", q_ident(c)))
@@ -880,7 +886,7 @@ impl Script {
                     false => format!("(SELECT * REPLACE ({}) FROM {p})", text.join(", ")),
                 };
                 format!(
-                    "SELECT {} FROM {p} UNPIVOT (\"Value\" FOR \"Variable\" IN ({}))",
+                    "SELECT {} FROM {p} UNPIVOT ({MELT_VAL} FOR {MELT_VAR} IN ({}))",
                     keep.join(", "),
                     on.iter().map(|c| q_ident(c)).collect::<Vec<_>>().join(", ")
                 )

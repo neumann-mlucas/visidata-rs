@@ -8,8 +8,9 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 ### Open
 
 - [x] S-57 — first property tests: ex round trip over generated actions, layout invariants; fixed quoted first arguments, `to_ex` lines that read back changed, a render overflow after a huge frozen column — shipped 2026-11-22
-- [ ] S-56 — metamorphic relations: two vdrs code paths per relation, on S-55 tables — drafted 2026-11-22
-- [ ] S-55 — generated golden cases: proptest tables and ex scripts; export, session and metamorphic oracles — drafted 2026-11-22
+- [x] S-58 — undo model over generated walks; the random-walk probe as a property; fixed melts of hidden keys and of melts, freq of hidden columns — shipped 2026-11-22
+- [x] S-56 — metamorphic relations: 21 of 23 relations over S-55 tables (12 and 13 wait for struct and list columns) — shipped 2026-11-22
+- [x] S-55 — generated golden cases: proptest tables and ex scripts against export, session and health oracles; ten bugs fixed — shipped 2026-11-22
 - [x] S-54 — header type icons `#` `%` `@` `~` (reverted 2026-11-22 to type names `i` `f` `str`); title bar crumbs, no kind chip / percent / one-key sort chip; status line shows the last command (VisiData), `ctx.last` — shipped 2026-11-19
 - [x] S-53 — replay blockers (keyed columns sheet, rename onto hidden), XML and msgpack readers, list expansion; replay 102 — shipped 2026-11-19
 - [x] S-52 — one freq derivation for `F` and `gF`: `gF` groups by shown text, exports — shipped 2026-11-17

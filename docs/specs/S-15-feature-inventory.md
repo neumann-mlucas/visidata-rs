@@ -114,7 +114,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 |---|---|---|---|
 | `OpenFreqTable` | `F` | — | `Sheet::freq_from()` — current col (the freq sheet's key, S-52) with `count` + `percent` cols (2-decimal, round_series feature); `numeric_binning`: `freq_binned` ranges in a job, dive by bin index (S-35 C1) |
 | `Pivot { index, on, values, agg }` | — | `:pivot <index> <on> <values> [agg]` | `sheet::pivot_df` (Polars dropped `pivot_stable`); eager |
-| `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot`: VisiData's `Variable`/`Value`, row-major, nulls dropped, index columns as keys, S-44 error flag not melted |
+| `Unpivot { on, index }` | — | `:unpivot <on,on> -- <idx,idx>` | `LazyFrame::unpivot`: VisiData's `Variable`/`Value`, row-major, nulls dropped, index columns as keys, S-44 error flag not melted; columns of mixed types melt as text; a hidden index column is left out (VisiData keeps it); an index column named `Variable` or `Value` is refused (S-58) |
 | `Diff { path, keys }` | — | `:diff <path> [key1,key2,...]` | schema diff or full outer join flagging only_a/only_b/changed |
 | `Tail { path, follow }` | — | `:tail <path> [--follow\|-f]` | 2s tick re-reads; auto-scroll when at bottom |
 | `OpenCellFile` | `zo` | — | open the cursor cell's text as a path (`Open`; VisiData `open-cell-file`) |
@@ -328,7 +328,7 @@ Each returns a new `Sheet` with an `Origin` enum entry so the lineage is visible
 - `Origin::Parts { path, kind }` — worksheet / table list
 - `Origin::SheetSwitcher` — sheet-stack listing
 
-Derived sheets are built from the parent's `view_plan()`: what you see (casts, filter, sort, visible columns) is what freq/pivot/unpivot/diff/dup operate on.
+Derived sheets are built from the parent's `view_plan()`: what you see (casts, filter, sort, visible columns) is what freq/pivot/unpivot/diff/dup operate on. So a freq of a hidden column (Enter on the columns sheet, `gF` with a hidden key) is refused (S-58).
 
 Each derived sheet is a first-class entry on the stack; `q` pops back.
 

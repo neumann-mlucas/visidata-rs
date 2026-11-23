@@ -51,6 +51,12 @@ impl App {
             self.toast = Some("there are no key columns to group by".into());
             return Break(());
         }
+        let parent = self.sheets.active();
+        // a freq reads the view, which leaves hidden columns out
+        if let Some(k) = (parent.view.keys.iter()).find(|k| parent.view.hidden.contains(*k)) {
+            self.toast = Some(format!("freq: key {k} is hidden; unhide it first"));
+            return Break(());
+        }
         let id = self.sheets.alloc_id();
         let parent = self.sheets.active();
         let freq = Sheet::freq_binned(parent, id, &parent.view.keys, None);

@@ -1,6 +1,6 @@
 # S-55 Generated golden cases
 
-Status: drafted 2026-11-22.
+Status: shipped 2026-11-22.
 Depends on: S-08 (`:export`), S-29 C (`:mksession`), `src/app/golden.rs`.
 
 ## 1. Problem
@@ -112,11 +112,11 @@ does not panic. A rejected command shows a toast and leaves the view as it was.
 
 ## 5. Running
 
-- Default suite (`just check`): §4.2, §4.3 and §4.4, with a low case count
-  (`PROPTEST_CASES`, about 32). Target: under 20 s.
-- Ignored test, run in CI and on request: §4.1 with about 256 cases. It
-  needs `VDRS_PYTHON` with polars and the DuckDB CLI. `VDRS_REQUIRE_ROUNDTRIP`
-  makes a missing tool fail the test (local/CI parity, see §7).
+- All four properties run in `just check`: §4.4 and §4.2 with 24 cases,
+  §4.1 with 12. `PROPTEST_CASES` raises them. Before shipping, §4.4 and
+  §4.2 passed 300 cases and §4.1 passed 100.
+- §4.1 needs `VDRS_PYTHON` with polars and the DuckDB CLI.
+  `VDRS_REQUIRE_TOOLS` makes a missing tool fail the test, as in CI.
 - Proptest writes failing seeds to `proptest-regressions/`. Commit them, and
   exclude them from the prek hooks like other test data.
 
@@ -128,18 +128,43 @@ does not panic. A rejected command shows a toast and leaves the view as it was.
   cases.
 - New dev-dependency: `proptest`.
 
-## 7. Open questions
+## 7. Engine divergences and findings
 
-1. How should the suite treat a known divergence between Polars SQL and
-   DuckDB SQL, such as integer division? Options: keep the generator away
-   from it, or list it in a quarantine file with a reason, as
-   `tests/vd_replay/quarantine.txt` does.
-2. Should the metamorphic relations in §4.3 run on `Sheet` directly instead of
-   through the `Harness`? `Sheet` is faster, but the `Harness` uses the real
-   key path.
-3. How many cases fit in the CI time budget? Today CI takes 2 to 3 minutes.
+The generator keeps away from these divergences between Polars and DuckDB:
 
-## 8. Done when
+- Integers stay under 230 in size: DuckDB raises on an i64 overflow, and
+  Polars wraps.
+- The generator uses no unsigned column. `length()` is cast to `BIGINT`.
+- The compare reads DuckDB's `-0.0` as `0`, and sets floats under 1e-12 to 0.
+- Polars SQL can't parse an exponent literal (`1e10`), so the generator
+  writes `10000000000.0`.
+
+Open findings:
+
+1. Freq and describe counts are `u64`, and `length()` is `u32`. So
+   `length('NULL') - 12` gives 4294967288, where VisiData gives -8. An i64
+   count changes the column types on golden screens and in the guide.
+2. vdrs casts a number to a date as days since 1970. VisiData may read it as
+   a timestamp. Not verified.
+
+The relations of §4.3 run through the `Harness` (S-56): the real key path is
+worth the time.
+
+## 8. Bugs found
+
+Each has a test or a golden case:
+
+- An ill-typed `:filter-expr` was accepted. A derive or a cast could break a
+  filter-expr that was there.
+- A session replay toggled off the keys of a derived sheet.
+- The SQL date cast from a number or a Boolean gave null.
+- Describe of no rows: the SQL sum was null and the Python script failed.
+- The SQL export accepted columns differing only by case (from a derive),
+  and a sheet with every column hidden.
+- The freq dive on `0` missed `-0.0`.
+- A quoted CSV header kept its `""`.
+
+## 9. Done when
 
 - The suite runs in `just check` and in CI.
 - A deliberately injected bug in each of `export/python.rs`, `export/sql.rs`

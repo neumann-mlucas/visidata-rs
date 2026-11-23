@@ -1021,11 +1021,19 @@ impl Sheet {
             .cloned()
             .collect();
         let on = on.as_slice();
+        // a hidden key isn't in the view: VisiData keeps it, vdrs leaves it
+        // out (the export reads the view too)
+        let shown = parent.view_plan().collect_schema().ok();
+        let index: Vec<String> = (index.iter())
+            .filter(|c| shown.as_ref().is_none_or(|s| s.contains(c.as_str())))
+            .cloned()
+            .collect();
+        let index = index.as_slice();
         let args = UnpivotArgsDSL {
             on: (!on.is_empty()).then(|| cols(on.iter().map(String::as_str))),
             index: cols(index.iter().map(String::as_str).chain([MELT_ROW])),
-            variable_name: Some("Variable".into()),
-            value_name: Some("Value".into()),
+            variable_name: Some(MELT_VAR.into()),
+            value_name: Some(MELT_VAL.into()),
         };
         // VisiData's names and row-major order; it leaves out null values
         let text: Vec<Expr> = (parent.melt_as_text(on, index).iter())
@@ -1036,12 +1044,13 @@ impl Sheet {
             .with_columns(text)
             .with_row_index(MELT_ROW, None)
             .unpivot(args)
-            .filter(col("Value").is_not_null())
+            .filter(col(MELT_VAL).is_not_null())
             .sort(
                 [MELT_ROW],
                 SortMultipleOptions::default().with_maintain_order(true),
             )
-            .drop(cols([MELT_ROW]));
+            .drop(cols([MELT_ROW]))
+            .rename([MELT_VAR, MELT_VAL], ["Variable", "Value"], true);
         let mut s = Sheet::child(
             parent,
             id,
@@ -1064,6 +1073,10 @@ impl Sheet {
 
 /// Melt's source row, for VisiData's row-major order (also written by `:export`).
 pub(crate) const MELT_ROW: &str = "__vdrs_melt";
+/// Melt's output columns until the melted ones are gone: a melt of a melt
+/// melts columns named `Variable` and `Value` (also written by `:export`).
+pub(crate) const MELT_VAR: &str = "__vdrs_var";
+pub(crate) const MELT_VAL: &str = "__vdrs_val";
 
 /// `join_from` order helpers (also written by `:export`).
 pub(crate) const JL: &str = "__vdrs_l";

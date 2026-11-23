@@ -27,7 +27,9 @@ mod validate;
 mod write;
 
 pub use columns::freq_aggregators;
-pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, pivot_prefixes};
+pub(crate) use derive::{
+    JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, MELT_VAL, MELT_VAR, pivot_prefixes,
+};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};

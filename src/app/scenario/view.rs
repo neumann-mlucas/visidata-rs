@@ -1171,3 +1171,53 @@ async fn freq_dive_on_zero_finds_negative_zero() {
     let dive = h.app.sheets.active().view_plan().collect().unwrap();
     assert_eq!(dive.height(), 2, "{}", h.screen());
 }
+
+/// S-58 walk probe: `M` on a sheet whose key column is hidden melts the
+/// shown columns and leaves the hidden key out (it isn't in the view).
+#[tokio::test(flavor = "multi_thread")]
+async fn melt_with_a_hidden_key_leaves_it_out() {
+    let mut h = csv(b"k,n,m\na,1,2\nb,3,4\n").await;
+    h.keys("! -").await;
+    h.keys("M").await;
+    assert_eq!(
+        view_csv(&h),
+        "Variable,Value\nn,1\nm,2\nn,3\nm,4\n",
+        "{}",
+        status(&h)
+    );
+}
+
+/// S-58 walk probe: a freq reads the view, so the columns sheet's Enter
+/// and `gF` refuse a hidden column instead of opening a broken sheet.
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_of_a_hidden_column_is_refused() {
+    let mut h = csv(b"k,n\na,1\nb,3\n").await;
+    h.keys("! - C <CR>").await;
+    assert_eq!(h.app.sheets.len(), 2, "{}", h.screen());
+    assert_eq!(status(&h), "freq: k is hidden; unhide it first");
+    h.keys("q g F").await;
+    assert_eq!(h.app.sheets.len(), 1, "{}", h.screen());
+    assert_eq!(status(&h), "freq: key k is hidden; unhide it first");
+}
+
+/// S-58 walk probe: a melt of a melt melts the columns `Variable` and
+/// `Value`; a key of either name would clash, so it is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn melt_of_a_melt() {
+    let mut h = csv(b"k,n\na,1\n").await;
+    h.keys("M M").await;
+    assert_eq!(
+        view_csv(&h),
+        "Variable,Value\nVariable,k\nValue,a\nVariable,n\nValue,1\n",
+        "{}",
+        status(&h)
+    );
+    h.keys("!").await;
+    let sheets = h.app.sheets.len();
+    h.keys("M").await;
+    assert_eq!(h.app.sheets.len(), sheets, "{}", h.screen());
+    assert_eq!(
+        status(&h),
+        "unpivot: key Variable clashes with the melt's own column"
+    );
+}
