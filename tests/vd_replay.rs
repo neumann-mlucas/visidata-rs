@@ -915,7 +915,7 @@ impl Replay {
                 let id = self.next_id;
                 self.next_id += 1;
                 let parent_slot = self.current_slot()?;
-                let name = format!("freq({})-{}", r.col, parent_slot.name);
+                let name = format!("{}_{}_freq", parent_slot.name, r.col); // VisiData's
                 let new = match self.numeric_binning {
                     true => {
                         let bins =
@@ -1329,7 +1329,8 @@ impl Replay {
             }
             // sheets-stack: enter meta mode. `select-row` henceforth picks sheet
             // names (not data rows) and `join-sheets` consumes the selection.
-            "sheets-stack" => {
+            // ponytail: sheets-all finds only the open sheets, not quit ones (B5)
+            "sheets-stack" | "sheets-all" => {
                 self.meta_mode = Some(MetaMode::SheetsStack {
                     selected: std::mem::take(&mut self.stack_selected),
                 });

@@ -590,7 +590,7 @@ impl App {
     /// `:sql`: `self` = this view; every open sheet is also `s<id>` (see `S`).
     pub(super) fn open_sql(&mut self, query: &str) {
         let active = self.sheets.active().id;
-        let ids: Vec<SheetId> = self.sheets.summaries().map(|(id, _, _)| id).collect();
+        let ids: Vec<SheetId> = self.sheets.summaries(false).map(|(id, _, _)| id).collect();
         let others: Vec<Sheet> = ids
             .into_iter()
             .filter(|id| *id != active)

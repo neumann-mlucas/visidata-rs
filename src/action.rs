@@ -159,6 +159,9 @@ pub enum Action {
     // derived sheets
     OpenFreqTable,
     OpenSheetSwitcher,
+    /// `gS` (VisiData sheets-all, S-46 B5): the sheet list plus the sheets
+    /// quit since the start.
+    OpenSheetsAll,
     Pivot {
         index: String,
         on: String,
@@ -849,6 +852,7 @@ impl Action {
                 | SubmitRow
                 | OpenFreqTable
                 | OpenSheetSwitcher
+                | OpenSheetsAll
         )
     }
 
@@ -910,7 +914,7 @@ impl Action {
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
-            OpenSheetSwitcher => false,
+            OpenSheetSwitcher | OpenSheetsAll => false,
             StartSearchInput { .. }
             | StartSearchKeysInput
             | StartSearchExprInput { .. }
@@ -1068,6 +1072,7 @@ impl Action {
         ("sort_desc", SortDesc),
         ("open_freq_table", OpenFreqTable),
         ("open_sheet_switcher", OpenSheetSwitcher),
+        ("open_sheets_all", OpenSheetsAll),
         ("submit_row", SubmitRow),
         ("submit_selected", SubmitSelected),
         ("toggle_plan_panel", TogglePlanPanel),

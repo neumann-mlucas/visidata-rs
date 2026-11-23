@@ -1309,3 +1309,31 @@ async fn dive_except_on_freq_keys() {
     h.keys("q q g z <CR>").await;
     assert_eq!(status(&h), "gz<CR>: only on a frequency sheet");
 }
+
+/// S-46 B5: `gS` lists the open sheets, then the data sheets quit since the
+/// start; `<CR>` on a quit one opens it again, its view as it was left.
+/// `S` lists only the open ones.
+#[tokio::test(flavor = "multi_thread")]
+async fn sheets_all_reopens_a_quit_sheet() {
+    let mut h = csv(b"k,v\nx,1\ny,2\nx,3\n").await;
+    h.keys("F").await;
+    let freq = h.app.sheets.active().id;
+    h.keys("j").await;
+    h.keys("C").await; // a columns sheet quit isn't kept
+    h.keys("q").await;
+    h.keys("q").await;
+    assert_eq!(h.app.sheets.len(), 1);
+    h.keys("S").await;
+    assert_eq!(h.app.sheets.active().window().unwrap().height(), 1);
+    h.keys("q").await;
+    h.keys("g S").await;
+    assert_eq!(h.app.sheets.active().name, "<sheets_all>");
+    assert_eq!(h.app.sheets.active().window().unwrap().height(), 2);
+    h.keys("j").await;
+    h.keys("<CR>").await;
+    assert_eq!(h.app.sheets.active().id, freq);
+    assert_eq!(h.app.sheets.len(), 2);
+    assert_eq!(h.app.sheets.active().view.row_cursor, 1);
+    h.keys("g S").await; // open again: listed once, on the stack
+    assert_eq!(h.app.sheets.active().window().unwrap().height(), 2);
+}

@@ -209,6 +209,7 @@ impl Keymap {
             ch("z <CR>", OpenCell, "open the cell's list or dict as a sheet; freq: rows outside this bin"),
             ch("g z <CR>", DiveExcept { selected: true }, "open rows outside the selected bins (freq)"),
             ch("S", OpenSheetSwitcher, "list open sheets"),
+            ch("g S", OpenSheetsAll, "list open sheets and the ones quit"),
             ch("g <CR>", SubmitSelected, "open rows of all selected values (freq)"),
             ch("g \"", DupSheet, "copy of this sheet"),
             ch("g '", DupSheet, "frozen copy of this sheet"),

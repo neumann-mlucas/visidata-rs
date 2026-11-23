@@ -162,6 +162,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | Action | Key | Semantics |
 |---|---|---|
 | `OpenSheetSwitcher` | `S` | push meta-sheet listing stack; `<CR>` on row → `SwitchToSheet` |
+| `OpenSheetsAll` | `gS` | VisiData sheets-all: `<sheets_all>`, the stack then `Sheets::closed` (data sheets `q` quit, kept by `Sheets::close`); `<CR>` on a closed one → `Sheets::reopen` (S-46 B5) |
 | `SwitchToSheet(id)` + `SubmitRow` | `<CR>` | pop sheet-switcher, activate selected |
 | `PopSheet` | `q` | drop active, show one below; unsaved edits → `discard N edits to x? y/N` (`:q!` skips) |
 | `StartEditInput` / `StartSetColInput` | `e` / `ge` | edit cursor cell (prefilled) / `:setcol` prompt; source sheets, and pivot (key and added columns only, for every write: `e`, `ge`, `g=`, paste, `:s`; `Sheet::check_writable` against `Lineage.made`)/unpivot/unfurl/`:sql`/join/Lua sheets: the first edit copies the rows into memory (`Sheet::make_editable`; `:refresh` drops the edits, `:export` refuses; S-45 A); a join's `e` also edits the open source sheets' rows (`Sheet::source_cells`) and every join row sharing them (S-45 B) |

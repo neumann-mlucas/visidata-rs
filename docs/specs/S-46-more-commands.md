@@ -33,7 +33,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `addcol-aggregate` | — | shipped: B4 | — |
 | `addcol-rank-sheet` | — | shipped: B4 | — |
 | `type-len` | `z#` | shipped: B2 | — |
-| `sheets-all` | `gS` | every open sheet, not only the stack | vdrs has one stack: same as `S` plus closed-but-kept sheets? |
+| `sheets-all` | `gS` | shipped: B5 | — |
 | `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
 | `open-syspaste` | `gP` | clipboard text as a new sheet, filetype asked (default tsv) | tests stub the paste command (`paste_cmd_for`) |
 | `join-cols` | — (columns sheet) | shipped: B3 | — |
@@ -113,6 +113,20 @@ Replay 105 → 105. Both corpus files run but are quarantined:
 - `aggregators-cols`: an error row shows `#ERR` in every cell. VisiData shows the added columns' values.
 - `rank-sheetrank-sorted-cols`: every rank matches. A sqlite `date` column loads as text,
   so it doesn't show in `disp_date_fmt`.
+
+### B5 — `sheets-all` (shipped)
+
+- VisiData's `allSheets` keeps every data sheet pushed, quit ones too. `gS` lists them.
+- `Sheets::close` is `q`: it pops the sheet and keeps a data sheet in `Sheets::closed`.
+  Sheet lists, columns, undo, macros and options sheets are not kept, as VisiData's `precious`.
+- `gS` pushes `<sheets_all>`: the stack, then the closed sheets in the order they were quit.
+- `<CR>` on a closed sheet moves it back on the stack (`Sheets::reopen`), its view as it was left.
+- Other pops (a switcher's `<CR>`, `:options` commit) don't keep the sheet.
+- Ponytail: a quit sheet keeps its memory until the end, as in VisiData. `gU` (undo-last-quit) is not bound.
+
+Replay stays 105. `extend` runs `sheets-all` as `sheets-stack` (it quits no sheet).
+A freq sheet's replay name is now VisiData's `<sheet>_<col>_freq`. `extend` then stops
+on the extend join: VisiData joins sheets with different key counts.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.

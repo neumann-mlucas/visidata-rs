@@ -425,6 +425,9 @@ impl Origin {
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.
 pub struct Sheets {
     stack: Vec<Sheet>,
+    /// Data sheets the user quit, oldest first (VisiData's `allSheets` less
+    /// the stack): `gS` lists them, and its `<CR>` opens one again (S-46 B5).
+    closed: Vec<Sheet>,
     next_id: SheetId,
 }
 
@@ -433,6 +436,7 @@ impl Sheets {
         let next_id = initial.id + 1;
         Self {
             stack: vec![initial],
+            closed: Vec::new(),
             next_id,
         }
     }
@@ -477,9 +481,41 @@ impl Sheets {
             false
         }
     }
-    /// Iterate sheets by `(id, name, kind)` for the sheet-switcher view.
-    pub fn summaries(&self) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
-        self.stack.iter().map(|s| (s.id, s.name.as_str(), s.kind))
+    /// `q`: [`Self::pop`], keeping a data sheet (not a sheet list, columns,
+    /// undo, macros or options sheet) for [`Self::reopen`], as VisiData does.
+    pub fn close(&mut self) -> bool {
+        if self.stack.len() < 2 {
+            return false;
+        }
+        if let Some(s) = self.stack.pop() {
+            let meta = matches!(
+                s.origin,
+                Origin::SheetSwitcher
+                    | Origin::Columns { .. }
+                    | Origin::UndoTree { .. }
+                    | Origin::Macros
+                    | Origin::Options
+            );
+            if !meta {
+                self.closed.push(s);
+            }
+        }
+        true
+    }
+    /// A sheet [`Self::close`] kept, back on top of the stack.
+    pub fn reopen(&mut self, id: SheetId) -> bool {
+        let Some(pos) = self.closed.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let s = self.closed.remove(pos);
+        self.stack.push(s);
+        true
+    }
+    /// Iterate sheets by `(id, name, kind)` for the sheet-switcher view;
+    /// `all` (`gS`): the closed ones after the stack.
+    pub fn summaries(&self, all: bool) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
+        let closed = self.closed.iter().filter(move |_| all);
+        (self.stack.iter().chain(closed)).map(|s| (s.id, s.name.as_str(), s.kind))
     }
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Sheet> {
         self.stack.iter()

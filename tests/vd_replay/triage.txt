@@ -45,7 +45,7 @@ empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP exec-python
-extend	SKIP sheets-all
+extend	SKIP runtime: join-sheets extend: sheet 'data1+data2_A_freq' has 1 key(s), need ≥2
 fill	PASS
 fill-nested	FAIL line 2: want="7/3/2018 1:47p\t[\"Robert Armstrong\",\"Dee Vasquez\"]\tFOOD213\tBFF Oh My Gravy! Beef & Salmon 2.8oz\t4\t$12.95\t$51.8" got="7/3/2018 1:47p\
 fill-zero	PASS

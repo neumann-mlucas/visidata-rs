@@ -333,7 +333,8 @@ impl App {
                 }
             }
             Action::OpenFreqTable => self.open_freq_table(),
-            Action::OpenSheetSwitcher => self.open_sheet_switcher(),
+            Action::OpenSheetSwitcher => self.open_sheet_switcher(false),
+            Action::OpenSheetsAll => self.open_sheet_switcher(true),
             Action::Pivot {
                 index,
                 on,
@@ -1166,9 +1167,11 @@ impl App {
             Ok(x) => x as u32,
             Err(_) => return,
         };
-        // pop the switcher, then raise the chosen sheet
+        // pop the switcher, then raise the chosen sheet, or open a quit one again
         self.sheets.pop();
-        if !self.sheets.switch_to(id) {
+        if self.sheets.reopen(id) {
+            self.spawn_materialize();
+        } else if !self.sheets.switch_to(id) {
             self.toast = Some(format!("no sheet with id {id}"));
         }
     }
@@ -1298,7 +1301,7 @@ impl App {
         if matches!(self.sheets.active().origin, Origin::Macros) {
             self.macro_edits.clear(); // not committed: dropped
         }
-        if self.sheets.pop() {
+        if self.sheets.close() {
             // the pane's last sheet: the other pane fills the screen
             if self
                 .split
@@ -1455,14 +1458,18 @@ impl App {
         }
     }
 
-    fn open_sheet_switcher(&mut self) {
+    /// `S`; `all`: `gS`, the quit sheets too (S-46 B5).
+    fn open_sheet_switcher(&mut self, all: bool) {
         let summaries: Vec<_> = self
             .sheets
-            .summaries()
+            .summaries(all)
             .map(|(id, name, kind)| (id, name.to_string(), kind))
             .collect();
         let id = self.sheets.alloc_id();
-        let child = Sheet::sheet_switcher(id, summaries);
+        let mut child = Sheet::sheet_switcher(id, summaries);
+        if all {
+            child.name = "<sheets_all>".into();
+        }
         self.sheets.push(child);
         // sheet_switcher ships window pre-materialized; still fire once so revision is nudged
         self.spawn_materialize();
