@@ -1363,3 +1363,48 @@ async fn open_syspaste_opens_the_clipboard() {
     h.type_("open-syspaste nope").await;
     assert_eq!(status(&h), "open-syspaste: unknown filetype nope");
 }
+
+/// S-46 B7: `:save-all dir/` writes each stacked sheet as `<name>.tsv`;
+/// `:save-all f.duckdb` writes one table each; a name met again gets `_2`;
+/// a one-sheet format refuses more than one sheet.
+#[tokio::test(flavor = "multi_thread")]
+async fn save_all_writes_every_sheet() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = csv(b"k,v\nx,1\ny,2\nx,3\n").await;
+    h.keys("F").await;
+    let base = h.app.sheets.active().table_name(); // the freq sheet's is its parent's
+    let names = [base.clone(), format!("{base}_2")];
+    h.keys(":").await;
+    h.type_(&format!("save-all {}/out/", dir.path().display()))
+        .await;
+    h.pump().await;
+    assert_eq!(
+        status(&h),
+        format!("saved 2 sheets → {}/out/", dir.path().display())
+    );
+    let freq = std::fs::read_to_string(dir.path().join("out").join(format!("{}.tsv", names[1])));
+    assert_eq!(
+        freq.unwrap().lines().next(),
+        Some("k\tcount\tpercent\thistogram")
+    );
+    assert!(
+        dir.path()
+            .join("out")
+            .join(format!("{}.tsv", names[0]))
+            .exists()
+    );
+    let db = dir.path().join("all.duckdb");
+    h.keys(":").await;
+    h.type_(&format!("save-all {}", db.display())).await;
+    h.pump().await;
+    assert_eq!(status(&h), format!("saved 2 sheets → {}", db.display()));
+    let tables = crate::duckdb::index(&db).unwrap();
+    assert_eq!(tables.height(), 2, "{tables}");
+    h.keys(":").await;
+    h.type_(&format!("save-all {}/one.csv", dir.path().display()))
+        .await;
+    assert_eq!(
+        status(&h),
+        "save-all: 2 sheets can't go in one file; end the path with / or use .duckdb"
+    );
+}

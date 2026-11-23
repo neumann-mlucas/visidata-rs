@@ -292,6 +292,7 @@ impl Keymap {
             ch(":", StartExInput, "ex command"),
             ch("o", ExPrompt { cmd: "open" }, "open a file (:open)"),
             ch("<C-s>", ExPrompt { cmd: "save" }, "save the sheet (:save)"),
+            ch("g <C-s>", ExPrompt { cmd: "save-all" }, "save every sheet (:save-all)"),
             ch("&", ExPrompt { cmd: "join" }, "join with the sheet below (:join)"),
             ch("g &", ExPrompt { cmd: "join-all" }, "join with every sheet below (:join-all)"),
             ch("<Space>", StartExInput, "ex command (any command by name)"),

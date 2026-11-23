@@ -57,6 +57,65 @@ impl App {
         });
     }
 
+    /// `g Ctrl+S` / `:save-all` (VisiData save-all, S-46 B7): every sheet on
+    /// the stack. `path/` (or a directory): one `<table_name>.tsv` each, as
+    /// VisiData's default `save_filetype`; `.duckdb`: one table each; another
+    /// file takes only one sheet.
+    // ponytail: a derived sheet's `table_name` is its parent's, so a name met
+    // again gets `_2`, `_3`, …; VisiData's would be `<sheet>_<col>_freq` etc.
+    pub(super) fn save_all(&mut self, path: &str) {
+        let mut seen = std::collections::HashMap::<String, usize>::new();
+        let sheets: Vec<_> = (self.sheets.iter())
+            .map(|s| {
+                let base = s.table_name();
+                let n = seen.entry(base.clone()).or_default();
+                *n += 1;
+                let name = if *n == 1 { base } else { format!("{base}_{n}") };
+                (s.id, name, s.save_plan(), s.edits())
+            })
+            .collect();
+        let p = std::path::Path::new(path);
+        let dir = path.ends_with('/') || p.is_dir();
+        if !dir && !crate::duckdb::is_db(p) && sheets.len() > 1 {
+            self.toast = Some(format!(
+                "save-all: {} sheets can't go in one file; end the path with / or use .duckdb",
+                sheets.len()
+            ));
+            return;
+        }
+        let path = path.to_string();
+        self.spawn_job("save", move || {
+            let base = std::path::Path::new(&path);
+            if dir {
+                std::fs::create_dir_all(base).map_err(|e| format!("{path}: {e}"))?;
+            }
+            let (mut rows, mut edits) = (0, Vec::new());
+            // VisiData's sheet name: the table's
+            for (id, name, plan, e) in sheets {
+                let mut df = plan.collect().map_err(|e| format!("{name}: {e}"))?;
+                if dir {
+                    let file = base.join(format!("{}.tsv", name.replace('/', "_")));
+                    crate::sheet::write_df_by_extension(&mut df, &file)
+                        .map_err(|e| e.to_string())?;
+                } else if crate::duckdb::is_db(base) {
+                    crate::duckdb::save(&mut df, base, &name)?;
+                } else {
+                    crate::sheet::write_df_by_extension(&mut df, base)
+                        .map_err(|e| e.to_string())?;
+                }
+                rows += df.height();
+                edits.push((id, e));
+            }
+            let note = format!("saved {} sheets → {path}", edits.len());
+            Ok(JobDone::SavedAll {
+                note,
+                edits,
+                path,
+                rows,
+            })
+        });
+    }
+
     /// `:open`: like the command line, a multi-part file opens on its list.
     pub(super) fn open_file(&mut self, path: &str, format: Option<&str>) {
         let Ok(opened) = self.open_with_format("open", path, format) else {

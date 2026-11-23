@@ -191,6 +191,10 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }])
         }
         "join-cols" => Ok(vec![Action::JoinCols]),
+        "save-all" => match unquote(rest) {
+            p if p.is_empty() => Err(ExError::Usage(":save-all <dir/|file.duckdb>")),
+            path => Ok(vec![Action::SaveAll { path }]),
+        },
         "addcol-rank-sheet" => Ok(vec![Action::AddColRankSheet]),
         "open-syspaste" => Ok(vec![Action::OpenSysPaste {
             format: match unquote(rest) {
@@ -735,6 +739,7 @@ pub const COMMANDS: &[&str] = &[
     "undotree",
     "rename",
     "save",
+    "save-all",
     "select",
     "setcol",
     "setexpr",

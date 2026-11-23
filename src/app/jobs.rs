@@ -133,6 +133,20 @@ impl App {
                 self.toast = Some(note);
                 self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
             }
+            Ok(JobDone::SavedAll {
+                note,
+                edits,
+                path,
+                rows,
+            }) => {
+                for (id, edits) in edits {
+                    if let Some(s) = self.sheets.find_by_id_mut(id) {
+                        s.state.saved_edits = edits;
+                    }
+                }
+                self.toast = Some(note);
+                self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
+            }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
             Ok(JobDone::ExecSql { db, index, rows }) => {
                 let ids: Vec<SheetId> = self

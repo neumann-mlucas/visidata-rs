@@ -473,6 +473,7 @@ impl App {
             }
             Action::SetCursor { row, column } => self.set_cursor(row, column),
             Action::Save { path } => self.save_active(&path),
+            Action::SaveAll { path } => self.save_all(&path),
             Action::SubmitRow => self.submit_row(),
             // VisiData's s / t / u move the cursor down after
             Action::ToggleSelectRow => {

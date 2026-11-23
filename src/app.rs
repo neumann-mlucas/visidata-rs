@@ -281,6 +281,13 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// `:save-all` (S-46 B7): each sheet's edits now saved.
+    SavedAll {
+        note: String,
+        edits: Vec<(SheetId, Vec<crate::sheet::PlanStep>)>,
+        path: String,
+        rows: usize,
+    },
     /// `:lookup` steps for the job's sheet, new columns after `at` (S-36 A).
     Lookup {
         steps: Vec<crate::sheet::PlanStep>,

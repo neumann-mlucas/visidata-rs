@@ -487,6 +487,11 @@ pub enum Action {
         path: String,
         format: Option<String>,
     },
+    /// `g Ctrl+S` / `:save-all <path>` (VisiData save-all, S-46 B7): every
+    /// sheet on the stack, to a directory (`path/`) or one `.duckdb` file.
+    SaveAll {
+        path: String,
+    },
     /// `gP` / `:open-syspaste [filetype]` (VisiData open-syspaste, S-46 B6):
     /// the clipboard's text as a new sheet `syspaste` of that filetype.
     OpenSysPaste {
@@ -884,7 +889,7 @@ impl Action {
             | ToggleMacroRecord => false,
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
-            OpenSysPaste { .. } => true,
+            OpenSysPaste { .. } | SaveAll { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HelpCommands | JumpPrev | Suspend => false,
             JumpBack | JumpForward | Jumps => false,
@@ -1201,6 +1206,7 @@ impl Action {
         ("open_file", ExPrompt { cmd: "open" }),
         ("open_syspaste", ExPrompt { cmd: "open-syspaste" }),
         ("save_sheet", ExPrompt { cmd: "save" }),
+        ("save_all", ExPrompt { cmd: "save-all" }),
         ("join_sheets_top2", ExPrompt { cmd: "join" }),
         ("prev_value", ValueChange { forward: false }),
         ("operator_delete", Operator { op: 'd', count: None }),
@@ -1352,6 +1358,7 @@ impl Action {
             TimeWalk { n } if *n > 0 => format!("earlier {n}"),
             TimeWalk { n } if *n < 0 => format!("later {}", -n),
             Save { path } => format!("save {}", q(path)),
+            SaveAll { path } => format!("save-all {}", q(path)),
             Export { path } => format!("export {}", q(path)),
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
@@ -1593,6 +1600,9 @@ mod tests {
                 aggs: s("sum rank"),
             },
             OpenSysPaste { format: s("csv") },
+            SaveAll {
+                path: s("out dir/"),
+            },
             AddColAgg {
                 name: s("q ty_rank"),
                 agg: s("rank"),

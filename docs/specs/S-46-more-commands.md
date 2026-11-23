@@ -34,7 +34,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `addcol-rank-sheet` | — | shipped: B4 | — |
 | `type-len` | `z#` | shipped: B2 | — |
 | `sheets-all` | `gS` | shipped: B5 | — |
-| `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
+| `save-all` | `g<C-s>` | shipped: B7 | — |
 | `open-syspaste` | `gP` | shipped: B6 | — |
 | `join-cols` | — (columns sheet) | shipped: B3 | — |
 | `commit-sheet` | `z<C-s>` | VisiData writes a duckdb/sqlite sheet's edits back to its table; vdrs's commits the macros/options sheets | edits → `UPDATE`/`INSERT`/`DELETE` by primary key; no key |
@@ -139,6 +139,19 @@ on the extend join: VisiData joins sheets with different key counts.
 - Replay: `clipboard_paste_cmd` must be `cat <file>`. The replay reads the file and runs no command.
 
 Replay 105 → 106: syspaste-crlf.
+
+### B7 — `save-all` (shipped)
+
+- `g Ctrl+S` opens the ex prompt with `save-all `. `:save-all <path>` saves every sheet on the stack.
+- A path that ends in `/`, or a directory, gets one file per sheet, as VisiData.
+  The file is `<table_name>.tsv`: VisiData's default `save_filetype` is `tsv`. vdrs has no such option.
+- A `.duckdb` file gets one table per sheet, as `:save` writes one.
+- Another file takes one sheet. With more, the command refuses before it writes anything.
+- Each sheet's edits count as saved (`JobDone::SavedAll`). The `save` event fires once.
+- Ponytail: a derived sheet's `table_name` is its parent's. A repeated name gets `_2`, `_3`, ….
+  VisiData's names would be `<sheet>_<col>_freq` and so on.
+
+Replay stays 106. The only corpus file, `issue2309`, saves to `.vds`, which vdrs doesn't write.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.
