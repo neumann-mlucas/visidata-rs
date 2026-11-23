@@ -146,9 +146,14 @@ impl Block {
             column,
             key,
             values,
+            except,
         } = &l.how
         else {
             return false;
+        };
+        let dive = match except {
+            true => Action::DiveExcept { selected: true },
+            false => Action::SubmitSelected,
         };
         if let crate::sheet::DiveKey::Bin { n, .. } = key {
             // a bin's row id is its index (labels may repeat); the null bin's is `n`
@@ -158,7 +163,7 @@ impl Block {
                     .iter()
                     .map(|v| v.as_deref().and_then(|i| i.parse().ok()).unwrap_or(n)),
             );
-            self.ex(Action::SubmitSelected);
+            self.ex(dive);
             return true;
         }
         let c = crate::duckdb::ident(column);
@@ -179,7 +184,7 @@ impl Block {
             expr: terms.join(" OR "),
             unselect: false,
         });
-        self.ex(Action::SubmitSelected);
+        self.ex(dive);
         true
     }
 

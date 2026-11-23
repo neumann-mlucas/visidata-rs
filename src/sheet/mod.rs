@@ -130,11 +130,13 @@ pub enum Derivation {
     /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
     Rids(std::collections::BTreeSet<u64>),
     /// Rows whose `column`'s `key`, as text, is one of `values` (freq dive;
-    /// None = null).
+    /// None = null). `except`: the rows whose key is none of them
+    /// (`dive-except`, S-46 B).
     Values {
         column: String,
         key: DiveKey,
         values: Vec<Option<String>>,
+        except: bool,
     },
     /// `others`: the `s<id>` sheets the query names.
     Sql {

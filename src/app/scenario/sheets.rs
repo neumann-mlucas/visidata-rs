@@ -1294,3 +1294,18 @@ async fn freq_keys_dive_matches_nulls_and_join_all_appends() {
     assert!(s.name.ends_with("(append)"), "{}", s.name);
     assert_eq!(s.window().map(|w| w.height()), Some(2), "{}", view_csv(&h));
 }
+
+/// S-46 B: `zEnter` on a `gF` sheet opens the rows outside the cursor row's
+/// keys; `gzEnter` the rows outside every selected row's keys.
+#[tokio::test(flavor = "multi_thread")]
+async fn dive_except_on_freq_keys() {
+    let mut h = csv(b"k,g\na,x\nb,x\na,x\n,y\n").await;
+    h.keys("! l ! g F").await;
+    assert!(view_csv(&h).starts_with("k,g,count"), "{}", view_csv(&h));
+    h.keys("z <CR>").await;
+    assert_eq!(view_csv(&h), "k,g\nb,x\n,y\n", "{}", status(&h));
+    h.keys("q s s g z <CR>").await;
+    assert_eq!(view_csv(&h), "k,g\n,y\n", "{}", status(&h));
+    h.keys("q q g z <CR>").await;
+    assert_eq!(status(&h), "gz<CR>: only on a frequency sheet");
+}

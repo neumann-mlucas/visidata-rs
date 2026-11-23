@@ -53,7 +53,7 @@ format-enum	SKIP setcol-format-enum
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
 freeze-sheet-attrs	PASS
-freq-dive-except	SKIP dive-except
+freq-dive-except	PASS
 freq-error	UNTESTABLE addcol-expr
 freq-fmtstr	PASS
 freq-same-int	PASS

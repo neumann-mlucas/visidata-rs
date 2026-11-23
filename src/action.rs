@@ -61,7 +61,14 @@ pub enum Action {
     /// `gF` (VisiData freq-keys): freq over all key columns together.
     FreqKeys,
     /// `zEnter` (VisiData open-cell): the cursor cell's list or dict as a sheet.
+    /// On a freq sheet it is [`Action::DiveExcept`], as VisiData binds it there.
     OpenCell,
+    /// `zEnter` / `gzEnter` on a freq sheet (VisiData dive-except,
+    /// dive-except-selected): the source rows outside the cursor row's
+    /// (selected rows') bins.
+    DiveExcept {
+        selected: bool,
+    },
     /// `g&` / `:join-all <how>` (VisiData join-sheets-all): this sheet joined
     /// with every other sheet on the stack, top down, on its key columns.
     JoinAll {
@@ -857,7 +864,7 @@ impl Action {
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
-            Transpose | JoinAll { .. } | FreqKeys | OpenCell => true,
+            Transpose | JoinAll { .. } | FreqKeys | OpenCell | DiveExcept { .. } => true,
             StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
@@ -1146,6 +1153,8 @@ impl Action {
         ("transpose", Transpose),
         ("freq_keys", FreqKeys),
         ("open_cell", OpenCell),
+        ("dive_except", DiveExcept { selected: false }),
+        ("dive_except_selected", DiveExcept { selected: true }),
         ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
         ("save_sheet", ExPrompt { cmd: "save" }),

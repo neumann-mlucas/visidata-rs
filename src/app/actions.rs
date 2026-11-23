@@ -378,7 +378,11 @@ impl App {
             Action::SortKeys { descending } => self.sort_keys(descending)?,
             Action::Transpose => self.transpose(),
             Action::JoinAll { how } => self.open_join_all(&how),
+            Action::OpenCell if matches!(self.sheets.active().origin, Origin::Freq { .. }) => {
+                self.dive_freq(false, true)
+            }
             Action::OpenCell => self.open_cell()?,
+            Action::DiveExcept { selected } => self.dive_freq(selected, true),
             Action::FreqKeys => self.freq_keys()?,
             Action::Melt => {
                 let keys = self.sheets.active().view.keys.clone();
@@ -675,7 +679,7 @@ impl App {
                     self.toast = Some(format!("nothing to {}", if undo { "undo" } else { "redo" }));
                 }
             }
-            Action::SubmitSelected => self.dive_freq(true),
+            Action::SubmitSelected => self.dive_freq(true, false),
             Action::SelectEqualCell => self.select_equal_cell()?,
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SelectToSelected { forward } => self.select_to_selected(forward),
@@ -1066,7 +1070,7 @@ impl App {
                     self.spawn_materialize();
                 }
             }
-            Origin::Freq { .. } => self.dive_freq(false),
+            Origin::Freq { .. } => self.dive_freq(false, false),
             Origin::Cell => {
                 let row = self.cursor_row();
                 let id = self.sheets.alloc_id();
@@ -1159,8 +1163,8 @@ impl App {
     }
 
     /// `gF` sheet: the parent's rows whose key values are the cursor row's
-    /// (`<CR>`) or any selected row's (`g<CR>`).
-    fn dive_freq_keys(&mut self, selected: bool) {
+    /// (`<CR>`) or any selected row's (`g<CR>`); `except`: the other rows.
+    fn dive_freq_keys(&mut self, selected: bool, except: bool) {
         let s = self.sheets.active();
         let Origin::Freq { parent, columns } = s.origin.clone() else {
             return;
@@ -1198,22 +1202,24 @@ impl App {
                 .collect()
                 .map_err(|e| e.to_string())?;
             let name = format!("{}_{}", parent.name, columns.join("_"));
-            let child = Sheet::rows_with_keys(&parent, id, &keys, wanted, name)?;
+            let child = Sheet::rows_with_keys(&parent, id, &keys, wanted, name, except)?;
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
 
     /// Freq sheet: open the parent's rows whose value is the cursor row's
-    /// (`<CR>`) or any selected row's (`g<CR>`) value.
-    fn dive_freq(&mut self, selected: bool) {
+    /// (`<CR>`) or any selected row's (`g<CR>`) value. `except`
+    /// (`zEnter` / `gzEnter`): the parent's other rows.
+    fn dive_freq(&mut self, selected: bool, except: bool) {
         let s = self.sheets.active();
         let (parent, column) = match &s.origin {
             Origin::Freq { columns, .. } if columns.len() > 1 => {
-                return self.dive_freq_keys(selected);
+                return self.dive_freq_keys(selected, except);
             }
             Origin::Freq { parent, columns } => (*parent, columns.concat()),
             _ => {
-                self.toast = Some("g<CR>: only on a frequency sheet".into());
+                let key = if except { "gz<CR>" } else { "g<CR>" };
+                self.toast = Some(format!("{key}: only on a frequency sheet"));
                 return;
             }
         };
@@ -1271,7 +1277,7 @@ impl App {
                     }
                 }
             };
-            let child = Sheet::rows_with_values(&parent, id, &column, key, picked);
+            let child = Sheet::rows_with_values(&parent, id, &column, key, picked, except);
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }

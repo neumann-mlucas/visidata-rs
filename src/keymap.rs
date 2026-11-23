@@ -205,7 +205,8 @@ impl Keymap {
             // derived sheets
             ch("F", OpenFreqTable, "frequency table of current column"),
             ch("g F", FreqKeys, "frequency table of the key columns together"),
-            ch("z <CR>", OpenCell, "open the cell's list or dict as a sheet"),
+            ch("z <CR>", OpenCell, "open the cell's list or dict as a sheet; freq: rows outside this bin"),
+            ch("g z <CR>", DiveExcept { selected: true }, "open rows outside the selected bins (freq)"),
             ch("S", OpenSheetSwitcher, "list open sheets"),
             ch("g <CR>", SubmitSelected, "open rows of all selected values (freq)"),
             ch("g \"", DupSheet, "copy of this sheet"),

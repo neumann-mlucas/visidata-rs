@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 102;
+const MIN_PASS: usize = 103;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -288,12 +288,13 @@ impl Replay {
 
     /// `open-row` on a duckdb index: the row's table (`キname` or a row number).
     fn open_index_row(&mut self, row: &str) -> Result<(), StepErr> {
-        self.freq_dive(Some(row))
+        self.freq_dive(Some(row), false)
     }
 
     /// `open-row` on a freq sheet (`row`), or `dive-selected` (`None`): the
     /// source rows with those rows' values, as `<CR>` / `g<CR>`.
-    fn freq_dive(&mut self, row: Option<&str>) -> Result<(), StepErr> {
+    /// `except`: VisiData dive-except, the rows outside the picked bins.
+    fn freq_dive(&mut self, row: Option<&str>, except: bool) -> Result<(), StepErr> {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
         if let Origin::Freq { parent, columns } = s.origin.clone()
@@ -337,6 +338,7 @@ impl Replay {
                 column,
                 visidata_rs::sheet::DiveKey::Value,
                 picked,
+                except,
             );
             self.next_id += 1;
             let name = format!(
@@ -1501,7 +1503,9 @@ impl Replay {
                 Ok(())
             }
             "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
-            "dive-selected" => self.freq_dive(None),
+            "dive-selected" => self.freq_dive(None, false),
+            "dive-except" => self.freq_dive(Some(&r.row), true),
+            "dive-except-selected" => self.freq_dive(None, true),
             // on the sheets stack: go to that sheet
             "dive-row" | "open-row" => {
                 let name = r.row.strip_prefix('キ').unwrap_or(&r.row);

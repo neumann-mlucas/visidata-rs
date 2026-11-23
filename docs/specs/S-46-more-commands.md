@@ -29,7 +29,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 
 | Command | Key | Sketch | Open questions |
 |---|---|---|---|
-| `dive-except` | `z<CR>` on freq | parent rows not in the cursor row's bin: `rows_with_values` negated | `DiveKey::Bin` too |
+| `dive-except` | `z<CR>` on freq | shipped: B1 | — |
 | `addcol-aggregate` | — | `<col>_<agg>` per key group: `agg_expr(col).over(keys)` as a `Derive`-like step | aggregators the window can't take (mode, percentiles?); no keys = whole sheet |
 | `addcol-rank-sheet` | — | rank of each row by the key columns: `rank(Ordinal)` over the key tuple | ties (VisiData: sorted position); nulls |
 | `type-len` | `z#` | column shows its length: `str.len_chars` / `list.len` as a view cast | a "type" that changes values: cast or derive? sort/filter on it |
@@ -38,6 +38,27 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `open-syspaste` | `gP` | clipboard text as a new sheet, filetype asked (default tsv) | tests stub the paste command (`paste_cmd_for`) |
 | `join-cols` | — (columns sheet) | a new column concatenating the selected columns | separator (VisiData: none?); types → text |
 | `commit-sheet` | `z<C-s>` | VisiData writes a duckdb/sqlite sheet's edits back to its table; vdrs's commits the macros/options sheets | edits → `UPDATE`/`INSERT`/`DELETE` by primary key; no key |
+
+Decisions (2026-11-23): all nine ship on one branch, one commit each. New
+columns from `addcol-aggregate` and `addcol-rank-sheet` are live `Derive`
+steps, so `:export` and sessions rebuild them. `type-len` is a view cast.
+
+### B1 — `dive-except` (shipped)
+
+- `zEnter` on a freq sheet is VisiData's `dive-except`. On other sheets it stays `open-cell`.
+- `gzEnter` is `dive-except-selected`: the rows outside every selected bin.
+- `Derivation::Values` gets `except`. The predicate is negated after nulls become false.
+  So a null key stays unless the null bin is picked.
+- On a `gF` sheet, `rows_with_keys` keeps the complement of the matched row ids.
+- Exports negate the same predicate: `~(…).fill_null(False)` and `NOT COALESCE(…, FALSE)`.
+- Sessions replay the dive as `dive_except_selected` over the picked bins.
+
+Row order follows VisiData's `openRows` for every freq dive. Each bin's rows come
+together, the biggest bin first, ties by first appearance. Before, a multi-bin
+dive kept source order. Ponytail: a freq sheet that the user sorted again still
+orders the dive by count.
+
+Replay 102 → 103: freq-dive-except.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.
