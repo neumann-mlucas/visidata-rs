@@ -552,6 +552,11 @@ impl Block {
             };
             self.ex(Action::Order { columns });
         }
+        // a derived sheet starts with its own hidden columns (describe's
+        // `sheet` and `type`): show them, then hide the saved ones
+        if s.state.lineage.is_some() {
+            self.ex(Action::UnhideAll);
+        }
         for h in &v.hidden {
             self.ex(Action::HideNamed { column: h.clone() });
         }

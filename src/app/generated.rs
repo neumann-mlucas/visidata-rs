@@ -241,8 +241,9 @@ fn num() -> impl Strategy<Value = Num> {
     let leaf = prop_oneof![
         3 => (0..8usize).prop_map(Num::Col),
         1 => (-3..10i64).prop_map(Num::Int),
-        // not `1e10`: Polars SQL can't parse an exponent literal
-        1 => proptest::sample::select(&["0.5", "-2.25", "10000000000.0"][..]).prop_map(Num::Float),
+        // not near 1e10: a stdev of such values differs between engines in
+        // the 7th digit (the sum of squares loses it)
+        1 => proptest::sample::select(&["0.5", "-2.25", "1000.25"][..]).prop_map(Num::Float),
         1 => txt().prop_map(Num::Length),
     ];
     leaf.prop_recursive(3, 8, 2, |n| {
@@ -317,7 +318,8 @@ impl Num {
                 .of_type(*i, |t| t.is_float() || t.is_signed_integer())
                 .map_or("1".into(), ident),
             Num::Int(n) => n.to_string(),
-            Num::Float(f) => f.to_string(),
+            // DuckDB reads `1.5` as a DECIMAL, which overflows where Polars' float doesn't
+            Num::Float(f) => format!("CAST({f} AS DOUBLE)"),
             Num::Add(a, b) => format!("({} + {})", a.sql(s), b.sql(s)),
             Num::Sub(a, b) => format!("({} - {})", a.sql(s), b.sql(s)),
             Num::Mul(a, b) => format!("({} * {})", a.sql(s), b.sql(s)),

@@ -1221,3 +1221,18 @@ async fn melt_of_a_melt() {
         "unpivot: key Variable clashes with the melt's own column"
     );
 }
+
+/// S-55: `:derive` reads stored values, not the view's casts; a derive
+/// that only fails on evaluation (`upper` of a bool) is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn derive_that_fails_to_evaluate_is_refused() {
+    let mut h = csv(b"id,A\n1,true\n2,false\n").await;
+    h.keys(":").await;
+    h.type_("derive b = length(upper(\"A\"))").await;
+    assert!(
+        status(&h).contains("expected `String`, got `bool`"),
+        "{}",
+        status(&h)
+    );
+    assert_eq!(view_csv(&h), "id,A\n1,true\n2,false\n");
+}

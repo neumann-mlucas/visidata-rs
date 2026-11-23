@@ -91,8 +91,14 @@ pub(super) fn write_df<W: std::io::Write>(
     {
         return write_df(&mut nested_as_json(df)?, file, ext);
     }
+    // one column: an empty cell would be a blank line, which a reader skips;
+    // Python's csv writes `""` there, so VisiData reads the row back
+    let csv = |file| match df.width() {
+        1 => CsvWriter::new(file).with_null_value("\"\"".into()),
+        _ => CsvWriter::new(file),
+    };
     match ext {
-        Some("tsv" | "tab") => CsvWriter::new(file).with_separator(b'\t').finish(df),
+        Some("tsv" | "tab") => csv(file).with_separator(b'\t').finish(df),
         Some("parquet" | "pq") => ParquetWriter::new(file).finish(df).map(|_| ()),
         Some("ipc" | "arrow" | "feather") => IpcWriter::new(file).finish(df),
         Some("jsonl" | "ndjson") => JsonWriter::new(file)
@@ -101,7 +107,7 @@ pub(super) fn write_df<W: std::io::Write>(
         Some("json") => JsonWriter::new(file)
             .with_json_format(JsonFormat::Json)
             .finish(df),
-        _ => CsvWriter::new(file).finish(df),
+        _ => csv(file).finish(df),
     }
 }
 

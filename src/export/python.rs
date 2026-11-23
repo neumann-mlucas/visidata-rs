@@ -26,8 +26,20 @@ impl Script {
                     py_str(c)
                 ));
             }
-            let text = src_type(s, c) == Some(DataType::String);
-            if *dt == DataType::Date && text {
+            let src = src_type(s, c);
+            let text = src == Some(DataType::String);
+            let number = src
+                .as_ref()
+                .is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
+            if matches!(dt, DataType::Date | DataType::Datetime(..)) && number {
+                // as `cast_expr`: seconds since 1970, in UTC
+                ops.push(format!(
+                    ".with_columns((pl.col({c}).cast(pl.Float64) * 1e6).floor().cast(pl.Int64, strict=False)\
+                     .cast(pl.Datetime(\"us\")).cast({}))",
+                    py_dtype(dt),
+                    c = py_str(c)
+                ));
+            } else if *dt == DataType::Date && text {
                 self.need(&py_lenient_date());
                 ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
             } else if matches!(dt, DataType::Datetime(..)) && text {

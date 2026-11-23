@@ -133,7 +133,7 @@ impl Sheet {
             .iter()
             .find(|(n, _)| n == column)
             .map(|(_, d)| d);
-        let shown_e = shown.map(|dt| cast_expr(column, dt, base == DataType::String));
+        let shown_e = shown.map(|dt| cast_expr(column, dt, Some(&base)));
         if let (Some(e), Some(dt)) = (shown_e, shown)
             && let Some(i) = first_bad(e)?
         {

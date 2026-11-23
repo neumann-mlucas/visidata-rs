@@ -62,15 +62,15 @@ impl Script {
                     } else if dt.is_numeric() && src == Some(DataType::Date) {
                         // Polars casts a date to its days since 1970
                         format!("TRY_CAST(({i} - DATE '1970-01-01') AS {})", sql_dtype(dt))
-                    } else if *dt == DataType::Date
+                    } else if matches!(dt, DataType::Date | DataType::Datetime(..))
                         && src
                             .as_ref()
                             .is_some_and(|t| t.is_numeric() || *t == DataType::Boolean)
                     {
-                        // Polars reads a number (or bool) as days since 1970, cut
-                        // toward zero
+                        // as `cast_expr`: seconds since 1970, in UTC
                         format!(
-                            "DATE '1970-01-01' + TRY_CAST(trunc(CAST({i} AS DOUBLE)) AS INTEGER)"
+                            "CAST(make_timestamp(TRY_CAST(floor(CAST({i} AS DOUBLE) * 1e6) AS BIGINT)) AS {})",
+                            sql_dtype(dt)
                         )
                     } else if dt.is_integer() && src.as_ref().is_some_and(DataType::is_float) {
                         // Polars truncates a float to an int; DuckDB would round
