@@ -323,8 +323,8 @@ impl Num {
             Num::Add(a, b) => format!("({} + {})", a.sql(s), b.sql(s)),
             Num::Sub(a, b) => format!("({} - {})", a.sql(s), b.sql(s)),
             Num::Mul(a, b) => format!("({} * {})", a.sql(s), b.sql(s)),
-            // Polars' `length` is u32, so `length(x) - 12` wraps (S-55 §7).
-            Num::Length(t) => format!("CAST(length({}) AS BIGINT)", t.sql(s)),
+            // `crate::sqlexpr::for_polars` makes it signed (S-55 §7)
+            Num::Length(t) => format!("length({})", t.sql(s)),
         }
     }
 }

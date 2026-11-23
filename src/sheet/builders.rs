@@ -243,7 +243,7 @@ impl Sheet {
             .unwrap_or_default();
         let has = |c: &String| have.contains(c);
         let reads_kept = |pred: &str| {
-            polars::sql::sql_expr(pred)
+            crate::sqlexpr::parse(pred)
                 .is_ok_and(|e| e.meta().root_names().iter().all(|n| has(&n.to_string())))
         };
         let p = &parent.view;

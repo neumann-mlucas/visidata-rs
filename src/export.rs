@@ -258,8 +258,11 @@ impl Script {
                         unions.concat()
                     );
                 }
-                for step in steps(s) {
-                    q = sql_step(q, step);
+                let schemas = s.step_schemas().map_err(|e| e.to_string())?;
+                for (step, schema) in s.state.steps.iter().zip(&schemas) {
+                    if !matches!(step, PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. }) {
+                        q = sql_step(q, step, schema);
+                    }
                 }
                 Ok(self.bind(q))
             }
@@ -1343,6 +1346,18 @@ mod tests {
             py_str("a\u{1f}\"b\\\n\u{301}"),
             "\"a\\x1f\\\"b\\\\\\n\u{301}\""
         );
+    }
+
+    /// S-55: a derive on a derived sheet reads that sheet's columns, not its
+    /// source's: the SQL export types the step from the derived rows.
+    #[test]
+    fn derive_on_a_derived_sheet_exports() {
+        let (s, _t) = sheet();
+        let mut d = Sheet::describe_from(&s, 1).unwrap();
+        d.derive("w", "length(mode) - 9").unwrap();
+        d.derive("v", "w * 2").unwrap();
+        let sql = to_sql(&d).unwrap();
+        assert!(sql.contains("length(mode) - 9"), "{sql}");
     }
 
     #[test]

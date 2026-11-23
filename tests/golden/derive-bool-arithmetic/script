@@ -1,0 +1,6 @@
+:
+> derive a = f - 1
+:
+> derive b = -f + n * f
+:
+> derive c = f AND n > 3

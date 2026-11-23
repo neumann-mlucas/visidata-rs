@@ -4958,6 +4958,7 @@ dependencies = [
  "rusqlite",
  "scraper",
  "serde_json",
+ "sqlparser",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
