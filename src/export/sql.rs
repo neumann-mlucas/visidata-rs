@@ -41,7 +41,15 @@ impl Script {
                     let i = q_ident(c);
                     let src = src_type(s, c);
                     let text = src == Some(DataType::String);
-                    let cast = if *dt == DataType::Date && text {
+                    let cast = if *dt == crate::sheet::LEN_CAST {
+                        match &src {
+                            Some(DataType::List(_)) => format!("CAST(len({i}) AS UINTEGER)"),
+                            Some(DataType::Struct(f)) => {
+                                format!("CASE WHEN {i} IS NOT NULL THEN {}::UINTEGER END", f.len())
+                            }
+                            _ => format!("CAST(length(CAST({i} AS VARCHAR)) AS UINTEGER)"),
+                        }
+                    } else if *dt == DataType::Date && text {
                         self.need(&sql_lenient_date());
                         format!("lenient_date({i})")
                     } else if matches!(dt, DataType::Datetime(..)) && text {

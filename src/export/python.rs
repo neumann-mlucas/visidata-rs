@@ -26,8 +26,23 @@ impl Script {
                     py_str(c)
                 ));
             }
-            let text = src_type(s, c) == Some(DataType::String);
-            if *dt == DataType::Date && text {
+            let src = src_type(s, c);
+            let text = src == Some(DataType::String);
+            if *dt == crate::sheet::LEN_CAST {
+                let p = format!("pl.col({})", py_str(c));
+                let len = match src {
+                    Some(DataType::List(_)) => format!("{p}.list.len()"),
+                    Some(DataType::Struct(f)) => format!(
+                        "pl.when({p}.is_not_null()).then(pl.lit({}, pl.UInt32))",
+                        f.len()
+                    ),
+                    _ => format!("{p}.cast(pl.Utf8).str.len_chars()"),
+                };
+                ops.push(format!(
+                    ".with_columns({len}.cast(pl.UInt32).alias({}))",
+                    py_str(c)
+                ));
+            } else if *dt == DataType::Date && text {
                 self.need(&py_lenient_date());
                 ops.push(format!(".with_columns(lenient_date({}))", py_str(c)));
             } else if matches!(dt, DataType::Datetime(..)) && text {

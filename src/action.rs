@@ -115,6 +115,9 @@ pub enum Action {
     TypeCastCurrency,
     /// `:type json` (S-22 C): decode JSON text into lists / structs.
     TypeCastJson,
+    /// `z#` / `:type len` (VisiData type-len, S-46 B2): show each value's
+    /// length, a view cast as `#`.
+    TypeCastLen,
 
     // search / filter / sort
     SearchNext,
@@ -783,6 +786,7 @@ impl Action {
                 | Action::TypeCastDate
                 | Action::TypeCastDateAs { .. }
                 | Action::TypeCastCurrency
+                | Action::TypeCastLen
                 | Action::FreezeColumn
                 | Action::UnfreezeAll
                 | Action::SetFilter { .. }
@@ -923,7 +927,7 @@ impl Action {
             | RenameColsFromRows { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
             TypeCastDateAs { .. } => true,
-            TypeCastJson => true,
+            TypeCastJson | TypeCastLen => true,
             SearchNext | SearchPrev | SetFilter { .. } | ClearFilter => true,
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
             OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
@@ -1017,6 +1021,7 @@ impl Action {
         ("type_cast_date", TypeCastDate),
         ("type_cast_currency", TypeCastCurrency),
         ("type_cast_json", TypeCastJson),
+        ("type_cast_len", TypeCastLen),
         ("start_search_input", StartSearchInput { all_columns: false, backward: false }),
         ("start_searchr_input", StartSearchInput { all_columns: false, backward: true }),
         ("start_search_all_input", StartSearchInput { all_columns: true, backward: false }),
@@ -1116,6 +1121,7 @@ impl Action {
         ("type_string_selected", TypeSelected { name: "str" }),
         ("type_date_selected", TypeSelected { name: "date" }),
         ("type_currency_selected", TypeSelected { name: "currency" }),
+        ("type_len_selected", TypeSelected { name: "len" }),
         ("start_aggregate_input", StartAggregateInput { memo: false, selected: false }),
         ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),

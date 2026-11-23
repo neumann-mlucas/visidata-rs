@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 103;
+const MIN_PASS: usize = 104;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -1179,6 +1179,7 @@ impl Replay {
                 Ok(())
             }
             "type-int" => self.cast(&r.col, DataType::Int64),
+            "type-len" => self.cast(&r.col, visidata_rs::sheet::LEN_CAST),
             "type-float" => self.cast(&r.col, DataType::Float64),
             "type-string" => self.cast(&r.col, DataType::String),
             "type-date" => self.cast_date(&r.col),

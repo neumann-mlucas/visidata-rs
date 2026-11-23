@@ -278,6 +278,7 @@ impl App {
             Action::TypeCastDateAs { time: false } => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
             Action::TypeCastJson => self.type_cast_json()?,
+            Action::TypeCastLen => self.push_type_cast(crate::sheet::LEN_CAST),
             Action::StartSearchInput {
                 all_columns,
                 backward,

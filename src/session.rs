@@ -478,6 +478,7 @@ impl Block {
                 }
                 // the loaded datetime type: `@` keeps it
                 DataType::Datetime(..) => Action::TypeCastDate,
+                dt if *dt == crate::sheet::LEN_CAST => Action::TypeCastLen,
                 other => {
                     self.note(&format!("{column} as {other}"));
                     continue;

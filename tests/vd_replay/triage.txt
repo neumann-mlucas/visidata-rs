@@ -2,7 +2,7 @@
 # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
 1410a	PASS
 1410b	FAIL line 2: want="#ERR\t1\t10.00\t■■■■■■■■■■■■■■■■■■■" got="\t2\t20.0\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
-1410c	SKIP type-len
+1410c	PASS
 add-col-dup-attrs	SKIP setcol-iter
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window

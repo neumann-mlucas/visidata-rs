@@ -174,8 +174,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 ["date-only"] => Ok(vec![Action::TypeCastDateAs { time: false }]),
                 ["currency"] => Ok(vec![Action::TypeCastCurrency]),
                 ["json"] => Ok(vec![Action::TypeCastJson]),
+                ["len"] => Ok(vec![Action::TypeCastLen]),
                 _ => Err(ExError::Usage(
-                    ":type int|float|string|date|datetime|date-only|currency|json",
+                    ":type int|float|string|date|datetime|date-only|currency|json|len",
                 )),
             }
         }

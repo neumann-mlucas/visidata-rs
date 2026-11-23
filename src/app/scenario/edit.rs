@@ -1486,3 +1486,30 @@ async fn csv_skipinitialspace_set_off_keeps_blanks() {
         view_csv(&h)
     );
 }
+
+/// S-46 B2: `z#` shows lengths and sorts by them; `~` brings the text back,
+/// `U` the length; `gz#` casts the columns sheet's selected columns.
+#[tokio::test(flavor = "multi_thread")]
+async fn type_len_casts_and_reverts() {
+    let mut h = csv(b"id,name\n1,ann\n2,bartholomew\n3,cy\n").await;
+    h.keys("l z # ]").await;
+    assert_eq!(view_csv(&h), "id,name\n2,11\n1,3\n3,2\n");
+    h.keys("~").await;
+    assert_eq!(view_csv(&h), "id,name\n3,cy\n2,bartholomew\n1,ann\n");
+    h.keys("U").await;
+    assert_eq!(view_csv(&h), "id,name\n2,11\n1,3\n3,2\n");
+    h.keys("~ :").await;
+    h.type_("type len").await;
+    assert_eq!(view_csv(&h), "id,name\n2,11\n1,3\n3,2\n");
+    let mut h = csv(b"a,b\nxy,1234\n").await;
+    h.keys("C").await;
+    h.keys("g s").await;
+    h.keys("g z #").await;
+    assert!(
+        h.screen().contains("a                6 len"),
+        "{}",
+        h.screen()
+    );
+    h.keys("q").await;
+    assert_eq!(view_csv(&h), "a,b\n2,4\n");
+}

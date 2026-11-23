@@ -225,8 +225,8 @@ impl Sheet {
         Ok(parts.join("  "))
     }
 
-    /// `ty` (a columns-sheet type: `int float str date currency json`, or
-    /// empty for the loaded type) on `column`. Unchanged on error.
+    /// `ty` (a columns-sheet type: `int float str date currency json len`,
+    /// or empty for the loaded type) on `column`. Unchanged on error.
     pub fn cast_column(&mut self, column: &str, ty: &str) -> Result<(), String> {
         let dt = match ty.trim() {
             "" => {
@@ -244,6 +244,7 @@ impl Sheet {
             "float" => DataType::Float64,
             "str" | "string" => DataType::String,
             "date" => crate::sheet::date_cast_type(self, column),
+            "len" => LEN_CAST,
             "currency" => {
                 let step = PlanStep::Currency {
                     column: column.into(),
@@ -253,7 +254,7 @@ impl Sheet {
             "json" => return self.json_decode(column),
             other => {
                 return Err(format!(
-                    "type {other:?}: int, float, str, date, currency or json"
+                    "type {other:?}: int, float, str, date, currency, json or len"
                 ));
             }
         };
@@ -322,7 +323,11 @@ impl Sheet {
                         Some(at.and_then(|i| s.state.widths.get(i)).copied().unwrap_or(0) as i64)
                     }
                 });
-                types.push(type_name(&dt));
+                let len = (v.type_casts.iter().rev()).find(|(c, _)| *c == n);
+                types.push(match len {
+                    Some((_, t)) if *t == LEN_CAST => "len".into(),
+                    _ => type_name(&dt),
+                });
                 fmts.push(
                     v.precision
                         .iter()

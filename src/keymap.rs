@@ -161,6 +161,7 @@ impl Keymap {
             ),
             // type coercion
             ch("#", TypeCastInt, "type: int"),
+            ch("z #", TypeCastLen, "type: length (of text, list or struct)"),
             ch("%", TypeCastFloat, "type: float"),
             ch("~", TypeCastString, "type: string"),
             ch("@", TypeCastDate, "type: date"),
@@ -263,6 +264,7 @@ impl Keymap {
             ch("g !", KeySelected { on: true }, "columns sheet: key selected columns"),
             ch("g z !", KeySelected { on: false }, "columns sheet: unkey selected columns"),
             ch("g #", TypeSelected { name: "int" }, "columns sheet: selected columns int"),
+            ch("g z #", TypeSelected { name: "len" }, "columns sheet: selected columns length"),
             ch("g %", SetcolPrecisionInput, "float precision; columns sheet: selected columns float"),
             ch("g ~", TypeSelected { name: "str" }, "columns sheet: selected columns text"),
             ch("g @", TypeSelected { name: "date" }, "columns sheet: selected columns date"),

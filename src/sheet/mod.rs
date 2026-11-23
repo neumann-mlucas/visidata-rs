@@ -1129,12 +1129,11 @@ impl Sheet {
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
             let base = self.plan.clone().collect_schema().ok();
-            let is_text = |n: &str| base.as_ref().and_then(|s| s.get(n)) == Some(&DataType::String);
             let exprs: Vec<Expr> = self
                 .view
                 .type_casts
                 .iter()
-                .map(|(name, dt)| cast_expr(name, dt, is_text(name)))
+                .map(|(name, dt)| cast_expr(name, dt, base.as_ref().and_then(|s| s.get(name))))
                 .collect();
             let names = || self.view.type_casts.iter().map(|(n, _)| n.as_str());
             if errs {
@@ -1526,12 +1525,31 @@ pub fn date_cast_type(s: &Sheet, column: &str) -> DataType {
     }
 }
 
-/// A type cast of `name` to `dt`; text dates parse leniently.
-pub(crate) fn cast_expr(name: &str, dt: &DataType, text: bool) -> Expr {
+/// `z#` (VisiData type-len, S-46 B2): the view cast that shows each value's
+/// length ([`len_expr`]). No other cast picks this type: `#` casts to Int64.
+pub const LEN_CAST: DataType = DataType::UInt32;
+
+/// A type cast of `name` (loaded as `base`) to `dt`; text dates parse
+/// leniently, [`LEN_CAST`] gives lengths.
+pub(crate) fn cast_expr(name: &str, dt: &DataType, base: Option<&DataType>) -> Expr {
+    let text = base == Some(&DataType::String);
     match dt {
+        dt if *dt == LEN_CAST => len_expr(name, base).alias(name),
         DataType::Date if text => lenient_date(name),
         DataType::Datetime(..) if text => lenient_datetime(name),
         _ => col(name).cast(dt.clone()).alias(name),
+    }
+}
+
+/// VisiData `vlen`: a list's item count, a struct's field count (as a dict's
+/// key count), else the length of the value's text. Null stays null.
+fn len_expr(name: &str, base: Option<&DataType>) -> Expr {
+    match base {
+        Some(DataType::List(_)) => col(name).list().len().cast(LEN_CAST),
+        Some(DataType::Struct(fields)) => when(col(name).is_not_null())
+            .then(lit(fields.len() as u32))
+            .otherwise(lit(NULL).cast(LEN_CAST)),
+        _ => col(name).cast(DataType::String).str().len_chars(),
     }
 }
 

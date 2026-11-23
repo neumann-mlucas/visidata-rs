@@ -32,7 +32,7 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | `dive-except` | `z<CR>` on freq | shipped: B1 | — |
 | `addcol-aggregate` | — | `<col>_<agg>` per key group: `agg_expr(col).over(keys)` as a `Derive`-like step | aggregators the window can't take (mode, percentiles?); no keys = whole sheet |
 | `addcol-rank-sheet` | — | rank of each row by the key columns: `rank(Ordinal)` over the key tuple | ties (VisiData: sorted position); nulls |
-| `type-len` | `z#` | column shows its length: `str.len_chars` / `list.len` as a view cast | a "type" that changes values: cast or derive? sort/filter on it |
+| `type-len` | `z#` | shipped: B2 | — |
 | `sheets-all` | `gS` | every open sheet, not only the stack | vdrs has one stack: same as `S` plus closed-but-kept sheets? |
 | `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
 | `open-syspaste` | `gP` | clipboard text as a new sheet, filetype asked (default tsv) | tests stub the paste command (`paste_cmd_for`) |
@@ -59,6 +59,19 @@ dive kept source order. Ponytail: a freq sheet that the user sorted again still
 orders the dive by count.
 
 Replay 102 → 103: freq-dive-except.
+
+### B2 — `type-len` (shipped)
+
+- `z#` and `:type len` add a view cast to `LEN_CAST` (UInt32). `#` casts to Int64,
+  so no other cast picks this type.
+- `len_expr` is VisiData's `vlen`: a list's items, a struct's fields (a dict's keys),
+  else the characters of the value's text. Null stays null.
+- `cast_expr` now takes the loaded type, since a list and a text need different exprs.
+- The columns sheet shows the type as `len`. `gz#` and a `len` type cell cast there.
+- Exports: Polars `list.len` / `str.len_chars`; DuckDB `len` / `length`.
+- The vim profile keeps `z#` as the int cast; `:type len` works there.
+
+Replay 103 → 104: 1410c.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.
