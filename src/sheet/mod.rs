@@ -1134,12 +1134,11 @@ impl Sheet {
         // Type casts first so downstream filter/sort see the typed values.
         if !self.view.type_casts.is_empty() {
             let base = self.plan.clone().collect_schema().ok();
-            let is_text = |n: &str| base.as_ref().and_then(|s| s.get(n)) == Some(&DataType::String);
             let exprs: Vec<Expr> = self
                 .view
                 .type_casts
                 .iter()
-                .map(|(name, dt)| cast_expr(name, dt, is_text(name)))
+                .map(|(name, dt)| cast_expr(name, dt, base.as_ref().and_then(|s| s.get(name))))
                 .collect();
             let names = || self.view.type_casts.iter().map(|(n, _)| n.as_str());
             if errs {
@@ -1235,6 +1234,16 @@ impl Sheet {
         };
         let plan = step.apply(self.plan.clone()).map_err(|e| e.to_string())?;
         plan.clone().collect_schema().map_err(|e| e.to_string())?;
+        // the schema passes some type errors (`upper` of a bool) that only
+        // evaluation raises; they show on no rows too, and no rows read
+        // nothing (the UI thread mustn't scan)
+        let schema = self
+            .plan
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?;
+        let empty = DataFrame::empty_with_schema(&schema).lazy();
+        (step.apply(empty).and_then(|p| p.collect())).map_err(|e| e.to_string())?;
         let old = std::mem::replace(&mut self.plan, plan);
         let holds = self.filter_expr_holds();
         let plan = std::mem::replace(&mut self.plan, old);
@@ -1552,12 +1561,27 @@ pub fn date_cast_type(s: &Sheet, column: &str) -> DataType {
 }
 
 /// A type cast of `name` to `dt`; text dates parse leniently.
-pub(crate) fn cast_expr(name: &str, dt: &DataType, text: bool) -> Expr {
+pub(crate) fn cast_expr(name: &str, dt: &DataType, src: Option<&DataType>) -> Expr {
+    let text = src == Some(&DataType::String);
+    let number = src.is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
     match dt {
         DataType::Date if text => lenient_date(name),
         DataType::Datetime(..) if text => lenient_datetime(name),
+        DataType::Date | DataType::Datetime(..) if number => epoch_seconds(name, dt),
         _ => col(name).cast(dt.clone()).alias(name),
     }
+}
+
+/// A number as seconds since 1970, in UTC, as VisiData's `date` reads it
+/// (`datetime.fromtimestamp`, local time there). `:export` writes the same.
+fn epoch_seconds(name: &str, dt: &DataType) -> Expr {
+    let us = TimeUnit::Microseconds;
+    (col(name).cast(DataType::Float64) * lit(1e6))
+        .floor()
+        .cast(DataType::Int64)
+        .cast(DataType::Datetime(us, None))
+        .cast(dt.clone())
+        .alias(name)
 }
 
 /// [`lenient_date`] plus the time of day ([`TIME_OF_DAY`]); midnight

@@ -275,6 +275,27 @@ fn write_df_text_formats_save_nested_cells_as_json() {
     );
 }
 
+/// S-56 relation 20: a one-column CSV writes a null as `""`, not a blank
+/// line a reader skips, as Python's csv; the rows read back.
+#[test]
+fn one_column_csv_keeps_its_null_rows() {
+    let mut df = df!("x" => [Some(1.5), None, Some(2.0)]).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("one.csv");
+    write_df_by_extension(&mut df, &path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "x\n1.5\n\"\"\n2.0\n"
+    );
+    let back = crate::reader::open(path.as_os_str(), None).unwrap();
+    let back = back.lazy.collect().unwrap();
+    assert_eq!(back.height(), 3);
+    // `""` reads back as empty text, so the column opens as text: the rows
+    // are kept, the inferred type is not
+    let x = back.column("x").unwrap().cast(&DataType::String).unwrap();
+    assert_eq!(x.str().unwrap().get(1), Some(""));
+}
+
 #[test]
 fn write_df_unknown_extension_errors() {
     let mut df = df!("a" => [1i64]).unwrap();

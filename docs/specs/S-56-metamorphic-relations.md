@@ -154,7 +154,9 @@ Notation: `rows(S)` is the multiset of rows of sheet `S` (`csv_text`).
   file holds no column names.
 
 Bugs found: a mixed-type unpivot lost values like `false` next to a number
-(it now melts them as text), and an empty `.jsonl` file failed to open.
+(it now melts them as text), and an empty `.jsonl` file failed to open. A
+one-column CSV saved a null cell as a blank line, which the reader skips.
+vdrs now writes `""`, as Python's csv does. The column reads back as text.
 
 - A relation that fails on a VisiData-compatible behavior is wrong, not
   the code. Remove or fix the relation, and give the reason in §4.

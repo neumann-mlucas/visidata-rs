@@ -136,16 +136,21 @@ The generator keeps away from these divergences between Polars and DuckDB:
   Polars wraps.
 - The generator uses no unsigned column. `length()` is cast to `BIGINT`.
 - The compare reads DuckDB's `-0.0` as `0`, and sets floats under 1e-12 to 0.
-- Polars SQL can't parse an exponent literal (`1e10`), so the generator
-  writes `10000000000.0`.
+- DuckDB reads `1.5` as a DECIMAL, which can overflow where Polars uses a
+  float. The generator writes `CAST(1.5 AS DOUBLE)`.
+- Floats stay far from 1e10: a stdev of values near 1e10 differs between
+  the engines in the 7th digit.
 
 Open findings:
 
 1. Freq and describe counts are `u64`, and `length()` is `u32`. So
    `length('NULL') - 12` gives 4294967288, where VisiData gives -8. An i64
    count changes the column types on golden screens and in the guide.
-2. vdrs casts a number to a date as days since 1970. VisiData may read it as
-   a timestamp. Not verified.
+2. Fixed: vdrs cast a number to a date as days since 1970. VisiData reads
+   it as seconds (`datetime.fromtimestamp`), and vdrs does too now, in UTC.
+3. Open: a `:derive` over a column with every cell empty, after a
+   `:type int` on it, exports SQL that DuckDB refuses
+   (`-(BOOLEAN, BIGINT)`). Found at 200 cases; not triaged.
 
 The relations of §4.3 run through the `Harness` (S-56): the real key path is
 worth the time.
@@ -156,7 +161,10 @@ Each has a test or a golden case:
 
 - An ill-typed `:filter-expr` was accepted. A derive or a cast could break a
   filter-expr that was there.
-- A session replay toggled off the keys of a derived sheet.
+- A `:derive` that fails only on evaluation (`upper` of a Boolean) was
+  accepted, and the sheet stopped loading.
+- A session replay toggled off the keys of a derived sheet, and hid the
+  describe columns that `unhide` had shown.
 - The SQL date cast from a number or a Boolean gave null.
 - Describe of no rows: the SQL sum was null and the Python script failed.
 - The SQL export accepted columns differing only by case (from a derive),
