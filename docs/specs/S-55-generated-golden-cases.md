@@ -134,8 +134,7 @@ The generator keeps away from these divergences between Polars and DuckDB:
 
 - Integers stay under 230 in size: DuckDB raises on an i64 overflow, and
   Polars wraps.
-- The generator uses no unsigned column. `length()` is cast to `BIGINT`
-  (finding 1).
+- The generator uses no unsigned column (a Parquet `u32`, say).
 - The compare reads DuckDB's `-0.0` as `0`, and sets floats under 1e-12 to 0.
 - DuckDB reads `1.5` as a DECIMAL, which can overflow where Polars uses a
   float. The generator writes `CAST(1.5 AS DOUBLE)`.
@@ -144,15 +143,16 @@ The generator keeps away from these divergences between Polars and DuckDB:
 
 Open findings:
 
-1. Fixed in part: freq, pivot and describe counts were unsigned, so
-   `count - 10` wrapped to a big number where VisiData gives a negative
-   one. They are `Int64` now. Open: `length()` is still `u32`, so
-   `length('NULL') - 12` gives 4294967288, where VisiData gives -8.
+1. Fixed: freq, pivot and describe counts were unsigned, so `count - 10`
+   wrapped to a big number where VisiData gives a negative one. They are
+   `Int64` now. `length()` and the other counting functions are cast to
+   `BIGINT` (`src/sqlexpr.rs`), so `length('NULL') - 12` gives -8.
 2. Fixed: vdrs cast a number to a date as days since 1970. VisiData reads
    it as seconds (`datetime.fromtimestamp`), and vdrs does too now, in UTC.
-3. Open: a `:derive` over a column with every cell empty, after a
-   `:type int` on it, exports SQL that DuckDB refuses
-   (`-(BOOLEAN, BIGINT)`). Found at 200 cases; not triaged.
+3. Fixed: a `:derive` doing arithmetic on a Boolean column (an empty
+   column reads as Boolean) worked in the app, as Polars counts it 0 or 1,
+   but DuckDB refused the exported SQL (`-(BOOLEAN, BIGINT)`). The SQL
+   export casts that column to `BIGINT`.
 
 The relations of §4.3 run through the `Harness` (S-56): the real key path is
 worth the time.

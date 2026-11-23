@@ -76,7 +76,7 @@ impl Script {
         if let Some(p) = &v.filter_expr {
             ops.push(format!(
                 ".filter(pl.sql_expr({}).fill_null(False))",
-                py_str(p)
+                py_str(&crate::sqlexpr::for_polars(p))
             ));
         }
         if !v.sort.is_empty() {
@@ -209,7 +209,7 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
         ),
         PlanStep::Derive { name, expr, .. } => format!(
             "{t} = {t}.with_columns(pl.sql_expr({}).alias({}))",
-            py_str(expr),
+            py_str(&crate::sqlexpr::for_polars(expr)),
             py_str(name)
         ),
         PlanStep::SetCol {
@@ -243,7 +243,7 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
         } => format!(
             "{t} = {t}.with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
              .then(pl.sql_expr({}).cast({t}.collect_schema()[{c}], strict=False)).otherwise(pl.col({c})).alias({c}))",
-            py_str(expr),
+            py_str(&crate::sqlexpr::for_polars(expr)),
             c = py_str(column)
         ),
         PlanStep::Lookup {

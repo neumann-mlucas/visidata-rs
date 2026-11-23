@@ -113,6 +113,10 @@ impl Script {
             ));
         }
         if let Some(p) = &v.filter_expr {
+            // it reads the typed view, hidden columns too
+            let schema = s.sorted_plan_with(false, false).collect_schema();
+            let schema = schema.map_err(|e| e.to_string())?;
+            let p = crate::sqlexpr::for_duckdb(p, &schema);
             wheres.push(format!("coalesce(({p}), false)"));
         }
         if !wheres.is_empty() {
@@ -139,7 +143,8 @@ impl Script {
 }
 
 /// Each plan step wraps the query so far (DuckDB `* RENAME` / `* REPLACE`).
-pub(super) fn sql_step(q: String, step: &PlanStep) -> String {
+/// `schema`: what the step reads.
+pub(super) fn sql_step(q: String, step: &PlanStep, schema: &polars::prelude::Schema) -> String {
     match step {
         PlanStep::Replace {
             column,
@@ -228,11 +233,13 @@ pub(super) fn sql_step(q: String, step: &PlanStep) -> String {
             expr,
             replaces: true,
         } => format!(
-            "SELECT * REPLACE (({expr}) AS {}) FROM ({q})",
+            "SELECT * REPLACE (({}) AS {}) FROM ({q})",
+            crate::sqlexpr::for_duckdb(expr, schema),
             q_ident(name)
         ),
         PlanStep::Derive { name, expr, .. } => {
-            format!("SELECT *, ({expr}) AS {} FROM ({q})", q_ident(name))
+            let e = crate::sqlexpr::for_duckdb(expr, schema);
+            format!("SELECT *, ({e}) AS {} FROM ({q})", q_ident(name))
         }
         PlanStep::SetCol {
             column,
@@ -257,8 +264,9 @@ pub(super) fn sql_step(q: String, step: &PlanStep) -> String {
         } => {
             let ids: Vec<String> = rids.iter().map(u64::to_string).collect();
             format!(
-                "SELECT * REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST(({expr}) AS {}) ELSE {c} END AS {c}) FROM ({q})",
+                "SELECT * REPLACE (CASE WHEN __rid IN ({}) THEN TRY_CAST(({}) AS {}) ELSE {c} END AS {c}) FROM ({q})",
                 ids.join(", "),
+                crate::sqlexpr::for_duckdb(expr, schema),
                 sql_dtype(dtype),
                 c = q_ident(column)
             )

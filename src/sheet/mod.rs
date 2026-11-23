@@ -118,6 +118,8 @@ pub struct Lineage {
     /// A pivot's own columns, as it made them: its computed cells are these
     /// less its keys (columns added after take edits). Empty otherwise.
     pub made: Vec<String>,
+    /// The derived rows before this sheet's own steps (`Sheet::step_schemas`).
+    pub rows: LazyFrame,
 }
 
 #[derive(Clone)]
@@ -905,6 +907,7 @@ impl Sheet {
             parent: p,
             how,
             made,
+            rows: self.plan.clone(),
         }));
         self
     }
@@ -1196,7 +1199,7 @@ impl Sheet {
             .view
             .filter_expr
             .as_deref()
-            .and_then(|p| polars::sql::sql_expr(p).ok())
+            .and_then(|p| crate::sqlexpr::parse(p).ok())
         {
             lf = lf.filter(e.fill_null(false));
         }
@@ -1466,7 +1469,7 @@ impl Sheet {
             return Err(format!("column already exists: {new}"));
         }
         let reads = |p: &str| {
-            polars::sql::sql_expr(p).is_ok_and(|e| e.meta().root_names().iter().any(|n| n == old))
+            crate::sqlexpr::parse(p).is_ok_and(|e| e.meta().root_names().iter().any(|n| n == old))
         };
         if new != old && self.view.filter_expr.as_deref().is_some_and(reads) {
             return Err(format!(

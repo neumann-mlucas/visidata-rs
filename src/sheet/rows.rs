@@ -264,7 +264,7 @@ impl Sheet {
     /// `pred` (a SQL expression, S-21) as a filter over the view's rows,
     /// hidden columns included. Refused unless it is a boolean.
     pub(super) fn predicate(&self, lf: &LazyFrame, pred: &str) -> Result<Expr, String> {
-        let e = polars::sql::sql_expr(pred).map_err(|e| format!("expr: {e}"))?;
+        let e = crate::sqlexpr::parse(pred).map_err(|e| format!("expr: {e}"))?;
         let schema = lf
             .clone()
             .select([e.clone().alias("__vdrs_pred")])

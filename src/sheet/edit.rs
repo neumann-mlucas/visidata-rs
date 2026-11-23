@@ -678,7 +678,7 @@ impl Sheet {
         if rids.is_empty() {
             return Err("no rows selected".into());
         }
-        let e = polars::sql::sql_expr(expr).map_err(|e| format!("expr: {e}"))?;
+        let e = crate::sqlexpr::parse(expr).map_err(|e| format!("expr: {e}"))?;
         // Steps after the insert point write neither `column` nor what `expr`
         // reads, so the current plan has their types there.
         let schema = self

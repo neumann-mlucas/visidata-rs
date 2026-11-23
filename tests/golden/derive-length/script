@@ -1,0 +1,4 @@
+:
+> derive d = length(s) - 3
+:
+> filter-expr strpos(s, 'b') - 1 < 2
