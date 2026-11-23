@@ -1540,3 +1540,41 @@ async fn join_cols_from_the_columns_sheet() {
     h.type_("join-cols").await;
     assert_eq!(status(&h), "only on the columns sheet (C)");
 }
+
+/// S-46 B4: `:addcol-aggregate` aggregates the cursor column within the key
+/// groups, `:addcol-rank-sheet` ranks the rows' keys; each is one undo step,
+/// and neither ranks without a key column.
+#[tokio::test(flavor = "multi_thread")]
+async fn addcol_aggregate_and_rank_sheet() {
+    let mut h = csv(b"k,v\nx,3\ny,1\nx,5\n").await;
+    h.keys("l :").await;
+    h.type_("addcol-aggregate rank").await;
+    assert_eq!(
+        status(&h),
+        "addcol-aggregate: ranking requires one or more key columns"
+    );
+    h.keys(":").await;
+    h.type_("addcol-rank-sheet").await;
+    assert_eq!(
+        status(&h),
+        "addcol-rank-sheet: ranking requires one or more key columns"
+    );
+    h.keys("h ! l :").await;
+    h.type_("addcol-aggregate sum rank").await;
+    assert_eq!(status(&h), "added v_sum, v_rank");
+    assert_eq!(h.current_column(), "v_sum");
+    assert_eq!(
+        view_csv(&h),
+        "k,v,v_sum,v_rank\nx,3,8,1\ny,1,1,1\nx,5,8,2\n"
+    );
+    h.keys(":").await;
+    h.type_("addcol-rank-sheet").await;
+    let rank = format!("{}_sheetrank", h.app.sheets.active().table_name());
+    assert_eq!(h.current_column(), rank);
+    assert_eq!(
+        view_csv(&h),
+        format!("k,v,v_sum,{rank},v_rank\nx,3,8,1,1\ny,1,1,2,1\nx,5,8,1,2\n")
+    );
+    h.keys("U U").await;
+    assert_eq!(view_csv(&h), "k,v\nx,3\ny,1\nx,5\n");
+}

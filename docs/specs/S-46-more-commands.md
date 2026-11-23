@@ -30,8 +30,8 @@ translation when built. Order by value. `freq-keys` `gF` and `open-cell` `z<CR>`
 | Command | Key | Sketch | Open questions |
 |---|---|---|---|
 | `dive-except` | `z<CR>` on freq | shipped: B1 | — |
-| `addcol-aggregate` | — | `<col>_<agg>` per key group: `agg_expr(col).over(keys)` as a `Derive`-like step | aggregators the window can't take (mode, percentiles?); no keys = whole sheet |
-| `addcol-rank-sheet` | — | rank of each row by the key columns: `rank(Ordinal)` over the key tuple | ties (VisiData: sorted position); nulls |
+| `addcol-aggregate` | — | shipped: B4 | — |
+| `addcol-rank-sheet` | — | shipped: B4 | — |
 | `type-len` | `z#` | shipped: B2 | — |
 | `sheets-all` | `gS` | every open sheet, not only the stack | vdrs has one stack: same as `S` plus closed-but-kept sheets? |
 | `save-all` | `g<C-s>` | every sheet to a path | one file per sheet in a directory, or one multi-part file (xlsx, duckdb); name clashes |
@@ -87,6 +87,32 @@ Replay 103 → 104: 1410c.
   (`fmtstr`, precision). VisiData joins display values.
 
 Replay 104 → 105: join-cols-single-sheet.
+
+### B4 — `addcol-aggregate`, `addcol-rank-sheet` (shipped)
+
+- `:addcol-aggregate <aggs>` adds `<col>_<agg>` per aggregator, after the cursor column.
+  On a key column, the new columns come first among the non-keys, as VisiData's `addColumnAtCursor`.
+- Each column is a new `PlanStep::GroupAgg`: `agg_of(col)` within the key groups (`over`).
+  Without keys, the group is the whole sheet. Null keys group together.
+- `rank` is VisiData's `RankAggregator`: a dense rank within the key group.
+  It ranks descending when the sheet sorts that column descending. It needs a key column.
+- `:addcol-rank-sheet` adds `<sheet>_sheetrank`: the dense rank of each row's key tuple.
+  Sorted key columns come first, in their direction, then the other keys ascending.
+- Null is the smallest value, as VisiData's `TypedWrapper`: first ascending, last descending.
+- `dense_rank` sorts the rows, counts where the tuple changes, then gathers the counts back.
+  Exports do the same in Polars. DuckDB uses `dense_rank() OVER (... NULLS FIRST)`.
+- The step keeps the view casts of the columns it reads, so a later cast doesn't change it.
+  Only `int`, `float` and `str` casts can be read. A date or len cast refuses.
+- `:addcol-agg <name> <agg> by=<col>|desc=<col> … [over=<col> …] [cast=<col>:<type> …]`
+  spells the step out. Sessions replay both commands with it, before the view's keys and casts.
+- Replay: an `open-row` with a row number on a sqlite or xlsx sheet opens that part.
+- Ponytail: an error row (S-44 A) groups with the null keys. VisiData gives each error row its own group.
+
+Replay 105 → 105. Both corpus files run but are quarantined:
+
+- `aggregators-cols`: an error row shows `#ERR` in every cell. VisiData shows the added columns' values.
+- `rank-sheetrank-sorted-cols`: every rank matches. A sqlite `date` column loads as text,
+  so it doesn't show in `disp_date_fmt`.
 
 Not planned: `setcol-iter` (Python expression), `setcol-format-enum`, `type-decimal`,
 `addcol-window`, `join-sheets-cols`.

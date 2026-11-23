@@ -15,6 +15,63 @@ impl App {
         Continue(())
     }
 
+    /// `:addcol-aggregate` (S-46 B4).
+    pub(super) fn addcol_aggregate(&mut self, aggs: &str) {
+        let Some(c) = self.current_column_name() else {
+            return;
+        };
+        let done = self
+            .sheets
+            .active_mut()
+            .addcol_aggregate(&c, aggs)
+            .map(|names| {
+                self.goto_column(&names[0]);
+                format!("added {}", names.join(", "))
+            });
+        self.edit_done(done, "addcol-aggregate: ");
+    }
+
+    /// `:addcol-rank-sheet` (S-46 B4): after the cursor column.
+    pub(super) fn addcol_rank_sheet(&mut self) {
+        let c = self.current_column_name();
+        let done = (self.sheets.active_mut().addcol_rank_sheet(c.as_deref())).map(|name| {
+            self.goto_column(&name);
+            format!("added {name}")
+        });
+        self.edit_done(done, "addcol-rank-sheet: ");
+    }
+
+    /// `:addcol-agg` (S-46 B4): after the cursor column.
+    pub(super) fn addcol_agg(
+        &mut self,
+        name: &str,
+        agg: &str,
+        (by, over): (&[(String, bool)], &[String]),
+        casts: &[(String, String)],
+    ) {
+        let typed: Result<Vec<_>, String> = (casts.iter())
+            .map(|(c, t)| {
+                match crate::sheet::columns::AGG_CASTS
+                    .iter()
+                    .find(|(n, _)| n == t)
+                {
+                    Some((_, dt)) => Ok((c.clone(), dt.clone())),
+                    None => Err(format!("cast {t}: int, float or str")),
+                }
+            })
+            .collect();
+        let c = self.current_column_name();
+        let done = typed.and_then(|casts| {
+            let s = self.sheets.active_mut();
+            s.group_agg(name, agg, (by, over), &casts, c.as_deref())
+        });
+        let done = done.map(|()| {
+            self.goto_column(name);
+            format!("added {name}")
+        });
+        self.edit_done(done, "addcol-agg: ");
+    }
+
     pub(super) fn key_col(&mut self) {
         if let Some(c) = self.current_column_name() {
             let s = self.sheets.active_mut();

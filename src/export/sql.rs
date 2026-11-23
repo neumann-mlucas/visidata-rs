@@ -171,6 +171,37 @@ pub(super) fn sql_step(q: String, step: &PlanStep) -> String {
                 q_ident(name)
             )
         }
+        PlanStep::GroupAgg {
+            agg,
+            by,
+            over,
+            casts,
+            name,
+        } => {
+            let typed = |c: &str| match casts.iter().find(|(n, _)| n == c) {
+                Some((_, dt)) => format!("TRY_CAST({} AS {})", q_ident(c), sql_dtype(dt)),
+                None => q_ident(c),
+            };
+            let part: Vec<String> = over.iter().map(|c| q_ident(c)).collect();
+            let part = match part.is_empty() {
+                true => String::new(),
+                false => format!("PARTITION BY {}", part.join(", ")),
+            };
+            let v = match (agg.as_str(), by.as_slice()) {
+                ("rank", _) => {
+                    let order: Vec<String> = (by.iter())
+                        .map(|(c, d)| match d {
+                            true => format!("{} DESC NULLS LAST", typed(c)),
+                            false => format!("{} ASC NULLS FIRST", typed(c)),
+                        })
+                        .collect();
+                    format!("dense_rank() OVER ({part} ORDER BY {})", order.join(", "))
+                }
+                (_, [(c, _)]) => sql_agg_of(&typed(c), agg, &format!(" OVER ({part})")),
+                _ => unreachable!("one column per aggregator"),
+            };
+            format!("SELECT *, {v} AS {} FROM ({q})", q_ident(name))
+        }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => q, // see `steps`
         PlanStep::Json { column, dtype } => format!(
             "SELECT * REPLACE (from_json({c}, {}) AS {c}) FROM ({q})",
@@ -415,18 +446,23 @@ pub(super) fn sql_pivot_aggs(
 
 /// [`crate::sheet::columns::agg_expr`] in DuckDB SQL.
 pub(super) fn sql_agg(c: &str, agg: &str) -> String {
-    let q = q_ident(c);
-    let e = match agg {
-        "distinct" => format!("count(DISTINCT {q})"),
-        "sum" => format!("coalesce(sum({q}), 0)"),
-        "mean" | "avg" => format!("avg({q})"),
-        "stdev" => format!("stddev_samp({q})"),
-        a if let Some(n) = crate::sheet::columns::percentile(a) => {
-            format!("quantile_cont({q}, {})", n as f64 / 100.0)
-        }
-        _ => format!("{agg}({q})"),
-    };
+    let e = sql_agg_of(&q_ident(c), agg, "");
     format!("{e} AS {}", q_ident(&agg_name(c, agg)))
+}
+
+/// `agg` of SQL value `q`, unnamed; `over` follows the aggregate call (a
+/// window, or empty).
+fn sql_agg_of(q: &str, agg: &str, over: &str) -> String {
+    match agg {
+        "distinct" => format!("count(DISTINCT {q}){over}"),
+        "sum" => format!("coalesce(sum({q}){over}, 0)"),
+        "mean" | "avg" => format!("avg({q}){over}"),
+        "stdev" => format!("stddev_samp({q}){over}"),
+        a if let Some(n) = crate::sheet::columns::percentile(a) => {
+            format!("quantile_cont({q}, {}){over}", n as f64 / 100.0)
+        }
+        _ => format!("{agg}({q}){over}"),
+    }
 }
 
 /// `read_csv_auto` arguments matching how vdrs read this file: DuckDB must not

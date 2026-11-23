@@ -1,0 +1,12 @@
+ tests/golden/addcol-aggregate-typed/input.csv                                 qty_sum 4/6  row 1/7
+region str  rep str   qty ▼  qty_sum i  qty_max i  qty_rank i
+West        Kivell       10         10         10           1
+East        Smith        10         16         10           1
+·           Cy            7          9          7           1
+East        Jones         3         16         10           2
+East        Dee           3         16         10           2
+·           Ann           2          9          7           2
+West        Bo            ·         10         10           2
+
+
+                                                                                       q  pop_sheet

@@ -356,13 +356,27 @@ impl Replay {
             return Err(Runtime("dive-selected: not a freq sheet".into()));
         };
         let Origin::Parts { path, kind } = s.origin.clone() else {
-            // xlsx/sqlite open their first part directly; `キname` names another
-            let (Some(name), Some(path)) = (row.strip_prefix('キ'), s.source.path.clone()) else {
+            // xlsx/sqlite open their first part directly; `キname` or a row
+            // number on VisiData's part list names another
+            let Some(path) = s.source.path.clone() else {
                 return Ok(());
             };
             if !matches!(s.kind, SourceKind::Sqlite | SourceKind::Xlsx) {
                 return Ok(());
             }
+            let name = match (row.strip_prefix('キ'), row.parse::<usize>()) {
+                (Some(n), _) => n.to_string(),
+                (None, Ok(i)) => {
+                    let parts =
+                        reader::list_parts(&path, s.kind).map_err(|e| Runtime(e.to_string()))?;
+                    let Some(n) = parts.get(i) else {
+                        return Err(Runtime(format!("open-row: no row {row}")));
+                    };
+                    n.clone()
+                }
+                _ => return Ok(()),
+            };
+            let name = name.as_str();
             let loaded = reader::open_part_with(&path, s.kind, name, s.source.header)
                 .map_err(|e| Runtime(e.to_string()))?;
             let sheet = Sheet::from_source(self.alloc(), loaded);
@@ -1113,6 +1127,17 @@ impl Replay {
                     s.rename_col(&old, &new).map_err(Runtime)?;
                 }
                 Ok(())
+            }
+            "addcol-aggregate" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.addcol_aggregate(&r.col, &r.input)
+                    .map(drop)
+                    .map_err(Runtime)
+            }
+            "addcol-rank-sheet" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let after = (!r.col.is_empty()).then_some(r.col.as_str());
+                s.addcol_rank_sheet(after).map(drop).map_err(Runtime)
             }
             "freeze-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;

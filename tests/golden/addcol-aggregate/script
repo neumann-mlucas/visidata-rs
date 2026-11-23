@@ -1,0 +1,5 @@
+!
+l l
+:
+> addcol-aggregate count distinct rank
+q

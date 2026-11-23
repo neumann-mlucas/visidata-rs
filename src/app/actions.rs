@@ -232,6 +232,15 @@ impl App {
             }
             Action::UnfreezeAll => self.sheets.active_mut().view.frozen_left = 0,
             Action::FreezeCol => self.freeze_col()?,
+            Action::AddColAggregate { aggs } => self.addcol_aggregate(&aggs),
+            Action::AddColRankSheet => self.addcol_rank_sheet(),
+            Action::AddColAgg {
+                name,
+                agg,
+                by,
+                over,
+                casts,
+            } => self.addcol_agg(&name, &agg, (&by, &over), &casts),
             Action::HideCol => {
                 if let Some(c) = self.current_column_name() {
                     self.sheets.active_mut().view.hidden.insert(c);

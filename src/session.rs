@@ -455,6 +455,25 @@ impl Block {
                         pattern: pattern.clone(),
                     });
                 }
+                PlanStep::GroupAgg {
+                    agg,
+                    by,
+                    over,
+                    casts,
+                    name,
+                } => {
+                    use crate::sheet::columns::AGG_CASTS;
+                    let name_of = |dt| AGG_CASTS.iter().find(|(_, t)| t == dt).map(|(n, _)| *n);
+                    let casts = (casts.iter())
+                        .filter_map(|(c, dt)| Some((c.clone(), name_of(dt)?.to_string())));
+                    self.ex(Action::AddColAgg {
+                        name: name.clone(),
+                        agg: agg.clone(),
+                        by: by.clone(),
+                        over: over.clone(),
+                        casts: casts.collect(),
+                    });
+                }
                 PlanStep::Expand { column, fields, .. } => {
                     self.col(column);
                     let depth = fields.iter().map(|(p, _)| p.len()).max().unwrap_or(1);

@@ -66,6 +66,24 @@ pub enum Action {
     /// `:join-cols` on a columns sheet (VisiData join-cols, S-46 B3): a new
     /// text column joining the selected columns' values.
     JoinCols,
+    /// `:addcol-aggregate <aggs>` (VisiData addcol-aggregate, S-46 B4): a
+    /// column per aggregator of the cursor column, within the key groups.
+    AddColAggregate {
+        aggs: String,
+    },
+    /// `:addcol-rank-sheet` (VisiData addcol-rank-sheet, S-46 B4): the rank
+    /// of each row's key values.
+    AddColRankSheet,
+    /// `:addcol-agg` (S-46 B4): the column the two above make, spelled out,
+    /// as a session replays it. `by`: (column, descending); `casts`:
+    /// (column, `int`/`float`/`str`).
+    AddColAgg {
+        name: String,
+        agg: String,
+        by: Vec<(String, bool)>,
+        over: Vec<String>,
+        casts: Vec<(String, String)>,
+    },
     /// `zEnter` / `gzEnter` on a freq sheet (VisiData dive-except,
     /// dive-except-selected): the source rows outside the cursor row's
     /// (selected rows') bins.
@@ -872,7 +890,7 @@ impl Action {
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
             Transpose | JoinAll { .. } | FreqKeys | OpenCell | DiveExcept { .. } => true,
-            JoinCols => true,
+            JoinCols | AddColAggregate { .. } | AddColRankSheet | AddColAgg { .. } => true,
             StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
@@ -1166,6 +1184,8 @@ impl Action {
         ("dive_except", DiveExcept { selected: false }),
         ("dive_except_selected", DiveExcept { selected: true }),
         ("join_cols", JoinCols),
+        ("addcol_rank_sheet", AddColRankSheet),
+        ("addcol_aggregate", ExPrompt { cmd: "addcol-aggregate" }),
         ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
         ("save_sheet", ExPrompt { cmd: "save" }),
@@ -1324,6 +1344,27 @@ impl Action {
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
             JoinAll { how } => format!("join-all {how}"),
+            AddColAggregate { aggs } if raw(aggs) => format!("addcol-aggregate {aggs}"),
+            AddColAgg {
+                name,
+                agg,
+                by,
+                over,
+                casts,
+            } => {
+                let by =
+                    (by.iter()).map(|(c, d)| format!("{}={c}", if *d { "desc" } else { "by" }));
+                let over = over.iter().map(|c| format!("over={c}"));
+                let casts = casts.iter().map(|(c, t)| format!("cast={c}:{t}"));
+                let args: Vec<String> = [name.clone(), agg.clone()]
+                    .into_iter()
+                    .chain(by)
+                    .chain(over)
+                    .chain(casts)
+                    .map(|a| q(&a))
+                    .collect();
+                format!("addcol-agg {}", args.join(" "))
+            }
             Derive { name, expr } if !name.is_empty() && !name.contains('=') && raw(expr) => {
                 format!("derive {} = {expr}", q(name))
             }
@@ -1535,6 +1576,16 @@ mod tests {
         let s = |v: &str| v.to_string();
         let cases = [
             JoinAll { how: s("full") },
+            AddColAggregate {
+                aggs: s("sum rank"),
+            },
+            AddColAgg {
+                name: s("q ty_rank"),
+                agg: s("rank"),
+                by: vec![(s("q ty"), true), (s("a=b"), false)],
+                over: vec![s("k:1")],
+                casts: vec![(s("q ty"), s("int"))],
+            },
             CursorDown { count: Some(3) },
             CursorUp { count: Some(1) },
             CursorLeft { count: Some(2) },

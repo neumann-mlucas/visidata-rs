@@ -6,7 +6,7 @@
 add-col-dup-attrs	SKIP setcol-iter
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
-aggregators-cols	SKIP addcol-aggregate
+aggregators-cols	FAIL line 2: want="foo\t2\t2016-01-01 11:00:00\t1.00\t1\t31.00\t5" got="foo\t2\t2016-01-01 11:00:00\t1.0\t1\t31.0\t4"
 aggregators-errors	FAIL line 1: want="key1\tamt_max_bar\tamt_max_baz\tamt_max_foo\tamt_min_bar\tamt_min_baz\tamt_min_foo\tqty_max_bar\tqty_max_baz\tqty_max_foo\tqty_min_bar\tqty_m
 aggregators-set	PASS
 append	PASS
@@ -208,7 +208,7 @@ prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	PASS
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
 quit-perf	NO_GOLDEN assertion-only (no golden in VisiData)
-rank-sheetrank-sorted-cols	SKIP addcol-rank-sheet
+rank-sheetrank-sorted-cols	FAIL line 2: want="10\tCLERK\t7782\t1\t3\t1\t7934\tMILLER\tJan 23, 1982\t1300.00000" got="10\tCLERK\t7782\t1\t3\t1\t7934\tMILLER\t1982-01-23\t1300"
 record-aggr	SKIP memo-aggregate
 remove-errors	UNTESTABLE setcol-expr
 rows-select-expr	UNTESTABLE select-expr

@@ -168,6 +168,58 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
                 py_str(name)
             )
         }
+        PlanStep::GroupAgg {
+            agg,
+            by,
+            over,
+            casts,
+            name,
+        } => {
+            let typed = |c: &str| match casts.iter().find(|(n, _)| n == c) {
+                Some((_, dt)) => {
+                    format!("pl.col({}).cast({}, strict=False)", py_str(c), py_dtype(dt))
+                }
+                None => format!("pl.col({})", py_str(c)),
+            };
+            let v = match (agg.as_str(), by.as_slice()) {
+                // as `step::dense_rank`: null the smallest, unlike `rank`
+                ("rank", _) => {
+                    let keys: Vec<String> = by.iter().map(|(c, _)| typed(c)).collect();
+                    let flags = |f: &dyn Fn(bool) -> bool| {
+                        let b: Vec<&str> = (by.iter())
+                            .map(|(_, d)| if f(*d) { "True" } else { "False" })
+                            .collect();
+                        b.join(", ")
+                    };
+                    let order = format!(
+                        "pl.arg_sort_by([{}], descending=[{d}], nulls_last=[{d}], maintain_order=True)",
+                        keys.join(", "),
+                        d = flags(&|d| d)
+                    );
+                    let changed: Vec<String> = (keys.iter())
+                        .map(|k| {
+                            format!("{k}.gather({order}).ne_missing({k}.gather({order}).shift(1))")
+                        })
+                        .collect();
+                    format!(
+                        "(pl.any_horizontal([{}]) | (pl.int_range(pl.len()) == 0)).cast(pl.Int64).cum_sum().gather({order}.arg_sort())",
+                        changed.join(", ")
+                    )
+                }
+                (_, [(c, _)]) => {
+                    py_agg(c, agg).replace(&format!("pl.col({})", py_str(c)), &typed(c))
+                }
+                _ => unreachable!("one column per aggregator"),
+            };
+            let over = match over.is_empty() {
+                true => String::new(),
+                false => {
+                    let o: Vec<String> = over.iter().map(|c| py_str(c)).collect();
+                    format!(".over([{}])", o.join(", "))
+                }
+            };
+            format!("{t} = {t}.with_columns({v}{over}.alias({}))", py_str(name))
+        }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
         PlanStep::Json { column, dtype } => format!(
             "{t} = {t}.with_columns(pl.col({c}).str.json_decode({}))",

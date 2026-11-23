@@ -18,6 +18,14 @@ pub fn type_name(dt: &DataType) -> String {
     }
 }
 
+/// The view casts a [`PlanStep::GroupAgg`] reads through, by their
+/// columns-sheet names.
+pub const AGG_CASTS: [(&str, DataType); 3] = [
+    ("int", DataType::Int64),
+    ("float", DataType::Float64),
+    ("str", DataType::String),
+];
+
 /// Aggregators `+` offers (S-25 P4), VisiData's names.
 pub const AGGREGATORS: &[&str] = &[
     "count", "distinct", "sum", "mean", "avg", "median", "mode", "min", "max", "stdev",
@@ -54,8 +62,12 @@ fn quantile_group(agg: &str) -> Option<Vec<String>> {
 /// `agg` of `column`'s non-null values, named `{column}_{agg}` (VisiData's
 /// `aggname`). `agg` is one of [`AGGREGATORS`].
 pub fn agg_expr(column: &str, agg: &str) -> Expr {
-    let c = col(column);
-    let e = match agg {
+    agg_of(col(column), agg).alias(agg_name(column, agg))
+}
+
+/// [`agg_expr`] of the values `c` gives, unnamed.
+pub fn agg_of(c: Expr, agg: &str) -> Expr {
+    match agg {
         "count" => c.count().cast(DataType::Int64),
         "distinct" => c.drop_nulls().n_unique().cast(DataType::Int64),
         "sum" => c.sum(),
@@ -73,8 +85,7 @@ pub fn agg_expr(column: &str, agg: &str) -> Expr {
                 .cast(DataTypeExpr::OfExpr(Box::new(c))),
             None => c.std(1),
         },
-    };
-    e.alias(agg_name(column, agg))
+    }
 }
 
 /// An int with its digits grouped: `-1,234`.
@@ -175,7 +186,11 @@ impl Sheet {
     }
 
     /// `names` split and checked against [`AGGREGATORS`] and `column`'s type.
-    fn aggregator_names(&self, column: &str, names: &str) -> Result<Vec<String>, String> {
+    pub(super) fn aggregator_names(
+        &self,
+        column: &str,
+        names: &str,
+    ) -> Result<Vec<String>, String> {
         let dt = self
             .all_columns()
             .into_iter()

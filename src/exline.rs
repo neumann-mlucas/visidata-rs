@@ -191,6 +191,41 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }])
         }
         "join-cols" => Ok(vec![Action::JoinCols]),
+        "addcol-rank-sheet" => Ok(vec![Action::AddColRankSheet]),
+        "addcol-aggregate" => match rest.trim() {
+            "" => Err(ExError::Usage(":addcol-aggregate <aggregator> …")),
+            aggs => Ok(vec![Action::AddColAggregate { aggs: aggs.into() }]),
+        },
+        "addcol-agg" => {
+            const USAGE: &str = ":addcol-agg <name> <agg> by=<col>|desc=<col> … [over=<col> …] [cast=<col>:<type> …]";
+            let args = split_args(rest, USAGE)?;
+            let [name, agg, rest @ ..] = args.as_slice() else {
+                return Err(ExError::Usage(USAGE));
+            };
+            let (mut by, mut over, mut casts) = (Vec::new(), Vec::new(), Vec::new());
+            for a in rest {
+                match a.split_once('=').ok_or(ExError::Usage(USAGE))? {
+                    ("by", c) => by.push((c.to_string(), false)),
+                    ("desc", c) => by.push((c.to_string(), true)),
+                    ("over", c) => over.push(c.to_string()),
+                    ("cast", ct) => {
+                        let (c, t) = ct.rsplit_once(':').ok_or(ExError::Usage(USAGE))?;
+                        casts.push((c.to_string(), t.to_string()));
+                    }
+                    _ => return Err(ExError::Usage(USAGE)),
+                }
+            }
+            if name.is_empty() || by.is_empty() {
+                return Err(ExError::Usage(USAGE));
+            }
+            Ok(vec![Action::AddColAgg {
+                name: name.clone(),
+                agg: agg.clone(),
+                by,
+                over,
+                casts,
+            }])
+        }
         "join-all" => match rest.trim() {
             how @ ("inner" | "left" | "full" | "merge" | "extend" | "append" | "concat") => {
                 Ok(vec![Action::JoinAll { how: how.into() }])
@@ -643,6 +678,9 @@ pub const COMMANDS: &[&str] = &[
     "note",
     "order",
     "addcol",
+    "addcol-agg",
+    "addcol-aggregate",
+    "addcol-rank-sheet",
     "capture",
     "precision",
     "fmtstr",
