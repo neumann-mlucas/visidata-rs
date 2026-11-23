@@ -59,15 +59,18 @@ Test in `src/app/generated/walk.rs`.
 ## 5. Bugs found
 
 - `M` read a hidden key column that the view leaves out. The melt now
-  leaves the hidden key out. VisiData keeps it (`sheet.keyCols`).
+  leaves the hidden key out, as VisiData: its `keyCols` are the shown key
+  columns only.
 - Enter on a hidden column in the columns sheet, and `gF` with a hidden
-  key, opened a freq sheet that could not load. Both are refused now.
+  key, opened a freq sheet that could not load. Enter now opens the freq
+  of the hidden column, as VisiData. `gF` groups by the shown keys only.
 - `M` on a melted sheet failed: Polars can't make a `Variable` column while
   the melted `Variable` column is still there. The melt uses temporary
   names, and a key named `Variable` or `Value` is refused.
 
-## 6. Open questions
+## 6. Decisions
 
-1. Should derived sheets read hidden columns, as VisiData's melt and freq
-   do? It needs a source plan with hidden columns in the app and both
-   exports.
+1. A derived sheet reads a hidden column that it names one by one: the
+   freq column, the dive column and the `:pivot` columns. A hidden key is
+   no key, as VisiData's `keyCols`. The app and both exports use the same
+   rule (`Derivation::reads`).

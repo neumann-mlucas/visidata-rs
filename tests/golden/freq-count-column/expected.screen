@@ -1,5 +1,5 @@
  tests/golden/freq-count-column/input.csv › freq(count)                          count 1/4  row 1/2
- count i  freq_count u  freq_percent f freq_histogram str
+ count i  freq_count i  freq_percent f freq_histogram str
        1             2           66.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
        2             1           33.33 ■■■■■■■■■■■■■■■■■■■
 

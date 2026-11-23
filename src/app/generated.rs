@@ -312,7 +312,7 @@ fn ident(name: &str) -> String {
 impl Num {
     pub fn sql(&self, s: &Schema) -> String {
         match self {
-            // Not unsigned (freq and describe counts): `0 - 2` wraps in Polars
+            // Not unsigned (a Parquet `u32`, say): `0 - 2` wraps in Polars
             // and raises in DuckDB (S-55 §7).
             Num::Col(i) => s
                 .of_type(*i, |t| t.is_float() || t.is_signed_integer())

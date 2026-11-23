@@ -1173,7 +1173,8 @@ async fn freq_dive_on_zero_finds_negative_zero() {
 }
 
 /// S-58 walk probe: `M` on a sheet whose key column is hidden melts the
-/// shown columns and leaves the hidden key out (it isn't in the view).
+/// shown columns and leaves the hidden key out (VisiData `keyCols`: a hidden
+/// key is no key).
 #[tokio::test(flavor = "multi_thread")]
 async fn melt_with_a_hidden_key_leaves_it_out() {
     let mut h = csv(b"k,n,m\na,1,2\nb,3,4\n").await;
@@ -1187,17 +1188,21 @@ async fn melt_with_a_hidden_key_leaves_it_out() {
     );
 }
 
-/// S-58 walk probe: a freq reads the view, so the columns sheet's Enter
-/// and `gF` refuse a hidden column instead of opening a broken sheet.
+/// S-58 walk probe: the columns sheet's Enter opens the freq of a hidden
+/// column, as VisiData; `gF` leaves a hidden key out (VisiData `keyCols`).
 #[tokio::test(flavor = "multi_thread")]
-async fn freq_of_a_hidden_column_is_refused() {
+async fn freq_of_a_hidden_column() {
     let mut h = csv(b"k,n\na,1\nb,3\n").await;
     h.keys("! - C <CR>").await;
-    assert_eq!(h.app.sheets.len(), 2, "{}", h.screen());
-    assert_eq!(status(&h), "freq: k is hidden; unhide it first");
-    h.keys("q g F").await;
+    assert_eq!(
+        view_csv(&h),
+        "k,count,percent,histogram\na,1,50.0,■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■\nb,1,50.0,■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■\n",
+        "{}",
+        status(&h)
+    );
+    h.keys("q q g F").await;
     assert_eq!(h.app.sheets.len(), 1, "{}", h.screen());
-    assert_eq!(status(&h), "freq: key k is hidden; unhide it first");
+    assert_eq!(status(&h), "there are no key columns to group by");
 }
 
 /// S-58 walk probe: a melt of a melt melts the columns `Variable` and

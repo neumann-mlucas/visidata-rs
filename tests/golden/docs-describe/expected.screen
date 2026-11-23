@@ -1,5 +1,5 @@
  sales.csv › describe  hidden 2                                                column 1/11  row 1/5
-column str   errors u  nulls u  distinct u mode str   min str    max str    sum str            media
+column str   errors i  nulls i  distinct i mode str   min str    max str    sum str            media
 id                  0        0         300 33352      1171       49828      7430119            24827
 date                0        0         195 2024-04-06 2024-01-02 2024-12-31 ·                  ·
 region              0        0           4 north      ·          ·          ·                  ·
