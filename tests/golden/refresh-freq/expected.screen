@@ -1,5 +1,5 @@
  tests/golden/refresh-freq/input.csv › freq(region)                             region 1/4  row 1/2
-region str   count u  percent f histogram str
+region str   count i  percent f histogram str
 a                  3       75.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 b                  1       25.0 ■■■■■■■■■■■■
 

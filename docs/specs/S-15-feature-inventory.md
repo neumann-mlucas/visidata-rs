@@ -130,7 +130,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `SortKeys { descending }` | `g[` / `g]` | VisiData sort-keys-asc/desc: sort by the key columns, replacing the sort; none → toast (S-50) |
 | `Melt` | `M` | VisiData melt: `Unpivot` of the visible non-key columns, keys as index (S-50) |
 | `Transpose` | `T` | VisiData transpose: `Sheet::transpose_from`, eager, refused past `MAX_CELLS` (10M, as copy); a row per visible non-key column, a column per row named by its key values (`_`-joined; row number without keys), first column = key names (`column` without keys), all text; repeated names get `_duplicated_<i>`, never another column's name (S-51) |
-| `FreqKeys` | `gF` | VisiData freq-keys: `F`'s sheet (`Sheet::freq_binned`, S-52) over every key column, each grouped by its shown text (fmtstr, number format), then count, percent, histogram (`freq_*` when a key has one of those names) and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` on that text (nulls match); exports (S-51, S-52) |
+| `FreqKeys` | `gF` | VisiData freq-keys: `F`'s sheet (`Sheet::freq_binned`, S-52) over every shown key column, each grouped by its shown text (fmtstr, number format), then count, percent, histogram (`freq_*` when a key has one of those names) and aggregators, count desc; `<CR>`/`g<CR>` → `rows_with_keys` on that text (nulls match); exports (S-51, S-52) |
 | `JoinAll { how }` | `g&` | `:join-all <how>`, VisiData join-sheets-all: `join_from` chained over the sheets below, nearest first, on the active sheet's keys; an edit goes back to every sheet behind the cell, through the inner joins (`JoinSources::inner`) (S-51, S-52) |
 | `OpenCell` | `zEnter` | VisiData open-cell: `Sheet::open_cell`, list/struct/JSON text → table, one column or `key`/`value` rows (`Origin::Cell`); `<CR>` there → `open_cell_row`; mixed types → text, NaN/inf too; JSON and TOML keep source key order (S-51) |
 | `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |
@@ -328,7 +328,7 @@ Each returns a new `Sheet` with an `Origin` enum entry so the lineage is visible
 - `Origin::Parts { path, kind }` — worksheet / table list
 - `Origin::SheetSwitcher` — sheet-stack listing
 
-Derived sheets are built from the parent's `view_plan()`: what you see (casts, filter, sort, visible columns) is what freq/pivot/unpivot/diff/dup operate on. So a freq of a hidden column (Enter on the columns sheet, `gF` with a hidden key) is refused (S-58).
+Derived sheets are built from the parent's `view_plan()`: what you see (casts, filter, sort, visible columns) is what freq/pivot/unpivot/diff/dup operate on. A derived sheet also reads a hidden column that it names one by one (`Derivation::reads`, `Sheet::view_plan_keeping`): the columns sheet's Enter opens a hidden column's freq, and its dive keeps that column hidden. A hidden key is no key, as VisiData's `keyCols`: `gF`, `W` and `M` leave it out (S-58). Freq, pivot and describe counts are `Int64`, so arithmetic on them can go below 0.
 
 Each derived sheet is a first-class entry on the stack; `q` pops back.
 

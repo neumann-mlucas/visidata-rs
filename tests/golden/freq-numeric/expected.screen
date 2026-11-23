@@ -1,5 +1,5 @@
  tests/golden/freq-numeric/input.csv › freq(n)                                       n 1/4  row 1/3
- n i  count u  percent f histogram str
+ n i  count i  percent f histogram str
    5        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■
    2        3       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
    9        1      16.67 ■■■■■■■■■■■■

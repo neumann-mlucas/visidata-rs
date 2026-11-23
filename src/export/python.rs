@@ -3,7 +3,13 @@
 use super::*;
 
 impl Script {
-    pub(super) fn py_view(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
+    pub(super) fn py_view(
+        &mut self,
+        s: &Sheet,
+        rid: bool,
+        errs: bool,
+        keep: &[String],
+    ) -> Result<String, String> {
         let base = self.base(s)?;
         let v = &s.view;
         let mut ops = Vec::new();
@@ -92,7 +98,7 @@ impl Script {
                 d = desc.join(", ")
             ));
         }
-        if let Some(mut cols) = visible_columns(s)? {
+        if let Some(mut cols) = visible_columns(s, keep)? {
             if rid {
                 cols.push("__rid".into());
             }

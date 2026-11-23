@@ -419,8 +419,8 @@ pub(super) fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String,
                     if ok { format!("{x}.cast(pl.Float64)") } else { "pl.lit(None, dtype=pl.Float64)".into() }
                 };
                 let errors = match &e {
-                    Some(e) => format!("{e}.sum().cast(pl.UInt64)"),
-                    None => "pl.lit(0, dtype=pl.UInt64)".into(),
+                    Some(e) => format!("{e}.sum().cast(pl.Int64)"),
+                    None => "pl.lit(0, dtype=pl.Int64)".into(),
                 };
                 let valid = match &e {
                     Some(e) => format!("{c}.filter(~{e})"),
@@ -439,8 +439,8 @@ pub(super) fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String,
                     format!("pl.lit({}).alias(\"column\")", py_str(name)),
                     format!("pl.lit({}).alias(\"type\")", py_str(&dt.to_string())),
                     format!("{errors}.alias(\"errors\")"),
-                    format!("({c}.null_count().cast(pl.UInt64) - {errors}).alias(\"nulls\")"),
-                    format!("{valid}.n_unique().cast(pl.UInt64).alias(\"distinct\")"),
+                    format!("({c}.null_count().cast(pl.Int64) - {errors}).alias(\"nulls\")"),
+                    format!("{valid}.n_unique().cast(pl.Int64).alias(\"distinct\")"),
                     format!(
                         "{}.alias(\"mode\")",
                         text(!nested, format!("{c}.filter({c}.is_not_null() & ({cnt} == {cnt}.max())).first()"))
@@ -485,9 +485,9 @@ pub(super) fn describe_code(py: bool, p: &str, parent: &Sheet) -> Result<String,
                 );
                 format!(
                     "SELECT {i} AS __i, {} AS sheet, {} AS \"column\", {} AS \"type\", \
-                     CAST({errors} AS UBIGINT) AS errors, \
-                     CAST(count(*) - count({c}) - {errors} AS UBIGINT) AS nulls, \
-                     CAST(count(DISTINCT {c}) + ({null_values} > 0)::INT AS UBIGINT) AS \"distinct\", \
+                     CAST({errors} AS BIGINT) AS errors, \
+                     CAST(count(*) - count({c}) - {errors} AS BIGINT) AS nulls, \
+                     CAST(count(DISTINCT {c}) + ({null_values} > 0)::INT AS BIGINT) AS \"distinct\", \
                      {} AS mode, {} AS \"min\", {} AS \"max\", {} AS \"sum\", {} AS median, \
                      {} AS mean, {} AS stdev FROM {p}",
                     q_str(&parent.name),

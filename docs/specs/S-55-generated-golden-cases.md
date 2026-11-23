@@ -134,7 +134,8 @@ The generator keeps away from these divergences between Polars and DuckDB:
 
 - Integers stay under 230 in size: DuckDB raises on an i64 overflow, and
   Polars wraps.
-- The generator uses no unsigned column. `length()` is cast to `BIGINT`.
+- The generator uses no unsigned column. `length()` is cast to `BIGINT`
+  (finding 1).
 - The compare reads DuckDB's `-0.0` as `0`, and sets floats under 1e-12 to 0.
 - DuckDB reads `1.5` as a DECIMAL, which can overflow where Polars uses a
   float. The generator writes `CAST(1.5 AS DOUBLE)`.
@@ -143,9 +144,10 @@ The generator keeps away from these divergences between Polars and DuckDB:
 
 Open findings:
 
-1. Freq and describe counts are `u64`, and `length()` is `u32`. So
-   `length('NULL') - 12` gives 4294967288, where VisiData gives -8. An i64
-   count changes the column types on golden screens and in the guide.
+1. Fixed in part: freq, pivot and describe counts were unsigned, so
+   `count - 10` wrapped to a big number where VisiData gives a negative
+   one. They are `Int64` now. Open: `length()` is still `u32`, so
+   `length('NULL') - 12` gives 4294967288, where VisiData gives -8.
 2. Fixed: vdrs cast a number to a date as days since 1970. VisiData reads
    it as seconds (`datetime.fromtimestamp`), and vdrs does too now, in UTC.
 3. Open: a `:derive` over a column with every cell empty, after a

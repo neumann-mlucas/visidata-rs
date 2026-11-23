@@ -180,6 +180,22 @@ pub enum Derivation {
     },
 }
 
+impl Derivation {
+    /// The parent's columns this derivation names one by one: it reads them
+    /// even when they are hidden ([`Sheet::view_plan_keeping`]). Key columns
+    /// don't count: a hidden key is no key, as VisiData's `keyCols`.
+    pub fn reads(&self) -> Vec<String> {
+        match self {
+            Derivation::Freq { columns, .. } => columns.clone(),
+            Derivation::Values { column, .. } => vec![column.clone()],
+            Derivation::Pivot {
+                index, on, values, ..
+            } => vec![index.clone(), on.clone(), values.clone()],
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// How `F` groups a numeric column under `numeric_binning` (S-35 C1,
 /// VisiData `PivotSheet.groupRows`).
 #[derive(Clone, Debug, PartialEq)]
@@ -917,7 +933,7 @@ impl Sheet {
     /// `window_plan` plus a [`ROW_ID`] column (split off by the app
     /// into `state.window_rids` when the window lands).
     pub fn window_plan_with_rids(&self) -> LazyFrame {
-        self.view_plan_fmt(true, true)
+        self.view_plan_fmt(true, true, &[])
             .slice(self.view.window_offset as i64, self.view.window_rows)
     }
 
@@ -1028,11 +1044,18 @@ impl Sheet {
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
-        self.view_plan_fmt(with_rid, false)
+        self.view_plan_fmt(with_rid, false, &[])
+    }
+
+    /// `view_plan` that keeps `keep` even when hidden: a derived sheet reads
+    /// the columns it names (freq column, keys), as VisiData, where hiding
+    /// only changes what is shown.
+    pub(crate) fn view_plan_keeping(&self, with_rid: bool, keep: &[String]) -> LazyFrame {
+        self.view_plan_fmt(with_rid, false, keep)
     }
 
     /// `fmt`: plus a boolean column per `:color` rule (the window only).
-    fn view_plan_fmt(&self, with_rid: bool, fmt: bool) -> LazyFrame {
+    fn view_plan_fmt(&self, with_rid: bool, fmt: bool, keep: &[String]) -> LazyFrame {
         let mut lf = self.sorted_plan(with_rid);
         // the projection below keeps them: they're in the schema, not hidden
         if fmt {
@@ -1047,6 +1070,7 @@ impl Sheet {
         // Visible-column projection: keys first (in key-col order), then
         // `order` (S-34), then schema order for the rest; drop hidden.
         // Skipped when nothing to project.
+        let hidden = |c: &String| self.view.hidden.contains(c) && !keep.contains(c);
         if (!self.view.hidden.is_empty()
             || !self.view.keys.is_empty()
             || !self.view.order.is_empty())
@@ -1056,13 +1080,12 @@ impl Sheet {
             all.retain(|n| n != ROW_ID);
             let mut order: Vec<String> = Vec::with_capacity(all.len());
             for k in self.view.keys.iter().chain(&self.view.order) {
-                if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) && !order.contains(k)
-                {
+                if all.iter().any(|n| n == k) && !hidden(k) && !order.contains(k) {
                     order.push(k.clone());
                 }
             }
             for n in &all {
-                if !order.contains(n) && !self.view.hidden.contains(n) {
+                if !order.contains(n) && !hidden(n) {
                     order.push(n.clone());
                 }
             }
@@ -1730,8 +1753,8 @@ pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
 /// over several columns sorts.
 pub fn freq_keeps_order(parent: &Sheet, columns: &[String]) -> bool {
     let [column] = columns else { return false };
-    parent
-        .view_dtype(column)
+    let schema = parent.view_plan_keeping(false, columns).collect_schema();
+    (schema.ok().and_then(|s| s.get(column).cloned()))
         .is_some_and(|d| d.is_numeric() || d.is_temporal())
 }
 

@@ -1552,7 +1552,7 @@ fn freq_keys_dodges_stat_names() {
     let n: Vec<_> = df
         .column("freq_count")
         .unwrap()
-        .u32()
+        .i64()
         .unwrap()
         .iter()
         .collect();

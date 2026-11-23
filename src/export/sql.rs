@@ -8,6 +8,7 @@ impl Script {
         s: &Sheet,
         rid: bool,
         errs: bool,
+        shown: &[String],
     ) -> Result<String, String> {
         // DuckDB folds the case of identifiers, quoted ones too; a derive or
         // rename makes a clash the source didn't have, in any sheet read
@@ -87,7 +88,7 @@ impl Script {
                 .collect();
             q = format!("SELECT * REPLACE ({}){flags} FROM ({q})", casts.join(", "));
         }
-        let cols = match visible_columns(s)? {
+        let cols = match visible_columns(s, shown)? {
             Some(mut cols) => {
                 if rid {
                     cols.push("__rid".into());
