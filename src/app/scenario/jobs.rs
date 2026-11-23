@@ -143,6 +143,7 @@ async fn no_action_blocks_the_ui() {
         "mksession",
         "export",
         "save",
+        "save-all",
         "w",
         "write",
         "open",
