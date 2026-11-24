@@ -1350,6 +1350,23 @@ async fn sheets_all_reopens_a_quit_sheet() {
     assert_eq!(h.app.sheets.active().window().unwrap().height(), 2);
 }
 
+/// A binned freq sheet lists its bins in bin order; a dive of several bins
+/// chains them in that order, not by count or by first appearance.
+#[tokio::test(flavor = "multi_thread")]
+async fn binned_freq_dive_keeps_bin_order() {
+    let mut h = csv(b"v\n9.5\n0.5\n9.6\n9.7\n").await;
+    h.keys(":").await;
+    h.type_("set numeric_binning true").await;
+    h.keys(":").await;
+    h.type_("set histogram_bins 2").await;
+    h.keys("F").await;
+    let freq = view_csv(&h);
+    assert!(freq.lines().nth(1).unwrap().contains(",1,"), "{freq}");
+    h.keys("g s").await;
+    h.keys("g <CR>").await;
+    assert_eq!(view_csv(&h), "v\n0.5\n9.5\n9.6\n9.7\n", "{}", status(&h));
+}
+
 /// A freq sheet whose source was quit still dives: the quit sheet is kept
 /// (`gS`), as VisiData's freq sheet keeps its source.
 #[tokio::test(flavor = "multi_thread")]
