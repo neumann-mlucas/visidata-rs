@@ -1,0 +1,8 @@
+region	rep	qty	qty_count	qty_distinct	qty_rank
+East	Jones	3	3	2	1
+West	Kivell	10	1	1	2
+East	Smith	10	3	2	2
+	Ann	2	2	2	1
+West	Bo		1	1	1
+	Cy	7	2	2	2
+East	Dee	3	3	2	1

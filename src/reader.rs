@@ -1151,23 +1151,33 @@ fn starts_with_json_array(path: &Path) -> io::Result<bool> {
 
 fn open_stdin(format_override: Option<SourceKind>) -> Result<LoadedSource, OpenError> {
     // csvlens-style: drain stdin to a tempfile, then scan it.
-    let mut tmp = tempfile::NamedTempFile::new()?;
     let mut buf = Vec::new();
     io::stdin().read_to_end(&mut buf)?;
     if buf.is_empty() {
         return Err(OpenError::EmptyStdin);
     }
+    open_bytes(buf, "<stdin>", format_override)
+}
+
+/// `buf` (gzip or not) as a source named `name`, in a tempfile: stdin, or
+/// the clipboard's text (`gP`, S-46 B6). `format`: `None` sniffs it.
+pub fn open_bytes(
+    buf: Vec<u8>,
+    name: &str,
+    format: Option<SourceKind>,
+) -> Result<LoadedSource, OpenError> {
+    let mut tmp = tempfile::NamedTempFile::new()?;
     let buf = gunzip_if_gz(buf)?;
     tmp.write_all(&buf)?;
     tmp.flush()?;
-    let kind = match format_override {
+    let kind = match format {
         Some(k) => k,
         None => sniff_format(&buf),
     };
     let (lazy, kind, csv) = scan(tmp.path(), kind, 1)?;
     Ok(LoadedSource {
         kind,
-        display_name: "<stdin>".to_string(),
+        display_name: name.to_string(),
         path: None,
         lazy,
         via_loader: false,

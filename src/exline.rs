@@ -174,8 +174,9 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
                 ["date-only"] => Ok(vec![Action::TypeCastDateAs { time: false }]),
                 ["currency"] => Ok(vec![Action::TypeCastCurrency]),
                 ["json"] => Ok(vec![Action::TypeCastJson]),
+                ["len"] => Ok(vec![Action::TypeCastLen]),
                 _ => Err(ExError::Usage(
-                    ":type int|float|string|date|datetime|date-only|currency|json",
+                    ":type int|float|string|date|datetime|date-only|currency|json|len",
                 )),
             }
         }
@@ -187,6 +188,52 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
             }
             Ok(vec![Action::Save {
                 path: unquote(rest),
+            }])
+        }
+        "join-cols" => Ok(vec![Action::JoinCols]),
+        "save-all" => match unquote(rest) {
+            p if p.is_empty() => Err(ExError::Usage(":save-all <dir/|file.duckdb>")),
+            path => Ok(vec![Action::SaveAll { path }]),
+        },
+        "addcol-rank-sheet" => Ok(vec![Action::AddColRankSheet]),
+        "open-syspaste" => Ok(vec![Action::OpenSysPaste {
+            format: match unquote(rest) {
+                f if f.is_empty() => "tsv".into(), // VisiData's default
+                f => f,
+            },
+        }]),
+        "addcol-aggregate" => match rest.trim() {
+            "" => Err(ExError::Usage(":addcol-aggregate <aggregator> …")),
+            aggs => Ok(vec![Action::AddColAggregate { aggs: aggs.into() }]),
+        },
+        "addcol-agg" => {
+            const USAGE: &str = ":addcol-agg <name> <agg> by=<col>|desc=<col> … [over=<col> …] [cast=<col>:<type> …]";
+            let args = split_args(rest, USAGE)?;
+            let [name, agg, rest @ ..] = args.as_slice() else {
+                return Err(ExError::Usage(USAGE));
+            };
+            let (mut by, mut over, mut casts) = (Vec::new(), Vec::new(), Vec::new());
+            for a in rest {
+                match a.split_once('=').ok_or(ExError::Usage(USAGE))? {
+                    ("by", c) => by.push((c.to_string(), false)),
+                    ("desc", c) => by.push((c.to_string(), true)),
+                    ("over", c) => over.push(c.to_string()),
+                    ("cast", ct) => {
+                        let (c, t) = ct.rsplit_once(':').ok_or(ExError::Usage(USAGE))?;
+                        casts.push((c.to_string(), t.to_string()));
+                    }
+                    _ => return Err(ExError::Usage(USAGE)),
+                }
+            }
+            if name.is_empty() || by.is_empty() {
+                return Err(ExError::Usage(USAGE));
+            }
+            Ok(vec![Action::AddColAgg {
+                name: name.clone(),
+                agg: agg.clone(),
+                by,
+                over,
+                casts,
             }])
         }
         "join-all" => match rest.trim() {
@@ -641,12 +688,16 @@ pub const COMMANDS: &[&str] = &[
     "note",
     "order",
     "addcol",
+    "addcol-agg",
+    "addcol-aggregate",
+    "addcol-rank-sheet",
     "capture",
     "precision",
     "fmtstr",
     "set",
     "patch",
     "open",
+    "open-syspaste",
     "select-ids",
     "source",
     "derive",
@@ -671,6 +722,7 @@ pub const COMMANDS: &[&str] = &[
     "hide-uniform",
     "join",
     "join-all",
+    "join-cols",
     "key",
     "ls",
     "melt",
@@ -687,6 +739,7 @@ pub const COMMANDS: &[&str] = &[
     "undotree",
     "rename",
     "save",
+    "save-all",
     "select",
     "setcol",
     "setexpr",

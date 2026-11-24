@@ -1,0 +1,12 @@
+ tests/golden/addcol-aggregate/input.csv                                     qty_count 4/6  row 1/7
+region str  rep str   qty i  qty_count i  qty_distinct i  qty_rank i
+East        Jones         3            3               2           1
+West        Kivell       10            1               1           2
+East        Smith        10            3               2           2
+·           Ann           2            2               2           1
+West        Bo            ·            1               1           1
+·           Cy            7            2               2           2
+East        Dee           3            3               2           1
+
+
+                                                                                       q  pop_sheet

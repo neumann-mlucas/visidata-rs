@@ -343,13 +343,15 @@ impl Sheet {
     }
 
     /// Freq dive: `parent`'s rows whose `column`'s `key` (as text, the way the
-    /// freq sheet grouped them) is one of `values` (None matches null).
+    /// freq sheet grouped them) is one of `values` (None matches null), or
+    /// with `except`, is none of them (`dive-except`).
     pub fn rows_with_values(
         parent: &Sheet,
         id: SheetId,
         column: &str,
         key: DiveKey,
         values: Vec<Option<String>>,
+        except: bool,
     ) -> Self {
         let float = matches!(key, DiveKey::Value) && parent.is_float_column(column);
         let values = match float {
@@ -366,6 +368,10 @@ impl Sheet {
         if values.iter().any(Option::is_none) {
             pred = pred.or(key.expr(column, float).is_null());
         }
+        if except {
+            // a null key is in no picked bin unless the null bin was picked
+            pred = pred.fill_null(lit(false)).not();
+        }
         let shown = |v: &Option<String>| match (&key, v) {
             (DiveKey::Bin { min, width, n }, Some(i)) => i
                 .parse::<usize>()
@@ -375,11 +381,15 @@ impl Sheet {
             (DiveKey::Bin { .. }, None) => "null bin".into(),
             (_, v) => v.clone().unwrap_or_default(),
         };
-        let label = match (&key, &values[..]) {
-            (DiveKey::Bin { .. }, [one]) => format!("{column} in {}", shown(one)),
-            (DiveKey::Bin { .. }, many) => format!("{column} in {} bins", many.len()),
-            (_, [one]) => format!("{column}={}", shown(one)),
-            (_, many) => format!("{column} in {} values", many.len()),
+        let label = match (&key, &values[..], except) {
+            (DiveKey::Bin { .. }, [one], false) => format!("{column} in {}", shown(one)),
+            (DiveKey::Bin { .. }, [one], true) => format!("{column} not in {}", shown(one)),
+            (DiveKey::Bin { .. }, many, false) => format!("{column} in {} bins", many.len()),
+            (DiveKey::Bin { .. }, many, true) => format!("{column} not in {} bins", many.len()),
+            (_, [one], false) => format!("{column}={}", shown(one)),
+            (_, [one], true) => format!("{column}!={}", shown(one)),
+            (_, many, false) => format!("{column} in {} values", many.len()),
+            (_, many, true) => format!("{column} not in {} values", many.len()),
         };
         // freq rows picked from a freq sheet still dive to the source rows, as
         // VisiData — while the value column is still first (the dive reads it)
@@ -394,11 +404,48 @@ impl Sheet {
             }
             _ => Origin::Selected { parent: parent.id },
         };
+        // VisiData chains each bin's rows in freq order (`freq_binned`): bins
+        // in bin order; one numeric or date column's values as first seen;
+        // else the biggest bin first, ties as first seen (ponytail: neither a
+        // re-sorted freq sheet nor `numeric_binning`'s sorted values are followed)
+        const POS: &str = "__vdrs_dive_pos";
+        // the dive reads a hidden column it names (`view_plan_keeping`)
+        let base = parent.view_plan_keeping(false, &[column.to_string()]);
+        let bin = key.expr(column, float);
+        let by_size = !freq_keeps_order(parent, &[column.to_string()]);
+        let order = match (
+            len().over([bin.clone()]),
+            col(POS).min().over([bin.clone()]),
+        ) {
+            (_, Ok(_)) if matches!(key, DiveKey::Bin { .. }) => Ok((vec![bin], vec![false])),
+            (Ok(size), Ok(first)) if by_size => Ok((vec![size, first], vec![true, false])),
+            (_, Ok(first)) => Ok((vec![first], vec![false])),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        };
+        let plan = match order {
+            // one bin: its rows as they are
+            _ if values.len() == 1 && !except => base.clone().filter(pred),
+            Ok((by, desc)) => (base.clone().with_row_index(POS, None))
+                .filter(pred)
+                .sort_by_exprs(
+                    &by,
+                    SortMultipleOptions::default()
+                        .with_order_descending_multi(desc)
+                        .with_nulls_last(true)
+                        .with_maintain_order(true),
+                )
+                .drop(Selector::ByName {
+                    names: [POS.into()].into(),
+                    strict: true,
+                }),
+            // a partition the window can't take: source order
+            _ => base.clone().filter(pred),
+        };
         let mut rows = Self::child(
             parent,
             id,
             format!("{label}: {}", parent.name),
-            (parent.view_plan_keeping(false, &[column.to_string()])).filter(pred),
+            plan,
             origin,
         )
         .inherit_attrs(parent);
@@ -412,6 +459,7 @@ impl Sheet {
                 column: column.into(),
                 key,
                 values,
+                except,
             },
         )
     }
@@ -892,12 +940,14 @@ impl Sheet {
 
     /// `gF` dive: `parent`'s rows whose `keys` hold one of `wanted`'s rows,
     /// each compared as the text its [`DiveKey`] gives (nulls match nulls).
+    /// `except`: the rows whose keys hold none of them (`dive-except`).
     pub fn rows_with_keys(
         parent: &Sheet,
         id: SheetId,
         keys: &[(String, DiveKey)],
         wanted: DataFrame,
         name: String,
+        except: bool,
     ) -> Result<Self, String> {
         let df = parent
             .view_plan_rid(true)
@@ -932,10 +982,14 @@ impl Sheet {
             .select([col(ROW_ID)])
             .collect()
             .map_err(|e| e.to_string())?;
-        let keep = rid_values(&hit)
+        let mut keep: std::collections::BTreeSet<u64> = rid_values(&hit)
             .map_err(|e| e.to_string())?
             .into_iter()
             .collect();
+        if except {
+            let all = rid_values(&df).map_err(|e| e.to_string())?;
+            keep = all.into_iter().filter(|r| !keep.contains(r)).collect();
+        }
         Self::rows_from(parent, id, df, &keep, name)
     }
 

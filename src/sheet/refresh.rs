@@ -49,7 +49,8 @@ impl Sheet {
                 column,
                 key,
                 values,
-            } => Sheet::rows_with_values(parent, id, column, key.clone(), values.clone()),
+                except,
+            } => Sheet::rows_with_values(parent, id, column, key.clone(), values.clone(), *except),
             Derivation::Sql { query, others } => {
                 Sheet::sql_from(parent, id, query, others.iter().map(live).collect())?
             }

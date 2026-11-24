@@ -97,6 +97,64 @@ pub enum PlanStep {
         table: Arc<DataFrame>,
         link: Option<LookupLink>,
     },
+    /// `:addcol-aggregate`, `:addcol-rank-sheet`, `:addcol-agg` (S-46 B4):
+    /// new column `name`, computed within each group of rows sharing the
+    /// `over` columns' values (one group when `over` is empty; nulls group
+    /// together). `agg` is an aggregator ([`agg_of`] of the one `by`
+    /// column), or `rank`: the dense rank (1, 2, …; ties share one) of the
+    /// `by` values, each column ascending or (`true`) descending, null the
+    /// smallest. `casts`: the view's type casts of the columns read.
+    GroupAgg {
+        agg: String,
+        by: Vec<(String, bool)>,
+        over: Vec<String>,
+        casts: Vec<(String, DataType)>,
+        name: String,
+    },
+}
+
+/// Column `c` as a [`PlanStep::GroupAgg`] reads it: through its view cast,
+/// if it had one.
+fn typed(c: &str, casts: &[(String, DataType)]) -> Expr {
+    match casts.iter().find(|(n, _)| n == c) {
+        Some((_, dt)) => col(c).cast(dt.clone()),
+        None => col(c),
+    }
+}
+
+/// `e` within each group of the `over` columns (all rows: one group).
+fn within(e: Expr, over: &[String]) -> PolarsResult<Expr> {
+    match over.is_empty() {
+        true => Ok(e),
+        false => e.over(over.iter().map(|c| col(c.as_str())).collect::<Vec<_>>()),
+    }
+}
+
+/// Dense rank of the `by` tuple (see [`PlanStep::GroupAgg`]): sort, count
+/// where the tuple changes, then put the counts back in row order.
+fn dense_rank(by: &[(String, bool)], casts: &[(String, DataType)]) -> PolarsResult<Expr> {
+    let desc: Vec<bool> = by.iter().map(|(_, d)| *d).collect();
+    let keys: Vec<Expr> = by.iter().map(|(c, _)| typed(c, casts)).collect();
+    let order = arg_sort_by(
+        keys.clone(),
+        SortMultipleOptions::default()
+            .with_order_descending_multi(desc.clone())
+            .with_nulls_last_multi(desc)
+            .with_maintain_order(true),
+    );
+    let changed = any_horizontal(
+        keys.into_iter()
+            .map(|k| {
+                let sorted = k.gather(order.clone(), false);
+                sorted.clone().neq_missing(sorted.shift(lit(1)))
+            })
+            .collect::<Vec<_>>(),
+    )?;
+    let first = int_range(lit(0), len(), 1, DataType::Int64).eq(lit(0));
+    let step = (first.or(changed)).cast(DataType::Int64);
+    Ok(step
+        .cum_sum(false)
+        .gather(order.arg_sort(false, false), false))
 }
 
 /// A live lookup's source: `column` of sheet `sheet` by `their_key`, as
@@ -184,7 +242,8 @@ impl PlanStep {
             | PlanStep::Json { column, .. } => Some(column),
             PlanStep::Derive { name, .. }
             | PlanStep::Capture { name, .. }
-            | PlanStep::Lookup { name, .. } => Some(name),
+            | PlanStep::Lookup { name, .. }
+            | PlanStep::GroupAgg { name, .. } => Some(name),
             PlanStep::Rename { .. }
             | PlanStep::DeleteRows { .. }
             | PlanStep::AddRows { .. }
@@ -274,6 +333,17 @@ impl PlanStep {
                     .then(as_struct(fields.collect()))
                     .otherwise(lit(NULL))
             }
+            PlanStep::GroupAgg {
+                agg,
+                by,
+                over,
+                casts,
+                ..
+            } => match (agg.as_str(), by.as_slice()) {
+                ("rank", _) => within(dense_rank(by, casts)?, over)?,
+                (_, [(c, _)]) => within(crate::sheet::columns::agg_of(typed(c, casts), agg), over)?,
+                _ => polars_bail!(InvalidOperation: "{agg}: one column, got {}", by.len()),
+            },
             PlanStep::Rename { .. }
             | PlanStep::DeleteRows { .. }
             | PlanStep::AddRows { .. }
@@ -323,7 +393,8 @@ impl PlanStep {
             | PlanStep::SetCells { column, .. } => Some(column),
             PlanStep::Derive { name, .. }
             | PlanStep::Capture { name, .. }
-            | PlanStep::Lookup { name, .. } => Some(name),
+            | PlanStep::Lookup { name, .. }
+            | PlanStep::GroupAgg { name, .. } => Some(name),
             PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } | PlanStep::Expand { .. } => {
                 None
             }
@@ -449,6 +520,7 @@ impl PlanStep {
                 column, pattern, ..
             } => format!("capture {column} {pattern}"),
             PlanStep::Lookup { name, key, .. } => format!("lookup {name} by {key}"),
+            PlanStep::GroupAgg { name, agg, .. } => format!("add {name} ({agg})"),
         }
     }
 
@@ -465,6 +537,9 @@ impl PlanStep {
                 })
                 .unwrap_or_default(),
             PlanStep::Lookup { key, .. } => vec![key.clone()],
+            PlanStep::GroupAgg { by, over, .. } => {
+                by.iter().map(|(c, _)| c).chain(over).cloned().collect()
+            }
             _ => Vec::new(),
         }
     }

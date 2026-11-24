@@ -30,7 +30,7 @@ use visidata_rs::sheet::{Derivation, Origin, PlanStep, Sheet, SheetId, SortKey, 
 use visidata_rs::{duckdb, sheet::write_df_by_extension};
 
 /// Raise when coverage grows; never lower without saying why.
-const MIN_PASS: usize = 102;
+const MIN_PASS: usize = 108;
 
 #[derive(Debug, Clone, Default)]
 struct CmdlogRow {
@@ -189,6 +189,13 @@ struct Replay {
     filetype: Option<SourceKind>,
     /// `set-option unfurl_empty` (S-42 C).
     unfurl_empty: bool,
+    /// `set-option name_joiner` / `value_joiner` (S-46 B3).
+    joiners: (String, String),
+    /// `clipboard_paste_cmd`, which `open-syspaste` reads (`cat <file>` only).
+    paste_cmd: Option<String>,
+    /// VisiData's cursor row (slot, index), for the row commands of a `.vdx`
+    /// line without a `row`: set by a numeric row, moved down by add-row.
+    row_cursor: Option<(usize, usize)>,
     /// `set-option header N` for every sheet type (S-43 A).
     header: usize,
     /// `.vdx` positions only the commands that need it; VisiData's cursor stays
@@ -258,6 +265,9 @@ impl Replay {
             incr_base: 1,
             filetype: None,
             unfurl_empty: false,
+            joiners: ("_".into(), " ".into()),
+            paste_cmd: None,
+            row_cursor: None,
             header: 1,
             cursor: None,
             tmp: tempfile::tempdir().expect("scratch dir"),
@@ -288,12 +298,13 @@ impl Replay {
 
     /// `open-row` on a duckdb index: the row's table (`キname` or a row number).
     fn open_index_row(&mut self, row: &str) -> Result<(), StepErr> {
-        self.freq_dive(Some(row))
+        self.freq_dive(Some(row), false)
     }
 
     /// `open-row` on a freq sheet (`row`), or `dive-selected` (`None`): the
     /// source rows with those rows' values, as `<CR>` / `g<CR>`.
-    fn freq_dive(&mut self, row: Option<&str>) -> Result<(), StepErr> {
+    /// `except`: VisiData dive-except, the rows outside the picked bins.
+    fn freq_dive(&mut self, row: Option<&str>, except: bool) -> Result<(), StepErr> {
         use StepErr::Runtime;
         let s = &self.current_slot()?.sheet;
         if let Origin::Freq { parent, columns } = s.origin.clone()
@@ -337,6 +348,7 @@ impl Replay {
                 column,
                 visidata_rs::sheet::DiveKey::Value,
                 picked,
+                except,
             );
             self.next_id += 1;
             let name = format!(
@@ -351,13 +363,27 @@ impl Replay {
             return Err(Runtime("dive-selected: not a freq sheet".into()));
         };
         let Origin::Parts { path, kind } = s.origin.clone() else {
-            // xlsx/sqlite open their first part directly; `キname` names another
-            let (Some(name), Some(path)) = (row.strip_prefix('キ'), s.source.path.clone()) else {
+            // xlsx/sqlite open their first part directly; `キname` or a row
+            // number on VisiData's part list names another
+            let Some(path) = s.source.path.clone() else {
                 return Ok(());
             };
             if !matches!(s.kind, SourceKind::Sqlite | SourceKind::Xlsx) {
                 return Ok(());
             }
+            let name = match (row.strip_prefix('キ'), row.parse::<usize>()) {
+                (Some(n), _) => n.to_string(),
+                (None, Ok(i)) => {
+                    let parts =
+                        reader::list_parts(&path, s.kind).map_err(|e| Runtime(e.to_string()))?;
+                    let Some(n) = parts.get(i) else {
+                        return Err(Runtime(format!("open-row: no row {row}")));
+                    };
+                    n.clone()
+                }
+                _ => return Ok(()),
+            };
+            let name = name.as_str();
             let loaded = reader::open_part_with(&path, s.kind, name, s.source.header)
                 .map_err(|e| Runtime(e.to_string()))?;
             let sheet = Sheet::from_source(self.alloc(), loaded);
@@ -427,6 +453,29 @@ impl Replay {
             }
         }
         Ok(())
+    }
+
+    /// A row command's row where the log gives none: VisiData's cursor,
+    /// clamped to the rows left (it stays put when the row under it goes).
+    /// Also moves the cursor as the command does.
+    fn cursor_row(&mut self, r: &CmdlogRow) -> Option<String> {
+        let rowish = matches!(
+            r.longname.as_str(),
+            "edit-cell" | "delete-row" | "add-row" | "add-rows" | "paste-after" | "paste-before"
+        );
+        let cur = self.current?;
+        let at = match (r.row.parse::<usize>(), self.row_cursor) {
+            (Ok(i), _) => Some(i),
+            (Err(_), Some((slot, i))) if rowish && r.row.is_empty() && slot == cur => {
+                let n = self.loaded[cur].sheet.view_rids().map_or(0, |v| v.len());
+                Some(i.min(n.saturating_sub(1)))
+            }
+            _ => None,
+        };
+        let i = at?;
+        let down = matches!(r.longname.as_str(), "add-row" | "add-rows");
+        self.row_cursor = Some((cur, i + usize::from(down)));
+        (r.row.is_empty()).then(|| i.to_string())
     }
 
     fn set_current(&mut self, new: usize) {
@@ -539,6 +588,30 @@ impl Replay {
             "select-rows" => {
                 self.loaded[slot].sheet.view.selected = Arc::new((0..cols.len() as u64).collect());
                 return Some(Ok(()));
+            }
+            // VisiData join-cols: before the cursor row's column. `s` moved
+            // the cursor down from the logged row, or (no row logged, `.vd`)
+            // from the last selected row.
+            "join-cols" => {
+                let picked: Vec<(SheetId, String)> =
+                    selected().iter().map(|&i| cols[i].clone()).collect();
+                let Some((id, _)) = picked.first().cloned() else {
+                    return Some(Err(rt("join-cols: no rows selected".into())));
+                };
+                let anchor = row(&r.row).ok().or_else(|| selected().into_iter().max());
+                let after = anchor.map(|i| cols[i].1.clone());
+                let names: Vec<&str> = picked.iter().map(|(_, c)| c.as_str()).collect();
+                let joiners = (self.joiners.0.clone(), self.joiners.1.clone());
+                let Some(t) = self.loaded.iter_mut().find(|l| l.sheet.id == id) else {
+                    return Some(Err(rt("columns sheet: that sheet is gone".into())));
+                };
+                if let Err(e) =
+                    t.sheet
+                        .join_cols(&names, (&joiners.0, &joiners.1), after.as_deref())
+                {
+                    return Some(Err(rt(e)));
+                }
+                (Vec::new(), "rebuild")
             }
             "key-selected" => (selected(), "key"),
             "key-off-selected" => (selected(), "unkey"),
@@ -667,6 +740,14 @@ impl Replay {
                     ..r.clone()
                 };
                 &indexed
+            }
+            None => r,
+        };
+        let cursored;
+        let r = match self.cursor_row(r) {
+            Some(row) => {
+                cursored = CmdlogRow { row, ..r.clone() };
+                &cursored
             }
             None => r,
         };
@@ -872,7 +953,7 @@ impl Replay {
                 let id = self.next_id;
                 self.next_id += 1;
                 let parent_slot = self.current_slot()?;
-                let name = format!("freq({})-{}", r.col, parent_slot.name);
+                let name = format!("{}_{}_freq", parent_slot.name, r.col); // VisiData's
                 let new = match self.numeric_binning {
                     true => {
                         let bins =
@@ -1085,6 +1166,17 @@ impl Replay {
                 }
                 Ok(())
             }
+            "addcol-aggregate" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                s.addcol_aggregate(&r.col, &r.input)
+                    .map(drop)
+                    .map_err(Runtime)
+            }
+            "addcol-rank-sheet" => {
+                let s = &mut self.current_slot_mut()?.sheet;
+                let after = (!r.col.is_empty()).then_some(r.col.as_str());
+                s.addcol_rank_sheet(after).map(drop).map_err(Runtime)
+            }
             "freeze-col" => {
                 let s = &mut self.current_slot_mut()?.sheet;
                 let name = s.freeze_col(&r.col).map_err(Runtime)?;
@@ -1177,6 +1269,7 @@ impl Replay {
                 Ok(())
             }
             "type-int" => self.cast(&r.col, DataType::Int64),
+            "type-len" => self.cast(&r.col, visidata_rs::sheet::LEN_CAST),
             "type-float" => self.cast(&r.col, DataType::Float64),
             "type-string" => self.cast(&r.col, DataType::String),
             "type-date" => self.cast_date(&r.col),
@@ -1274,7 +1367,8 @@ impl Replay {
             }
             // sheets-stack: enter meta mode. `select-row` henceforth picks sheet
             // names (not data rows) and `join-sheets` consumes the selection.
-            "sheets-stack" => {
+            // ponytail: sheets-all finds only the open sheets, not quit ones (B5)
+            "sheets-stack" | "sheets-all" => {
                 self.meta_mode = Some(MetaMode::SheetsStack {
                     selected: std::mem::take(&mut self.stack_selected),
                 });
@@ -1347,6 +1441,38 @@ impl Replay {
             // join-sheets-top2: VisiData `&` on a data sheet (not meta). Joins
             // the current sheet with the previously-active one (`vd.sheets[:2]`).
             "join-sheets-top2" => self.join_top2(&r.input),
+            "set-option" if r.row == "clipboard_paste_cmd" => {
+                self.paste_cmd = Some(r.input.clone());
+                Ok(())
+            }
+            // the app's `gP`: the clipboard's text in a tempfile, as `syspaste`
+            "open-syspaste" => {
+                let cmd = self.paste_cmd.clone().unwrap_or_default();
+                let Some(file) = cmd.strip_prefix("cat ") else {
+                    return Err(Runtime(format!(
+                        "open-syspaste: clipboard_paste_cmd {cmd:?}"
+                    )));
+                };
+                let text = fs::read_to_string(self.path(file.trim()))
+                    .map_err(|e| Runtime(format!("open-syspaste: {e}")))?;
+                let format = if r.input.is_empty() { "tsv" } else { &r.input };
+                let kind = visidata_rs::plugins::builtin_format(format)
+                    .ok_or_else(|| Runtime(format!("open-syspaste: filetype {format}")))?;
+                let loaded =
+                    reader::open_bytes(text.trim().as_bytes().to_vec(), "syspaste", Some(kind))
+                        .map_err(|e| Runtime(e.to_string()))?;
+                let sheet = self.open_sheet(loaded);
+                self.push_sheet("syspaste".into(), sheet);
+                Ok(())
+            }
+            "set-option" if r.row == "name_joiner" => {
+                self.joiners.0 = r.input.clone();
+                Ok(())
+            }
+            "set-option" if r.row == "value_joiner" => {
+                self.joiners.1 = r.input.clone();
+                Ok(())
+            }
             "set-option" if r.row == "unfurl_empty" => {
                 self.unfurl_empty = r.input == "True";
                 Ok(())
@@ -1501,7 +1627,9 @@ impl Replay {
                 Ok(())
             }
             "dive-row" | "open-row" if self.meta_mode.is_none() => self.open_index_row(&r.row),
-            "dive-selected" => self.freq_dive(None),
+            "dive-selected" => self.freq_dive(None, false),
+            "dive-except" => self.freq_dive(Some(&r.row), true),
+            "dive-except-selected" => self.freq_dive(None, true),
             // on the sheets stack: go to that sheet
             "dive-row" | "open-row" => {
                 let name = r.row.strip_prefix('キ').unwrap_or(&r.row);
@@ -1530,6 +1658,21 @@ impl Replay {
                 Ok(())
             }
             "reload-sheet" | "reload-selected" => Ok(()),
+            // the app's `z Ctrl+S` on a database table, then the table read again
+            "commit-sheet" => {
+                let slot = self.current_slot_mut()?;
+                let plan = slot.sheet.commit_plan().map_err(Runtime)?;
+                visidata_rs::commit::commit(&plan).map_err(Runtime)?;
+                let t = &plan.table;
+                let loaded = reader::open_part_with(&t.db, t.kind, &t.part, self.header)
+                    .map_err(|e| Runtime(e.to_string()))?;
+                let slot = self.current_slot_mut()?;
+                let mut fresh = Sheet::from_source(slot.sheet.id, loaded);
+                fresh.view = slot.sheet.view.clone();
+                fresh.view.selected = Default::default();
+                slot.sheet = fresh;
+                Ok(())
+            }
             other => Err(MissingLongname(other.to_string())),
         }
     }

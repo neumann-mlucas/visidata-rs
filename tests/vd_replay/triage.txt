@@ -2,11 +2,11 @@
 # Regenerate: VDRS_REPLAY_TRIAGE=1 cargo test --test vd_replay
 1410a	PASS
 1410b	FAIL line 2: want="#ERR\t1\t10.00\t■■■■■■■■■■■■■■■■■■■" got="\t2\t20.0\t■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
-1410c	SKIP type-len
+1410c	PASS
 add-col-dup-attrs	SKIP setcol-iter
 addcol-iter	UNTESTABLE addcol-iter
 addcol_window	SKIP addcol-window
-aggregators-cols	SKIP addcol-aggregate
+aggregators-cols	FAIL line 2: want="foo\t2\t2016-01-01 11:00:00\t1.00\t1\t31.00\t5" got="foo\t2\t2016-01-01 11:00:00\t1.0\t1\t31.0\t4"
 aggregators-errors	FAIL line 1: want="key1\tamt_max_bar\tamt_max_baz\tamt_max_foo\tamt_min_bar\tamt_min_baz\tamt_min_foo\tqty_max_bar\tqty_max_baz\tqty_max_foo\tqty_min_bar\tqty_m
 aggregators-set	PASS
 append	PASS
@@ -25,8 +25,8 @@ describe	FAIL line 2: want="Date\t0\t0\t47\t2018-07-03\t2018-08-31\t#ERR\t2018-0
 describe-error	FAIL line 2: want="\t0\t10\t1" got="\t0\t9\t2"
 describe-through	UNTESTABLE setcol-expr
 diff-join	SKIP runtime: join-sheets: unsupported jointype 'diff'
-duckdb-commit-changes	SKIP commit-sheet
-duckdb-commit-composite-pk	SKIP runtime: cannot locate row '2' (keys=[])
+duckdb-commit-changes	PASS
+duckdb-commit-composite-pk	PASS
 duckdb-commit-no-pk	SKIP allow-error
 duckdb-exec-sql	PASS
 duckdb-index	PASS
@@ -45,7 +45,7 @@ empty-unfurl-2	UNTESTABLE addcol-expr
 error-passthru	UNTESTABLE addcol-expr
 errors-311	SKIP runtime: open-file ../visidata/sample_data/errors.csv: polars: could not parse `"X"	` as dtype `str` at column 'X' (column number 4)
 exp-digits	SKIP exec-python
-extend	SKIP sheets-all
+extend	SKIP runtime: join-sheets extend: sheet 'data1+data2_A_freq' has 1 key(s), need ≥2
 fill	PASS
 fill-nested	FAIL line 2: want="7/3/2018 1:47p\t[\"Robert Armstrong\",\"Dee Vasquez\"]\tFOOD213\tBFF Oh My Gravy! Beef & Salmon 2.8oz\t4\t$12.95\t$51.8" got="7/3/2018 1:47p\
 fill-zero	PASS
@@ -53,7 +53,7 @@ format-enum	SKIP setcol-format-enum
 format-enum-freeze	SKIP setcol-format-enum
 freeze-json	PASS
 freeze-sheet-attrs	PASS
-freq-dive-except	SKIP dive-except
+freq-dive-except	PASS
 freq-error	UNTESTABLE addcol-expr
 freq-fmtstr	PASS
 freq-same-int	PASS
@@ -127,7 +127,7 @@ issue350	UNTESTABLE addcol-expr
 issue655	SKIP define-command
 issue733	UNTESTABLE unset-option
 issue964-inner-join	PASS
-join-cols-single-sheet	SKIP join-cols
+join-cols-single-sheet	PASS
 join-concat	FAIL line 1: want="Date\tDelilah\tSKU\tItem\tQuantity\tUnit\tPaid" got="Date\tCustomer\tSKU\tItem\tQuantity\tUnit\tPaid"
 join-different-types	SKIP allow-error
 join-extend-mult	PASS
@@ -208,7 +208,7 @@ prefer-visible-col	UNTESTABLE addcol-expr
 pull2140	PASS
 quantum-sum-manual	NO_GOLDEN assertion-only (no golden in VisiData)
 quit-perf	NO_GOLDEN assertion-only (no golden in VisiData)
-rank-sheetrank-sorted-cols	SKIP addcol-rank-sheet
+rank-sheetrank-sorted-cols	FAIL line 2: want="10\tCLERK\t7782\t1\t3\t1\t7934\tMILLER\tJan 23, 1982\t1300.00000" got="10\tCLERK\t7782\t1\t3\t1\t7934\tMILLER\t1982-01-23\t1300"
 record-aggr	SKIP memo-aggregate
 remove-errors	UNTESTABLE setcol-expr
 rows-select-expr	UNTESTABLE select-expr
@@ -227,7 +227,7 @@ sortorder	PASS
 sqlite-commit	SKIP runtime: save: unknown extension '.sqlite'
 sqlite_withoutrowid	PASS
 sum-freq-table	PASS
-syspaste-crlf	SKIP open-syspaste
+syspaste-crlf	PASS
 test_quartiles	PASS
 transform-cols	PASS
 type-customdate	SKIP runtime: "05/1991" doesn't fit OrderDate (date)

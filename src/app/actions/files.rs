@@ -57,6 +57,107 @@ impl App {
         });
     }
 
+    /// `g Ctrl+S` / `:save-all` (VisiData save-all, S-46 B7): every sheet on
+    /// the stack. `path/` (or a directory): one `<table_name>.tsv` each, as
+    /// VisiData's default `save_filetype`; `.duckdb`: one table each; another
+    /// file takes only one sheet.
+    // ponytail: a derived sheet's `table_name` is its parent's, so a name met
+    // again gets `_2`, `_3`, …; VisiData's would be `<sheet>_<col>_freq` etc.
+    pub(super) fn save_all(&mut self, path: &str) {
+        // names compare without case, as DuckDB's (and some file systems')
+        let mut used = std::collections::HashSet::new();
+        let sheets: Vec<_> = (self.sheets.iter())
+            .map(|s| {
+                let base = s.table_name();
+                let mut name = base.clone();
+                for n in 2.. {
+                    if used.insert(name.to_lowercase()) {
+                        break;
+                    }
+                    name = format!("{base}_{n}");
+                }
+                (s.id, name, s.save_plan(), s.edits())
+            })
+            .collect();
+        let p = std::path::Path::new(path);
+        let dir = path.ends_with('/') || p.is_dir();
+        if !dir && !crate::duckdb::is_db(p) && sheets.len() > 1 {
+            self.toast = Some(format!(
+                "save-all: {} sheets can't go in one file; end the path with / or use .duckdb",
+                sheets.len()
+            ));
+            return;
+        }
+        let path = path.to_string();
+        self.spawn_job("save", move || {
+            let base = std::path::Path::new(&path);
+            if dir {
+                std::fs::create_dir_all(base).map_err(|e| format!("{path}: {e}"))?;
+            }
+            let (mut rows, mut edits) = (0, Vec::new());
+            // VisiData's sheet name: the table's
+            for (id, name, plan, e) in sheets {
+                let mut df = plan.collect().map_err(|e| format!("{name}: {e}"))?;
+                if dir {
+                    let file = base.join(format!("{}.tsv", name.replace('/', "_")));
+                    crate::sheet::write_df_by_extension(&mut df, &file)
+                        .map_err(|e| e.to_string())?;
+                } else if crate::duckdb::is_db(base) {
+                    crate::duckdb::save(&mut df, base, &name)?;
+                } else {
+                    crate::sheet::write_df_by_extension(&mut df, base)
+                        .map_err(|e| e.to_string())?;
+                }
+                rows += df.height();
+                edits.push((id, e));
+            }
+            let note = format!("saved {} sheets → {path}", edits.len());
+            Ok(JobDone::SavedAll {
+                note,
+                edits,
+                path,
+                rows,
+            })
+        });
+    }
+
+    /// `z Ctrl+S` on a DuckDB or SQLite table (VisiData commit-sheet, S-46
+    /// B8): asks first, as VisiData; the commit can't be undone.
+    pub(super) fn ask_commit_sheet(&mut self) {
+        match self.sheets.active().commit_plan() {
+            Ok(p) => {
+                let q = format!(
+                    "really commit the changes to {}? (not undoable)",
+                    p.table.part
+                );
+                self.ask(Confirm::Commit, q);
+            }
+            Err(e) => self.toast = Some(format!("commit-sheet: {e}")),
+        }
+    }
+
+    /// The commit [`Self::ask_commit_sheet`] asked for, in a job; then the
+    /// table is read again in place of the sheet's source.
+    pub(in crate::app) fn commit_sheet(&mut self) {
+        let plan = match self.sheets.active().commit_plan() {
+            Ok(p) => p,
+            Err(e) => return self.toast = Some(format!("commit-sheet: {e}")),
+        };
+        let header = self.theme.header;
+        let stamp = self.sheets.active().scan_stamp();
+        self.spawn_job("commit", move || {
+            let note = crate::commit::commit(&plan)?;
+            let t = &plan.table;
+            let loaded = crate::reader::open_part_with(&t.db, t.kind, &t.part, header)
+                .map_err(|e| e.to_string())?;
+            Ok(JobDone::Committed {
+                note,
+                loaded: Box::new(loaded),
+                stamp,
+            })
+        });
+    }
+
     /// `:open`: like the command line, a multi-part file opens on its list.
     pub(super) fn open_file(&mut self, path: &str, format: Option<&str>) {
         let Ok(opened) = self.open_with_format("open", path, format) else {
@@ -72,6 +173,36 @@ impl App {
                 None => crate::reader::open_with(path.as_ref(), kind, header)
                     .map_err(|e| e.to_string())?,
             };
+            Ok(JobDone::PushSheet(Box::new(Sheet::opened(id, loaded))))
+        });
+    }
+
+    /// `gP` (S-46 B6): the clipboard's text, read by the paste command in the
+    /// background, or the last terminal paste (SSH), as sheet `syspaste`.
+    pub(super) fn open_syspaste(&mut self, format: &str) {
+        let Some(kind) = crate::plugins::builtin_format(format) else {
+            self.toast = Some(format!("open-syspaste: unknown filetype {format}"));
+            return;
+        };
+        let (argv, pasted) = (self.paste_cmd.clone(), self.pasted.clone());
+        if argv.is_none() && pasted.is_none() {
+            self.toast = Some("nothing pasted: paste with the terminal first".into());
+            return;
+        }
+        let id = self.sheets.alloc_id();
+        self.spawn_job("open", move || {
+            let text = match (argv, pasted) {
+                (Some(argv), _) => crate::clipboard::read(&argv)?,
+                (None, text) => text.unwrap_or_default(),
+            };
+            // VisiData strips the text first
+            let text = text.trim();
+            if text.is_empty() {
+                return Err("nothing to open".into());
+            }
+            let loaded =
+                crate::reader::open_bytes(text.as_bytes().to_vec(), "syspaste", Some(kind))
+                    .map_err(|e| e.to_string())?;
             Ok(JobDone::PushSheet(Box::new(Sheet::opened(id, loaded))))
         });
     }
@@ -597,7 +728,7 @@ impl App {
     /// `:sql`: `self` = this view; every open sheet is also `s<id>` (see `S`).
     pub(super) fn open_sql(&mut self, query: &str) {
         let active = self.sheets.active().id;
-        let ids: Vec<SheetId> = self.sheets.summaries().map(|(id, _, _)| id).collect();
+        let ids: Vec<SheetId> = self.sheets.summaries(false).map(|(id, _, _)| id).collect();
         let others: Vec<Sheet> = ids
             .into_iter()
             .filter(|id| *id != active)

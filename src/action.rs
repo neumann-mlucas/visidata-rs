@@ -61,7 +61,35 @@ pub enum Action {
     /// `gF` (VisiData freq-keys): freq over all key columns together.
     FreqKeys,
     /// `zEnter` (VisiData open-cell): the cursor cell's list or dict as a sheet.
+    /// On a freq sheet it is [`Action::DiveExcept`], as VisiData binds it there.
     OpenCell,
+    /// `:join-cols` on a columns sheet (VisiData join-cols, S-46 B3): a new
+    /// text column joining the selected columns' values.
+    JoinCols,
+    /// `:addcol-aggregate <aggs>` (VisiData addcol-aggregate, S-46 B4): a
+    /// column per aggregator of the cursor column, within the key groups.
+    AddColAggregate {
+        aggs: String,
+    },
+    /// `:addcol-rank-sheet` (VisiData addcol-rank-sheet, S-46 B4): the rank
+    /// of each row's key values.
+    AddColRankSheet,
+    /// `:addcol-agg` (S-46 B4): the column the two above make, spelled out,
+    /// as a session replays it. `by`: (column, descending); `casts`:
+    /// (column, `int`/`float`/`str`).
+    AddColAgg {
+        name: String,
+        agg: String,
+        by: Vec<(String, bool)>,
+        over: Vec<String>,
+        casts: Vec<(String, String)>,
+    },
+    /// `zEnter` / `gzEnter` on a freq sheet (VisiData dive-except,
+    /// dive-except-selected): the source rows outside the cursor row's
+    /// (selected rows') bins.
+    DiveExcept {
+        selected: bool,
+    },
     /// `g&` / `:join-all <how>` (VisiData join-sheets-all): this sheet joined
     /// with every other sheet on the stack, top down, on its key columns.
     JoinAll {
@@ -108,6 +136,9 @@ pub enum Action {
     TypeCastCurrency,
     /// `:type json` (S-22 C): decode JSON text into lists / structs.
     TypeCastJson,
+    /// `z#` / `:type len` (VisiData type-len, S-46 B2): show each value's
+    /// length, a view cast as `#`.
+    TypeCastLen,
 
     // search / filter / sort
     SearchNext,
@@ -128,6 +159,9 @@ pub enum Action {
     // derived sheets
     OpenFreqTable,
     OpenSheetSwitcher,
+    /// `gS` (VisiData sheets-all, S-46 B5): the sheet list plus the sheets
+    /// quit since the start.
+    OpenSheetsAll,
     Pivot {
         index: String,
         on: String,
@@ -453,6 +487,16 @@ pub enum Action {
         path: String,
         format: Option<String>,
     },
+    /// `g Ctrl+S` / `:save-all <path>` (VisiData save-all, S-46 B7): every
+    /// sheet on the stack, to a directory (`path/`) or one `.duckdb` file.
+    SaveAll {
+        path: String,
+    },
+    /// `gP` / `:open-syspaste [filetype]` (VisiData open-syspaste, S-46 B6):
+    /// the clipboard's text as a new sheet `syspaste` of that filetype.
+    OpenSysPaste {
+        format: String,
+    },
     /// `:cursor <row> [column]`: row counts from 1 in the view.
     SetCursor {
         row: u64,
@@ -776,6 +820,7 @@ impl Action {
                 | Action::TypeCastDate
                 | Action::TypeCastDateAs { .. }
                 | Action::TypeCastCurrency
+                | Action::TypeCastLen
                 | Action::FreezeColumn
                 | Action::UnfreezeAll
                 | Action::SetFilter { .. }
@@ -817,6 +862,7 @@ impl Action {
                 | SubmitRow
                 | OpenFreqTable
                 | OpenSheetSwitcher
+                | OpenSheetsAll
         )
     }
 
@@ -843,6 +889,7 @@ impl Action {
             | ToggleMacroRecord => false,
             Macro(_) => true,
             Open { .. } | SetCursor { .. } | Source { .. } | SelectIds { .. } => true,
+            OpenSysPaste { .. } | SaveAll { .. } => true,
             MkSession { .. } | CopyStats | Refresh | Link { .. } => false,
             HelpCommands | JumpPrev | Suspend => false,
             JumpBack | JumpForward | Jumps => false,
@@ -857,7 +904,8 @@ impl Action {
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
-            Transpose | JoinAll { .. } | FreqKeys | OpenCell => true,
+            Transpose | JoinAll { .. } | FreqKeys | OpenCell | DiveExcept { .. } => true,
+            JoinCols | AddColAggregate { .. } | AddColRankSheet | AddColAgg { .. } => true,
             StartGoColRegexInput | ExPrompt { .. } => false,
             StartGoColInput | ShowVersion | SetcolPrecisionInput => false,
             HideNamed { .. } | Patch { .. } => true,
@@ -877,7 +925,7 @@ impl Action {
             SlideCol { .. } | Order { .. } => true,
             StartSlideInput { .. } => false,
             Scale { .. } | DataBar { .. } => true,
-            OpenSheetSwitcher => false,
+            OpenSheetSwitcher | OpenSheetsAll => false,
             StartSearchInput { .. }
             | StartSearchKeysInput
             | StartSearchExprInput { .. }
@@ -916,7 +964,7 @@ impl Action {
             | RenameColsFromRows { .. } => true,
             TypeCastInt | TypeCastFloat | TypeCastString | TypeCastDate | TypeCastCurrency => true,
             TypeCastDateAs { .. } => true,
-            TypeCastJson => true,
+            TypeCastJson | TypeCastLen => true,
             SearchNext | SearchPrev | SetFilter { .. } | ClearFilter => true,
             SortAsc | SortDesc | SetSort { .. } | ClearSort => true,
             OpenFreqTable | Pivot { .. } | Unpivot { .. } | Diff { .. } | Tail { .. } => true,
@@ -1010,6 +1058,7 @@ impl Action {
         ("type_cast_date", TypeCastDate),
         ("type_cast_currency", TypeCastCurrency),
         ("type_cast_json", TypeCastJson),
+        ("type_cast_len", TypeCastLen),
         ("start_search_input", StartSearchInput { all_columns: false, backward: false }),
         ("start_searchr_input", StartSearchInput { all_columns: false, backward: true }),
         ("start_search_all_input", StartSearchInput { all_columns: true, backward: false }),
@@ -1034,6 +1083,7 @@ impl Action {
         ("sort_desc", SortDesc),
         ("open_freq_table", OpenFreqTable),
         ("open_sheet_switcher", OpenSheetSwitcher),
+        ("open_sheets_all", OpenSheetsAll),
         ("submit_row", SubmitRow),
         ("submit_selected", SubmitSelected),
         ("toggle_plan_panel", TogglePlanPanel),
@@ -1109,6 +1159,7 @@ impl Action {
         ("type_string_selected", TypeSelected { name: "str" }),
         ("type_date_selected", TypeSelected { name: "date" }),
         ("type_currency_selected", TypeSelected { name: "currency" }),
+        ("type_len_selected", TypeSelected { name: "len" }),
         ("start_aggregate_input", StartAggregateInput { memo: false, selected: false }),
         ("start_memo_aggregate_input", StartAggregateInput { memo: true, selected: false }),
         ("start_aggregate_cols_input", StartAggregateInput { memo: false, selected: true }),
@@ -1146,9 +1197,16 @@ impl Action {
         ("transpose", Transpose),
         ("freq_keys", FreqKeys),
         ("open_cell", OpenCell),
+        ("dive_except", DiveExcept { selected: false }),
+        ("dive_except_selected", DiveExcept { selected: true }),
+        ("join_cols", JoinCols),
+        ("addcol_rank_sheet", AddColRankSheet),
+        ("addcol_aggregate", ExPrompt { cmd: "addcol-aggregate" }),
         ("join_sheets_all", ExPrompt { cmd: "join-all" }),
         ("open_file", ExPrompt { cmd: "open" }),
+        ("open_syspaste", ExPrompt { cmd: "open-syspaste" }),
         ("save_sheet", ExPrompt { cmd: "save" }),
+        ("save_all", ExPrompt { cmd: "save-all" }),
         ("join_sheets_top2", ExPrompt { cmd: "join" }),
         ("prev_value", ValueChange { forward: false }),
         ("operator_delete", Operator { op: 'd', count: None }),
@@ -1300,10 +1358,32 @@ impl Action {
             TimeWalk { n } if *n > 0 => format!("earlier {n}"),
             TimeWalk { n } if *n < 0 => format!("later {}", -n),
             Save { path } => format!("save {}", q(path)),
+            SaveAll { path } => format!("save-all {}", q(path)),
             Export { path } => format!("export {}", q(path)),
             Join { source, keys, how } if keys.is_empty() => format!("join {} {how}", q(source)),
             Join { source, keys, how } => format!("join {} {} {how}", q(source), q(&list(keys)?)),
             JoinAll { how } => format!("join-all {how}"),
+            AddColAggregate { aggs } if raw(aggs) => format!("addcol-aggregate {aggs}"),
+            AddColAgg {
+                name,
+                agg,
+                by,
+                over,
+                casts,
+            } => {
+                let by =
+                    (by.iter()).map(|(c, d)| format!("{}={c}", if *d { "desc" } else { "by" }));
+                let over = over.iter().map(|c| format!("over={c}"));
+                let casts = casts.iter().map(|(c, t)| format!("cast={c}:{t}"));
+                let args: Vec<String> = [name.clone(), agg.clone()]
+                    .into_iter()
+                    .chain(by)
+                    .chain(over)
+                    .chain(casts)
+                    .map(|a| q(&a))
+                    .collect();
+                format!("addcol-agg {}", args.join(" "))
+            }
             Derive { name, expr } if !name.is_empty() && !name.contains('=') && raw(expr) => {
                 format!("derive {} = {expr}", q(name))
             }
@@ -1368,6 +1448,7 @@ impl Action {
             EditCell { value } => format!("edit {}", q(value)),
             ExCommand(s) => s.clone(),
             Open { path, format: None } => format!("open {}", q(path)),
+            OpenSysPaste { format } => format!("open-syspaste {}", q(format)),
             Open {
                 path,
                 format: Some(f),
@@ -1515,6 +1596,20 @@ mod tests {
         let s = |v: &str| v.to_string();
         let cases = [
             JoinAll { how: s("full") },
+            AddColAggregate {
+                aggs: s("sum rank"),
+            },
+            OpenSysPaste { format: s("csv") },
+            SaveAll {
+                path: s("out dir/"),
+            },
+            AddColAgg {
+                name: s("q ty_rank"),
+                agg: s("rank"),
+                by: vec![(s("q ty"), true), (s("a=b"), false)],
+                over: vec![s("k:1")],
+                casts: vec![(s("q ty"), s("int"))],
+            },
             CursorDown { count: Some(3) },
             CursorUp { count: Some(1) },
             CursorLeft { count: Some(2) },

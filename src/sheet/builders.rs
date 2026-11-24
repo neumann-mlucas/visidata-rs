@@ -5,6 +5,167 @@
 use super::*;
 
 impl Sheet {
+    /// `:addcol-aggregate` (VisiData addcol-aggregate, S-46 B4): a
+    /// `<column>_<agg>` column per name in `aggs` (as `+` takes them, plus
+    /// `rank`), each `agg` within the key columns' groups; after `column`.
+    /// Their names.
+    pub fn addcol_aggregate(&mut self, column: &str, aggs: &str) -> Result<Vec<String>, String> {
+        let mut names = Vec::new();
+        for agg in aggs.split_whitespace() {
+            match agg {
+                "rank" => names.push("rank".to_string()),
+                a => names.extend(self.aggregator_names(column, a)?),
+            }
+        }
+        if names.is_empty() {
+            return Err("addcol-aggregate: no aggregator given".into());
+        }
+        // ponytail: an error row (S-44 A) groups with the null keys; VisiData
+        // gives each its own group. Add `ERR_COL` to `over` if that bites
+        let keys = self.view.keys.clone();
+        if names.iter().any(|n| n == "rank") && keys.is_empty() {
+            return Err("ranking requires one or more key columns".into());
+        }
+        // VisiData ranks within a group descending when the column sorts so
+        let desc =
+            (self.view.sort.iter()).any(|k| k.column == column && k.order == SortOrder::Desc);
+        let new: Vec<String> = (names.iter())
+            .map(|a| crate::sheet::columns::agg_name(column, a))
+            .collect();
+        let by = [(column.to_string(), desc)];
+        let casts = self.casts_of(&by);
+        self.undoably(|s| {
+            for (agg, name) in names.iter().zip(&new) {
+                s.group_agg_step(name, agg, &by, &keys, &casts)?;
+            }
+            s.place_cols(&new, Some(column))
+        })?;
+        Ok(new)
+    }
+
+    /// `:addcol-rank-sheet` (VisiData addcol-rank-sheet, S-46 B4):
+    /// `<sheet>_sheetrank`, the rank of each row's key values: sorted key
+    /// columns first, in their sort direction, then the others ascending.
+    /// After column `after`. Its name.
+    pub fn addcol_rank_sheet(&mut self, after: Option<&str>) -> Result<String, String> {
+        let keys = &self.view.keys;
+        if keys.is_empty() {
+            return Err("ranking requires one or more key columns".into());
+        }
+        let sorted = (self.view.sort.iter()).filter(|k| keys.contains(&k.column));
+        let mut by: Vec<(String, bool)> = sorted
+            .map(|k| (k.column.clone(), k.order == SortOrder::Desc))
+            .collect();
+        for k in keys {
+            if !by.iter().any(|(c, _)| c == k) {
+                by.push((k.clone(), false));
+            }
+        }
+        let name = format!("{}_sheetrank", self.table_name());
+        let casts = self.casts_of(&by);
+        self.undoably(|s| {
+            s.group_agg_step(&name, "rank", &by, &[], &casts)?;
+            s.place_col(&name, after)
+        })?;
+        Ok(name)
+    }
+
+    /// `:addcol-agg` (S-46 B4): the [`PlanStep::GroupAgg`] the two above make,
+    /// spelled out: `casts` as given, not the view's. After column `after`.
+    pub fn group_agg(
+        &mut self,
+        name: &str,
+        agg: &str,
+        (by, over): (&[(String, bool)], &[String]),
+        casts: &[(String, DataType)],
+        after: Option<&str>,
+    ) -> Result<(), String> {
+        self.undoably(|s| {
+            s.group_agg_step(name, agg, by, over, casts)?;
+            s.place_col(name, after)
+        })
+    }
+
+    /// The view's casts of the `by` columns.
+    fn casts_of(&self, by: &[(String, bool)]) -> Vec<(String, DataType)> {
+        (self.view.type_casts.iter())
+            .filter(|(c, _)| by.iter().any(|(b, _)| b == c))
+            .cloned()
+            .collect()
+    }
+
+    /// `f` as one undo step; on an error, the sheet as it was.
+    fn undoably(&mut self, f: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
+        self.make_editable()?;
+        let before = self.snapshot();
+        match f(self) {
+            Ok(()) => {
+                self.push_undo(before);
+                Ok(())
+            }
+            Err(e) => {
+                self.restore(before);
+                Err(e)
+            }
+        }
+    }
+
+    fn group_agg_step(
+        &mut self,
+        name: &str,
+        agg: &str,
+        by: &[(String, bool)],
+        over: &[String],
+        casts: &[(String, DataType)],
+    ) -> Result<(), String> {
+        if self.has_column(name) {
+            return Err(format!("column already exists: {name}"));
+        }
+        // ponytail: a date or len cast reads differently in each export; cast
+        // to int, float or str, or :derive the value first
+        let plain = |dt: &DataType| {
+            crate::sheet::columns::AGG_CASTS
+                .iter()
+                .any(|(_, t)| t == dt)
+        };
+        if let Some((c, _)) = casts.iter().find(|(_, dt)| !plain(dt)) {
+            return Err(format!(
+                "{agg}: {c} has a date or len type; only int, float, str"
+            ));
+        }
+        let step = PlanStep::GroupAgg {
+            agg: agg.into(),
+            by: by.to_vec(),
+            over: over.to_vec(),
+            casts: casts.to_vec(),
+            name: name.into(),
+        };
+        let e = |e: PolarsError| format!("{agg}: {e}");
+        self.apply_step(step).map_err(e)?;
+        // a type the aggregator can't take fails here, not on the next collect
+        self.plan.clone().collect_schema().map(drop).map_err(e)
+    }
+
+    /// `:join-cols` (VisiData join-cols, S-46 B3): a `Derive` of `columns`'
+    /// values as text with `values` between them (null as empty), named
+    /// after them joined by `names`, placed after column `after`. Its name.
+    pub fn join_cols(
+        &mut self,
+        columns: &[&str],
+        (names, values): (&str, &str),
+        after: Option<&str>,
+    ) -> Result<String, String> {
+        let name = columns.join(names);
+        let sep = format!(" || {} || ", crate::duckdb::lit(values));
+        let expr = (columns.iter())
+            .map(|c| format!("COALESCE(CAST({} AS VARCHAR), '')", crate::duckdb::ident(c)))
+            .collect::<Vec<_>>()
+            .join(&sep);
+        self.derive(&name, &expr)?;
+        self.place_col(&name, after)?;
+        Ok(name)
+    }
+
     /// `za` / `:addcol`: an empty text column `name`.
     pub fn add_empty_col(&mut self, name: &str) -> Result<(), String> {
         self.make_editable()?;

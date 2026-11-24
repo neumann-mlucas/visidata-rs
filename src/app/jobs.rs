@@ -133,6 +133,40 @@ impl App {
                 self.toast = Some(note);
                 self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
             }
+            Ok(JobDone::Committed {
+                mut note,
+                loaded,
+                stamp,
+            }) => {
+                let s = self.sheets.find_by_id_mut(sheet_id);
+                if s.as_ref().is_some_and(|s| s.scan_stamp() != stamp) {
+                    // the edits since aren't in the table: keep them on screen
+                    note += "; the sheet changed while it ran: Ctrl+R reads the table again";
+                } else if let Some(s) = s {
+                    // the table as committed; the view stays, the edits are in it now
+                    let mut fresh = Sheet::from_source(s.id, *loaded);
+                    fresh.name = s.name.clone();
+                    fresh.view = s.view.clone();
+                    fresh.view.selected = Default::default();
+                    *s = fresh;
+                }
+                self.toast = Some(note);
+                self.spawn_materialize();
+            }
+            Ok(JobDone::SavedAll {
+                note,
+                edits,
+                path,
+                rows,
+            }) => {
+                for (id, edits) in edits {
+                    if let Some(s) = self.sheets.find_by_id_mut(id) {
+                        s.state.saved_edits = edits;
+                    }
+                }
+                self.toast = Some(note);
+                self.fire_event("save", &[("path", path), ("rows", rows.to_string())]);
+            }
             Ok(JobDone::TailSource(loaded)) => self.apply_tail_source(sheet_id, *loaded),
             Ok(JobDone::ExecSql { db, index, rows }) => {
                 let ids: Vec<SheetId> = self

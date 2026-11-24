@@ -9,6 +9,7 @@ use crate::reader::{LoadedSource, SourceKind};
 
 mod builders;
 pub(crate) mod columns;
+mod commit;
 mod derive;
 mod diff;
 mod edit;
@@ -134,11 +135,13 @@ pub enum Derivation {
     /// Rows by [`ROW_ID`] of the parent's base plan (`"`).
     Rids(std::collections::BTreeSet<u64>),
     /// Rows whose `column`'s `key`, as text, is one of `values` (freq dive;
-    /// None = null).
+    /// None = null). `except`: the rows whose key is none of them
+    /// (`dive-except`, S-46 B).
     Values {
         column: String,
         key: DiveKey,
         values: Vec<Option<String>>,
+        except: bool,
     },
     /// `others`: the `s<id>` sheets the query names.
     Sql {
@@ -448,6 +451,9 @@ impl Origin {
 /// Sheet stack = all open sheets, last = active. Modeled on VisiData's `vd.sheets`.
 pub struct Sheets {
     stack: Vec<Sheet>,
+    /// Data sheets the user quit, oldest first (VisiData's `allSheets` less
+    /// the stack): `gS` lists them, and its `<CR>` opens one again (S-46 B5).
+    closed: Vec<Sheet>,
     next_id: SheetId,
 }
 
@@ -456,6 +462,7 @@ impl Sheets {
         let next_id = initial.id + 1;
         Self {
             stack: vec![initial],
+            closed: Vec::new(),
             next_id,
         }
     }
@@ -500,12 +507,49 @@ impl Sheets {
             false
         }
     }
-    /// Iterate sheets by `(id, name, kind)` for the sheet-switcher view.
-    pub fn summaries(&self) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
-        self.stack.iter().map(|s| (s.id, s.name.as_str(), s.kind))
+    /// `q`: [`Self::pop`], keeping a data sheet (not a sheet list, columns,
+    /// undo, macros or options sheet) for [`Self::reopen`], as VisiData does.
+    pub fn close(&mut self) -> bool {
+        if self.stack.len() < 2 {
+            return false;
+        }
+        if let Some(s) = self.stack.pop() {
+            let meta = matches!(
+                s.origin,
+                Origin::SheetSwitcher
+                    | Origin::Columns { .. }
+                    | Origin::UndoTree { .. }
+                    | Origin::Macros
+                    | Origin::Options
+            );
+            if !meta {
+                self.closed.push(s);
+            }
+        }
+        true
+    }
+    /// A sheet [`Self::close`] kept, back on top of the stack.
+    pub fn reopen(&mut self, id: SheetId) -> bool {
+        let Some(pos) = self.closed.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let s = self.closed.remove(pos);
+        self.stack.push(s);
+        true
+    }
+    /// Iterate sheets by `(id, name, kind)` for the sheet-switcher view;
+    /// `all` (`gS`): the closed ones after the stack.
+    pub fn summaries(&self, all: bool) -> impl Iterator<Item = (SheetId, &str, SourceKind)> + '_ {
+        let closed = self.closed.iter().filter(move |_| all);
+        (self.stack.iter().chain(closed)).map(|s| (s.id, s.name.as_str(), s.kind))
     }
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Sheet> {
         self.stack.iter()
+    }
+    /// The sheet with `id`, on the stack or quit (a freq sheet still dives
+    /// to a quit source, as VisiData's).
+    pub fn find_any(&self, id: SheetId) -> Option<&Sheet> {
+        (self.stack.iter().chain(&self.closed)).find(|s| s.id == id)
     }
     pub fn find_by_id_mut(&mut self, id: SheetId) -> Option<&mut Sheet> {
         self.stack.iter_mut().find(|s| s.id == id)
@@ -1586,15 +1630,42 @@ pub fn date_cast_type(s: &Sheet, column: &str) -> DataType {
     }
 }
 
-/// A type cast of `name` to `dt`; text dates parse leniently.
-pub(crate) fn cast_expr(name: &str, dt: &DataType, src: Option<&DataType>) -> Expr {
-    let text = src == Some(&DataType::String);
-    let number = src.is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
+/// `z#` (VisiData type-len, S-46 B2): the view cast that shows each value's
+/// length ([`len_expr`]). No other cast picks this type: `#` casts to Int64.
+pub const LEN_CAST: DataType = DataType::UInt32;
+
+/// A type cast of `name` (loaded as `base`) to `dt`; text dates parse
+/// leniently, [`LEN_CAST`] gives lengths.
+pub(crate) fn cast_expr(name: &str, dt: &DataType, base: Option<&DataType>) -> Expr {
+    let text = base == Some(&DataType::String);
+    let number = base.is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
     match dt {
+        dt if *dt == LEN_CAST => len_expr(name, base).alias(name),
         DataType::Date if text => lenient_date(name),
         DataType::Datetime(..) if text => lenient_datetime(name),
         DataType::Date | DataType::Datetime(..) if number => epoch_seconds(name, dt),
         _ => col(name).cast(dt.clone()).alias(name),
+    }
+}
+
+/// VisiData `vlen`: a list's item count, a struct's non-null field count (a
+/// dict's key count: a JSON Lines key a row lacks reads as a null field), else
+/// the length of the value's text. Null stays null.
+// ponytail: a key whose value is null doesn't count, where VisiData counts it
+fn len_expr(name: &str, base: Option<&DataType>) -> Expr {
+    match base {
+        Some(DataType::List(_)) => col(name).list().len().cast(LEN_CAST),
+        Some(DataType::Struct(fields)) => {
+            let set = (fields.iter()).map(|f| {
+                let v = col(name).struct_().field_by_name(f.name());
+                v.is_not_null().cast(LEN_CAST)
+            });
+            let keys = set.reduce(|a, b| a + b).unwrap_or(lit(0u32));
+            when(col(name).is_not_null())
+                .then(keys)
+                .otherwise(lit(NULL).cast(LEN_CAST))
+        }
+        _ => col(name).cast(DataType::String).str().len_chars(),
     }
 }
 

@@ -127,6 +127,11 @@ pub fn default_init_lua() -> String {
          -- zM on an empty list keeps the row, key and value empty. Default off.\n\
          -- vd.option(\"unfurl_empty\", \"true\")\n\
          \n\
+         -- :join-cols puts name_joiner between the column names and value_joiner\n\
+         -- between the values. Defaults \"_\" and one space.\n\
+         -- vd.option(\"name_joiner\", \"_\")\n\
+         -- vd.option(\"value_joiner\", \" \")\n\
+         \n\
          -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
          -- turns it on or off.\n\
          -- vd.option(\"disp_footer\", \"true\")\n\

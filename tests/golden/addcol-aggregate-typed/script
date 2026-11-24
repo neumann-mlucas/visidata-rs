@@ -1,0 +1,7 @@
+!
+l l
+#
+]
+:
+> addcol-aggregate sum max rank
+q

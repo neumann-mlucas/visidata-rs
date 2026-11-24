@@ -1,0 +1,8 @@
+region	rep	qty	qty_sum	qty_max	qty_rank
+West	Kivell	10	10	10	1
+East	Smith	10	16	10	1
+	Cy	7	9	7	1
+East	Jones	3	16	10	2
+East	Dee	3	16	10	2
+	Ann	2	9	7	2
+West	Bo		10	10	2

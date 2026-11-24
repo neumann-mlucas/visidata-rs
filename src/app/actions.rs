@@ -232,6 +232,15 @@ impl App {
             }
             Action::UnfreezeAll => self.sheets.active_mut().view.frozen_left = 0,
             Action::FreezeCol => self.freeze_col()?,
+            Action::AddColAggregate { aggs } => self.addcol_aggregate(&aggs),
+            Action::AddColRankSheet => self.addcol_rank_sheet(),
+            Action::AddColAgg {
+                name,
+                agg,
+                by,
+                over,
+                casts,
+            } => self.addcol_agg(&name, &agg, (&by, &over), &casts),
             Action::HideCol => {
                 if let Some(c) = self.current_column_name() {
                     self.sheets.active_mut().view.hidden.insert(c);
@@ -278,6 +287,7 @@ impl App {
             Action::TypeCastDateAs { time: false } => self.push_type_cast(DataType::Date),
             Action::TypeCastCurrency => self.push_currency_cast(),
             Action::TypeCastJson => self.type_cast_json()?,
+            Action::TypeCastLen => self.push_type_cast(crate::sheet::LEN_CAST),
             Action::StartSearchInput {
                 all_columns,
                 backward,
@@ -323,7 +333,8 @@ impl App {
                 }
             }
             Action::OpenFreqTable => self.open_freq_table(),
-            Action::OpenSheetSwitcher => self.open_sheet_switcher(),
+            Action::OpenSheetSwitcher => self.open_sheet_switcher(false),
+            Action::OpenSheetsAll => self.open_sheet_switcher(true),
             Action::Pivot {
                 index,
                 on,
@@ -334,6 +345,7 @@ impl App {
             Action::Diff { path, keys } => self.open_diff(&path, &keys),
             Action::Tail { path, follow } => self.open_tail(&path, follow),
             Action::Open { path, format } => self.open_file(&path, format.as_deref()),
+            Action::OpenSysPaste { format } => self.open_syspaste(&format),
             Action::Source { path } => self.source(&path, false),
             Action::Patch { column, path } => self.patch(column, path),
             Action::Hits { needle } => self.hits(needle)?,
@@ -378,7 +390,11 @@ impl App {
             Action::SortKeys { descending } => self.sort_keys(descending)?,
             Action::Transpose => self.transpose(),
             Action::JoinAll { how } => self.open_join_all(&how),
+            Action::OpenCell if matches!(self.sheets.active().origin, Origin::Freq { .. }) => {
+                self.dive_freq(false, true)
+            }
             Action::OpenCell => self.open_cell()?,
+            Action::DiveExcept { selected } => self.dive_freq(selected, true),
             Action::FreqKeys => self.freq_keys()?,
             Action::Melt => {
                 let keys = self.sheets.active().view.keys.clone();
@@ -457,6 +473,7 @@ impl App {
             }
             Action::SetCursor { row, column } => self.set_cursor(row, column),
             Action::Save { path } => self.save_active(&path),
+            Action::SaveAll { path } => self.save_all(&path),
             Action::SubmitRow => self.submit_row(),
             // VisiData's s / t / u move the cursor down after
             Action::ToggleSelectRow => {
@@ -564,9 +581,7 @@ impl App {
             }
             Action::MacroSheet => self.open_macros(),
             Action::OptionsSheet => self.open_options(),
-            Action::CommitSheet => {
-                self.toast = Some("commit-sheet: nothing to commit on this sheet".into())
-            }
+            Action::CommitSheet => self.ask_commit_sheet(),
             Action::ToggleFooter => {
                 let on = (!self.theme.footer).to_string();
                 self.toast = Some(self.set_option("disp_footer", Some(&on)));
@@ -631,6 +646,7 @@ impl App {
             }
             Action::KeySelected { .. }
             | Action::TypeSelected { .. }
+            | Action::JoinCols
             | Action::AggregateCols { .. }
             | Action::StartAggregateInput { selected: true, .. } => {
                 self.toast = Some("only on the columns sheet (C)".into());
@@ -675,7 +691,7 @@ impl App {
                     self.toast = Some(format!("nothing to {}", if undo { "undo" } else { "redo" }));
                 }
             }
-            Action::SubmitSelected => self.dive_freq(true),
+            Action::SubmitSelected => self.dive_freq(true, false),
             Action::SelectEqualCell => self.select_equal_cell()?,
             Action::StartDiffInput => self.start_input(Prompt::Diff),
             Action::SelectToSelected { forward } => self.select_to_selected(forward),
@@ -1068,7 +1084,7 @@ impl App {
                     self.spawn_materialize();
                 }
             }
-            Origin::Freq { .. } => self.dive_freq(false),
+            Origin::Freq { .. } => self.dive_freq(false, false),
             Origin::Cell => {
                 let row = self.cursor_row();
                 let id = self.sheets.alloc_id();
@@ -1153,16 +1169,18 @@ impl App {
             Ok(x) => x as u32,
             Err(_) => return,
         };
-        // pop the switcher, then raise the chosen sheet
+        // pop the switcher, then raise the chosen sheet, or open a quit one again
         self.sheets.pop();
-        if !self.sheets.switch_to(id) {
+        if self.sheets.reopen(id) {
+            self.spawn_materialize();
+        } else if !self.sheets.switch_to(id) {
             self.toast = Some(format!("no sheet with id {id}"));
         }
     }
 
     /// `gF` sheet: the parent's rows whose key values are the cursor row's
-    /// (`<CR>`) or any selected row's (`g<CR>`).
-    fn dive_freq_keys(&mut self, selected: bool) {
+    /// (`<CR>`) or any selected row's (`g<CR>`); `except`: the other rows.
+    fn dive_freq_keys(&mut self, selected: bool, except: bool) {
         let s = self.sheets.active();
         let Origin::Freq { parent, columns } = s.origin.clone() else {
             return;
@@ -1186,7 +1204,7 @@ impl App {
             return;
         }
         let plan = s.plan.clone();
-        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
+        let Some(parent) = self.sheets.find_any(parent).cloned() else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
         };
@@ -1200,22 +1218,24 @@ impl App {
                 .collect()
                 .map_err(|e| e.to_string())?;
             let name = format!("{}_{}", parent.name, columns.join("_"));
-            let child = Sheet::rows_with_keys(&parent, id, &keys, wanted, name)?;
+            let child = Sheet::rows_with_keys(&parent, id, &keys, wanted, name, except)?;
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
 
     /// Freq sheet: open the parent's rows whose value is the cursor row's
-    /// (`<CR>`) or any selected row's (`g<CR>`) value.
-    fn dive_freq(&mut self, selected: bool) {
+    /// (`<CR>`) or any selected row's (`g<CR>`) value. `except`
+    /// (`zEnter` / `gzEnter`): the parent's other rows.
+    fn dive_freq(&mut self, selected: bool, except: bool) {
         let s = self.sheets.active();
         let (parent, column) = match &s.origin {
             Origin::Freq { columns, .. } if columns.len() > 1 => {
-                return self.dive_freq_keys(selected);
+                return self.dive_freq_keys(selected, except);
             }
             Origin::Freq { parent, columns } => (*parent, columns.concat()),
             _ => {
-                self.toast = Some("g<CR>: only on a frequency sheet".into());
+                let key = if except { "gz<CR>" } else { "g<CR>" };
+                self.toast = Some(format!("{key}: only on a frequency sheet"));
                 return;
             }
         };
@@ -1232,7 +1252,7 @@ impl App {
         let key = s.freq_dive_key();
         let own_rids = s.is_freq();
         use crate::sheet::{Binning, DiveKey};
-        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
+        let Some(parent) = self.sheets.find_any(parent).cloned() else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
         };
@@ -1273,7 +1293,7 @@ impl App {
                     }
                 }
             };
-            let child = Sheet::rows_with_values(&parent, id, &column, key, picked);
+            let child = Sheet::rows_with_values(&parent, id, &column, key, picked, except);
             Ok(JobDone::PushSheet(Box::new(child)))
         });
     }
@@ -1283,7 +1303,7 @@ impl App {
         if matches!(self.sheets.active().origin, Origin::Macros) {
             self.macro_edits.clear(); // not committed: dropped
         }
-        if self.sheets.pop() {
+        if self.sheets.close() {
             // the pane's last sheet: the other pane fills the screen
             if self
                 .split
@@ -1305,7 +1325,7 @@ impl App {
     }
 
     /// The question stays in the status line until a key answers it.
-    fn ask(&mut self, c: Confirm, question: String) {
+    pub(super) fn ask(&mut self, c: Confirm, question: String) {
         self.confirm = Some((c, format!("{question} y/N")));
     }
 
@@ -1440,14 +1460,18 @@ impl App {
         }
     }
 
-    fn open_sheet_switcher(&mut self) {
+    /// `S`; `all`: `gS`, the quit sheets too (S-46 B5).
+    fn open_sheet_switcher(&mut self, all: bool) {
         let summaries: Vec<_> = self
             .sheets
-            .summaries()
+            .summaries(all)
             .map(|(id, name, kind)| (id, name.to_string(), kind))
             .collect();
         let id = self.sheets.alloc_id();
-        let child = Sheet::sheet_switcher(id, summaries);
+        let mut child = Sheet::sheet_switcher(id, summaries);
+        if all {
+            child.name = "<sheets_all>".into();
+        }
         self.sheets.push(child);
         // sheet_switcher ships window pre-materialized; still fire once so revision is nudged
         self.spawn_materialize();

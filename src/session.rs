@@ -146,9 +146,14 @@ impl Block {
             column,
             key,
             values,
+            except,
         } = &l.how
         else {
             return false;
+        };
+        let dive = match except {
+            true => Action::DiveExcept { selected: true },
+            false => Action::SubmitSelected,
         };
         if let crate::sheet::DiveKey::Bin { n, .. } = key {
             // a bin's row id is its index (labels may repeat); the null bin's is `n`
@@ -158,7 +163,7 @@ impl Block {
                     .iter()
                     .map(|v| v.as_deref().and_then(|i| i.parse().ok()).unwrap_or(n)),
             );
-            self.ex(Action::SubmitSelected);
+            self.ex(dive);
             return true;
         }
         let c = crate::duckdb::ident(column);
@@ -179,7 +184,7 @@ impl Block {
             expr: terms.join(" OR "),
             unselect: false,
         });
-        self.ex(Action::SubmitSelected);
+        self.ex(dive);
         true
     }
 
@@ -450,6 +455,25 @@ impl Block {
                         pattern: pattern.clone(),
                     });
                 }
+                PlanStep::GroupAgg {
+                    agg,
+                    by,
+                    over,
+                    casts,
+                    name,
+                } => {
+                    use crate::sheet::columns::AGG_CASTS;
+                    let name_of = |dt| AGG_CASTS.iter().find(|(_, t)| t == dt).map(|(n, _)| *n);
+                    let casts = (casts.iter())
+                        .filter_map(|(c, dt)| Some((c.clone(), name_of(dt)?.to_string())));
+                    self.ex(Action::AddColAgg {
+                        name: name.clone(),
+                        agg: agg.clone(),
+                        by: by.clone(),
+                        over: over.clone(),
+                        casts: casts.collect(),
+                    });
+                }
                 PlanStep::Expand { column, fields, .. } => {
                     self.col(column);
                     let depth = fields.iter().map(|(p, _)| p.len()).max().unwrap_or(1);
@@ -473,6 +497,7 @@ impl Block {
                 }
                 // the loaded datetime type: `@` keeps it
                 DataType::Datetime(..) => Action::TypeCastDate,
+                dt if *dt == crate::sheet::LEN_CAST => Action::TypeCastLen,
                 other => {
                     self.note(&format!("{column} as {other}"));
                     continue;

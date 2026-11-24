@@ -1,0 +1,12 @@
+ tests/golden/type-len/input.csv                                                  name 2/2  row 1/4
+ id i  name ▲
+    3       ·
+    4       2
+    1       3
+    2      11
+
+
+
+
+
+                                                                                        [  sort_asc

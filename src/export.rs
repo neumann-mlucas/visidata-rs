@@ -715,6 +715,7 @@ impl Script {
                 column,
                 key,
                 values,
+                except,
             } => {
                 // as `Sheet::rows_with_values`: a float `-0.0` matches as `0.0`
                 let float = matches!(key, DiveKey::Value) && l.parent.is_float_column(column);
@@ -737,10 +738,11 @@ impl Script {
                     } else {
                         String::new()
                     };
-                    format!(
-                        "{p}.filter({k}.cast(pl.Utf8).is_in([{}]){or_null})",
-                        list.join(", ")
-                    )
+                    let pred = format!("{k}.cast(pl.Utf8).is_in([{}]){or_null}", list.join(", "));
+                    match except {
+                        true => format!("{p}.filter(~({pred}).fill_null(False))"),
+                        false => format!("{p}.filter({pred})"),
+                    }
                 } else {
                     let list: Vec<String> = text.iter().map(|t| q_str(t)).collect();
                     let c = q_ident(column);
@@ -761,7 +763,10 @@ impl Script {
                     if null {
                         w += &format!(" OR {k} IS NULL");
                     }
-                    format!("SELECT * FROM {p} WHERE {w}")
+                    match except {
+                        true => format!("SELECT * FROM {p} WHERE NOT COALESCE({w}, FALSE)"),
+                        false => format!("SELECT * FROM {p} WHERE {w}"),
+                    }
                 }
             }
             Derivation::Sql { query, others } => {

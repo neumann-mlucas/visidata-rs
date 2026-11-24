@@ -10,6 +10,8 @@
 # Correctness fixes (S-25 P2)
 
 # Aggregators (S-25 P4)
+aggregators-cols     # an error row shows #ERR in every cell; VisiData shows its added columns' values, each error row its own group (S-46 B4)
+rank-sheetrank-sorted-cols # ranks match; a sqlite `date` column loads as text, VisiData types it and shows disp_date_fmt (S-46 B4)
 
 # Permanent: VisiData semantics vdrs doesn't model
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)

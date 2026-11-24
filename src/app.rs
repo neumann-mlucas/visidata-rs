@@ -283,6 +283,20 @@ enum JobDone {
         path: String,
         rows: usize,
     },
+    /// `z Ctrl+S` (S-46 B8): the table read again after the commit. `stamp`:
+    /// the sheet as committed; a later edit keeps the sheet.
+    Committed {
+        note: String,
+        loaded: Box<crate::reader::LoadedSource>,
+        stamp: crate::sheet::ScanStamp,
+    },
+    /// `:save-all` (S-46 B7): each sheet's edits now saved.
+    SavedAll {
+        note: String,
+        edits: Vec<(SheetId, Vec<crate::sheet::PlanStep>)>,
+        path: String,
+        rows: usize,
+    },
     /// `:lookup` steps for the job's sheet, new columns after `at` (S-36 A).
     Lookup {
         steps: Vec<crate::sheet::PlanStep>,
@@ -478,6 +492,8 @@ struct Jump {
 enum Confirm {
     Pop,
     Quit,
+    /// `z Ctrl+S` on a database table (S-46 B8).
+    Commit,
 }
 
 impl Prompt {

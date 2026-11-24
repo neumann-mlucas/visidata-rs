@@ -19,7 +19,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 - [x] S-49 — CSV/TSV blank lines skipped (#3085); csv/tsv save nested cells as JSON (#2944) — shipped 2026-11-16
 - [x] S-48 — option `csv_skipinitialspace` (VisiData's, default on) — shipped 2026-11-16
 - [x] S-47 — local replay corpus `tests/vd_local` (36 cases, 31 pass, 5 quarantined; 33/3 after S-48); VisiData join/melt/pivot naming — shipped 2026-11-16
-- [ ] S-46 — more VisiData commands: A `'` freeze-col, `dive-selected` replay — shipped 2026-11-16; B (`gF` `z<CR>` shipped in S-51) dive-except addcol-aggregate/rank `z#` `gS` `g<C-s>` `gP` join-cols commit-sheet — draft
+- [x] S-46 — more VisiData commands: A `'` freeze-col, `dive-selected` replay — shipped 2026-11-16; B dive-except, `z#` type-len, join-cols, addcol-aggregate/addcol-rank-sheet, `gS`, `gP`, `g<C-s>` save-all, commit-sheet for DuckDB/SQLite; replay 102 → 108 — shipped 2026-11-23
 - [x] S-45 — edits on pivot/melt/unfurl/sql/join sheets (in-memory copy); join edits write back to source rows — shipped 2026-11-16
 - [x] S-44 — JSON Lines error rows: `#ERR` cells, `F`/pivot `#ERR` key, `:save` writes `#ERR` — shipped 2026-11-16
 - [x] S-43 — option `header` (0 → `column_<n>`, N rows joined) for csv/tsv/xlsx/fixed/usv; `z^` `g^` `gz^` rename from rows — shipped 2026-11-16

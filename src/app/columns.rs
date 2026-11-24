@@ -52,6 +52,10 @@ impl App {
                 self.columns_start_edit();
                 return true;
             }
+            Action::JoinCols => {
+                self.join_cols();
+                return true;
+            }
             // VisiData: the columns sheet's rows are its sheet's columns, so
             // sorting them reorders the sheet (S-34 A4)
             Action::SortAsc | Action::SortDesc => {
@@ -181,6 +185,42 @@ impl App {
             s.state.stale = true;
         }
         self.rebuild_columns(renamed);
+    }
+
+    /// `:join-cols` (VisiData join-cols): [`Sheet::join_cols`] of the selected
+    /// columns, before the cursor row's column, as VisiData adds it.
+    fn join_cols(&mut self) {
+        let targets = self.columns_targets(true);
+        let Some(id) = targets.first().map(|(id, _)| *id) else {
+            self.toast = Some("no rows selected".into());
+            return;
+        };
+        if targets.iter().any(|(i, _)| *i != id) {
+            self.toast = Some("join-cols: the columns must come from one sheet".into());
+            return;
+        }
+        let columns: Vec<String> = targets.iter().map(|(_, c)| c.clone()).collect();
+        let joiners = (
+            self.option_value("name_joiner"),
+            self.option_value("value_joiner"),
+        );
+        let s = self.sheets.active();
+        let above = s.view.row_cursor.checked_sub(1);
+        let after = match (
+            &s.origin,
+            above.and_then(|r| s.window_rids().get(r).copied()),
+        ) {
+            (Origin::Columns { cols }, Some(rid)) => (cols.get(rid as usize))
+                .filter(|(i, _)| *i == id)
+                .map(|(_, c)| c.clone()),
+            _ => None,
+        };
+        let target = vec![(id, String::new())];
+        self.columns_write(target, None, |s, _| {
+            let columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+            let joiners = (joiners.0.as_str(), joiners.1.as_str());
+            s.join_cols(&columns, joiners, after.as_deref()).map(drop)
+        });
     }
 
     /// The columns sheet's rows in view order become its sheets' column order,

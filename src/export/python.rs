@@ -37,7 +37,28 @@ impl Script {
             let number = src
                 .as_ref()
                 .is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
-            if matches!(dt, DataType::Date | DataType::Datetime(..)) && number {
+            if *dt == crate::sheet::LEN_CAST {
+                let p = format!("pl.col({})", py_str(c));
+                let len = match src {
+                    Some(DataType::List(_)) => format!("{p}.list.len()"),
+                    Some(DataType::Struct(f)) => {
+                        let set: Vec<String> = (f.iter())
+                            .map(|f| {
+                                format!("{p}.struct.field({}).is_not_null()", py_str(f.name()))
+                            })
+                            .collect();
+                        format!(
+                            "pl.when({p}.is_not_null()).then(pl.sum_horizontal({}))",
+                            set.join(", ")
+                        )
+                    }
+                    _ => format!("{p}.cast(pl.Utf8).str.len_chars()"),
+                };
+                ops.push(format!(
+                    ".with_columns({len}.cast(pl.UInt32).alias({}))",
+                    py_str(c)
+                ));
+            } else if matches!(dt, DataType::Date | DataType::Datetime(..)) && number {
                 // as `cast_expr`: seconds since 1970, in UTC
                 ops.push(format!(
                     ".with_columns((pl.col({c}).cast(pl.Float64) * 1e6).floor().cast(pl.Int64, strict=False)\
@@ -170,6 +191,58 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
                 fields.join(", "),
                 py_str(name)
             )
+        }
+        PlanStep::GroupAgg {
+            agg,
+            by,
+            over,
+            casts,
+            name,
+        } => {
+            let typed = |c: &str| match casts.iter().find(|(n, _)| n == c) {
+                Some((_, dt)) => {
+                    format!("pl.col({}).cast({}, strict=False)", py_str(c), py_dtype(dt))
+                }
+                None => format!("pl.col({})", py_str(c)),
+            };
+            let v = match (agg.as_str(), by.as_slice()) {
+                // as `step::dense_rank`: null the smallest, unlike `rank`
+                ("rank", _) => {
+                    let keys: Vec<String> = by.iter().map(|(c, _)| typed(c)).collect();
+                    let flags = |f: &dyn Fn(bool) -> bool| {
+                        let b: Vec<&str> = (by.iter())
+                            .map(|(_, d)| if f(*d) { "True" } else { "False" })
+                            .collect();
+                        b.join(", ")
+                    };
+                    let order = format!(
+                        "pl.arg_sort_by([{}], descending=[{d}], nulls_last=[{d}], maintain_order=True)",
+                        keys.join(", "),
+                        d = flags(&|d| d)
+                    );
+                    let changed: Vec<String> = (keys.iter())
+                        .map(|k| {
+                            format!("{k}.gather({order}).ne_missing({k}.gather({order}).shift(1))")
+                        })
+                        .collect();
+                    format!(
+                        "(pl.any_horizontal([{}]) | (pl.int_range(pl.len()) == 0)).cast(pl.Int64).cum_sum().gather({order}.arg_sort())",
+                        changed.join(", ")
+                    )
+                }
+                (_, [(c, _)]) => {
+                    py_agg(c, agg).replace(&format!("pl.col({})", py_str(c)), &typed(c))
+                }
+                _ => unreachable!("one column per aggregator"),
+            };
+            let over = match over.is_empty() {
+                true => String::new(),
+                false => {
+                    let o: Vec<String> = over.iter().map(|c| py_str(c)).collect();
+                    format!(".over([{}])", o.join(", "))
+                }
+            };
+            format!("{t} = {t}.with_columns({v}{over}.alias({}))", py_str(name))
         }
         PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. } => String::new(), // see `steps`
         PlanStep::Json { column, dtype } => format!(
