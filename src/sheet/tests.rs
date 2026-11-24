@@ -1594,3 +1594,36 @@ fn rename_onto_hidden_column_moves_it_aside() {
         "column already exists: Paid"
     );
 }
+
+/// VisiData's `vlen` of a dict counts its keys: a JSON Lines key one row
+/// lacks is a null field of the shared struct, not a key.
+#[test]
+fn len_cast_counts_a_dicts_own_keys() {
+    let df = df!("a" => [Some(1i64), Some(1), None], "b" => [None, Some(2i64), None])
+        .unwrap()
+        .lazy()
+        .select([as_struct(vec![col("a"), col("b")]).alias("g")])
+        .with_column(
+            when(col("g").struct_().field_by_name("a").is_null())
+                .then(lit(NULL))
+                .otherwise(col("g"))
+                .alias("g"),
+        )
+        .collect()
+        .unwrap();
+    let dt = df.column("g").unwrap().dtype().clone();
+    let got = (df.lazy())
+        .select([cast_expr("g", &LEN_CAST, Some(&dt))])
+        .collect()
+        .unwrap();
+    let got: Vec<Option<u32>> = got
+        .column("g")
+        .unwrap()
+        .cast(&DataType::UInt32)
+        .unwrap()
+        .u32()
+        .unwrap()
+        .iter()
+        .collect();
+    assert_eq!(got, [Some(1), Some(2), None]);
+}

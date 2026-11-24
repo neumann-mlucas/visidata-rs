@@ -45,7 +45,12 @@ impl Script {
                         match &src {
                             Some(DataType::List(_)) => format!("CAST(len({i}) AS UINTEGER)"),
                             Some(DataType::Struct(f)) => {
-                                format!("CASE WHEN {i} IS NOT NULL THEN {}::UINTEGER END", f.len())
+                                let set: Vec<String> = (f.iter())
+                                    .map(|f| {
+                                        format!("({i}.{} IS NOT NULL)::UINTEGER", q_ident(f.name()))
+                                    })
+                                    .collect();
+                                format!("CASE WHEN {i} IS NOT NULL THEN {} END", set.join(" + "))
                             }
                             _ => format!("CAST(length(CAST({i} AS VARCHAR)) AS UINTEGER)"),
                         }

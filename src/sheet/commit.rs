@@ -74,11 +74,18 @@ impl CommitPlan {
                 .chain(self.columns.iter().map(|c| col(c.as_str()).alias(fresh(c))))
                 .collect::<Vec<_>>(),
         );
-        let text = |e: Expr| e.cast(DataType::String);
-        let changed = self
-            .columns
-            .iter()
-            .map(|c| text(col(c.as_str())).neq_missing(text(col(fresh(c)))));
+        // same type: as is (a list or struct has no text cast); else as text
+        let (was, is) = (
+            before.clone().collect_schema()?,
+            now.clone().collect_schema()?,
+        );
+        let changed = self.columns.iter().map(|c| {
+            let (a, b) = (col(c.as_str()), col(fresh(c)));
+            match was.get(c) == is.get(&fresh(c)) {
+                true => a.neq_missing(b),
+                false => (a.cast(DataType::String)).neq_missing(b.cast(DataType::String)),
+            }
+        });
         let both = before
             .join(
                 now,
@@ -103,5 +110,63 @@ impl CommitPlan {
             new: changed_new,
             added: new,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(before: DataFrame, now: DataFrame) -> CommitPlan {
+        let columns = (before.get_column_names().iter())
+            .map(|n| n.to_string())
+            .collect();
+        CommitPlan {
+            table: Table {
+                db: "t.duckdb".into(),
+                kind: SourceKind::Duckdb,
+                part: "t".into(),
+            },
+            before: with_rids(before.lazy()),
+            now: with_rids(now.lazy()),
+            deleted: Vec::new(),
+            columns,
+        }
+    }
+
+    /// A list or struct column beside an edited one doesn't stop the diff.
+    #[test]
+    fn changes_compare_nested_columns() {
+        let before = df!("id" => [1i64, 2], "note" => ["a", "b"]).unwrap();
+        let tags = Series::new(
+            "tags".into(),
+            [
+                Series::new("".into(), [1i64]),
+                Series::new("".into(), [2i64, 3]),
+            ],
+        );
+        let before = before.hstack(&[tags.into_column()]).unwrap();
+        let before = before
+            .lazy()
+            .with_column(as_struct(vec![col("id"), col("note")]).alias("s"))
+            .collect()
+            .unwrap();
+        let now = before
+            .clone()
+            .lazy()
+            .with_column(
+                when(col("id").eq(lit(2)))
+                    .then(lit("z"))
+                    .otherwise(col("note"))
+                    .alias("note"),
+            )
+            .collect()
+            .unwrap();
+        let c = plan(before, now).changes().unwrap();
+        assert_eq!(
+            c.new.column("note").unwrap().str().unwrap().get(0),
+            Some("z")
+        );
+        assert_eq!(c.new.height(), 1);
     }
 }

@@ -150,13 +150,24 @@ mod sqlite {
             &format!("DELETE FROM {table} WHERE {matched}"),
             &[(&c.deleted, keys)],
         )?;
+        // only the changed cells: SQLite rows read as text (a BLOB, a null
+        // text cell) don't survive a rewrite
         let columns = names(&c.new);
-        let set: Vec<String> = columns
-            .iter()
-            .map(|n| format!("{} = ?", ident(n)))
-            .collect();
-        let sql = format!("UPDATE {table} SET {} WHERE {matched}", set.join(", "));
-        run(&sql, &[(&c.new, &columns), (&c.old, keys)])?;
+        for i in 0..c.new.height() {
+            let (was, now) = (values(&c.old, &columns, i)?, values(&c.new, &columns, i)?);
+            let (set, mut v): (Vec<String>, Vec<Value>) = (columns.iter().zip(was).zip(now))
+                .filter(|((_, a), b)| a != b)
+                .map(|((n, _), b)| (format!("{} = ?", ident(n)), b))
+                .unzip();
+            if set.is_empty() {
+                continue;
+            }
+            v.extend(values(&c.old, keys, i)?);
+            let sql = format!("UPDATE {table} SET {} WHERE {matched}", set.join(", "));
+            (tx.prepare_cached(&sql))
+                .and_then(|mut st| st.execute(rusqlite::params_from_iter(v)))
+                .map_err(e)?;
+        }
         let added = names(&c.added);
         let quoted: Vec<String> = added.iter().map(|n| ident(n)).collect();
         let marks = vec!["?"; added.len()].join(", ");

@@ -395,18 +395,32 @@ impl Sheet {
             }
             _ => Origin::Selected { parent: parent.id },
         };
-        // VisiData chains each bin's rows in freq order: the biggest bin first,
-        // ties by first appearance (ponytail: a re-sorted freq sheet's order
-        // is not followed)
+        // VisiData chains each bin's rows in freq order (`freq_binned`): bins
+        // in bin order; one numeric or date column's values as first seen;
+        // else the biggest bin first, ties as first seen (ponytail: neither a
+        // re-sorted freq sheet nor `numeric_binning`'s sorted values are followed)
         const POS: &str = "__vdrs_dive_pos";
         let bin = key.expr(column);
-        let plan = match (len().over([bin.clone()]), col(POS).min().over([bin])) {
-            (Ok(size), Ok(first)) => (parent.view_plan().with_row_index(POS, None))
+        let by_size = !freq_keeps_order(parent, &[column.to_string()]);
+        let order = match (
+            len().over([bin.clone()]),
+            col(POS).min().over([bin.clone()]),
+        ) {
+            (_, Ok(_)) if matches!(key, DiveKey::Bin { .. }) => Ok((vec![bin], vec![false])),
+            (Ok(size), Ok(first)) if by_size => Ok((vec![size, first], vec![true, false])),
+            (_, Ok(first)) => Ok((vec![first], vec![false])),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        };
+        let plan = match order {
+            // one bin: its rows as they are
+            _ if values.len() == 1 && !except => parent.view_plan().filter(pred),
+            Ok((by, desc)) => (parent.view_plan().with_row_index(POS, None))
                 .filter(pred)
                 .sort_by_exprs(
-                    [size, first],
+                    &by,
                     SortMultipleOptions::default()
-                        .with_order_descending_multi([true, false])
+                        .with_order_descending_multi(desc)
+                        .with_nulls_last(true)
                         .with_maintain_order(true),
                 )
                 .drop(Selector::ByName {

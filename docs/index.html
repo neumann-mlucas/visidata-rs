@@ -310,7 +310,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 </ol>
 </figure>
 <!-- /golden -->
-<p>Each <kbd>Enter</kbd> on a frequency row opens a new sheet and <kbd>q</kbd> walks back; <kbd>z</kbd><kbd>Enter</kbd> opens every row except that row's instead. Rows opened from several frequency rows come bin by bin, the biggest bin first, as in VisiData; <kbd>S</kbd> lists the open sheets. For a log that is still being written, <code>:tail app.jsonl -f</code> keeps the sheet up to date.</p>
+<p>Each <kbd>Enter</kbd> on a frequency row opens a new sheet and <kbd>q</kbd> walks back; <kbd>z</kbd><kbd>Enter</kbd> opens every row except that row's instead. Rows opened from several frequency rows come bin by bin, in the order the frequency sheet shows them, as in VisiData; <kbd>S</kbd> lists the open sheets. For a log that is still being written, <code>:tail app.jsonl -f</code> keeps the sheet up to date.</p>
 
 <h3 id="wf-report">Build a monthly report</h3>
 <p>Revenue per month and region from <code>sales.csv</code>: two derived columns, a pivot, and one SQL query.</p>
@@ -527,7 +527,7 @@ vdrs --headless --head 20 big.csv  # print schema and the first 20 rows, no TUI<
 <tr><td><code>:order a b c</code></td><td>Put these columns first, in this order; the others follow as they were. Bare <code>:order</code> goes back to the file's order.</td></tr>
 <tr><td><code>:freeze</code>, <code>:unfreeze</code></td><td>Freeze columns up to the cursor at the left edge; unfreeze (vim profile <kbd>z</kbd><kbd>s</kbd>, <kbd>z</kbd><kbd>c</kbd>).</td></tr>
 <tr><td><kbd>#</kbd> <kbd>%</kbd> <kbd>~</kbd> <kbd>@</kbd></td><td>Treat the column as integer, float, text, date. Values that don't convert show as <code>·</code> (empty).</td></tr>
-<tr><td><kbd>z</kbd><kbd>#</kbd></td><td>Show each value's length instead, as VisiData's <code>len</code> type: characters of text (numbers as their text), items of a list, fields of a struct. Sort, filter and <kbd>F</kbd> then work on the length; another type key shows the values again.</td></tr>
+<tr><td><kbd>z</kbd><kbd>#</kbd></td><td>Show each value's length instead, as VisiData's <code>len</code> type: characters of text (numbers as their text), items of a list, keys of a struct (a JSON object). A key with a <code>null</code> value doesn't count. Sort, filter and <kbd>F</kbd> then work on the length; another type key shows the values again.</td></tr>
 <tr><td><code>:type datetime</code>, <code>:type date-only</code></td><td>The date conversion of <kbd>@</kbd> with its type named instead of picked from the rows shown: keep the time of day, or drop it. Sessions write these.</td></tr>
 <tr><td><kbd>$</kbd>, <code>:type currency</code></td><td>Strip everything but digits, <code>.</code> and <code>-</code> (so <code>$1,200.50</code> → 1200.5) and make it a float.</td></tr>
 <tr><td><code>:type json</code></td><td>Decode a column of JSON text (a CSV column holding <code>{"a": 1}</code> or <code>[1, 2]</code>) into structs and lists, typed from every value; then <kbd>(</kbd> and <kbd>z</kbd><kbd>M</kbd> work on it.</td></tr>
@@ -773,7 +773,7 @@ print(t3.collect())</code></pre>
 <tr data-ex="select-ids"><td><code>:select-ids 3,7</code>, <code>:patch cells col file</code>, <code>:patch rows file</code></td><td>What sessions use: select rows by id; restore pasted cells or added rows from a parquet file.</td></tr>
 <tr data-ex="tail"><td><code>:tail path [-f]</code></td><td>Follow a growing file or Parquet directory.</td></tr>
 <tr data-ex="save"><td><code>:save path</code>, <code>:w</code>, <code>:write</code></td><td>Save the view. In <code>.csv</code> and <code>.tsv</code>, list and struct cells are written as JSON text (<code>["x", "y"]</code>, <code>{"p": 1}</code>), as VisiData.</td></tr>
-<tr data-ex="save-all"><td><code>:save-all out/</code>, <code>:save-all all.duckdb</code></td><td>Save every sheet on the stack (VisiData's <code>save-all</code>). A path that ends in <code>/</code>, or a directory, gets one <code>name.tsv</code> per sheet (made if missing); a <code>.duckdb</code> file gets one table per sheet. A sheet is named as <code>:save</code> names its table; a name met again gets <code>_2</code>, <code>_3</code>, …. Any other file takes one sheet only.</td></tr>
+<tr data-ex="save-all"><td><code>:save-all out/</code>, <code>:save-all all.duckdb</code></td><td>Save every sheet on the stack (VisiData's <code>save-all</code>). A path that ends in <code>/</code>, or a directory, gets one <code>name.tsv</code> per sheet (made if missing); a <code>.duckdb</code> file gets one table per sheet. A sheet is named as <code>:save</code> names its table; a name met again, in any case, gets <code>_2</code>, <code>_3</code>, …. Any other file takes one sheet only.</td></tr>
 <tr data-ex="export"><td><code>:export path.py|path.sql</code></td><td>Write a script that rebuilds the view.</td></tr>
 <tr data-ex="42"><td><code>:42</code></td><td>Go to row 42.</td></tr>
 <tr data-ex="select-all"><td><code>:select-all</code>, <code>:dedupe-rows</code>, …</td><td>Any action name (see <a href="#lua">vd.bind</a>), with <code>-</code> or <code>_</code>; no arguments.</td></tr>
@@ -1000,7 +1000,7 @@ print(t3.collect())</code></pre>
 <tr class="kgroup"><th colspan="2">Macros, quit &amp; the rest</th></tr>
 <tr data-keys="m"><td><kbd>m</kbd></td><td>record a macro / stop and bind it</td></tr>
 <tr data-keys="g m"><td><kbd>g</kbd><kbd>m</kbd></td><td>the macros sheet</td></tr>
-<tr data-keys="z &lt;C-s&gt;"><td><kbd>z</kbd><kbd>Ctrl-s</kbd></td><td>commit the macros sheet's changes; on the options sheet, save to <code>options.lua</code>; on a table of a <code>.duckdb</code> or SQLite file, write its edits, added rows and deleted rows back to the table after a <kbd>y</kbd> (VisiData's <code>commit-sheet</code>; it can't be undone). Rows match by the table's primary key, as read; a table without one takes added rows only. Hidden columns and new columns aren't written. The sheet then shows the table as committed.</td></tr>
+<tr data-keys="z &lt;C-s&gt;"><td><kbd>z</kbd><kbd>Ctrl-s</kbd></td><td>commit the macros sheet's changes; on the options sheet, save to <code>options.lua</code>; on a table of a <code>.duckdb</code> or SQLite file, write its edits, added rows and deleted rows back to the table after a <kbd>y</kbd> (VisiData's <code>commit-sheet</code>; it can't be undone). Rows match by the table's primary key, as read; a table without one takes added rows only. Hidden columns and new columns aren't written. The sheet then shows the table as committed. If you edit the sheet while the commit runs, the sheet keeps your edits and <kbd>Ctrl</kbd><kbd>r</kbd> reads the table again.</td></tr>
 <tr data-keys="O"><td><kbd>O</kbd></td><td>the options sheet</td></tr>
 <tr data-keys="q"><td><kbd>q</kbd></td><td>close sheet (quit on the last)</td></tr>
 <tr data-keys="g q"><td><kbd>g</kbd><kbd>q</kbd></td><td>quit</td></tr>

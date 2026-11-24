@@ -1202,7 +1202,7 @@ impl App {
             return;
         }
         let plan = s.plan.clone();
-        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
+        let Some(parent) = self.sheets.find_any(parent).cloned() else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
         };
@@ -1250,7 +1250,7 @@ impl App {
         let key = s.freq_dive_key();
         let own_rids = s.is_freq();
         use crate::sheet::{Binning, DiveKey};
-        let Some(parent) = self.sheets.find_by_id_mut(parent).map(|p| p.clone()) else {
+        let Some(parent) = self.sheets.find_any(parent).cloned() else {
             self.toast = Some("dive: parent sheet was closed".into());
             return;
         };

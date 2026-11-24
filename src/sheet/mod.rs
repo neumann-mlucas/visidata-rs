@@ -521,6 +521,11 @@ impl Sheets {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Sheet> {
         self.stack.iter()
     }
+    /// The sheet with `id`, on the stack or quit (a freq sheet still dives
+    /// to a quit source, as VisiData's).
+    pub fn find_any(&self, id: SheetId) -> Option<&Sheet> {
+        (self.stack.iter().chain(&self.closed)).find(|s| s.id == id)
+    }
     pub fn find_by_id_mut(&mut self, id: SheetId) -> Option<&mut Sheet> {
         self.stack.iter_mut().find(|s| s.id == id)
     }
@@ -1578,14 +1583,23 @@ pub(crate) fn cast_expr(name: &str, dt: &DataType, base: Option<&DataType>) -> E
     }
 }
 
-/// VisiData `vlen`: a list's item count, a struct's field count (as a dict's
-/// key count), else the length of the value's text. Null stays null.
+/// VisiData `vlen`: a list's item count, a struct's non-null field count (a
+/// dict's key count: a JSON Lines key a row lacks reads as a null field), else
+/// the length of the value's text. Null stays null.
+// ponytail: a key whose value is null doesn't count, where VisiData counts it
 fn len_expr(name: &str, base: Option<&DataType>) -> Expr {
     match base {
         Some(DataType::List(_)) => col(name).list().len().cast(LEN_CAST),
-        Some(DataType::Struct(fields)) => when(col(name).is_not_null())
-            .then(lit(fields.len() as u32))
-            .otherwise(lit(NULL).cast(LEN_CAST)),
+        Some(DataType::Struct(fields)) => {
+            let set = (fields.iter()).map(|f| {
+                let v = col(name).struct_().field_by_name(f.name());
+                v.is_not_null().cast(LEN_CAST)
+            });
+            let keys = set.reduce(|a, b| a + b).unwrap_or(lit(0u32));
+            when(col(name).is_not_null())
+                .then(keys)
+                .otherwise(lit(NULL).cast(LEN_CAST))
+        }
         _ => col(name).cast(DataType::String).str().len_chars(),
     }
 }

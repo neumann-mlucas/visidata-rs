@@ -139,7 +139,7 @@ Selections key on row ids (position in the base plan), so they survive sort and 
 | `AddColAggregate { aggs }` | `:addcol-aggregate <aggs>` | VisiData addcol-aggregate: `Sheet::addcol_aggregate`, a `PlanStep::GroupAgg` per aggregator, `agg_of(col).over(keys)`; `rank` is a dense rank within the key group, descending when the column sorts descending (S-46 B4) |
 | `AddColRankSheet` | `:addcol-rank-sheet` | VisiData addcol-rank-sheet: `<sheet>_sheetrank`, the dense rank of the key tuple, sorted keys first in their direction, null lowest (S-46 B4) |
 | `AddColAgg { name, agg, by, over, casts }` | `:addcol-agg` | the `GroupAgg` step spelled out; sessions replay the two above with it (S-46 B4) |
-| freq dive order | `<CR>` `g<CR>` `zEnter` | rows come bin by bin, the biggest bin first, ties by first appearance (VisiData `openRows`) (S-46 B) |
+| freq dive order | `<CR>` `g<CR>` `zEnter` | rows come bin by bin in the freq sheet's order: bin order, first seen for a number or date, else the biggest bin first (VisiData `openRows`) (S-46 B) |
 | `StartGoColRegexInput` | `c` | VisiData go-col-regex: next column whose name matches, wrapping (S-50) |
 | `ExPrompt { cmd }` | `o` / `Ctrl+S` / `&` | VisiData open-file, save-sheet, join-sheets-top2: the ex line holding `open ` / `save ` / `join <sheet below> ` (S-50) |
 | `SelectToSelected { forward }` | `z}` / `z{` | the cursor row through the next (previous) selected row, view order; none → `no selected row`; `Sheet::rids_to_selected`, background job (S-41 B) |

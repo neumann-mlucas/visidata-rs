@@ -32,10 +32,17 @@ impl Script {
                 let p = format!("pl.col({})", py_str(c));
                 let len = match src {
                     Some(DataType::List(_)) => format!("{p}.list.len()"),
-                    Some(DataType::Struct(f)) => format!(
-                        "pl.when({p}.is_not_null()).then(pl.lit({}, pl.UInt32))",
-                        f.len()
-                    ),
+                    Some(DataType::Struct(f)) => {
+                        let set: Vec<String> = (f.iter())
+                            .map(|f| {
+                                format!("{p}.struct.field({}).is_not_null()", py_str(f.name()))
+                            })
+                            .collect();
+                        format!(
+                            "pl.when({p}.is_not_null()).then(pl.sum_horizontal({}))",
+                            set.join(", ")
+                        )
+                    }
                     _ => format!("{p}.cast(pl.Utf8).str.len_chars()"),
                 };
                 ops.push(format!(

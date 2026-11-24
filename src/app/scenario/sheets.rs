@@ -1310,6 +1310,18 @@ async fn dive_except_on_freq_keys() {
     assert_eq!(status(&h), "gz<CR>: only on a frequency sheet");
 }
 
+/// A numeric freq sheet keeps first-seen order, not count order; a dive of
+/// several of its rows chains them in that order, as VisiData's `openRows`.
+#[tokio::test(flavor = "multi_thread")]
+async fn numeric_freq_dive_keeps_freq_order() {
+    let mut h = csv(b"v\n1\n5\n5\n5\n1\n").await;
+    h.keys("F").await;
+    assert!(view_csv(&h).starts_with("v,count,percent,histogram\n1,2,"));
+    h.keys("g s").await;
+    h.keys("g <CR>").await;
+    assert_eq!(view_csv(&h), "v\n1\n1\n5\n5\n5\n", "{}", status(&h));
+}
+
 /// S-46 B5: `gS` lists the open sheets, then the data sheets quit since the
 /// start; `<CR>` on a quit one opens it again, its view as it was left.
 /// `S` lists only the open ones.
@@ -1336,6 +1348,20 @@ async fn sheets_all_reopens_a_quit_sheet() {
     assert_eq!(h.app.sheets.active().view.row_cursor, 1);
     h.keys("g S").await; // open again: listed once, on the stack
     assert_eq!(h.app.sheets.active().window().unwrap().height(), 2);
+}
+
+/// A freq sheet whose source was quit still dives: the quit sheet is kept
+/// (`gS`), as VisiData's freq sheet keeps its source.
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_dives_after_its_source_is_quit() {
+    let mut h = csv(b"k\nx\ny\nx\n").await;
+    let source = h.app.sheets.active().id;
+    h.keys("F").await;
+    h.app.sheets.switch_to(source);
+    h.keys("q").await;
+    assert_eq!(h.app.sheets.len(), 1);
+    h.keys("<CR>").await;
+    assert_eq!(view_csv(&h), "k\nx\nx\n", "{}", status(&h));
 }
 
 /// S-46 B6: `gP` asks for a filetype (default `tsv`) and opens the
@@ -1407,6 +1433,27 @@ async fn save_all_writes_every_sheet() {
         status(&h),
         "save-all: 2 sheets can't go in one file; end the path with / or use .duckdb"
     );
+}
+
+/// `:save-all` names never meet: not in case (DuckDB's names ignore it), and
+/// not when a sheet's own name is a renamed one's (`a_2`).
+#[tokio::test(flavor = "multi_thread")]
+async fn save_all_names_never_collide() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = csv(b"k\n1\n").await;
+    for (sub, file) in [("x", "A"), ("y", "a"), ("z", "a_2"), ("w", "a")] {
+        let p = dir.path().join(sub);
+        std::fs::create_dir(&p).unwrap();
+        std::fs::write(p.join(format!("{file}.csv")), "k\n1\n").unwrap();
+        h.keys(":").await;
+        h.type_(&format!("open {}/{file}.csv", p.display())).await;
+    }
+    let db = dir.path().join("all.duckdb");
+    h.keys(":").await;
+    h.type_(&format!("save-all {}", db.display())).await;
+    h.pump().await;
+    assert_eq!(status(&h), format!("saved 5 sheets → {}", db.display()));
+    assert_eq!(crate::duckdb::index(&db).unwrap().height(), 5);
 }
 
 /// S-46 B8: `z Ctrl+S` on a DuckDB table asks, then writes the edits, the
@@ -1487,7 +1534,8 @@ async fn commit_sheet_writes_a_sqlite_table() {
     let db = dir.path().join("c.sqlite");
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute_batch(
-        "CREATE TABLE t (k TEXT PRIMARY KEY, n INTEGER); INSERT INTO t VALUES ('a', 1), ('b', 2);",
+        "CREATE TABLE t (k TEXT PRIMARY KEY, n INTEGER, b BLOB, s TEXT); \
+         INSERT INTO t VALUES ('a', 1, x'00ff', 'x'), ('b', 2, x'00ff', NULL);",
     )
     .unwrap();
     let loaded = crate::reader::open(db.as_os_str(), None).unwrap();
@@ -1506,6 +1554,36 @@ async fn commit_sheet_writes_a_sqlite_table() {
         .query_row("SELECT n FROM t WHERE k = 'b'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(n, 20);
+    // the cells not edited keep their bytes and their null
+    let (b, s): (Vec<u8>, Option<String>) = conn
+        .query_row("SELECT b, s FROM t WHERE k = 'b'", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!((b, s), (vec![0, 255], None));
+    // an edit made while the commit runs stays on the sheet
+    h.keys("e").await;
+    h.type_no_enter("1").await;
+    for k in ["<CR>", "z", "<C-s>", "y", "k", "e", "5", "<CR>"] {
+        h.app.on_key(k.parse().unwrap());
+    }
+    h.pump().await;
+    let shown = csv_text(h.app.sheets.active(), b',');
+    assert!(
+        shown.contains("a,15,") && shown.contains("b,201,"),
+        "{shown}"
+    );
+    assert_eq!(
+        h.app.toast.as_deref(),
+        Some(
+            "committed 1 changed, 0 added, 0 deleted rows to t; \
+             the sheet changed while it ran: Ctrl+R reads the table again"
+        )
+    );
+    let n: i64 = conn
+        .query_row("SELECT n FROM t WHERE k = 'a'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
     let mut h = csv(b"a\n1\n").await;
     h.keys("z <C-s>").await;
     assert_eq!(status(&h), "commit-sheet: nothing to commit on this sheet");

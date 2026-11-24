@@ -265,6 +265,34 @@ mod tests {
             .is_ok_and(|o| o.status.success())
     }
 
+    /// A key deleted and added again, and two keys swapped, in one commit.
+    #[test]
+    fn commit_reuses_and_swaps_keys() {
+        if !have_duckdb() {
+            assert!(std::env::var_os("VDRS_REQUIRE_TOOLS").is_none());
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("t.duckdb");
+        let ddl = "CREATE TABLE t (id INTEGER PRIMARY KEY, n VARCHAR); \
+                   INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')";
+        exec(&db, ddl).unwrap();
+        let c = crate::commit::Changes {
+            deleted: df!("id" => [3i32], "n" => ["c"]).unwrap(),
+            old: df!("id" => [1i32, 2], "n" => ["a", "b"]).unwrap(),
+            new: df!("id" => [2i32, 1], "n" => ["a", "b"]).unwrap(),
+            added: df!("id" => [3i32], "n" => ["new"]).unwrap(),
+        };
+        commit(&db, "t", &["id".into()], &c).unwrap();
+        let got = exec(&db, "SELECT id, n FROM t ORDER BY id")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            got,
+            df!("id" => [1i32, 2, 3], "n" => ["b", "a", "new"]).unwrap()
+        );
+    }
+
     #[test]
     fn save_index_open_exec_round_trip() {
         if !have_duckdb() {

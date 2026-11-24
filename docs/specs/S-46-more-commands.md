@@ -54,9 +54,11 @@ steps, so `:export` and sessions rebuild them. `type-len` is a view cast.
 - Sessions replay the dive as `dive_except_selected` over the picked bins.
 
 Row order follows VisiData's `openRows` for every freq dive. Each bin's rows come
-together, the biggest bin first, ties by first appearance. Before, a multi-bin
-dive kept source order. Ponytail: a freq sheet that the user sorted again still
-orders the dive by count.
+together, in the freq sheet's order: bins in bin order, one numeric or date
+column's values as first seen, else the biggest bin first, ties by first appearance.
+A one-bin dive keeps source order and skips the sort. Before, a multi-bin dive kept
+source order. Ponytail: a freq sheet that the user sorted again, or a
+`numeric_binning` freq of sorted values, still orders the dive by the rule above.
 
 Replay 102 → 103: freq-dive-except.
 
@@ -64,8 +66,9 @@ Replay 102 → 103: freq-dive-except.
 
 - `z#` and `:type len` add a view cast to `LEN_CAST` (UInt32). `#` casts to Int64,
   so no other cast picks this type.
-- `len_expr` is VisiData's `vlen`: a list's items, a struct's fields (a dict's keys),
-  else the characters of the value's text. Null stays null.
+- `len_expr` is VisiData's `vlen`: a list's items, a struct's non-null fields (a dict's
+  keys), else the characters of the value's text. Null stays null.
+  Ponytail: a JSON key with a null value doesn't count. VisiData counts it.
 - `cast_expr` now takes the loaded type, since a list and a text need different exprs.
 - The columns sheet shows the type as `len`. `gz#` and a `len` type cell cast there.
 - Exports: Polars `list.len` / `str.len_chars`; DuckDB `len` / `length`.
@@ -169,6 +172,9 @@ Replay stays 106. The only corpus file, `issue2309`, saves to `.vds`, which vdrs
 - SQLite: `PRAGMA table_info` gives the key. rusqlite runs the statements in one transaction.
 - Without a key, edits and deletes refuse: "cannot modify rows in tables without primary key".
 - The sheet then reads the table again. Its view stays and its selection clears.
+  If the sheet changed while the job ran, the sheet stays and the note says so.
+- SQLite `UPDATE` sets only the changed cells. The reader shows a BLOB as text and a
+  null text cell as empty, so a full row rewrite would change them.
 - Ponytail: VisiData matches SQLite rows by `rowid`. vdrs needs a primary key there too.
 - Replay: `.vdx` lines without a `row` use VisiData's cursor for row commands.
   A numeric row sets it, add-row moves it down, and it clamps to the rows left.

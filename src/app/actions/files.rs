@@ -64,13 +64,18 @@ impl App {
     // ponytail: a derived sheet's `table_name` is its parent's, so a name met
     // again gets `_2`, `_3`, …; VisiData's would be `<sheet>_<col>_freq` etc.
     pub(super) fn save_all(&mut self, path: &str) {
-        let mut seen = std::collections::HashMap::<String, usize>::new();
+        // names compare without case, as DuckDB's (and some file systems')
+        let mut used = std::collections::HashSet::new();
         let sheets: Vec<_> = (self.sheets.iter())
             .map(|s| {
                 let base = s.table_name();
-                let n = seen.entry(base.clone()).or_default();
-                *n += 1;
-                let name = if *n == 1 { base } else { format!("{base}_{n}") };
+                let mut name = base.clone();
+                for n in 2.. {
+                    if used.insert(name.to_lowercase()) {
+                        break;
+                    }
+                    name = format!("{base}_{n}");
+                }
                 (s.id, name, s.save_plan(), s.edits())
             })
             .collect();
@@ -139,6 +144,7 @@ impl App {
             Err(e) => return self.toast = Some(format!("commit-sheet: {e}")),
         };
         let header = self.theme.header;
+        let stamp = self.sheets.active().scan_stamp();
         self.spawn_job("commit", move || {
             let note = crate::commit::commit(&plan)?;
             let t = &plan.table;
@@ -147,6 +153,7 @@ impl App {
             Ok(JobDone::Committed {
                 note,
                 loaded: Box::new(loaded),
+                stamp,
             })
         });
     }
