@@ -1,0 +1,12 @@
+ tests/golden/derive-length/input.csv  filter strpos(s, 'b') - 1 < 2                 d 2/2  row 1/2
+s str   d i
+NULL      1
+ab       -1
+
+
+
+
+
+
+
+                                                                                        filter-expr

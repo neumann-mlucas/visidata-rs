@@ -21,7 +21,7 @@ SKU-1015 Monitor arm B      84.54      131 Monitor arm B               84.54    
                                                                                                diff
 --- frame
  prices_v2.csv › rowdiff(sku): prices_v2.csv ↔ prices_v1.csv › freq(__diff)     __diff 1/4  row 1/3
-__diff str   count u  percent f histogram str
+__diff str   count i  percent f histogram str
 changed           11      68.75 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 only_a             3      18.75 ■■■■■■■■■■
 only_b             2       12.5 ■■■■■■

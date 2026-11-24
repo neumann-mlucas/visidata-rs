@@ -275,6 +275,27 @@ fn write_df_text_formats_save_nested_cells_as_json() {
     );
 }
 
+/// S-56 relation 20: a one-column CSV writes a null as `""`, not a blank
+/// line a reader skips, as Python's csv; the rows read back.
+#[test]
+fn one_column_csv_keeps_its_null_rows() {
+    let mut df = df!("x" => [Some(1.5), None, Some(2.0)]).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("one.csv");
+    write_df_by_extension(&mut df, &path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "x\n1.5\n\"\"\n2.0\n"
+    );
+    let back = crate::reader::open(path.as_os_str(), None).unwrap();
+    let back = back.lazy.collect().unwrap();
+    assert_eq!(back.height(), 3);
+    // `""` reads back as empty text, so the column opens as text: the rows
+    // are kept, the inferred type is not
+    let x = back.column("x").unwrap().cast(&DataType::String).unwrap();
+    assert_eq!(x.str().unwrap().get(1), Some(""));
+}
+
 #[test]
 fn write_df_unknown_extension_errors() {
     let mut df = df!("a" => [1i64]).unwrap();
@@ -628,7 +649,7 @@ fn describe_counts_failed_casts_as_errors() {
         0,
         LoadedSource::from_df(SourceKind::Csv, "t".into(), None, df),
     );
-    parent.set_type_cast("n".into(), DataType::Int32);
+    parent.set_type_cast("n".into(), DataType::Int32).unwrap();
     let d = Sheet::describe_from(&parent, 1).unwrap();
     let out = d.view_plan().collect().unwrap();
     let get = |c: &str| out.column(c).unwrap().get(0).unwrap().to_string();
@@ -764,6 +785,24 @@ fn filter_expr_keeps_matching_rows_with_the_regex_filter() {
     s.rename_col("id", "key").unwrap();
     s.set_filter_expr(None).unwrap();
     assert_eq!(ints(&s, "key"), [Some(3), Some(4)]);
+}
+
+/// S-55: a predicate that only fails on evaluation is refused, and a derive
+/// or cast that would break the current one is refused too.
+#[test]
+fn filter_expr_must_evaluate_and_keep_evaluating() {
+    let (mut s, _t) = sheet_of("id,t\n1,x\n2,y\n");
+    let e = s.set_filter_expr(Some("t + 'x' > 0")).unwrap_err();
+    assert!(e.contains("cannot compare string"), "{e}");
+    assert_eq!(s.view.filter_expr, None);
+    s.set_filter_expr(Some("upper(t) = 'X'")).unwrap();
+    let e = s.derive("t", "id * 0.5").unwrap_err();
+    assert!(e.contains(":filter-expr upper(t) = 'X' fails"), "{e}");
+    assert!(s.state.steps.is_empty(), "the derive left no step");
+    let e = s.cast_column("t", "float").unwrap_err();
+    assert!(e.contains("fails"), "{e}");
+    assert!(s.view.type_casts.is_empty(), "the cast is undone");
+    assert_eq!(ints(&s, "id"), [Some(1)]);
 }
 
 #[test]
@@ -1178,7 +1217,7 @@ fn freq_adds_aggregator_columns_in_view_order() {
 #[test]
 fn copied_rows_keep_base_values_under_a_view_cast() {
     let (mut s, _t) = sheet_of("name,price\na,2.75\nb,1.5\n");
-    s.set_type_cast("price".into(), DataType::Int64);
+    s.set_type_cast("price".into(), DataType::Int64).unwrap();
     s.view.sort.push(SortKey {
         column: "price".into(),
         order: SortOrder::Asc,
@@ -1193,7 +1232,7 @@ fn copied_rows_keep_base_values_under_a_view_cast() {
     assert_eq!(names, ["name", "price"]);
     // derived sheets number their rows the same way
     let mut d = Sheet::child(&s, 1, "d".into(), s.data_plan(), Origin::Copy { parent: 0 });
-    d.set_type_cast("price".into(), DataType::Int64);
+    d.set_type_cast("price".into(), DataType::Int64).unwrap();
     d.view.selected = Arc::new([0u64].into());
     let row = d.copy_rows(None, true).unwrap();
     assert_eq!(get(&row, "price"), AnyValue::Float64(2.75));
@@ -1513,7 +1552,7 @@ fn freq_keys_dodges_stat_names() {
     let n: Vec<_> = df
         .column("freq_count")
         .unwrap()
-        .u32()
+        .i64()
         .unwrap()
         .iter()
         .collect();

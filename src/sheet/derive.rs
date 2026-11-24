@@ -26,11 +26,11 @@ impl Sheet {
         let (count, percent, histogram) = freq_stat_names(columns);
         let keep_order = freq_keeps_order(parent, columns);
         let aggs = columns::freq_aggregators(parent);
-        let exprs = std::iter::once(len().alias(count));
+        let exprs = std::iter::once(len().cast(DataType::Int64).alias(count));
         let exprs: Vec<Expr> = exprs
             .chain(aggs.iter().map(|(c, a)| columns::agg_expr(c, a)))
             .collect();
-        let base = parent.view_plan();
+        let base = parent.view_plan_keeping(false, columns);
         // a date `fmtstr` or a number format the user set groups by the text
         // it shows (S-35 C2, S-36 B K3)
         let keys: Vec<Expr> = (columns.iter())
@@ -131,8 +131,8 @@ impl Sheet {
         hist_bins: usize,
     ) -> Result<Option<Binning>, String> {
         let e = |e: PolarsError| e.to_string();
-        let plan = parent.view_plan();
-        let dt = parent.view_dtype(column);
+        let plan = parent.view_plan_keeping(false, &[column.to_string()]);
+        let dt = (plan.clone().collect_schema().ok()).and_then(|s| s.get(column).cloned());
         let Some(dt) = dt.filter(DataType::is_primitive_numeric) else {
             return Ok(None);
         };
@@ -185,7 +185,7 @@ impl Sheet {
         let pivot_agg = match agg.to_ascii_lowercase().as_str() {
             "sum" => e.sum(),
             "mean" | "avg" | "average" => e.mean(),
-            "count" | "len" => len(),
+            "count" | "len" => len().cast(DataType::Int64),
             "max" => e.max(),
             "min" => e.min(),
             "first" => e.first(),
@@ -195,8 +195,9 @@ impl Sheet {
         let mut need = vec![index, on, values];
         need.sort_unstable();
         need.dedup();
+        let keep: Vec<String> = need.iter().map(|c| c.to_string()).collect();
         let df = parent
-            .view_plan()
+            .view_plan_keeping(false, &keep)
             .select(need.into_iter().map(col).collect::<Vec<_>>())
             .collect()
             .map_err(|e| e.to_string())?;
@@ -352,12 +353,20 @@ impl Sheet {
         values: Vec<Option<String>>,
         except: bool,
     ) -> Self {
+        let float = matches!(key, DiveKey::Value) && parent.is_float_column(column);
+        let values = match float {
+            true => values
+                .into_iter()
+                .map(|v| v.map(|t| zero_unsigned(&t)))
+                .collect(),
+            false => values,
+        };
         let text: Vec<&str> = values.iter().flatten().map(String::as_str).collect();
         let mut pred = key
-            .expr(column)
+            .expr(column, float)
             .is_in(lit(Series::new("v".into(), &text)).implode(false), false);
         if values.iter().any(Option::is_none) {
-            pred = pred.or(key.expr(column).is_null());
+            pred = pred.or(key.expr(column, float).is_null());
         }
         if except {
             // a null key is in no picked bin unless the null bin was picked
@@ -400,7 +409,9 @@ impl Sheet {
         // else the biggest bin first, ties as first seen (ponytail: neither a
         // re-sorted freq sheet nor `numeric_binning`'s sorted values are followed)
         const POS: &str = "__vdrs_dive_pos";
-        let bin = key.expr(column);
+        // the dive reads a hidden column it names (`view_plan_keeping`)
+        let base = parent.view_plan_keeping(false, &[column.to_string()]);
+        let bin = key.expr(column, float);
         let by_size = !freq_keeps_order(parent, &[column.to_string()]);
         let order = match (
             len().over([bin.clone()]),
@@ -413,8 +424,8 @@ impl Sheet {
         };
         let plan = match order {
             // one bin: its rows as they are
-            _ if values.len() == 1 && !except => parent.view_plan().filter(pred),
-            Ok((by, desc)) => (parent.view_plan().with_row_index(POS, None))
+            _ if values.len() == 1 && !except => base.clone().filter(pred),
+            Ok((by, desc)) => (base.clone().with_row_index(POS, None))
                 .filter(pred)
                 .sort_by_exprs(
                     &by,
@@ -428,17 +439,21 @@ impl Sheet {
                     strict: true,
                 }),
             // a partition the window can't take: source order
-            _ => parent.view_plan().filter(pred),
+            _ => base.clone().filter(pred),
         };
-        Self::child(
+        let mut rows = Self::child(
             parent,
             id,
             format!("{label}: {}", parent.name),
             plan,
             origin,
         )
-        .inherit_attrs(parent)
-        .derived(
+        .inherit_attrs(parent);
+        // the dive reads a hidden column but still hides it
+        if parent.view.hidden.contains(column) {
+            rows.view.hidden.insert(column.to_string());
+        }
+        rows.derived(
             parent,
             Derivation::Values {
                 column: column.into(),
@@ -447,6 +462,35 @@ impl Sheet {
                 except,
             },
         )
+    }
+
+    /// The columns an unpivot of `on` (empty: all but `index`) melts as text:
+    /// all of them when their types differ, so `false` next to a number stays
+    /// `false` (VisiData keeps each value), none when they share a type.
+    pub(crate) fn melt_as_text(&self, on: &[String], index: &[String]) -> Vec<String> {
+        let Ok(schema) = self.view_plan().collect_schema() else {
+            return Vec::new();
+        };
+        let melted: Vec<(String, DataType)> = (schema.iter())
+            .filter(|(n, _)| match on.is_empty() {
+                true => !index.iter().any(|i| i == n.as_str()),
+                false => on.iter().any(|o| o == n.as_str()),
+            })
+            .map(|(n, t)| (n.to_string(), t.clone()))
+            .collect();
+        match melted.windows(2).all(|w| w[0].1 == w[1].1) {
+            true => Vec::new(),
+            false => melted.into_iter().map(|(n, _)| n).collect(),
+        }
+    }
+
+    /// `column` of the view (hidden or not) holds floats.
+    pub(crate) fn is_float_column(&self, column: &str) -> bool {
+        let keep = [column.to_string()];
+        let schema = self.view_plan_keeping(false, &keep).collect_schema().ok();
+        schema
+            .and_then(|s| s.get(column).cloned())
+            .is_some_and(|t| t.is_float())
     }
 
     /// `g"` / `:dup`: an independent copy of what `parent` shows.
@@ -518,8 +562,8 @@ impl Sheet {
             let c = || col(name.as_str());
             let err = has_err.get(&err_col(name)).map(|_| col(err_col(name)));
             let errors = match &err {
-                Some(e) => e.clone().sum().cast(DataType::UInt64),
-                None => lit(0u64).cast(DataType::UInt64),
+                Some(e) => e.clone().sum().cast(DataType::Int64),
+                None => lit(0i64).cast(DataType::Int64),
             };
             let valid = || match &err {
                 Some(e) => c().filter(e.clone().not()),
@@ -552,10 +596,10 @@ impl Sheet {
                 .otherwise(text(c().median(), numeric));
             aggs.extend([
                 errors.clone().alias(stat(i, "errors")),
-                (c().null_count().cast(DataType::UInt64) - errors).alias(stat(i, "nulls")),
+                (c().null_count().cast(DataType::Int64) - errors).alias(stat(i, "nulls")),
                 valid()
                     .n_unique()
-                    .cast(DataType::UInt64)
+                    .cast(DataType::Int64)
                     .alias(stat(i, "distinct")),
                 text(mode, texty).alias(stat(i, "mode")),
                 text(c().min(), ordered).alias(stat(i, "min")),
@@ -678,7 +722,7 @@ impl Sheet {
         let origin = Origin::Pivot { parent: parent.id };
         // The cursor may sit on a key column; a null and "" are one column
         // header (VisiData's `''`), so they are one group.
-        // Hidden key columns are out of the view too.
+        // A hidden key is no key (VisiData `keyCols`).
         let shown = parent
             .view_plan()
             .collect_schema()
@@ -718,7 +762,7 @@ impl Sheet {
                     .map(|k| col(k.as_str()))
                     .collect::<Vec<_>>(),
             )
-            .agg([len().alias("__vdrs_n")])
+            .agg([len().cast(DataType::Int64).alias("__vdrs_n")])
             .collect()
             .map_err(|e| e.to_string())?;
         let out = if keys.is_empty() {
@@ -914,10 +958,17 @@ impl Sheet {
             nulls_equal: true,
             ..JoinArgs::new(JoinType::Inner)
         };
-        let shown = keys.iter().map(|(k, d)| d.expr(k).alias(k.as_str()));
+        // a float `-0.0` matches as `0.0` on both sides (`DiveKey::expr`)
+        let float = |k: &str, d: &DiveKey| matches!(d, DiveKey::Value) && parent.is_float_column(k);
+        let shown = keys
+            .iter()
+            .map(|(k, d)| d.expr(k, float(k, d)).alias(k.as_str()));
         let wanted = wanted.lazy().select(
             keys.iter()
-                .map(|(k, _)| col(k.as_str()).cast(DataType::String))
+                .map(|(k, d)| match float(k, d) {
+                    true => DiveKey::Value.expr(k, true),
+                    false => col(k.as_str()).cast(DataType::String),
+                })
                 .collect::<Vec<_>>(),
         );
         let hit = (df.clone().lazy())
@@ -1030,23 +1081,35 @@ impl Sheet {
             .cloned()
             .collect();
         let on = on.as_slice();
+        // a hidden key is no key (VisiData `keyCols`): it isn't kept
+        let shown = parent.view_plan().collect_schema().ok();
+        let index: Vec<String> = (index.iter())
+            .filter(|c| shown.as_ref().is_none_or(|s| s.contains(c.as_str())))
+            .cloned()
+            .collect();
+        let index = index.as_slice();
         let args = UnpivotArgsDSL {
             on: (!on.is_empty()).then(|| cols(on.iter().map(String::as_str))),
             index: cols(index.iter().map(String::as_str).chain([MELT_ROW])),
-            variable_name: Some("Variable".into()),
-            value_name: Some("Value".into()),
+            variable_name: Some(MELT_VAR.into()),
+            value_name: Some(MELT_VAL.into()),
         };
         // VisiData's names and row-major order; it leaves out null values
+        let text: Vec<Expr> = (parent.melt_as_text(on, index).iter())
+            .map(|c| col(c.as_str()).cast(DataType::String))
+            .collect();
         let plan = parent
             .view_plan()
+            .with_columns(text)
             .with_row_index(MELT_ROW, None)
             .unpivot(args)
-            .filter(col("Value").is_not_null())
+            .filter(col(MELT_VAL).is_not_null())
             .sort(
                 [MELT_ROW],
                 SortMultipleOptions::default().with_maintain_order(true),
             )
-            .drop(cols([MELT_ROW]));
+            .drop(cols([MELT_ROW]))
+            .rename([MELT_VAR, MELT_VAL], ["Variable", "Value"], true);
         let mut s = Sheet::child(
             parent,
             id,
@@ -1069,6 +1132,10 @@ impl Sheet {
 
 /// Melt's source row, for VisiData's row-major order (also written by `:export`).
 pub(crate) const MELT_ROW: &str = "__vdrs_melt";
+/// Melt's output columns until the melted ones are gone: a melt of a melt
+/// melts columns named `Variable` and `Value` (also written by `:export`).
+pub(crate) const MELT_VAR: &str = "__vdrs_var";
+pub(crate) const MELT_VAL: &str = "__vdrs_val";
 
 /// `join_from` order helpers (also written by `:export`).
 pub(crate) const JL: &str = "__vdrs_l";
@@ -1411,4 +1478,12 @@ fn join_collisions(
         .into_iter()
         .filter(|n| !keys.contains(n) && r.contains(n))
         .collect())
+}
+
+/// A float's text with `-0.0` read as `0.0`, the way a freq dive matches it.
+pub(crate) fn zero_unsigned(text: &str) -> String {
+    match text.parse::<f64>() {
+        Ok(f) if f == 0.0 && text.starts_with('-') => text[1..].to_string(),
+        _ => text.to_string(),
+    }
 }

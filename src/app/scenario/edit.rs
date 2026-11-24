@@ -1207,7 +1207,8 @@ async fn date_fmtstr_the_type_cant_show_is_ignored() {
     h.app
         .sheets
         .active_mut()
-        .set_type_cast("d".into(), DataType::Date);
+        .set_type_cast("d".into(), DataType::Date)
+        .unwrap();
     assert_eq!(h.app.sheets.active().date_fmt("d"), None);
     h.keys("F").await;
     assert!(title(&h).contains("freq(d)"), "{}", h.screen());

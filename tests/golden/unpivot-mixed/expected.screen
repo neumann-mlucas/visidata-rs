@@ -1,0 +1,12 @@
+ tests/golden/unpivot-mixed/input.csv › unpivot(n,b)                                id 1/3  row 1/3
+ id i Variable str  Value str
+    1 n             2.5
+    1 b             true
+    2 b             false
+
+
+
+
+
+
+                                                                                            unpivot

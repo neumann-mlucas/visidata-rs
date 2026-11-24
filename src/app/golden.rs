@@ -338,13 +338,42 @@ fn render_guide(guide: &str, html: &std::collections::BTreeMap<String, String>) 
     out
 }
 
+/// CSV → records of unquoted fields (RFC 4180: `""` in quotes is `"`;
+/// quoted fields may hold commas and line breaks).
+pub(super) fn csv_records(csv: &str) -> Vec<Vec<String>> {
+    let (mut rows, mut row, mut field) = (Vec::new(), Vec::new(), String::new());
+    let (mut quoted, mut chars) = (false, csv.chars().peekable());
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if quoted && chars.peek() == Some(&'"') => {
+                chars.next();
+                field.push('"');
+            }
+            '"' => quoted = !quoted,
+            ',' if !quoted => row.push(std::mem::take(&mut field)),
+            '\r' if !quoted && chars.peek() == Some(&'\n') => {}
+            '\n' if !quoted => {
+                row.push(std::mem::take(&mut field));
+                rows.push(std::mem::take(&mut row));
+            }
+            c => field.push(c),
+        }
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        rows.push(row);
+    }
+    rows
+}
+
 /// CSV → rows of normalized cells, header first, sorted unless `ordered`:
 /// scripts may order unsorted rows differently and print `3.0` as `3`.
-fn table(csv: &str, ordered: bool) -> Vec<String> {
+pub(super) fn table(csv: &str, ordered: bool) -> Vec<String> {
     let norm = |c: &str| {
-        let c = c.trim().trim_matches('"');
         match c.parse::<f64>() {
-            Ok(f) => format!("{f:.9e}"), // engines differ in the last float digits
+            // engines differ in the last float digits (a stdev of equal
+            // values: 0 or 1e-15); DuckDB prints -0.0 as 0
+            Ok(f) => format!("{:.9e}", if f.abs() < 1e-12 { 0.0 } else { f }),
             Err(_) if c == "NULL" => String::new(), // DuckDB's CSV null
             Err(_) if c.eq_ignore_ascii_case("true") => "true".into(),
             Err(_) if c.eq_ignore_ascii_case("false") => "false".into(),
@@ -360,10 +389,15 @@ fn table(csv: &str, ordered: bool) -> Vec<String> {
             Err(_) => c.to_string(),
         }
     };
-    let mut lines = csv
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.split(',').map(norm).collect::<Vec<_>>().join(","));
+    // `{:?}` keeps commas, quotes and line breaks in a cell apart from the
+    // separator.
+    // an empty line is a row: one null cell (a one-column view)
+    let mut lines = csv_records(csv).into_iter().map(|r| {
+        r.iter()
+            .map(|c| format!("{:?}", norm(c)))
+            .collect::<Vec<_>>()
+            .join(",")
+    });
     let header = lines.next().unwrap_or_default();
     let mut rows: Vec<String> = lines.collect();
     if !ordered {
@@ -419,23 +453,28 @@ fn tool_ok(cmd: &str, arg: &str) -> bool {
     ok
 }
 
-/// The exported scripts rebuild the case's final view.
-fn roundtrip(h: &Harness, dir: &Path, want: &str, fails: &mut Vec<String>) {
+/// The exported scripts rebuild the final view `want` (CSV). `ordered`: the
+/// rows keep their order too; `sql`: run the DuckDB script as well.
+pub(super) fn roundtrip(
+    h: &Harness,
+    label: &str,
+    (ordered, sql): (bool, bool),
+    want: &str,
+    fails: &mut Vec<String>,
+) {
     let sheet = h.app.sheets.active();
     let scratch = tempfile::tempdir().unwrap();
-    let ordered = dir.join("ordered").exists();
     let want = table(want, ordered);
     let mut compare = |lang: &str, got: Result<String, String>| match got {
         Ok(got) if table(&got, ordered) == want => {}
         Ok(got) => fails.push(format!(
-            "{} {lang}\n--- want\n{}\n--- got\n{}",
-            dir.display(),
+            "{label} {lang}\n--- want\n{}\n--- got\n{}",
             want.join("\n"),
             table(&got, ordered).join("\n")
         )),
-        Err(e) => fails.push(format!("{} {lang}: {e}", dir.display())),
+        Err(e) => fails.push(format!("{label} {lang}: {e}")),
     };
-    if tool_ok("duckdb", "--version") && !dir.join("no-sql").exists() {
+    if sql && tool_ok("duckdb", "--version") {
         let sql = crate::export::to_sql(sheet);
         compare("sql", sql.and_then(|q| duckdb_csv(&q, scratch.path())));
     }
@@ -497,7 +536,8 @@ async fn golden_cases() {
         check(dir.join("expected.screen"), &(screens + "\n"), &mut fails);
         if !dir.join("no-export").exists() {
             let csv = csv_text(h.app.sheets.active(), b',');
-            roundtrip(&h, dir, &csv, &mut fails);
+            let flags = (dir.join("ordered").exists(), !dir.join("no-sql").exists());
+            roundtrip(&h, &dir.display().to_string(), flags, &csv, &mut fails);
         }
         h.app.quit = true;
     }
@@ -511,6 +551,73 @@ async fn golden_cases() {
         ));
     }
     assert!(fails.is_empty(), "{}", fails.join("\n\n"));
+}
+
+/// What a `:mksession` save and a replay of it give back.
+pub(super) enum Restore {
+    /// The same active view, sheet count and current column.
+    Same,
+    /// The session says what it couldn't save (its `# not saved` lines).
+    Lossy(String),
+    /// Another view: the session script and both screens.
+    Differs(String),
+}
+
+/// Save `h`'s sheet stack as a session and replay it as `vdrs -S` does, under
+/// the case's `init.lua` when `dir` has one.
+pub(super) async fn restore(h: &Harness, dir: Option<&Path>) -> Restore {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    if script.contains("# not saved") {
+        let why: Vec<&str> = script
+            .lines()
+            .filter(|l| l.starts_with("# not saved"))
+            .collect();
+        return Restore::Lossy(why.join(" | "));
+    }
+    let root = crate::session::first_root(&script).expect("session opens a file");
+    let loaded = crate::reader::open(root.as_ref(), None).unwrap();
+    let mut r = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
+    if let Some(dir) = dir {
+        apply_init(dir, &mut r);
+    }
+    r.app.source(&path.display().to_string(), true);
+    r.pump().await;
+    // A view that doesn't collect is a difference, not a panic.
+    let view = |s: &Sheet| {
+        let mut df = s.view_plan().collect().map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        CsvWriter::new(&mut out)
+            .with_separator(b'\t')
+            .finish(&mut df)
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>(String::from_utf8(out).unwrap())
+    };
+    let (want, got) = (view(h.app.sheets.active()), view(r.app.sheets.active()));
+    let same = want.is_ok()
+        && want == got
+        && h.app.sheets.active().view.keys == r.app.sheets.active().view.keys
+        && h.app.sheets.len() == r.app.sheets.len()
+        && h.current_column() == r.current_column();
+    if same {
+        Restore::Same
+    } else {
+        let err = |v: &Result<String, String>| {
+            v.as_ref()
+                .err()
+                .map(|e| format!("\n{e}"))
+                .unwrap_or_default()
+        };
+        Restore::Differs(format!(
+            "{script}\n--- want{}\n{}\n--- got{}\n{}",
+            err(&want),
+            h.screen(),
+            err(&got),
+            r.screen()
+        ))
+    }
 }
 
 /// Every case's final stack saved with `:mksession` and replayed as `vdrs -S`
@@ -527,36 +634,13 @@ async fn golden_cases_round_trip_through_sessions() {
     let (mut fails, mut lossy) = (Vec::new(), Vec::new());
     for dir in &cases {
         let (h, _) = play(dir).await;
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("s.vdrs");
-        crate::session::save(h.app.sheets.iter(), &path).unwrap();
-        let script = std::fs::read_to_string(&path).unwrap();
-        if script.contains("# not saved") {
-            let why: Vec<&str> = script
-                .lines()
-                .filter(|l| l.starts_with("# not saved"))
-                .collect();
-            eprintln!("{}: {}", dir.display(), why.join(" | "));
-            lossy.push(dir.file_name().unwrap().to_string_lossy().into_owned());
-            continue;
-        }
-        let root = crate::session::first_root(&script).expect("session opens a file");
-        let loaded = crate::reader::open(root.as_ref(), None).unwrap();
-        let mut r = Harness::with_source(loaded, tempfile::NamedTempFile::new().unwrap()).await;
-        apply_init(dir, &mut r);
-        r.app.source(&path.display().to_string(), true);
-        r.pump().await;
-        let (want, got) = (h.app.sheets.active(), r.app.sheets.active());
-        let same = csv_text(want, b'\t') == csv_text(got, b'\t')
-            && h.app.sheets.len() == r.app.sheets.len()
-            && h.current_column() == r.current_column();
-        if !same {
-            fails.push(format!(
-                "{}\n{script}\n--- want\n{}\n--- got\n{}",
-                dir.display(),
-                h.screen(),
-                r.screen()
-            ));
+        match restore(&h, Some(dir)).await {
+            Restore::Same => {}
+            Restore::Lossy(why) => {
+                eprintln!("{}: {why}", dir.display());
+                lossy.push(dir.file_name().unwrap().to_string_lossy().into_owned());
+            }
+            Restore::Differs(how) => fails.push(format!("{}\n{how}", dir.display())),
         }
     }
     eprintln!("sessions: {} lossy: {}", lossy.len(), lossy.join(" "));

@@ -800,6 +800,25 @@ async fn frozen_column_after_a_huge_one_draws() {
     assert!(h.screen().contains("xxx"), "{}", h.screen());
 }
 
+/// A cast that would break the `:filter-expr` is refused with a toast, and
+/// the view keeps loading (S-55: it used to fail on every redraw).
+#[tokio::test(flavor = "multi_thread")]
+async fn cast_under_a_filter_expr_that_reads_it_is_refused() {
+    let mut h = csv(b"id,t\n1,x\n2,y\n").await;
+    h.keys(":").await;
+    h.type_("filter-expr upper(t) = 'X'").await;
+    h.keys("l :").await;
+    h.type_("type int").await;
+    assert!(
+        status(&h).contains(":filter-expr upper(t) = 'X' fails"),
+        "{}",
+        status(&h)
+    );
+    let s = h.app.sheets.active();
+    assert!(s.view.type_casts.is_empty());
+    assert_eq!(s.view_plan().collect().unwrap().height(), 1);
+}
+
 /// `_` before the window loads leaves the width alone.
 #[tokio::test(flavor = "multi_thread")]
 async fn resize_col_max_while_loading_toasts() {
@@ -1139,4 +1158,86 @@ async fn title_crumbs_cut_only_the_parents_name() {
     // whose name it also ends in.
     let want = format!(" {base} › freq(grp) › grp=1 › freq(id) ");
     assert!(title(&h).starts_with(&want), "{}", title(&h));
+}
+
+/// `0.0` and `-0.0` are one freq row (as in VisiData), and Enter on it opens
+/// both rows (S-56 relation 7: the dive matched `0.0` only).
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_dive_on_zero_finds_negative_zero() {
+    let mut h = csv(b"id,v\n1,0.0\n2,-0.0\n3,2.5\n").await;
+    h.keys("l F").await;
+    assert!(h.screen().contains(" 0.0        2"), "{}", h.screen());
+    h.keys("<CR>").await;
+    let dive = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(dive.height(), 2, "{}", h.screen());
+}
+
+/// S-58 walk probe: `M` on a sheet whose key column is hidden melts the
+/// shown columns and leaves the hidden key out (VisiData `keyCols`: a hidden
+/// key is no key).
+#[tokio::test(flavor = "multi_thread")]
+async fn melt_with_a_hidden_key_leaves_it_out() {
+    let mut h = csv(b"k,n,m\na,1,2\nb,3,4\n").await;
+    h.keys("! -").await;
+    h.keys("M").await;
+    assert_eq!(
+        view_csv(&h),
+        "Variable,Value\nn,1\nm,2\nn,3\nm,4\n",
+        "{}",
+        status(&h)
+    );
+}
+
+/// S-58 walk probe: the columns sheet's Enter opens the freq of a hidden
+/// column, as VisiData; `gF` leaves a hidden key out (VisiData `keyCols`).
+#[tokio::test(flavor = "multi_thread")]
+async fn freq_of_a_hidden_column() {
+    let mut h = csv(b"k,n\na,1\nb,3\n").await;
+    h.keys("! - C <CR>").await;
+    assert_eq!(
+        view_csv(&h),
+        "k,count,percent,histogram\na,1,50.0,■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■\nb,1,50.0,■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■\n",
+        "{}",
+        status(&h)
+    );
+    h.keys("q q g F").await;
+    assert_eq!(h.app.sheets.len(), 1, "{}", h.screen());
+    assert_eq!(status(&h), "there are no key columns to group by");
+}
+
+/// S-58 walk probe: a melt of a melt melts the columns `Variable` and
+/// `Value`; a key of either name would clash, so it is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn melt_of_a_melt() {
+    let mut h = csv(b"k,n\na,1\n").await;
+    h.keys("M M").await;
+    assert_eq!(
+        view_csv(&h),
+        "Variable,Value\nVariable,k\nValue,a\nVariable,n\nValue,1\n",
+        "{}",
+        status(&h)
+    );
+    h.keys("!").await;
+    let sheets = h.app.sheets.len();
+    h.keys("M").await;
+    assert_eq!(h.app.sheets.len(), sheets, "{}", h.screen());
+    assert_eq!(
+        status(&h),
+        "unpivot: key Variable clashes with the melt's own column"
+    );
+}
+
+/// S-55: `:derive` reads stored values, not the view's casts; a derive
+/// that only fails on evaluation (`upper` of a bool) is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn derive_that_fails_to_evaluate_is_refused() {
+    let mut h = csv(b"id,A\n1,true\n2,false\n").await;
+    h.keys(":").await;
+    h.type_("derive b = length(upper(\"A\"))").await;
+    assert!(
+        status(&h).contains("expected `String`, got `bool`"),
+        "{}",
+        status(&h)
+    );
+    assert_eq!(view_csv(&h), "id,A\n1,true\n2,false\n");
 }

@@ -1,5 +1,5 @@
  sales.csv › freq(qty)                                                             qty 1/4  row 1/6
- qty i  count u  percent f histogram str
+ qty i  count i  percent f histogram str
      5       24      20.69 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
      1       15      12.93 ■■■■■■■■■■■■■■■■■■■■
      2       22      18.97 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■

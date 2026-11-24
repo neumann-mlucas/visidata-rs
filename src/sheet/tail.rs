@@ -117,6 +117,27 @@ impl Sheet {
 
     /// Plan = the base (tail rows, in-memory copy, or source) + this sheet's edits.
     pub(super) fn rebuild_plan(&mut self) -> PolarsResult<()> {
+        self.plan = super::step::apply_steps(self.steps_base()?, &self.state.steps)?;
+        Ok(())
+    }
+
+    /// The schema each of `state.steps` reads, in step order: `:export`
+    /// writes SQL for the types a step sees.
+    pub(crate) fn step_schemas(&self) -> PolarsResult<Vec<SchemaRef>> {
+        let mut plan = match &self.state.lineage {
+            Some(l) if self.state.memory_base.is_none() => l.rows.clone(),
+            _ => self.steps_base()?,
+        };
+        let mut out = Vec::with_capacity(self.state.steps.len());
+        for step in &self.state.steps {
+            out.push(plan.collect_schema()?);
+            plan = step.apply(plan)?;
+        }
+        Ok(out)
+    }
+
+    /// The plan the steps apply to: the base plus its added rows.
+    fn steps_base(&self) -> PolarsResult<LazyFrame> {
         let mut plan = with_rids(self.tail_base()?);
         let added: Vec<LazyFrame> = self
             .state
@@ -142,8 +163,7 @@ impl Sheet {
                 )
                 .drop(cols([POS]));
         }
-        self.plan = super::step::apply_steps(plan, &self.state.steps)?;
-        Ok(())
+        Ok(plan)
     }
 
     /// A tail that can't append (Parquet dir, gzip) whose file changed: the

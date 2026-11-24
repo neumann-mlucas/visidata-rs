@@ -28,7 +28,9 @@ mod validate;
 mod write;
 
 pub use columns::freq_aggregators;
-pub(crate) use derive::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, pivot_prefixes};
+pub(crate) use derive::{
+    JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, MELT_VAL, MELT_VAR, pivot_prefixes,
+};
 pub use nested::{UNFURL_ROW, Unfurl, unfurl_kind};
 pub use plot::{PlotView, plot_columns, plot_points};
 pub use refresh::{Refreshed, refresh};
@@ -117,6 +119,8 @@ pub struct Lineage {
     /// A pivot's own columns, as it made them: its computed cells are these
     /// less its keys (columns added after take edits). Empty otherwise.
     pub made: Vec<String>,
+    /// The derived rows before this sheet's own steps (`Sheet::step_schemas`).
+    pub rows: LazyFrame,
 }
 
 #[derive(Clone)]
@@ -181,6 +185,22 @@ pub enum Derivation {
     },
 }
 
+impl Derivation {
+    /// The parent's columns this derivation names one by one: it reads them
+    /// even when they are hidden ([`Sheet::view_plan_keeping`]). Key columns
+    /// don't count: a hidden key is no key, as VisiData's `keyCols`.
+    pub fn reads(&self) -> Vec<String> {
+        match self {
+            Derivation::Freq { columns, .. } => columns.clone(),
+            Derivation::Values { column, .. } => vec![column.clone()],
+            Derivation::Pivot {
+                index, on, values, ..
+            } => vec![index.clone(), on.clone(), values.clone()],
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// How `F` groups a numeric column under `numeric_binning` (S-35 C1,
 /// VisiData `PivotSheet.groupRows`).
 #[derive(Clone, Debug, PartialEq)]
@@ -232,9 +252,14 @@ pub enum DiveKey {
 }
 
 impl DiveKey {
-    /// `column`'s key, as text.
-    pub fn expr(&self, column: &str) -> Expr {
+    /// `column`'s key, as text. `float`: the column holds floats, whose
+    /// `-0.0` groups with `0.0` (as in VisiData) and so matches as `0.0`.
+    pub fn expr(&self, column: &str, float: bool) -> Expr {
         let e = match self {
+            // not `x + 0.0`: the optimizer drops it
+            DiveKey::Value if float => when(col(column).eq(lit(0.0)))
+                .then(lit(0.0))
+                .otherwise(col(column)),
             DiveKey::Value => col(column),
             DiveKey::Fmt(f) => col(column).dt().strftime(f),
             DiveKey::Num(f) => match crate::numfmt::NumFmt::parse(f) {
@@ -926,6 +951,7 @@ impl Sheet {
             parent: p,
             how,
             made,
+            rows: self.plan.clone(),
         }));
         self
     }
@@ -954,7 +980,7 @@ impl Sheet {
     /// `window_plan` plus a [`ROW_ID`] column (split off by the app
     /// into `state.window_rids` when the window lands).
     pub fn window_plan_with_rids(&self) -> LazyFrame {
-        self.view_plan_fmt(true, true)
+        self.view_plan_fmt(true, true, &[])
             .slice(self.view.window_offset as i64, self.view.window_rows)
     }
 
@@ -1065,11 +1091,18 @@ impl Sheet {
     /// `view_plan`, optionally carrying each row's [`ROW_ID`] (first when the
     /// view projects nothing, last when it does; callers find it by name).
     fn view_plan_rid(&self, with_rid: bool) -> LazyFrame {
-        self.view_plan_fmt(with_rid, false)
+        self.view_plan_fmt(with_rid, false, &[])
+    }
+
+    /// `view_plan` that keeps `keep` even when hidden: a derived sheet reads
+    /// the columns it names (freq column, keys), as VisiData, where hiding
+    /// only changes what is shown.
+    pub(crate) fn view_plan_keeping(&self, with_rid: bool, keep: &[String]) -> LazyFrame {
+        self.view_plan_fmt(with_rid, false, keep)
     }
 
     /// `fmt`: plus a boolean column per `:color` rule (the window only).
-    fn view_plan_fmt(&self, with_rid: bool, fmt: bool) -> LazyFrame {
+    fn view_plan_fmt(&self, with_rid: bool, fmt: bool, keep: &[String]) -> LazyFrame {
         let mut lf = self.sorted_plan(with_rid);
         // the projection below keeps them: they're in the schema, not hidden
         if fmt {
@@ -1084,6 +1117,7 @@ impl Sheet {
         // Visible-column projection: keys first (in key-col order), then
         // `order` (S-34), then schema order for the rest; drop hidden.
         // Skipped when nothing to project.
+        let hidden = |c: &String| self.view.hidden.contains(c) && !keep.contains(c);
         if (!self.view.hidden.is_empty()
             || !self.view.keys.is_empty()
             || !self.view.order.is_empty())
@@ -1093,13 +1127,12 @@ impl Sheet {
             all.retain(|n| n != ROW_ID);
             let mut order: Vec<String> = Vec::with_capacity(all.len());
             for k in self.view.keys.iter().chain(&self.view.order) {
-                if all.iter().any(|n| n == k) && !self.view.hidden.contains(k) && !order.contains(k)
-                {
+                if all.iter().any(|n| n == k) && !hidden(k) && !order.contains(k) {
                     order.push(k.clone());
                 }
             }
             for n in &all {
-                if !order.contains(n) && !self.view.hidden.contains(n) {
+                if !order.contains(n) && !hidden(n) {
                     order.push(n.clone());
                 }
             }
@@ -1210,11 +1243,22 @@ impl Sheet {
             .view
             .filter_expr
             .as_deref()
-            .and_then(|p| polars::sql::sql_expr(p).ok())
+            .and_then(|p| crate::sqlexpr::parse(p).ok())
         {
             lf = lf.filter(e.fill_null(false));
         }
         lf
+    }
+
+    /// The `:filter-expr` still evaluates on the current plan and casts. A
+    /// derive or cast that changes a column it reads can break it.
+    pub(crate) fn filter_expr_holds(&self) -> Result<(), String> {
+        match self.view.filter_expr.as_deref() {
+            Some(p) => self
+                .check_predicate(p)
+                .map_err(|e| format!(":filter-expr {p} fails ({e}); clear it (:unfilter) first")),
+            None => Ok(()),
+        }
     }
 
     /// `:filter-expr <pred>`: replace the predicate filter; `None` clears it.
@@ -1260,6 +1304,20 @@ impl Sheet {
         };
         let plan = step.apply(self.plan.clone()).map_err(|e| e.to_string())?;
         plan.clone().collect_schema().map_err(|e| e.to_string())?;
+        // the schema passes some type errors (`upper` of a bool) that only
+        // evaluation raises; they show on no rows too, and no rows read
+        // nothing (the UI thread mustn't scan)
+        let schema = self
+            .plan
+            .clone()
+            .collect_schema()
+            .map_err(|e| e.to_string())?;
+        let empty = DataFrame::empty_with_schema(&schema).lazy();
+        (step.apply(empty).and_then(|p| p.collect())).map_err(|e| e.to_string())?;
+        let old = std::mem::replace(&mut self.plan, plan);
+        let holds = self.filter_expr_holds();
+        let plan = std::mem::replace(&mut self.plan, old);
+        holds?;
         self.checkpoint();
         self.plan = plan;
         self.state.steps.push(step);
@@ -1455,7 +1513,7 @@ impl Sheet {
             return Err(format!("column already exists: {new}"));
         }
         let reads = |p: &str| {
-            polars::sql::sql_expr(p).is_ok_and(|e| e.meta().root_names().iter().any(|n| n == old))
+            crate::sqlexpr::parse(p).is_ok_and(|e| e.meta().root_names().iter().any(|n| n == old))
         };
         if new != old && self.view.filter_expr.as_deref().is_some_and(reads) {
             return Err(format!(
@@ -1511,7 +1569,8 @@ impl Sheet {
 
     /// `# % ~ @`: show `name` as `dt` (a view cast; the base plan is untouched).
     /// A date `fmtstr` outlives only a cast to another date type.
-    pub fn set_type_cast(&mut self, name: String, dt: DataType) {
+    pub fn set_type_cast(&mut self, name: String, dt: DataType) -> Result<(), String> {
+        let before = (self.view.type_casts.clone(), self.view.fmtstrs.clone());
         if !matches!(dt, DataType::Date | DataType::Datetime(..)) {
             self.view.fmtstrs.retain(|(c, _)| *c != name);
         }
@@ -1519,6 +1578,10 @@ impl Sheet {
             Some(entry) => entry.1 = dt,
             None => self.view.type_casts.push((name, dt)),
         }
+        // unchanged when the cast would break the `:filter-expr`
+        self.filter_expr_holds().inspect_err(|_| {
+            (self.view.type_casts, self.view.fmtstrs) = before;
+        })
     }
 }
 
@@ -1575,10 +1638,12 @@ pub const LEN_CAST: DataType = DataType::UInt32;
 /// leniently, [`LEN_CAST`] gives lengths.
 pub(crate) fn cast_expr(name: &str, dt: &DataType, base: Option<&DataType>) -> Expr {
     let text = base == Some(&DataType::String);
+    let number = base.is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
     match dt {
         dt if *dt == LEN_CAST => len_expr(name, base).alias(name),
         DataType::Date if text => lenient_date(name),
         DataType::Datetime(..) if text => lenient_datetime(name),
+        DataType::Date | DataType::Datetime(..) if number => epoch_seconds(name, dt),
         _ => col(name).cast(dt.clone()).alias(name),
     }
 }
@@ -1602,6 +1667,18 @@ fn len_expr(name: &str, base: Option<&DataType>) -> Expr {
         }
         _ => col(name).cast(DataType::String).str().len_chars(),
     }
+}
+
+/// A number as seconds since 1970, in UTC, as VisiData's `date` reads it
+/// (`datetime.fromtimestamp`, local time there). `:export` writes the same.
+fn epoch_seconds(name: &str, dt: &DataType) -> Expr {
+    let us = TimeUnit::Microseconds;
+    (col(name).cast(DataType::Float64) * lit(1e6))
+        .floor()
+        .cast(DataType::Int64)
+        .cast(DataType::Datetime(us, None))
+        .cast(dt.clone())
+        .alias(name)
 }
 
 /// [`lenient_date`] plus the time of day ([`TIME_OF_DAY`]); midnight
@@ -1750,8 +1827,8 @@ pub fn is_number_column(parent: &Sheet, column: &str) -> bool {
 /// over several columns sorts.
 pub fn freq_keeps_order(parent: &Sheet, columns: &[String]) -> bool {
     let [column] = columns else { return false };
-    parent
-        .view_dtype(column)
+    let schema = parent.view_plan_keeping(false, columns).collect_schema();
+    (schema.ok().and_then(|s| s.get(column).cloned()))
         .is_some_and(|d| d.is_numeric() || d.is_temporal())
 }
 

@@ -1,5 +1,5 @@
  sales.csv › freq(region)                                                       region 1/4  row 1/4
-region str   count u  percent f histogram str
+region str   count i  percent f histogram str
 north            116      38.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 south             72       24.0 ■■■■■■■■■■■■■■■■■■■■■■■
 east              66       22.0 ■■■■■■■■■■■■■■■■■■■■■

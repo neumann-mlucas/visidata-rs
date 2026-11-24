@@ -1,6 +1,6 @@
 # S-55 Generated golden cases
 
-Status: drafted 2026-11-22.
+Status: shipped 2026-11-22.
 Depends on: S-08 (`:export`), S-29 C (`:mksession`), `src/app/golden.rs`.
 
 ## 1. Problem
@@ -112,11 +112,11 @@ does not panic. A rejected command shows a toast and leaves the view as it was.
 
 ## 5. Running
 
-- Default suite (`just check`): §4.2, §4.3 and §4.4, with a low case count
-  (`PROPTEST_CASES`, about 32). Target: under 20 s.
-- Ignored test, run in CI and on request: §4.1 with about 256 cases. It
-  needs `VDRS_PYTHON` with polars and the DuckDB CLI. `VDRS_REQUIRE_ROUNDTRIP`
-  makes a missing tool fail the test (local/CI parity, see §7).
+- All four properties run in `just check`: §4.4 and §4.2 with 24 cases,
+  §4.1 with 12. `PROPTEST_CASES` raises them. Before shipping, §4.4 and
+  §4.2 passed 300 cases and §4.1 passed 100.
+- §4.1 needs `VDRS_PYTHON` with polars and the DuckDB CLI.
+  `VDRS_REQUIRE_TOOLS` makes a missing tool fail the test, as in CI.
 - Proptest writes failing seeds to `proptest-regressions/`. Commit them, and
   exclude them from the prek hooks like other test data.
 
@@ -128,18 +128,53 @@ does not panic. A rejected command shows a toast and leaves the view as it was.
   cases.
 - New dev-dependency: `proptest`.
 
-## 7. Open questions
+## 7. Engine divergences and findings
 
-1. How should the suite treat a known divergence between Polars SQL and
-   DuckDB SQL, such as integer division? Options: keep the generator away
-   from it, or list it in a quarantine file with a reason, as
-   `tests/vd_replay/quarantine.txt` does.
-2. Should the metamorphic relations in §4.3 run on `Sheet` directly instead of
-   through the `Harness`? `Sheet` is faster, but the `Harness` uses the real
-   key path.
-3. How many cases fit in the CI time budget? Today CI takes 2 to 3 minutes.
+The generator keeps away from these divergences between Polars and DuckDB:
 
-## 8. Done when
+- Integers stay under 230 in size: DuckDB raises on an i64 overflow, and
+  Polars wraps.
+- The generator uses no unsigned column (a Parquet `u32`, say).
+- The compare reads DuckDB's `-0.0` as `0`, and sets floats under 1e-12 to 0.
+- DuckDB reads `1.5` as a DECIMAL, which can overflow where Polars uses a
+  float. The generator writes `CAST(1.5 AS DOUBLE)`.
+- Floats stay far from 1e10: a stdev of values near 1e10 differs between
+  the engines in the 7th digit.
+
+Open findings:
+
+1. Fixed: freq, pivot and describe counts were unsigned, so `count - 10`
+   wrapped to a big number where VisiData gives a negative one. They are
+   `Int64` now. `length()` and the other counting functions are cast to
+   `BIGINT` (`src/sqlexpr.rs`), so `length('NULL') - 12` gives -8.
+2. Fixed: vdrs cast a number to a date as days since 1970. VisiData reads
+   it as seconds (`datetime.fromtimestamp`), and vdrs does too now, in UTC.
+3. Fixed: a `:derive` doing arithmetic on a Boolean column (an empty
+   column reads as Boolean) worked in the app, as Polars counts it 0 or 1,
+   but DuckDB refused the exported SQL (`-(BOOLEAN, BIGINT)`). The SQL
+   export casts that column to `BIGINT`.
+
+The relations of §4.3 run through the `Harness` (S-56): the real key path is
+worth the time.
+
+## 8. Bugs found
+
+Each has a test or a golden case:
+
+- An ill-typed `:filter-expr` was accepted. A derive or a cast could break a
+  filter-expr that was there.
+- A `:derive` that fails only on evaluation (`upper` of a Boolean) was
+  accepted, and the sheet stopped loading.
+- A session replay toggled off the keys of a derived sheet, and hid the
+  describe columns that `unhide` had shown.
+- The SQL date cast from a number or a Boolean gave null.
+- Describe of no rows: the SQL sum was null and the Python script failed.
+- The SQL export accepted columns differing only by case (from a derive),
+  and a sheet with every column hidden.
+- The freq dive on `0` missed `-0.0`.
+- A quoted CSV header kept its `""`.
+
+## 9. Done when
 
 - The suite runs in `just check` and in CI.
 - A deliberately injected bug in each of `export/python.rs`, `export/sql.rs`

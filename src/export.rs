@@ -26,7 +26,7 @@ use crate::sheet::{
     HISTOGRAM_WIDTH, Lineage, Origin, PlanStep, Sheet, SortOrder, TIME_OF_DAY, err_col,
     freq_keeps_order, freq_stat_names, pivot_prefixes,
 };
-use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW};
+use crate::sheet::{JL, JLK, JOIN_RIGHT_KEYS, JR, JRK, MELT_ROW, MELT_VAL, MELT_VAR};
 
 /// Script for `sheet`, language picked by `path`'s extension.
 pub fn script_for(sheet: &Sheet, path: &Path) -> Result<String, String> {
@@ -54,8 +54,16 @@ pub fn to_python(sheet: &Sheet) -> Result<String, String> {
 }
 
 pub fn to_sql(sheet: &Sheet) -> Result<String, String> {
+    // DuckDB has no SELECT of no columns
+    if sheet
+        .view_plan()
+        .collect_schema()
+        .is_ok_and(|s| s.is_empty())
+    {
+        return Err("export: every column is hidden; nothing left to export".into());
+    }
     let mut sc = Script::new(Lang::Sql);
-    let q = sc.view_query(sheet, false, false)?;
+    let q = sc.view_query(sheet, false, false, &[])?;
     let head: String = sc.head.iter().map(|l| l.clone() + "\n").collect();
     // DuckDB 2.0: a PIVOT that reads its columns from the data can't see CTEs
     // and can't live in a view, so those scripts materialize each step.
@@ -121,15 +129,22 @@ impl Script {
     /// The sheet's view as a named table. `rid` adds `__rid`: row ids of the
     /// base plan (what selections hold).
     fn view(&mut self, s: &Sheet, rid: bool) -> Result<String, String> {
-        self.view_with(s, rid, false)
+        self.view_with(s, rid, false, &[])
     }
 
     /// `errs`: cast columns also carry `err_col(c)`, true where the cast failed.
-    fn view_with(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
+    /// `keep`: hidden columns to keep ([`Sheet::view_plan_keeping`]).
+    fn view_with(
+        &mut self,
+        s: &Sheet,
+        rid: bool,
+        errs: bool,
+        keep: &[String],
+    ) -> Result<String, String> {
         match self.lang {
-            Lang::Py => self.py_view(s, rid, errs),
+            Lang::Py => self.py_view(s, rid, errs, keep),
             Lang::Sql => {
-                let q = self.view_query(s, rid, errs)?;
+                let q = self.view_query(s, rid, errs, keep)?;
                 Ok(self.bind(q))
             }
         }
@@ -243,8 +258,11 @@ impl Script {
                         unions.concat()
                     );
                 }
-                for step in steps(s) {
-                    q = sql_step(q, step);
+                let schemas = s.step_schemas().map_err(|e| e.to_string())?;
+                for (step, schema) in s.state.steps.iter().zip(&schemas) {
+                    if !matches!(step, PlanStep::DeleteRows { .. } | PlanStep::AddRows { .. }) {
+                        q = sql_step(q, step, schema);
+                    }
                 }
                 Ok(self.bind(q))
             }
@@ -476,7 +494,7 @@ impl Script {
     fn derive(&mut self, l: &Lineage) -> Result<String, String> {
         let rid = matches!(l.how, Derivation::Rids(_));
         let errs = matches!(l.how, Derivation::Describe);
-        let p = self.view_with(&l.parent, rid, errs)?;
+        let p = self.view_with(&l.parent, rid, errs, &l.how.reads())?;
         let py = self.lang == Lang::Py;
         // a date `fmtstr` or a set number format groups freq by the text it
         // shows (S-35 C2, S-36 B)
@@ -531,7 +549,7 @@ impl Script {
                 let c = py_str(columns.first().map_or("", String::as_str));
                 let by: Vec<String> = columns.iter().map(|c| py_str(c)).collect();
                 let by_value = format!(
-                    "{p}.group_by({}, maintain_order=True).agg(pl.len().alias({n}){aggs})",
+                    "{p}.group_by({}, maintain_order=True).agg(pl.len().cast(pl.Int64).alias({n}){aggs})",
                     by.join(", "),
                     n = py_str(n)
                 );
@@ -560,7 +578,7 @@ impl Script {
                             .collect();
                         format!(
                             "{p}.with_columns({k}.alias(\"__vdrs_bin\"))\
-                             .group_by(\"__vdrs_bin\", maintain_order=True).agg(pl.len().alias({n}){aggs})\
+                             .group_by(\"__vdrs_bin\", maintain_order=True).agg(pl.len().cast(pl.Int64).alias({n}){aggs})\
                              .pipe(lambda g: pl.concat([pl.LazyFrame({{\"__vdrs_bin\": list(range({bins})), {c}: [{labels}]}}, \
                              schema={{\"__vdrs_bin\": pl.Int64, {c}: pl.Utf8}})\
                              .join(g, on=\"__vdrs_bin\", how=\"left\", maintain_order=\"left\")\
@@ -699,12 +717,17 @@ impl Script {
                 values,
                 except,
             } => {
+                // as `Sheet::rows_with_values`: a float `-0.0` matches as `0.0`
+                let float = matches!(key, DiveKey::Value) && l.parent.is_float_column(column);
                 let text: Vec<&String> = values.iter().flatten().collect();
                 let null = values.iter().any(Option::is_none);
                 if py {
                     let list: Vec<String> = text.iter().map(|t| py_str(t)).collect();
                     let c = py_str(column);
                     let k = match key {
+                        DiveKey::Value if float => {
+                            format!("pl.when(pl.col({c}) == 0).then(0.0).otherwise(pl.col({c}))")
+                        }
                         DiveKey::Value => format!("pl.col({c})"),
                         DiveKey::Fmt(f) => format!("pl.col({c}).dt.strftime({})", py_str(f)),
                         DiveKey::Num(f) => num_fmt(f)?.py(&c),
@@ -724,6 +747,9 @@ impl Script {
                     let list: Vec<String> = text.iter().map(|t| q_str(t)).collect();
                     let c = q_ident(column);
                     let k = match key {
+                        DiveKey::Value if float => {
+                            format!("(CASE WHEN {c} = 0 THEN 0.0 ELSE {c} END)")
+                        }
                         DiveKey::Value => c.clone(),
                         DiveKey::Fmt(f) => format!("strftime({c}, {})", q_str(f)),
                         DiveKey::Num(f) => num_fmt(f)?.sql(&c),
@@ -815,7 +841,7 @@ impl Script {
                 match (py, keys.is_empty()) {
                     (true, false) => format!(
                         "{p}.with_columns(pl.col({on_py}).cast(pl.Utf8).fill_null(\"\"))\
-                         .group_by([{k}, {on_py}], maintain_order=True).len().collect()\
+                         .group_by([{k}, {on_py}], maintain_order=True).len().with_columns(pl.col(\"len\").cast(pl.Int64)).collect()\
                          .pivot(on={on_py}, index=[{k}], values=\"len\", aggregate_function=\"first\").lazy()\
                          .with_columns(pl.exclude([{k}]).fill_null(0))",
                         k = keys
@@ -835,8 +861,9 @@ impl Script {
                 }
             }
             Derivation::Unpivot { on, index } if py => format!(
-                "{p}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"Variable\", value_name=\"Value\")\
-                 .filter(pl.col(\"Value\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")",
+                "{p}{text}.with_row_index(\"{m}\").unpivot(on=[{}], index=[{}], variable_name=\"{var}\", value_name=\"{val}\")\
+                 .filter(pl.col(\"{val}\").is_not_null()).sort(\"{m}\", maintain_order=True).drop(\"{m}\")\
+                 .rename({{\"{var}\": \"Variable\", \"{val}\": \"Value\"}})",
                 on.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", "),
                 index
                     .iter()
@@ -846,15 +873,35 @@ impl Script {
                     .collect::<Vec<_>>()
                     .join(", "),
                 m = MELT_ROW,
+                var = MELT_VAR,
+                val = MELT_VAL,
+                // as `Sheet::unpivot_from`: mixed types melt as text
+                text = match l.parent.melt_as_text(on, index).as_slice() {
+                    [] => String::new(),
+                    t => format!(
+                        ".with_columns(pl.col({}).cast(pl.Utf8))",
+                        t.iter().map(|c| py_str(c)).collect::<Vec<_>>().join(", ")
+                    ),
+                },
             ),
             Derivation::Unpivot { on, index } => {
                 let keep: Vec<String> = index
                     .iter()
                     .map(|c| q_ident(c))
-                    .chain(["\"Variable\"".into(), "\"Value\"".into()])
+                    .chain([
+                        format!("{MELT_VAR} AS \"Variable\""),
+                        format!("{MELT_VAL} AS \"Value\""),
+                    ])
                     .collect();
+                let text: Vec<String> = (l.parent.melt_as_text(on, index).iter())
+                    .map(|c| format!("CAST({0} AS VARCHAR) AS {0}", q_ident(c)))
+                    .collect();
+                let p = match text.is_empty() {
+                    true => p.to_string(),
+                    false => format!("(SELECT * REPLACE ({}) FROM {p})", text.join(", ")),
+                };
                 format!(
-                    "SELECT {} FROM {p} UNPIVOT (\"Value\" FOR \"Variable\" IN ({}))",
+                    "SELECT {} FROM {p} UNPIVOT ({MELT_VAL} FOR {MELT_VAR} IN ({}))",
                     keep.join(", "),
                     on.iter().map(|c| q_ident(c)).collect::<Vec<_>>().join(", ")
                 )
@@ -869,13 +916,13 @@ impl Script {
                 // cell stays null; a sum over only nulls is 0.
                 let v = q_ident(values);
                 let (py_agg, sql_agg) = match agg.as_str() {
-                    "sum" => ("sum", format!("coalesce(sum({v}), 0)")),
-                    "mean" | "avg" | "average" => ("mean", format!("avg({v})")),
-                    "count" | "len" => ("len", "count(*)".to_string()),
-                    "max" => ("max", format!("max({v})")),
-                    "min" => ("min", format!("min({v})")),
-                    "first" => ("first", format!("first({v})")),
-                    "last" => ("last", format!("last({v})")),
+                    "sum" => ("sum()", format!("coalesce(sum({v}), 0)")),
+                    "mean" | "avg" | "average" => ("mean()", format!("avg({v})")),
+                    "count" | "len" => ("len().cast(pl.Int64)", "count(*)".to_string()),
+                    "max" => ("max()", format!("max({v})")),
+                    "min" => ("min()", format!("min({v})")),
+                    "first" => ("first()", format!("first({v})")),
+                    "last" => ("last()", format!("last({v})")),
                     other => {
                         return Err(format!(
                             "export: Lua aggregator {other:?} can't be exported"
@@ -884,7 +931,7 @@ impl Script {
                 };
                 if py {
                     format!(
-                        "{p}.group_by([{i}, {o}], maintain_order=True).agg(pl.col({vs}).{py_agg}()).collect()\
+                        "{p}.group_by([{i}, {o}], maintain_order=True).agg(pl.col({vs}).{py_agg}).collect()\
                          .pivot(on={o}, index={i}, values={vs}, aggregate_function=\"first\").lazy()",
                         o = py_str(on),
                         i = py_str(index),
@@ -1105,8 +1152,9 @@ fn json_structure(dt: &DataType) -> String {
     }
 }
 
-/// The projection `view_plan` applies, or None when it's "all columns, as is".
-fn visible_columns(sheet: &Sheet) -> Result<Option<Vec<String>>, String> {
+/// The projection `view_plan_keeping` applies, or None when it's "all
+/// columns, as is".
+fn visible_columns(sheet: &Sheet, keep: &[String]) -> Result<Option<Vec<String>>, String> {
     let v = &sheet.view;
     if v.hidden.is_empty() && v.keys.is_empty() && v.order.is_empty() {
         return Ok(None);
@@ -1115,7 +1163,7 @@ fn visible_columns(sheet: &Sheet) -> Result<Option<Vec<String>>, String> {
         let schema = p.collect_schema().map_err(|e| e.to_string())?;
         Ok(schema.iter_names().map(|n| n.to_string()).collect())
     };
-    let shown = names(sheet.view_plan())?;
+    let shown = names(sheet.view_plan_keeping(false, keep))?;
     // keys already first, nothing hidden: no select
     Ok((shown != names(sheet.plan.clone())?).then_some(shown))
 }
@@ -1305,6 +1353,18 @@ mod tests {
         );
     }
 
+    /// S-55: a derive on a derived sheet reads that sheet's columns, not its
+    /// source's: the SQL export types the step from the derived rows.
+    #[test]
+    fn derive_on_a_derived_sheet_exports() {
+        let (s, _t) = sheet();
+        let mut d = Sheet::describe_from(&s, 1).unwrap();
+        d.derive("w", "length(mode) - 9").unwrap();
+        d.derive("v", "w * 2").unwrap();
+        let sql = to_sql(&d).unwrap();
+        assert!(sql.contains("length(mode) - 9"), "{sql}");
+    }
+
     #[test]
     fn sql_refuses_columns_differing_only_by_case() {
         let t = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
@@ -1313,5 +1373,14 @@ mod tests {
         let s = Sheet::from_source(0, loaded);
         assert!(to_sql(&s).unwrap_err().contains("only by case"));
         assert!(to_python(&s).is_ok());
+        // S-55: a derive makes the clash
+        std::fs::write(t.path(), "A\n1\n").unwrap();
+        let loaded = crate::reader::open(t.path().as_os_str(), None).unwrap();
+        let mut s = Sheet::from_source(0, loaded);
+        s.derive("a", "\"A\" * 2").unwrap();
+        assert!(to_sql(&s).unwrap_err().contains("only by case"));
+        // S-55: no column shown
+        s.view.hidden.extend(["A".to_string(), "a".to_string()]);
+        assert!(to_sql(&s).unwrap_err().contains("every column is hidden"));
     }
 }

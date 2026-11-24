@@ -1,5 +1,5 @@
  tests/golden/freq-fmtstr/input.csv › freq(d)                                        d 1/4  row 1/4
-d str    count u  percent f histogram str
+d str    count i  percent f histogram str
 2024-01        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 2024-02        2      33.33 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 ·              1      16.67 ■■■■■■■■■■■■■■■■■■■

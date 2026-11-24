@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthStr;
 mod edit;
 mod jobs;
 mod lua;
-mod probe;
+pub(in crate::app) mod probe;
 mod sheets;
 mod tail;
 mod view;

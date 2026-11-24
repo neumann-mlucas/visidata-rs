@@ -764,6 +764,9 @@ fn scan(
         SourceKind::Arrow => {
             LazyFrame::scan_ipc(pl_path(path)?, Default::default(), Default::default())?
         }
+        // an empty file (`:save` of no rows) is an empty sheet, as VisiData;
+        // Polars can't infer a schema from it
+        SourceKind::Jsonl if blank_file(path)? => DataFrame::empty().lazy(),
         SourceKind::Jsonl => LazyJsonLineReader::new(pl_path(path)?).finish()?,
         SourceKind::Json if !starts_with_json_array(path)? => {
             return scan(path, SourceKind::Jsonl, header);
@@ -970,7 +973,7 @@ fn scan_csv(
         false => lazy,
     };
     if header <= 1 {
-        return Ok((lazy, read));
+        return Ok((unescape_header(lazy)?, read));
     }
     // the first `header` rows, as text, name the columns
     let head = CsvReadOptions::default()
@@ -1001,6 +1004,28 @@ fn scan_csv(
         .collect();
     let new = header_names(&rows, old.len());
     Ok((lazy.rename(old, new, true), read))
+}
+
+/// Polars keeps the `""` escape of a quoted header field (`"q""t"` names
+/// the column `q""t`); VisiData reads it as `q"t`.
+fn unescape_header(mut lazy: LazyFrame) -> PolarsResult<LazyFrame> {
+    let old: Vec<String> = (lazy.collect_schema()?.iter_names())
+        .filter(|n| n.contains("\"\""))
+        .map(|n| n.to_string())
+        .collect();
+    if old.is_empty() {
+        return Ok(lazy);
+    }
+    let new: Vec<String> = old.iter().map(|n| n.replace("\"\"", "\"")).collect();
+    Ok(lazy.rename(old, new, true))
+}
+
+/// The file holds only whitespace (it is small, then).
+fn blank_file(path: &Path) -> std::io::Result<bool> {
+    if std::fs::metadata(path)?.len() > 4096 {
+        return Ok(false);
+    }
+    Ok(std::fs::read(path)?.iter().all(u8::is_ascii_whitespace))
 }
 
 /// A cell as text, null empty.
@@ -1672,5 +1697,31 @@ mod tests {
         assert_eq!(df.column("late").unwrap().dtype(), &DataType::String);
         assert_eq!(df.column("blank").unwrap().dtype(), &DataType::String);
         assert_eq!(df.height(), 1501);
+    }
+
+    /// S-56 relation 20: `:save` of no rows to `.jsonl` writes an empty
+    /// file, which opens as an empty sheet.
+    #[test]
+    fn empty_jsonl_opens_empty() {
+        let t = tempfile::Builder::new()
+            .suffix(".jsonl")
+            .tempfile()
+            .unwrap();
+        std::fs::write(t.path(), "\n").unwrap();
+        let loaded = open(t.path().as_os_str(), None).unwrap();
+        assert_eq!(loaded.lazy.collect().unwrap().height(), 0);
+    }
+
+    /// S-56 relation 20: a quoted header with an escaped quote names the
+    /// column with one quote, as VisiData (Polars kept `""`).
+    #[test]
+    fn quoted_header_unescapes_its_quotes() {
+        let df = scan_bytes(b"\"q\"\"t\",b\n\"a\"\"b\",1\n");
+        let names: Vec<&str> = df.get_column_names().iter().map(|n| n.as_str()).collect();
+        assert_eq!(names, ["q\"t", "b"]);
+        assert_eq!(
+            df.column("q\"t").unwrap().get(0).unwrap(),
+            AnyValue::String("a\"b")
+        );
     }
 }

@@ -3,7 +3,13 @@
 use super::*;
 
 impl Script {
-    pub(super) fn py_view(&mut self, s: &Sheet, rid: bool, errs: bool) -> Result<String, String> {
+    pub(super) fn py_view(
+        &mut self,
+        s: &Sheet,
+        rid: bool,
+        errs: bool,
+        keep: &[String],
+    ) -> Result<String, String> {
         let base = self.base(s)?;
         let v = &s.view;
         let mut ops = Vec::new();
@@ -28,6 +34,9 @@ impl Script {
             }
             let src = src_type(s, c);
             let text = src == Some(DataType::String);
+            let number = src
+                .as_ref()
+                .is_some_and(|t| t.is_primitive_numeric() || *t == DataType::Boolean);
             if *dt == crate::sheet::LEN_CAST {
                 let p = format!("pl.col({})", py_str(c));
                 let len = match src {
@@ -48,6 +57,14 @@ impl Script {
                 ops.push(format!(
                     ".with_columns({len}.cast(pl.UInt32).alias({}))",
                     py_str(c)
+                ));
+            } else if matches!(dt, DataType::Date | DataType::Datetime(..)) && number {
+                // as `cast_expr`: seconds since 1970, in UTC
+                ops.push(format!(
+                    ".with_columns((pl.col({c}).cast(pl.Float64) * 1e6).floor().cast(pl.Int64, strict=False)\
+                     .cast(pl.Datetime(\"us\")).cast({}))",
+                    py_dtype(dt),
+                    c = py_str(c)
                 ));
             } else if *dt == DataType::Date && text {
                 self.need(&py_lenient_date());
@@ -80,7 +97,7 @@ impl Script {
         if let Some(p) = &v.filter_expr {
             ops.push(format!(
                 ".filter(pl.sql_expr({}).fill_null(False))",
-                py_str(p)
+                py_str(&crate::sqlexpr::for_polars(p))
             ));
         }
         if !v.sort.is_empty() {
@@ -102,7 +119,7 @@ impl Script {
                 d = desc.join(", ")
             ));
         }
-        if let Some(mut cols) = visible_columns(s)? {
+        if let Some(mut cols) = visible_columns(s, keep)? {
             if rid {
                 cols.push("__rid".into());
             }
@@ -265,7 +282,7 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
         ),
         PlanStep::Derive { name, expr, .. } => format!(
             "{t} = {t}.with_columns(pl.sql_expr({}).alias({}))",
-            py_str(expr),
+            py_str(&crate::sqlexpr::for_polars(expr)),
             py_str(name)
         ),
         PlanStep::SetCol {
@@ -299,7 +316,7 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
         } => format!(
             "{t} = {t}.with_columns(pl.when(pl.col(\"__rid\").is_in({rids:?}))\
              .then(pl.sql_expr({}).cast({t}.collect_schema()[{c}], strict=False)).otherwise(pl.col({c})).alias({c}))",
-            py_str(expr),
+            py_str(&crate::sqlexpr::for_polars(expr)),
             c = py_str(column)
         ),
         PlanStep::Lookup {
@@ -436,9 +453,11 @@ pub(super) fn py_csv_args(s: &Sheet) -> Result<String, String> {
     let mut args =
         ", infer_schema_length=None, truncate_ragged_lines=True, encoding=\"utf8-lossy\""
             .to_string();
-    if s.source.csv.stripped {
-        // the names without their blanks
-        let names: Vec<String> = csv_columns(s)?.iter_names().map(|n| py_str(n)).collect();
+    let columns = csv_columns(s)?;
+    // the names without their blanks, or with a quoted header's `""` read as
+    // `"` (Polars keeps the escape; `reader::unescape_header`)
+    if s.source.csv.stripped || columns.iter_names().any(|n| n.contains('"')) {
+        let names: Vec<String> = columns.iter_names().map(|n| py_str(n)).collect();
         args += &format!(", new_columns=[{}]", names.join(", "));
     }
     if s.kind == SourceKind::Tsv {

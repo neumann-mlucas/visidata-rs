@@ -559,6 +559,11 @@ impl Block {
                 descending: k.order == SortOrder::Desc,
             });
         }
+        // `key_col` toggles, and a derived sheet starts with its own keys
+        // (freq, pivot): clear them, then set the saved ones.
+        if !v.keys.is_empty() || s.state.lineage.is_some() {
+            self.ex(Action::UnkeyAll);
+        }
         for k in &v.keys {
             self.col(k);
             self.ex(Action::KeyCol);
@@ -571,6 +576,11 @@ impl Block {
                 false => s.display_order(),
             };
             self.ex(Action::Order { columns });
+        }
+        // a derived sheet starts with its own hidden columns (describe's
+        // `sheet` and `type`): show them, then hide the saved ones
+        if s.state.lineage.is_some() {
+            self.ex(Action::UnhideAll);
         }
         for h in &v.hidden {
             self.ex(Action::HideNamed { column: h.clone() });

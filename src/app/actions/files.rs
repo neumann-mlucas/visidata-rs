@@ -673,6 +673,13 @@ impl App {
     }
 
     pub(super) fn open_unpivot(&mut self, on: &[String], index: &[String]) {
+        // the melt makes these two; Polars holds one column per name
+        if let Some(c) = (index.iter()).find(|c| ["Variable", "Value"].contains(&c.as_str())) {
+            self.toast = Some(format!(
+                "unpivot: key {c} clashes with the melt's own column"
+            ));
+            return;
+        }
         let id = self.sheets.alloc_id();
         let child = {
             let parent = self.sheets.active();

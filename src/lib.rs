@@ -35,6 +35,7 @@ pub mod plugins;
 pub mod reader;
 pub mod session;
 pub mod sheet;
+pub mod sqlexpr;
 pub mod theme;
 pub mod widget;
 

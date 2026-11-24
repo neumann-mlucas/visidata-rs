@@ -273,8 +273,7 @@ impl Sheet {
                 ));
             }
         };
-        self.set_type_cast(column.into(), dt);
-        Ok(())
+        self.set_type_cast(column.into(), dt)
     }
 
     /// Every column, hidden ones too, in the order the sheet shows them:

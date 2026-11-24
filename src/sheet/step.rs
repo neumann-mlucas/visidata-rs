@@ -261,7 +261,7 @@ impl PlanStep {
                 .str()
                 .replace_all(lit(r"[^0-9.\-]"), lit(""), false)
                 .cast(DataType::Float64),
-            PlanStep::Derive { expr, .. } => polars::sql::sql_expr(expr)?,
+            PlanStep::Derive { expr, .. } => crate::sqlexpr::parse(expr)?,
             PlanStep::SetCol {
                 value, dtype, rids, ..
             } => on_rows(
@@ -277,7 +277,7 @@ impl PlanStep {
                 expr, dtype, rids, ..
             } => on_rows(
                 rids,
-                polars::sql::sql_expr(expr)?.cast(dtype.clone()),
+                crate::sqlexpr::parse(expr)?.cast(dtype.clone()),
                 current,
             ),
             // A value lookup, not a join: a join per pasted or numbered
@@ -527,7 +527,7 @@ impl PlanStep {
     /// Columns this step reads besides the one it writes.
     fn reads(&self) -> Vec<String> {
         match self {
-            PlanStep::SetExpr { expr, .. } => polars::sql::sql_expr(expr)
+            PlanStep::SetExpr { expr, .. } => crate::sqlexpr::parse(expr)
                 .map(|e| {
                     e.meta()
                         .root_names()
