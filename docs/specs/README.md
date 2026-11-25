@@ -64,6 +64,7 @@ File naming: `S-NN-slug.md`.
 | S-57 | Ex round trip and layout properties (proptest) | S-19, S-29 C | **shipped 2026-11-22** → [`S-57-ex-roundtrip-layout-properties.md`](S-57-ex-roundtrip-layout-properties.md) |
 | S-58 | Undo model and random-walk property | S-20, S-55 | **shipped 2026-11-22** → [`S-58-undo-model-and-walks.md`](S-58-undo-model-and-walks.md) |
 | S-59 | Bar layout: `vd.titlebar(false)`, both built-in bars in every `ctx`, `disp_header_rule` | S-40 D, S-54 | **shipped 2026-11-24** → [`S-59-bar-layout.md`](S-59-bar-layout.md) |
+| S-60 | Out-of-core pivot on the Polars streaming engine | S-01 | **blocked** on a Rust `polars` release with the 2.1/2.2 engine → [`S-60-out-of-core-pivot.md`](S-60-out-of-core-pivot.md) |
 
 **Not drafted yet** (draft only when the work starts):
 

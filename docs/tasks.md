@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [ ] S-60 — out-of-core pivot: bump `polars`, run `pivot_df` lazy on the streaming engine, test with a parquet bigger than memory; blocked on a Rust `polars` release after `py-2.1.0`
 - [x] S-57 — first property tests: ex round trip over generated actions, layout invariants; fixed quoted first arguments, `to_ex` lines that read back changed, a render overflow after a huge frozen column — shipped 2026-11-22
 - [x] S-59 — bar layout: `vd.titlebar(false)` drops the top row, both built-in bars in every bar `ctx`, `disp_header_rule` rule under the header — shipped 2026-11-24
 - [x] S-58 — undo model over generated walks; the random-walk probe as a property; fixed melts of hidden keys and of melts, freq of hidden columns — shipped 2026-11-22
@@ -245,7 +246,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] Live preview panel — `:pivot` prompt previews hints, then the pivot of the first 10k rows (2026-11-05); other ops keep the stale window until the new materialize lands
 - [x] Plan side-panel: `P` cycles Off → Normal → Optimized (`describe_optimized_plan`)
 - [x] Plan export — `:export view.py` (Polars) / `view.sql` (DuckDB), replaying the view from the source file
-- [ ] DuckDB backend switch for OOC pivots (optional feature) — _dropped from direction §9.3; revisit only if Polars OOC wall hit_
+- [ ] ~~DuckDB backend switch for OOC pivots~~ — replaced by [S-60](specs/S-60-out-of-core-pivot.md): out-of-core pivot on the Polars streaming engine, blocked on a Rust `polars` release with the 2.1/2.2 engine (2026-11-25)
 
 ## Phase 3 — mlua plugins
 
