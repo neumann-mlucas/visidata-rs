@@ -3,7 +3,7 @@
 //! `<C-u>` kill to start, `<C-w>` kill previous word. Vim profile: `Esc`
 //! enters a normal mode (S-26 E).
 
-use crossterm::event::KeyCode;
+use crate::key::KeyCode;
 
 use crate::key::Key;
 

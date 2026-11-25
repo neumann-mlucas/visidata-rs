@@ -1,9 +1,34 @@
-//! Key struct + parser. Yazi-shaped: `<C-a>`, `<S-F1>`, `<Esc>`, `<CR>`, `<Space>`, `<Left>`, `<A-x>`.
+//! Key and mouse input types + key parser. Yazi-shaped: `<C-a>`, `<S-F1>`, `<Esc>`, `<CR>`,
+//! `<Space>`, `<Left>`, `<A-x>`. The crossterm conversions here are the only place
+//! crossterm's input types reach vdrs (S-37 P0a).
 
 use std::fmt;
 use std::str::FromStr;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event as ct;
+
+/// A key vdrs reads. Other terminal keys (media, modifier-only, caps lock)
+/// never reach the app: [`Key::from_event`] drops them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyCode {
+    Char(char),
+    Enter,
+    Esc,
+    Tab,
+    BackTab,
+    Backspace,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    Insert,
+    Delete,
+    PageUp,
+    PageDown,
+    F(u8),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key {
@@ -13,28 +38,95 @@ pub struct Key {
     pub alt: bool,
 }
 
-impl From<KeyEvent> for Key {
-    fn from(e: KeyEvent) -> Self {
+/// A bare key, no modifiers.
+impl From<KeyCode> for Key {
+    fn from(code: KeyCode) -> Self {
+        Key {
+            code,
+            ctrl: false,
+            shift: false,
+            alt: false,
+        }
+    }
+}
+
+impl Key {
+    /// The key a terminal event presses; `None` for a release and for a key
+    /// vdrs has no [`KeyCode`] for.
+    pub fn from_event(e: ct::KeyEvent) -> Option<Key> {
+        if e.kind == ct::KeyEventKind::Release {
+            return None;
+        }
+        let code = match e.code {
+            ct::KeyCode::Char(c) => KeyCode::Char(c),
+            ct::KeyCode::Enter => KeyCode::Enter,
+            ct::KeyCode::Esc => KeyCode::Esc,
+            ct::KeyCode::Tab => KeyCode::Tab,
+            ct::KeyCode::BackTab => KeyCode::BackTab,
+            ct::KeyCode::Backspace => KeyCode::Backspace,
+            ct::KeyCode::Left => KeyCode::Left,
+            ct::KeyCode::Right => KeyCode::Right,
+            ct::KeyCode::Up => KeyCode::Up,
+            ct::KeyCode::Down => KeyCode::Down,
+            ct::KeyCode::Home => KeyCode::Home,
+            ct::KeyCode::End => KeyCode::End,
+            ct::KeyCode::Insert => KeyCode::Insert,
+            ct::KeyCode::Delete => KeyCode::Delete,
+            ct::KeyCode::PageUp => KeyCode::PageUp,
+            ct::KeyCode::PageDown => KeyCode::PageDown,
+            ct::KeyCode::F(n) => KeyCode::F(n),
+            _ => return None,
+        };
         // A symbol already encodes its shift ("!" not "<S-1>"), but some terminals
         // (Windows, kitty protocol) still flag SHIFT; drop it so "!" binds match.
-        let shift = e.modifiers.contains(KeyModifiers::SHIFT)
-            && !matches!(e.code, KeyCode::Char(c) if !c.is_alphabetic());
-        let ctrl = e.modifiers.contains(KeyModifiers::CONTROL);
-        let alt = e.modifiers.contains(KeyModifiers::ALT);
+        let shift = e.modifiers.contains(ct::KeyModifiers::SHIFT)
+            && !matches!(code, KeyCode::Char(c) if !c.is_alphabetic());
+        let ctrl = e.modifiers.contains(ct::KeyModifiers::CONTROL);
+        let alt = e.modifiers.contains(ct::KeyModifiers::ALT);
         // Normalise shifted uppercase chars: "A" and "<S-a>" collapse to the same Key.
-        let code = match e.code {
-            KeyCode::Char(c) if shift && c.is_ascii_lowercase() => {
-                KeyCode::Char(c.to_ascii_uppercase())
-            }
-            KeyCode::Char(c) if shift && c.is_ascii_uppercase() => KeyCode::Char(c),
+        let code = match code {
+            KeyCode::Char(c) if shift => KeyCode::Char(c.to_ascii_uppercase()),
             other => other,
         };
-        Self {
+        Some(Key {
             code,
             ctrl,
             shift,
             alt,
-        }
+        })
+    }
+}
+
+/// A mouse event vdrs reads (S-26 A9): the left button pressed, or the wheel.
+/// `column` and `row` are screen cells from the top left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mouse {
+    pub kind: MouseKind,
+    pub column: u16,
+    pub row: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseKind {
+    Click,
+    ScrollUp,
+    ScrollDown,
+}
+
+impl Mouse {
+    /// `None` for every other button, a release, a drag and a move.
+    pub fn from_event(e: ct::MouseEvent) -> Option<Mouse> {
+        let kind = match e.kind {
+            ct::MouseEventKind::Down(ct::MouseButton::Left) => MouseKind::Click,
+            ct::MouseEventKind::ScrollUp => MouseKind::ScrollUp,
+            ct::MouseEventKind::ScrollDown => MouseKind::ScrollDown,
+            _ => return None,
+        };
+        Some(Mouse {
+            kind,
+            column: e.column,
+            row: e.row,
+        })
     }
 }
 
@@ -57,7 +149,8 @@ impl fmt::Display for Key {
             KeyCode::PageUp => "<PgUp>".to_string(),
             KeyCode::PageDown => "<PgDn>".to_string(),
             KeyCode::F(n) => format!("<F{n}>"),
-            other => format!("{other:?}"),
+            KeyCode::BackTab => "BackTab".to_string(),
+            KeyCode::Insert => "Insert".to_string(),
         };
         if !(self.ctrl || self.alt) {
             return write!(f, "{bare}");
@@ -167,13 +260,41 @@ mod tests {
 
     #[test]
     fn shifted_symbol_matches_its_binding() {
-        use crossterm::event::{KeyEvent, KeyModifiers};
+        let shifted = |c| ct::KeyEvent::new(ct::KeyCode::Char(c), ct::KeyModifiers::SHIFT);
         for c in ['!', '$', '^', '#', '|', '"', ':', '@', '%', '~'] {
-            let pressed = Key::from(KeyEvent::new(KeyCode::Char(c), KeyModifiers::SHIFT));
+            let pressed = Key::from_event(shifted(c)).unwrap();
             assert_eq!(pressed, c.to_string().parse::<Key>().unwrap(), "{c}");
         }
-        let upper = Key::from(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
+        let upper = Key::from_event(shifted('G')).unwrap();
         assert_eq!(upper, "G".parse::<Key>().unwrap());
+        let lower = Key::from_event(shifted('g')).unwrap();
+        assert_eq!(lower, "G".parse::<Key>().unwrap());
+    }
+
+    #[test]
+    fn terminal_events_vdrs_has_no_name_for_are_dropped() {
+        let ev = |code| ct::KeyEvent::new(code, ct::KeyModifiers::NONE);
+        assert_eq!(Key::from_event(ev(ct::KeyCode::CapsLock)), None);
+        assert_eq!(Key::from_event(ev(ct::KeyCode::Null)), None);
+        let mut up = ev(ct::KeyCode::Char('j'));
+        up.kind = ct::KeyEventKind::Release;
+        assert_eq!(Key::from_event(up), None);
+        let mouse = |kind| ct::MouseEvent {
+            kind,
+            column: 3,
+            row: 4,
+            modifiers: ct::KeyModifiers::NONE,
+        };
+        let click = mouse(ct::MouseEventKind::Down(ct::MouseButton::Left));
+        let want = Mouse {
+            kind: MouseKind::Click,
+            column: 3,
+            row: 4,
+        };
+        assert_eq!(Mouse::from_event(click), Some(want));
+        let right = mouse(ct::MouseEventKind::Down(ct::MouseButton::Right));
+        assert_eq!(Mouse::from_event(right), None);
+        assert_eq!(Mouse::from_event(mouse(ct::MouseEventKind::Moved)), None);
     }
     use super::*;
 

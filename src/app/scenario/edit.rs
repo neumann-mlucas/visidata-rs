@@ -8,10 +8,7 @@ async fn prompt_line_editing_and_quoted_args() {
     // type "ort -id", jump home, fix the typo, submit
     h.keys(":").await;
     for c in "ort -id".chars() {
-        h.app
-            .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
-                c,
-            ))));
+        h.app.on_key(Key::from(KeyCode::Char(c)));
     }
     h.keys("<Home>").await;
     h.type_("s").await;

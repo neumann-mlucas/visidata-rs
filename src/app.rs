@@ -6,8 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, Event as CtEvent, EventStream, KeyCode,
-    KeyEventKind,
+    DisableBracketedPaste, EnableBracketedPaste, Event as CtEvent, EventStream,
 };
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -26,7 +25,7 @@ use tokio_stream::StreamExt;
 use unicode_width::UnicodeWidthStr;
 
 use crate::action::{Action, SidebarPage};
-use crate::key::Key;
+use crate::key::{Key, KeyCode};
 use crate::keymap::{Chord, Dispatch, Keymap, Layer};
 use crate::lineedit::LineEdit;
 use crate::sheet::{
@@ -804,15 +803,18 @@ impl App {
             tokio::select! {
                 biased;
                 maybe_ev = events.next() => match maybe_ev {
-                    Some(Ok(CtEvent::Key(ke))) if ke.kind != KeyEventKind::Release => {
-                        let key: Key = ke.into();
-                        self.on_key(key);
-                        dirty = true;
+                    Some(Ok(CtEvent::Key(ke))) => {
+                        if let Some(key) = Key::from_event(ke) {
+                            self.on_key(key);
+                            dirty = true;
+                        }
                     }
                     Some(Ok(CtEvent::Resize(_, _))) => dirty = true,
                     Some(Ok(CtEvent::Mouse(m))) => {
-                        self.on_mouse(m);
-                        dirty = true;
+                        if let Some(m) = crate::key::Mouse::from_event(m) {
+                            self.on_mouse(m);
+                            dirty = true;
+                        }
                     }
                     Some(Ok(CtEvent::Paste(text))) => {
                         self.on_paste(text);

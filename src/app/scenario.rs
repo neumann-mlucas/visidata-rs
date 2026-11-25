@@ -102,10 +102,7 @@ impl Harness {
     /// Type into the open prompt without submitting; waits for jobs.
     pub async fn type_no_enter(&mut self, text: &str) {
         for c in text.chars() {
-            self.app
-                .on_key(Key::from(crossterm::event::KeyEvent::from(KeyCode::Char(
-                    c,
-                ))));
+            self.app.on_key(Key::from(KeyCode::Char(c)));
         }
         self.pump().await;
         self.app.draw(&mut self.term).unwrap();

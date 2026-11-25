@@ -1375,17 +1375,17 @@ impl App {
 
     /// `vd.option("mouse", "true")` (S-26 A9): the wheel moves the cursor 3
     /// rows, a click puts it on a cell, a click on the header on a column.
-    pub(super) fn on_mouse(&mut self, m: crossterm::event::MouseEvent) {
-        use crossterm::event::{MouseButton, MouseEventKind};
+    pub(super) fn on_mouse(&mut self, m: crate::key::Mouse) {
+        use crate::key::MouseKind;
         let area = self.sheet_area;
         let inside = m.column >= area.x
             && m.column < area.x + area.width
             && m.row >= area.y
             && m.row < area.y + area.height;
         match m.kind {
-            MouseEventKind::ScrollDown => self.dispatch(Action::CursorDown { count: Some(3) }),
-            MouseEventKind::ScrollUp => self.dispatch(Action::CursorUp { count: Some(3) }),
-            MouseEventKind::Down(MouseButton::Left) if inside && self.input.is_none() => {
+            MouseKind::ScrollDown => self.dispatch(Action::CursorDown { count: Some(3) }),
+            MouseKind::ScrollUp => self.dispatch(Action::CursorUp { count: Some(3) }),
+            MouseKind::Click if inside && self.input.is_none() => {
                 let s = self.sheets.active_mut();
                 let col = crate::widget::column_at(&s.view, &s.state.widths, m.column - area.x);
                 if let Some(c) = col {

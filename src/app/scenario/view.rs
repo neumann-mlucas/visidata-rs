@@ -481,29 +481,22 @@ async fn selection_stats_follow_selection_and_column() {
 /// the column); the wheel moves it 3 rows.
 #[tokio::test(flavor = "multi_thread")]
 async fn mouse_clicks_and_wheel_move_the_cursor() {
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::key::{Mouse, MouseKind};
     let mut h = Harness::new(30).await;
-    let at = |kind, column, row| MouseEvent {
-        kind,
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    };
+    let at = |kind, column, row| Mouse { kind, column, row };
     let screen = h.screen();
     let header = screen.lines().nth(1).unwrap();
     let x = header.find("grp").unwrap() as u16;
     let y = screen.lines().position(|l| l.contains("name_3")).unwrap() as u16;
-    h.app
-        .on_mouse(at(MouseEventKind::Down(MouseButton::Left), x, y));
+    h.app.on_mouse(at(MouseKind::Click, x, y));
     h.pump().await;
     assert_eq!(h.current_column(), "grp");
     assert!(title(&h).contains("row 3/30"), "{}", title(&h));
-    h.app
-        .on_mouse(at(MouseEventKind::Down(MouseButton::Left), 1, 1));
+    h.app.on_mouse(at(MouseKind::Click, 1, 1));
     h.pump().await;
     assert_eq!(h.current_column(), "id");
     assert!(title(&h).contains("row 3/30"), "header click keeps the row");
-    h.app.on_mouse(at(MouseEventKind::ScrollDown, 1, 5));
+    h.app.on_mouse(at(MouseKind::ScrollDown, 1, 5));
     h.pump().await;
     assert!(title(&h).contains("row 6/30"), "{}", title(&h));
     let p = crate::plugins::Plugins::load_from_source(r#"vd.option("mouse", "true")"#).unwrap();
@@ -1246,7 +1239,7 @@ async fn derive_that_fails_to_evaluate_is_refused() {
 /// on screen at the end, and a click on the rule picks no row.
 #[tokio::test(flavor = "multi_thread")]
 async fn header_rule_sits_under_the_header() {
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::key::{Mouse, MouseKind};
     let mut h = Harness::new(30).await;
     h.keys(":").await;
     h.type_("set disp_header_rule true").await;
@@ -1256,11 +1249,10 @@ async fn header_rule_sits_under_the_header() {
     assert!(lines[2].chars().all(|c| c == '─'), "{}", lines[2]);
     assert!(lines[3].contains("name_1"), "{}", lines[3]);
     assert_eq!(h.app.viewport_rows, 12 - 2 - 2);
-    let click = |row| MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
+    let click = |row| Mouse {
+        kind: MouseKind::Click,
         column: 1,
         row,
-        modifiers: KeyModifiers::NONE,
     };
     h.app.on_mouse(click(4));
     h.pump().await;
