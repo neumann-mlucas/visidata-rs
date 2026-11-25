@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::time::{Duration, Instant};
 
+use crate::style::{Modifier, Style};
 use anyhow::{Context, Result};
 use crossterm::event::{
     DisableBracketedPaste, EnableBracketedPaste, Event as CtEvent, EventStream,
@@ -15,7 +16,6 @@ use polars::prelude::*;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use tokio::sync::mpsc;

@@ -287,12 +287,12 @@ fn span_table(lua: &Lua, s: &Span<'_>) -> mlua::Result<LuaTable> {
     use ratatui::style::Modifier;
     let t = lua.create_table()?;
     t.set("text", s.content.as_ref())?;
-    let hex = |c: ratatui::style::Color| {
-        let (r, g, b) = crate::theme::rgb(c);
-        format!("#{r:02x}{g:02x}{b:02x}")
+    let hex = |c| {
+        let (r, g, b) = crate::theme::rgb(crate::style::Color::from_ratatui(c)?);
+        Some(format!("#{r:02x}{g:02x}{b:02x}"))
     };
-    t.set("fg", s.style.fg.map(hex))?;
-    t.set("bg", s.style.bg.map(hex))?;
+    t.set("fg", s.style.fg.and_then(hex))?;
+    t.set("bg", s.style.bg.and_then(hex))?;
     for (k, m) in [
         ("bold", Modifier::BOLD),
         ("italic", Modifier::ITALIC),
@@ -398,7 +398,10 @@ mod tests {
             last: "",
             title: (vec![Span::raw("T")], vec![]),
             status: (
-                vec![Span::styled("hi", Style::default().fg(Color::Blue))],
+                vec![Span::styled(
+                    "hi",
+                    ratatui::style::Style::default().fg(Color::Blue),
+                )],
                 vec![],
             ),
         }

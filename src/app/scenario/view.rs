@@ -41,7 +41,7 @@ async fn slow_work_spins_in_the_title_and_dims_stale_rows() {
         title(&h)
     );
     let buf = h.term.backend().buffer();
-    assert!(buf[(1, 3)].modifier.contains(Modifier::DIM));
+    assert!(buf[(1, 3)].modifier.contains(ratatui::style::Modifier::DIM));
 
     h.app.busy.clear();
     let s = h.app.sheets.active_mut();

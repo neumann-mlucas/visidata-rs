@@ -1020,7 +1020,7 @@ async fn scale_and_databar_paint_by_the_columns_range() {
     assert_ne!(cell_at(&h, "30").bg, Color::Rgb(255, 0, 0));
     h.keys(":").await;
     h.type_("databar amount").await;
-    let bar = h.app.theme.num_fg;
+    let bar = Color::from(h.app.theme.num_fg);
     assert_eq!(cell_at(&h, "30").bg, bar, "the max fills the cell");
     assert_ne!(cell_at(&h, "10").bg, bar, "the min has no bar");
     h.keys(":").await;

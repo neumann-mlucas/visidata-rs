@@ -689,7 +689,7 @@ pub(super) fn parse_keys(v: LuaValue) -> mlua::Result<Vec<Key>> {
 /// A renderer's table: `{ text = …, fg = …, bg = …, bold = true, … }`; a bad
 /// color is left out (renderers run every frame, an error there can't stop).
 pub(super) fn styled(t: &LuaTable) -> Rendered {
-    use ratatui::style::Modifier;
+    use crate::style::Modifier;
     let color = |k: &str| {
         t.get::<Option<String>>(k)
             .ok()

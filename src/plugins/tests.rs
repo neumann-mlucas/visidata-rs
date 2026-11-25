@@ -259,8 +259,8 @@ fn set_theme_refuses_an_unknown_name() {
 /// is an error naming it.
 #[test]
 fn set_theme_table_patches_a_base() {
+    use crate::style::Color;
     use crate::theme::Theme;
-    use ratatui::style::Color;
     let th = |src: &str| Plugins::load_from_source(src).map(|p| p.options().theme.unwrap());
     let t = th(r##"vd.set_theme { statusbar_bg = "#010203", header_fg = "blue" }"##).unwrap();
     assert_eq!(
@@ -717,7 +717,7 @@ fn user_guide_lists_every_vim_profile_key() {
 
 #[test]
 fn renderer_tables_carry_style_and_bad_colors_are_dropped() {
-    use ratatui::style::{Color, Modifier};
+    use crate::style::{Color, Modifier};
     let p = Plugins::load_from_source(
         r##"vd.register_renderer{column="x",render=function(v)
              if v == 1 then return { fg = "red", bg = "#000010", underline = true } end

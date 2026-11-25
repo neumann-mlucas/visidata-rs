@@ -3,10 +3,10 @@
 //! Column widths are measured once per window (`refresh_widths`); left-frozen cols stay pinned.
 //! Colour decisions live in `theme::Theme`; this file maps `AnyValue` → display + style hint.
 
+use crate::style::{Color, Modifier, Style};
 use polars::prelude::*;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -347,7 +347,7 @@ impl SheetWidget<'_> {
                             };
                             for cx in x..x + w {
                                 if let Some(c) = buf.cell_mut((cx, y)) {
-                                    c.set_bg(bg).set_fg(fg);
+                                    c.set_bg(bg.into()).set_fg(fg.into());
                                 }
                             }
                         }
@@ -359,14 +359,14 @@ impl SheetWidget<'_> {
                                 };
                                 match k < full {
                                     true if no_color => {
-                                        c.modifier.insert(Modifier::REVERSED);
+                                        c.modifier.insert(Modifier::REVERSED.into());
                                     }
                                     true => {
-                                        c.set_bg(th.num_fg).set_fg(th.header_bg);
+                                        c.set_bg(th.num_fg.into()).set_fg(th.header_bg.into());
                                     }
                                     false if k == full && c.symbol() == " " => {
                                         if let Some(p) = part {
-                                            c.set_char(p).set_fg(th.num_fg);
+                                            c.set_char(p).set_fg(th.num_fg.into());
                                         }
                                     }
                                     false => {}
@@ -392,7 +392,7 @@ impl SheetWidget<'_> {
                     && self.noted.is_some_and(|n| n(ri, cols[ci].name()))
                     && let Some(cell) = buf.cell_mut((x + w - 1, y))
                 {
-                    cell.set_symbol("•").set_fg(th.toast_fg);
+                    cell.set_symbol("•").set_fg(th.toast_fg.into());
                 }
             }
         }
@@ -404,9 +404,11 @@ impl SheetWidget<'_> {
                 height: 1,
                 ..area
             };
-            buf.set_style(rule, Style::reset());
+            buf.set_style(rule, ratatui::style::Style::reset());
             for x in rule.x..rule.x + rule.width {
-                buf[(x, rule.y)].set_symbol("─").set_fg(th.dtype_badge_fg);
+                buf[(x, rule.y)]
+                    .set_symbol("─")
+                    .set_fg(th.dtype_badge_fg.into());
             }
         }
         // Divider between pinned and scrolled columns; `┼` where it crosses the rule.
@@ -418,7 +420,7 @@ impl SheetWidget<'_> {
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     let crossing = head > 1 && y == area.y + 1;
                     cell.set_symbol(if crossing { "┼" } else { "│" })
-                        .set_fg(th.overlay_border_fg);
+                        .set_fg(th.overlay_border_fg.into());
                 }
             }
         }
@@ -1068,7 +1070,7 @@ impl Widget for PlotWidget<'_> {
                 for (i, p) in pts.iter().enumerate() {
                     ctx.draw(&Points {
                         coords: p,
-                        color: palette[i % palette.len()],
+                        color: palette[i % palette.len()].into(),
                     });
                 }
                 ctx.layer();
@@ -1077,7 +1079,7 @@ impl Widget for PlotWidget<'_> {
                     y: y0,
                     width: w,
                     height: h,
-                    color: th.cell_cursor_bg,
+                    color: th.cell_cursor_bg.into(),
                 });
             })
             .render(plot, buf);

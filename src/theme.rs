@@ -4,7 +4,7 @@
 //! Phase 3 is still "hardcoded colour scheme" per direction §4 — user override lands with
 //! the plugin system. This file is the surface that hook will plug into.
 
-use ratatui::style::{Color, Modifier, Style};
+use crate::style::{Color, Modifier, Style};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
@@ -339,10 +339,16 @@ impl ColorDepth {
 /// The frame as `depth` can show it: RGB → nearest 256-color index, or no
 /// colors at all with the cursor and selection kept as reverse / bold.
 pub fn downgrade(buf: &mut ratatui::buffer::Buffer, depth: ColorDepth, th: &Theme) {
+    use ratatui::style::{Color, Modifier};
     let to256 = |c: Color| match c {
         Color::Rgb(r, g, b) => Color::Indexed(ansi256(r, g, b)),
         c => c,
     };
+    let (row_bg, cell_bg, sel_bg) = (
+        Color::from(th.row_cursor_bg),
+        Color::from(th.cell_cursor_bg),
+        Color::from(th.selected_bg),
+    );
     for cell in buf.content.iter_mut() {
         match depth {
             ColorDepth::True => return,
@@ -352,9 +358,9 @@ pub fn downgrade(buf: &mut ratatui::buffer::Buffer, depth: ColorDepth, th: &Them
             }
             ColorDepth::None => {
                 let bg = cell.bg;
-                if bg == th.row_cursor_bg || bg == th.cell_cursor_bg {
+                if bg == row_bg || bg == cell_bg {
                     cell.modifier.insert(Modifier::REVERSED);
-                } else if bg == th.selected_bg {
+                } else if bg == sel_bg {
                     cell.modifier.insert(Modifier::BOLD);
                 }
                 (cell.fg, cell.bg) = (Color::Reset, Color::Reset);
@@ -416,12 +422,13 @@ mod style_tests {
     fn downgrade_maps_rgb_or_strips_colors() {
         use ratatui::buffer::Buffer;
         use ratatui::layout::Rect;
+        use ratatui::style::{Color, Modifier};
         let th = Theme::dark();
         let mut buf = Buffer::empty(Rect::new(0, 0, 2, 1));
         buf[(0, 0)]
-            .set_bg(th.row_cursor_bg)
+            .set_bg(th.row_cursor_bg.into())
             .set_fg(Color::Rgb(255, 0, 0));
-        buf[(1, 0)].set_bg(th.selected_bg);
+        buf[(1, 0)].set_bg(th.selected_bg.into());
         let mut b256 = buf.clone();
         downgrade(&mut b256, ColorDepth::Ansi256, &th);
         assert_eq!(b256[(0, 0)].fg, Color::Indexed(196));

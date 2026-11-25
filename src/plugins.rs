@@ -12,9 +12,9 @@ use crate::action::Action;
 use crate::key::Key;
 use crate::keymap::{Chord, Keymap, Layer};
 use crate::reader::{LoadedSource, OpenError, SourceKind};
+use crate::style::Style;
 use crate::widget::Rendered;
 use polars::prelude::{AnyValue, Column, DataFrame, DataType, NamedFrom, Series};
-use ratatui::style::Style;
 
 mod api;
 mod bars;

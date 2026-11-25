@@ -1,6 +1,6 @@
 # S-37 — Native GUI frontend (egui), with a toolbar, settings and real plots
 
-Status: **P0c/P0d shipped 2026-11-15**; P0a/P0b open; P1+ gated on a GUI decision. Drafted 2026-11-14.
+Status: **P0c/P0d shipped 2026-11-15, P0a/P0b 2026-11-25**; P1+ gated on a GUI decision. Drafted 2026-11-14.
 
 - Part P0 is worth doing for the TUI alone.
 - P1 onward is gated: start only once a GUI is decided.
@@ -67,10 +67,21 @@ Each part helps the TUI on its own and keeps ratatui and crossterm out of the co
     appears 47 times in `key.rs`, plus `lineedit`, `app/input`, `hooks`, `actions/vim`.
   - A vdrs `Mouse` event replaces `crossterm::event::MouseEvent` in `App::on_mouse`.
   - `From<crossterm::KeyEvent>` stays in `key.rs`, the only crossterm edge apart from the app loop.
+  - As built: `key.rs` owns `KeyCode`, `Mouse` and `MouseKind` (`Click`, `ScrollUp`, `ScrollDown`).
+    `Key::from_event` and `Mouse::from_event` return `None` for a key release, for a key vdrs has no
+    `KeyCode` for (caps lock, media, modifier-only), and for other mouse events. The app loop drops
+    those events. Before, such a key reached `on_key` under crossterm's name.
 - **P0b. Own style type (1 d):**
   - `theme.rs` and the Lua renderer (`plugins.rs`, `Rendered.style`) use a vdrs `Style` and
     `Color`, converted to ratatui's at paint time.
   - The Lua API doesn't change: Lua already passes strings and tables.
+  - As built: `src/style.rs` has `Color` (reset, the eight ANSI names, gray, RGB), `Modifier` and
+    `Style`, with ratatui's builder names. The theme, `parse_style`, `parse_color`, `:color` rules and
+    `Rendered.style` use them. Widget and render code convert at buffer writes and spans
+    (`into()`); `theme::downgrade` works on the ratatui buffer. `Color::from_ratatui` reads a
+    built-in bar span back for Lua.
+  - Left for P1: the bars and Lua sidebar pages keep ratatui `Span` and `Line` as their data
+    (`plugins::Segments`, the page cache).
 - **P0c. Option registry + options sheet `O` (2–3 d):** shipped 2026-11-15. As built:
   `src/options.rs` (`OPTIONS`: name, `Kind`, default, `live`, help; `check` normalizes).
   `vd.option` and `:set` both check through it; `Options::apply` stores, `Options::set` keeps

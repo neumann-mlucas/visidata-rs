@@ -447,13 +447,13 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 | App loop, jobs, prompts | `src/app.rs`; rendering `src/app/render.rs`; unit tests `src/app/tests.rs`; `scenario` end-to-end tests `src/app/scenario.rs` |
 | Action dispatch + handlers | `src/app/actions.rs` (`dispatch` checks, `route` table); longer handlers by topic in `src/app/actions/` |
 | Keymap / chord resolution | `src/keymap.rs` |
-| Key parsing | `src/key.rs` |
+| Key and mouse types, key parsing, crossterm input conversion | `src/key.rs` |
 | Action enum + `affects_data()` + `repeatable()` | `src/action.rs` |
 | Ex-line parser + history | `src/exline.rs` |
 | Sheet widget + `clamp_view` | `src/widget.rs` |
 | Lua plugin host (aggregators, renderers, hot reload) | `src/plugins.rs`; `vd.*` API `plugins/api.rs`, loaders + `plugins::open` `plugins/loaders.rs`, `vd.on` `plugins/events.rs`, config files `plugins/config.rs`, bars `plugins/bars.rs` |
 | `:export` scripts | `src/export.rs`; Python `export/python.rs`, SQL `export/sql.rs`, derived sheets `export/derived.rs` |
-| Theme | `src/theme.rs` |
+| Theme | `src/theme.rs`; `Color` / `Style` types and their ratatui conversion `src/style.rs` |
 | Binary entry | `src/main.rs` |
 | Library façade (re-exports for integration tests) | `src/lib.rs` |
 | Golden corpus replay harness | `tests/vd_replay.rs` |
