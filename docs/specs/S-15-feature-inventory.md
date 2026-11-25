@@ -256,9 +256,9 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Predicate filter | `:filter-expr [<pred>]` | `View.filter_expr`: rows where the SQL predicate holds over the typed view (null = false), ANDed with the regex filter; no arg / `zf` / `:unfilter` clears; undoable; rename of a column it reads is refused; exported as `.filter(pl.sql_expr(..))` / `WHERE` |
 | Conditional color | `:color <col\|*> <pred> <style>`, `:nocolor [col\|*]` | `View.formats`: each rule's predicate is a `__vdrs_fmt_N` Boolean column of the window plan only (never in save/export/the plan text); cell or row (`*`) style patched over the theme, under cursor and selection; undoable; rename follows a cell rule's column and is refused when a predicate reads it; derived sheets start without rules; `:mksession` writes them; `NO_COLOR` → reverse video (S-27 A) |
 | Color scale / data bar | `:scale <col> [low high]`, `:databar <col>` | `View.scales`: a job takes the column's min/max over the view, then the rule lands (undoable); cell bg interpolated in RGB (default `#2c7bb6`→`#d7191c`, text black/white by luminance) or a bar in eighth blocks; values outside the range clamp; nulls unpainted; `:nocolor` clears; `:mksession` writes them (range recomputed on load) (S-27 B) |
-| Lua bars | `vd.statusline(fn)`, `vd.titlebar(fn)`, `vd.titlebar(false)`, `vd.bar.statusline/titlebar(ctx)` | `plugins::bars`: `ctx` = `vd.sheet()` + mode, rows, selected, jobs, pane, message, keys, last (22, S-54); segments → spans, `ctx` carries both built-in bars (S-59); cached on the Debug text of `ctx`; error or > 5 ms → built-in bar for the session, reason toasted once; prompts, questions and toasts keep the status line; `vd.titlebar(false)`: no top row, a split keeps pane titles; `vd.statusline(false)` refused; `vd.api_version` 20 (S-40 D), 23 (S-59) |
-| Lua sidebar pages | `vd.register_page { name, render }`, `<C-g>`, `:sidebar name` | `SidebarPage::Lua(name)` (not `Copy` any more); `next` cycles built-ins then `Plugins::page_names`; `render(ctx)` = the D `ctx` + `cell` → lines of segments, last page cached on its input; an unknown name parses and is refused at dispatch with the page list; `vd.api_version` 21 (S-40 E) |
-| Styled renderers | `vd.register_renderer` `render` returns `{ text, fg, bg, bold, italic, underline, reverse }` | `widget::Rendered`; memoized like text; style patched over the theme below `:color`/`:scale`, never on cursor or selected rows; unknown colors dropped; `NO_COLOR` drops colors; `vd.api_version` 10 (S-27 C) |
+| Lua bars | `vd.statusline(fn)`, `vd.titlebar(fn)`, `vd.titlebar(false)`, `vd.bar.statusline/titlebar(ctx)` | `plugins::bars`: `ctx` = `vd.sheet()` + mode, rows, selected, jobs, pane, message, keys, last (22, S-54); segments → spans, `ctx` carries both built-in bars (S-59); cached on the Debug text of `ctx`; error or > 5 ms → built-in bar for the session, reason toasted once; prompts, questions and toasts keep the status line; `vd.titlebar(false)`: no top row, a split keeps pane titles; `vd.statusline(false)` refused |
+| Lua sidebar pages | `vd.register_page { name, render }`, `<C-g>`, `:sidebar name` | `SidebarPage::Lua(name)` (not `Copy` any more); `next` cycles built-ins then `Plugins::page_names`; `render(ctx)` = the D `ctx` + `cell` → lines of segments, last page cached on its input; an unknown name parses and is refused at dispatch with the page list |
+| Styled renderers | `vd.register_renderer` `render` returns `{ text, fg, bg, bold, italic, underline, reverse }` | `widget::Rendered`; memoized like text; style patched over the theme below `:color`/`:scale`, never on cursor or selected rows; unknown colors dropped; `NO_COLOR` drops colors (S-27 C) |
 | Edit cell | `:edit [value]` | cursor cell, same rules (S-18 C) |
 | Force quit | `:q!`, `:qa!` / `:quit!` | pop / quit without the unsaved-edits question |
 | Uniform | `:uniform` | hide columns with ≤ 1 distinct value |
@@ -280,8 +280,8 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | `:<action-name>` | every `Action::NAMED` entry, kebab or snake case, no arguments |
 | `:N` | go to row N |
 | `<Tab>` in `:` | completes the command word (built-ins, actions, `vd.command`s) |
-| `vd.command(name, fn)` | Lua ex command; `fn(args)`; api_version 4 |
-| `vd.option(name, value)` | set an option: `clipboard_copy_cmd`, `clipboard_paste_cmd`, `duckdb_cmd`; unknown name = error; api_version 7 |
+| `vd.command(name, fn)` | Lua ex command; `fn(args)` |
+| `vd.option(name, value)` | set an option: `clipboard_copy_cmd`, `clipboard_paste_cmd`, `duckdb_cmd`; unknown name = error |
 | first-run `init.lua` | written at TUI start when missing: every default commented out (`plugins::default_init_lua`) |
 
 ## 4. Keymap
@@ -380,7 +380,7 @@ vd.register_loader {
 
 Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEFORE `reader::open()`. First rule whose extensions list contains the path's extension (case-insensitive) wins; its `open(path)` is called and its string return is handed to the native reader.
 
-**Rows from Lua (api 13, S-39 A)**: `open` may return a `{ columns, rows }` table (the `vd.push_sheet` shape, typed per column) instead of a path. The sheet is in memory (`LoadedSource::via_loader`, no path); sessions reopen the original file through the loader (path loaders too, not the tempfile they wrote); `:export` refuses with a reason. Big or heavy-dep formats belong in a `vdrs-ext-<fmt>` Rust crate per S-09.
+**Rows from Lua (S-39 A)**: `open` may return a `{ columns, rows }` table (the `vd.push_sheet` shape, typed per column) instead of a path. The sheet is in memory (`LoadedSource::via_loader`, no path); sessions reopen the original file through the loader (path loaders too, not the tempfile they wrote); `:export` refuses with a reason. Big or heavy-dep formats belong in a `vdrs-ext-<fmt>` Rust crate per S-09.
 
 **Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
 
@@ -390,12 +390,11 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 vd.bind(layer, keys, ":sort -id")              -- ex-command bindings (validated at load)
 vd.register_aggregator(name, fn(values) -> number|string|nil)   -- used by :pivot … <name>
 vd.register_renderer { column = "x" | dtype = "f64", render = fn(v) -> string|nil }  -- memoized per value; sets widths
-vd.set_theme("dark" | "light" | { base?, <Theme field> = colour, … })  -- table: api 19
-vd.api_version                                  -- 7 (vd.option clipboard_paste_cmd)
-vd.bind(layer, keys, function() … end, desc?)  -- runs on the key (api 2)
+vd.set_theme("dark" | "light" | { base?, <Theme field> = colour, … })
+vd.bind(layer, keys, function() … end, desc?)  -- runs on the key
 vd.toast(msg)                                   -- status line; only inside a bound function
 vd.sheet() -> { name, cursor = {row, col}, column, value, column_names }  -- 1-based; nil outside a bound function
-vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- api 3; inside a bound function; opens after it returns.
+vd.push_sheet { name?, columns = {…}, rows = { {…}, … } }  -- inside a bound function; opens after it returns.
                                                 -- per column: all ints → i64, numbers → f64, all bools → bool, else str; nil = null.
                                                 -- Origin::Lua; not exportable
 ```

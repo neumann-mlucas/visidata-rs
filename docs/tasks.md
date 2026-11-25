@@ -255,7 +255,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] Keymap plugin shape: `vd.bind(layer, keys, action, desc?)` + `vd.unbind(layer, keys)`
 - [x] **Loader plugin shape**: `vd.register_loader { name, extensions, open }`. `open(path) -> string` returns a path to a format we scan natively (CSV/TSV/Parquet/Arrow/Jsonl). Resolved by extension (case-insensitive) before `reader::open` in main.rs. Zero Lua↔DataFrame marshalling — Lua writes a tempfile. Heavy/encumbered formats stay in `vdrs-ext-*` Rust crates per S-09 ADR. 5 unit tests including end-to-end roundtrip.
 - [x] Loader plugin covers `:diff` too (shared `plugins::open`); `:tail` refuses loader formats since refresh would re-scan the stale converted file
-- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — part of the S-10 rest, deferred until a Lua user asks (S-16, roadmap evidence-gated list)
+- [ ] API versioning (`since`, `deprecate`) + `cargo xtask check-api-versions` — part of the S-10 rest, deferred until beta (`vd.api_version` removed 2026-11-25) (S-16, roadmap evidence-gated list)
 - [x] Aggregator plugin shape — `vd.register_aggregator(name, fn)`, used by `:pivot`; `:derive` takes SQL expressions (Polars `sql_expr`)
 - [x] Renderer plugin shape — `vd.register_renderer { column | dtype, render }`
 - [x] Hot-reload on save — mtime poll on the 2 s tick (no `notify` dependency)

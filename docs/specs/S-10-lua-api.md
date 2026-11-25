@@ -1,5 +1,7 @@
 # S-10 — Lua API surface + versioning
 
+> **2026-11-25:** `vd.api_version` is removed. Until beta, vdrs breaks the Lua API freely and keeps no version number. The versioning and deprecation design below waits for the beta.
+
 Status: **shipped in part**, `vd.api_version` 12 (5: `vd.option`, S-18 B; 6: `duckdb_cmd`; 7: `clipboard_paste_cmd`; 8: `vd.bind` lists, S-19; 9: `vd.on`/`vd.exec`, S-29; 10: styled renderers, S-27 C; 11: `disp_float_fmt`, S-32; 12: `keymap`, `mouse`, `session_autosave`, `numeric_binning`, `histogram_bins` options): registration fns, `vd.bind` with a function, `vd.toast`, `vd.sheet()`, `vd.push_sheet { name?, columns, rows }`, `vd.command` (api 4, 2026-11-07) (row arrays, chosen over column arrays / records: explicit order, nil-safe). The rest waits for a Lua user to ask and will be drafted as S-16.
 Phase: 3
 Depends on: S-09 (plugin lifecycle), direction §4 (Neovim-style API discipline)
@@ -31,7 +33,6 @@ vd.on(event, fn)
 -- config
 vd.set_theme(name)
 vd.option(name, value)
-vd.api_version
 
 -- app (inside a bind / command / on function)
 vd.sheet() -> { name, cursor, column, value, column_names }

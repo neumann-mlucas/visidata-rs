@@ -251,9 +251,7 @@ fn float_fmt_takes_visidata_forms() {
 }
 
 #[test]
-fn api_version_is_exposed() {
-    let p = Plugins::load_from_source("assert(vd.api_version >= 1)");
-    assert!(p.is_ok());
+fn set_theme_refuses_an_unknown_name() {
     assert!(Plugins::load_from_source("vd.set_theme('neon')").is_err());
 }
 

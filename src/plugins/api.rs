@@ -11,7 +11,6 @@ pub(super) fn install_api(lua: &Lua) -> Result<(), mlua::Error> {
     vd.set("unbind", unbind)?;
     vd.set("command", lua.create_function(command_fn)?)?;
     vd.set("register_loader", register_loader)?;
-    vd.set("api_version", API_VERSION)?;
     vd.set(
         "toast",
         lua.create_function(|lua, msg: String| {

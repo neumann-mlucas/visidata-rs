@@ -7,7 +7,7 @@ no spacing, so the two read as one block. A user can now move the title's
 content to the status line, drop the top row and put a rule under the header.
 The defaults do not change.
 
-## Lua API (`vd.api_version` 23)
+## Lua API
 
 - `vd.titlebar(false)` removes the title bar. The table starts on row 0.
   `vd.titlebar(fn)` and `vd.titlebar(nil)` keep their meaning.

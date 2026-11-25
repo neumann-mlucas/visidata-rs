@@ -81,12 +81,13 @@ pub(super) fn write_default_config(path: &Path) -> std::io::Result<()> {
 /// later release's defaults still apply until a line is uncommented.
 pub fn default_init_lua() -> String {
     let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
-    let mut out = format!(
+    let mut out = String::from(
         "-- vdrs config: loaded at startup, reloaded when saved.\n\
          -- vdrs wrote this file because there was none. Every line below is a\n\
          -- default, commented out: uncomment and edit one to change it. Deleting\n\
          -- the file is safe; the next start writes a fresh one.\n\
-         -- Lua API version {API_VERSION}. Guide: https://neumann-mlucas.github.io/visidata-rs/\n\
+         -- Pre-alpha: the Lua API may change in any release until beta.\n\
+         -- Guide: https://neumann-mlucas.github.io/visidata-rs/\n\
          \n\
          -- Theme: \"dark\" or \"light\".\n\
          -- vd.set_theme(\"dark\")\n\
@@ -108,7 +109,7 @@ pub fn default_init_lua() -> String {
          -- disagree (u undo, d/y/c operators, q macros, m/' marks, w/b/e cell motions).\n\
          -- vd.option(\"keymap\", \"vim\")\n\
          \n\
-         -- Decimals of every float column (\"%.Nf\" or \"{{:.Nf}}\"). Default: shortest\n\
+         -- Decimals of every float column (\"%.Nf\" or \"{:.Nf}\"). Default: shortest\n\
          -- exact text, up to 15 significant digits. Alt++ / Alt+- / :precision per column.\n\
          -- vd.option(\"disp_float_fmt\", \"%.2f\")\n\
          \n\
@@ -151,9 +152,9 @@ pub fn default_init_lua() -> String {
          -- vd.option(\"session_autosave\", \"false\")\n\
          \n\
          -- Keys: vd.bind(layer, keys, action, description?)\n\
-         --   keys: \"x\", or {{\"g\", \"g\"}} for a sequence; <C-d>, <CR>, <Esc>, <Tab>, …\n\
+         --   keys: \"x\", or {\"g\", \"g\"} for a sequence; <C-d>, <CR>, <Esc>, <Tab>, …\n\
          --   action: a name below, \":ex command\", or a Lua function.\n\
-         -- vd.unbind(layer, keys) removes a binding.\n"
+         -- vd.unbind(layer, keys) removes a binding.\n",
     );
     let keymap = crate::keymap::Keymap::defaults();
     for (layer, title) in [(Layer::Sheet, "sheet"), (Layer::Input, "input")] {
