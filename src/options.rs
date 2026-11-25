@@ -64,6 +64,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "a totals row of + aggregators under the table (:footer)",
     },
     Opt {
+        name: "disp_header_rule",
+        kind: Kind::Bool,
+        default: "false",
+        live: true,
+        help: "a ─ rule under the header row",
+    },
+    Opt {
         name: "duckdb_cmd",
         kind: Kind::Command,
         default: "duckdb",

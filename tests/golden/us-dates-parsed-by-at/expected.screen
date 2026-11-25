@@ -1,4 +1,4 @@
- tests/golden/us-dates-parsed-by-at/input.csv                                        d 1/2  row 1/2
+ input.csv                                                                           d 1/2  row 1/2
 d date      n i
 2018-07-03    1
 2018-07-04    2

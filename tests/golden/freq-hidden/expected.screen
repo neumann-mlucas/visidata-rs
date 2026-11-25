@@ -1,4 +1,4 @@
- …lden/freq-hidden/input.csv › tests/golden/freq-hidden/input.csv_columns › freq(k)  k 1/4  row 1/2
+ input.csv › tests/golden/freq-hidden/input.csv_columns › freq(k)                    k 1/4  row 1/2
 k str   count i  percent f histogram str
 a             2      66.67 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 b             1      33.33 ■■■■■■■■■■■■■■■■■■■

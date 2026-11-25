@@ -214,7 +214,8 @@ async fn raise(h: &mut Harness, name: &str) {
         .unwrap();
     h.keys("S").await;
     h.keys(&format!("{}<CR>", "j ".repeat(row))).await;
-    assert!(title(h).contains(name), "{}", title(h));
+    let active = &h.app.sheets.active().name;
+    assert!(active.starts_with(name), "{active}");
 }
 
 /// Foreground of the first screen cell of `text` on the line that holds it.

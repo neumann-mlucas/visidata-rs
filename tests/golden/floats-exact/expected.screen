@@ -1,4 +1,4 @@
- tests/golden/floats-exact/input.csv › selected (2 rows)                             x 1/1  row 1/2
+ input.csv › selected (2 rows)                                                       x 1/1  row 1/2
           x f
    1.00000001
 123456789.125

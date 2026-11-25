@@ -1,4 +1,4 @@
- tests/golden/sqlite-typed/input.sqlite                                             id 1/4  row 1/3
+ input.sqlite                                                                       id 1/4  row 1/3
  id ▲  price f zip str  note str
     1        · 10001    2
     2      4.0

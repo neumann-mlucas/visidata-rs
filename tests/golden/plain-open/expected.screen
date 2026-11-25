@@ -1,4 +1,4 @@
- tests/golden/plain-open/input.csv                                                  id 1/5  row 1/5
+ input.csv                                                                          id 1/5  row 1/5
  id i name str  grp str       amt f day date
     1 ann       a               1.5 2024-01-02
     2 bob       b              2.25 2024-01-03

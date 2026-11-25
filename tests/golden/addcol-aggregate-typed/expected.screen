@@ -1,4 +1,4 @@
- tests/golden/addcol-aggregate-typed/input.csv                                 qty_sum 4/6  row 1/7
+ input.csv                                                                     qty_sum 4/6  row 1/7
 region str  rep str   qty ▼  qty_sum i  qty_max i  qty_rank i
 West        Kivell       10         10         10           1
 East        Smith        10         16         10           1

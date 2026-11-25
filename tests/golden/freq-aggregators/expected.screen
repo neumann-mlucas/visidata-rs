@@ -1,4 +1,4 @@
- tests/golden/freq-aggregators/input.csv › freq(region)  hidden 2              region 1/10  row 1/3
+ input.csv › freq(region)  hidden 2                                            region 1/10  row 1/3
 region str   count i  units_sum i  units_mean f  units_median f  price_max f    price_stdev f  note_
 east               3            4           2.0             2.0          4.0 1.25830573921179
 west               2            6           3.0             3.0         2.25 1.23743686707646

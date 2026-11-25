@@ -1,4 +1,4 @@
- tests/golden/expr-setexpr/input.csv  sel 3                                      price 3/3  row 1/5
+ input.csv  sel 3                                                                price 3/3  row 1/5
  id i  qty i  price f
     1      1     10.5
     2      3     61.0

@@ -7,7 +7,7 @@
        5005            106 2024-06-13         2369.08 pending
        5006            110 2024-03-30          1722.4 paid
        5007            104 2024-01-02         2024.64 refunded
- -- VISUAL -- rows 2–4 · s u select · y copy · d delete · e set · " sheet · : ex · Esc j  cursor_dow
+ -- VISUAL -- rows 2–4 · s u select · y copy · d delete · e set · " sheet · : ex · E j  cursor_down
 --- frame
  orders.csv                                                                    status 5/5  row 4/80
  order_id i  customer_id i order_date date   amount f status str

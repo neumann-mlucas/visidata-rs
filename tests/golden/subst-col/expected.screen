@@ -1,4 +1,4 @@
- tests/golden/subst-col/input.csv  sel 2                                          name 2/3  row 4/4
+ input.csv  sel 2                                                                 name 2/3  row 4/4
  id i name str  city str
     1 lee, ann  oslo
     2 bob  ray  rome

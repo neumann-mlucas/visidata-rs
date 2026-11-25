@@ -1,4 +1,4 @@
- tests/golden/columns-sheet/input.csv  hidden 1                                     id 1/4  row 1/5
+ input.csv  hidden 1                                                                id 1/4  row 1/5
  id i group str    amt i day date
     1 a                1 2024-01-02
     2 b                2 2024-01-03

@@ -12,8 +12,14 @@ impl App {
         Some(f(p, &sheet_ctx(self.sheets.active())))
     }
 
-    /// `ctx` of a `vd.statusline` / `vd.titlebar` function drawing `s`.
-    pub(super) fn bar_ctx<'a>(&'a self, s: &'a Sheet, pane: u8) -> crate::plugins::BarCtx<'a> {
+    /// `ctx` of a `vd.statusline` / `vd.titlebar` function drawing `s` in a
+    /// bar `width` cells wide; both built-in bars as segments (S-59).
+    pub(super) fn bar_ctx<'a>(
+        &'a self,
+        s: &'a Sheet,
+        pane: u8,
+        width: u16,
+    ) -> crate::plugins::BarCtx<'a> {
         let mode = match () {
             _ if self.input.is_some() => "input",
             _ if self.confirm.is_some() => "confirm",
@@ -36,6 +42,8 @@ impl App {
                 .collect::<Vec<_>>()
                 .join(" "),
             last: &self.last_cmd,
+            title: self.title_segments(s, width),
+            status: self.status_segments(),
         }
     }
 

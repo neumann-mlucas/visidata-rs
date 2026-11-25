@@ -1,4 +1,4 @@
- tests/golden/freq-fmtstr-dive/input.csv › freq(d) › d=2024-02                       d 1/2  row 1/2
+ input.csv › freq(d) › d=2024-02                                                     d 1/2  row 1/2
 d date      v i
 2024-02       3
 2024-02       6

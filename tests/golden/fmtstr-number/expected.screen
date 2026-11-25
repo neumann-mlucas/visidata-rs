@@ -1,4 +1,4 @@
- tests/golden/fmtstr-number/input.csv                                              qty 3/3  row 1/5
+ input.csv                                                                         qty 3/3  row 1/5
 name str        amt f         qty i
 a           $1,234.50     1_200 pcs
 b              $-0.25         7 pcs

@@ -614,3 +614,79 @@ async fn lua_sidebar_page() {
     h.type_("sidebar nope").await;
     assert!(status(&h).contains("plan-opt, atoms)"), "{}", status(&h));
 }
+
+/// S-59: the guide's "title in the status line" config. `vd.titlebar(false)`
+/// gives row 0 to the header; the status line shows the crumbs, the last
+/// command and the position; a prompt still owns it; a split keeps its
+/// pane titles.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_title_in_the_status_line() {
+    let html = include_str!("../../../docs/index.html");
+    let start = "vd.titlebar(false)\nvd.statusline";
+    let src = html.split(&format!("<pre><code>{start}")).nth(1).unwrap();
+    let src = format!("{start}{}", src.split("</code></pre>").next().unwrap());
+    let mut h = with_lua(3, &src).await;
+    (h.app.keymap, h.app.theme) = keymap_and_theme(h.app.plugins.as_ref());
+    h.keys("j").await;
+    let screen = h.screen();
+    let lines: Vec<&str> = screen.lines().collect();
+    assert!(lines[0].trim_start().starts_with("id"), "{screen}");
+    assert!(lines[1].chars().all(|c| c == '─'), "{screen}");
+    let name = h.app.sheets.active().name.clone();
+    let file = std::path::Path::new(&name)
+        .file_name()
+        .unwrap()
+        .to_string_lossy();
+    let last = status(&h);
+    assert!(
+        last.contains(file.as_ref()) && last.contains("cursor_down") && last.contains("row 2/3"),
+        "{last}"
+    );
+    h.keys(":").await;
+    assert!(!status(&h).contains("row 2/3"), "{}", status(&h));
+    // The crumbs name the file once, by file name, and keep the active
+    // sheet in sight beside the last command.
+    let dir = std::path::Path::new(&name)
+        .parent()
+        .unwrap()
+        .to_string_lossy();
+    h.keys("<Esc> F").await;
+    let last = status(&h);
+    assert!(
+        last.contains(&format!("{file} › freq(id)")) && !last.contains(dir.as_ref()),
+        "{last}"
+    );
+    h.keys("Z").await;
+    assert!(
+        h.screen().lines().next().unwrap().contains("row "),
+        "{}",
+        h.screen()
+    );
+}
+
+/// S-59: every guide bar example draws without breaking its bar, through
+/// moves, a selection, a freq sheet, a split and a prompt.
+#[tokio::test(flavor = "multi_thread")]
+async fn guide_bar_examples_draw() {
+    let html = include_str!("../../../docs/index.html");
+    let blocks: Vec<String> = html
+        .split("<pre><code>")
+        .skip(1)
+        .filter_map(|b| b.split("</code></pre>").next())
+        .filter(|b| b.contains("vd.titlebar(") || b.contains("vd.statusline("))
+        .map(|b| {
+            b.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+        })
+        .collect();
+    assert!(blocks.len() >= 7, "{}", blocks.len());
+    for src in blocks {
+        let mut h = with_lua(3, &src).await;
+        h.keys("j s F Z g").await;
+        h.keys(":").await;
+        h.keys("<Esc>").await;
+        let toast = h.app.toast.clone().unwrap_or_default();
+        assert!(!toast.contains("built-in bar back"), "{toast}\n{src}");
+    }
+}

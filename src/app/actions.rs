@@ -1392,9 +1392,10 @@ impl App {
                     s.view.col_cursor = c;
                 }
                 let rows = s.window().map_or(0, |df| df.height());
+                let head = crate::widget::header_rows(&self.theme);
                 let row = s.view.row_offset + (m.row - area.y) as usize;
-                if m.row > area.y && row <= rows {
-                    s.view.row_cursor = row - 1;
+                if m.row >= area.y + head && row < rows + usize::from(head) {
+                    s.view.row_cursor = row - usize::from(head);
                 }
             }
             _ => {}
@@ -1507,6 +1508,7 @@ impl App {
             "unfurl_empty" => t.unfurl_empty = v == "true",
             "header" => t.header = v.parse().unwrap_or(1),
             "disp_footer" => t.footer = v == "true",
+            "disp_header_rule" => t.header_rule = v == "true",
             "disp_float_fmt" => {
                 t.float_digits = crate::plugins::float_fmt_digits(&v);
                 self.sheets.active_mut().state.widths_key = None;

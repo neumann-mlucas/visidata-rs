@@ -310,7 +310,7 @@ async fn parts_list_opens_each_table() {
     );
     h.keys("j <CR>").await;
     assert!(
-        title(&h).contains(":b") && title(&h).contains("row 1/2"),
+        title(&h).contains("› b ") && title(&h).contains("row 1/2"),
         "{}",
         title(&h)
     );
@@ -336,7 +336,7 @@ async fn html_and_zip_list_their_parts() {
     assert!(h.screen().contains("prices"), "{}", h.screen());
     h.keys("<CR>").await;
     assert!(
-        title(&h).contains(":prices") && title(&h).contains("row 1/2"),
+        title(&h).contains("› prices ") && title(&h).contains("row 1/2"),
         "{}",
         title(&h)
     );
@@ -406,7 +406,7 @@ async fn duckdb_index_exec_sql_open_and_save() {
     // Same name, other schema: `<CR>` opens o.t, not main.t.
     h.keys("j <CR>").await;
     assert!(
-        title(&h).contains(":o.t") && title(&h).contains("row 1/1"),
+        title(&h).contains("› o.t ") && title(&h).contains("row 1/1"),
         "{}",
         title(&h)
     );
@@ -454,7 +454,7 @@ async fn duckdb_index_exec_sql_open_and_save() {
         title(&h)
     );
     h.keys("<CR>").await;
-    assert!(title(&h).contains(":main.t"), "{}", title(&h));
+    assert!(title(&h).contains("› main.t "), "{}", title(&h));
 }
 
 #[tokio::test(flavor = "multi_thread")]

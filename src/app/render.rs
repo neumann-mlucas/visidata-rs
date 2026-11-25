@@ -40,10 +40,13 @@ impl App {
     /// `&mut` only to clamp the view to the sheet area measured here.
     pub(super) fn render(&mut self, f: &mut ratatui::Frame<'_>) {
         let area = f.area();
+        // `vd.titlebar(false)` (S-59): no top row, except a split's pane titles
+        let titled =
+            self.split.is_some() || !self.plugins.as_ref().is_some_and(|p| p.title_hidden());
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
+                Constraint::Length(u16::from(titled)),
                 Constraint::Min(0),
                 Constraint::Length(1),
             ])
@@ -123,7 +126,10 @@ impl App {
             ),
             false => (sheet_area, None),
         };
-        self.viewport_rows = (sheet_area.height as usize).saturating_sub(1).max(1);
+        let head = crate::widget::header_rows(&self.theme);
+        self.viewport_rows = (sheet_area.height as usize)
+            .saturating_sub(head.into())
+            .max(1);
         self.viewport_cols = sheet_area.width;
         self.sheet_area = sheet_area;
         // ponytail: the notes file is read here on first sight, on the UI
@@ -138,7 +144,7 @@ impl App {
         // A stale window may be shorter than the view being loaded (rows
         // just added): clamping to it would lose the cursor.
         if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
-            clamp_view(&mut s.view, &df, sheet_area, &s.state.widths);
+            clamp_view(&mut s.view, &df, sheet_area, head, &s.state.widths);
         }
 
         if let Some(((title, table), id)) = other
@@ -146,7 +152,7 @@ impl App {
         {
             refresh_widths(s, render, &self.theme);
             if let Some(df) = s.window().filter(|_| s.is_loaded()).cloned() {
-                clamp_view(&mut s.view, &df, table, &s.state.widths);
+                clamp_view(&mut s.view, &df, table, head, &s.state.widths);
             }
             let Some(s) = self.sheets.iter().find(|s| s.id == id) else {
                 return;
@@ -162,7 +168,9 @@ impl App {
                 Style::default().add_modifier(Modifier::DIM),
             );
         }
-        self.render_titlebar(f, title_area, self.sheets.active(), 1);
+        if titled {
+            self.render_titlebar(f, title_area, self.sheets.active(), 1);
+        }
         let s = self.sheets.active();
         let notes = self
             .notes_path()
@@ -315,7 +323,7 @@ impl App {
             SidebarPage::Column => (format!("column: {column}"), self.column_page().into()),
             SidebarPage::Lua(name) => {
                 let lines = self.plugins.as_ref().map(|p| {
-                    p.page(name, &self.bar_ctx(s, 1), &cell())
+                    p.page(name, &self.bar_ctx(s, 1, area.width), &cell())
                         .unwrap_or_else(|e| vec![Line::from(e)])
                 });
                 (name.clone(), lines.unwrap_or_default().into())
@@ -431,6 +439,19 @@ impl App {
         s: &Sheet,
         pane: u8,
     ) {
+        let line = match self.lua_bar(Bar::Title, s, pane, area.width) {
+            Some(line) => line,
+            None => {
+                let (left, right) = self.title_segments(s, area.width);
+                crate::plugins::compose(left, right, area.width)
+            }
+        };
+        f.render_widget(Paragraph::new(line).style(self.theme.titlebar_mid()), area);
+    }
+
+    /// The built-in title bar of `s`, `width` cells wide: crumbs and chips
+    /// left, column and row right.
+    pub(super) fn title_segments(&self, s: &Sheet, width: u16) -> crate::plugins::Segments {
         let View {
             row_cursor,
             col_cursor,
@@ -497,44 +518,62 @@ impl App {
             false => format!(" {} ", chips.join(" · ")),
         };
 
-        let room = (area.width as usize).saturating_sub(position.width() + column.width());
+        let room = (width as usize).saturating_sub(position.width() + column.width());
         // Chips get at most a third of the room from a long name.
         let name_room = room.saturating_sub(chips.width().min(room / 3) + 2);
         let name = format!(" {} ", truncate_head(&crumbs(&self.sheets, s), name_room));
-        let chips = fit(&chips, room.saturating_sub(name.width()));
+        let chips: String =
+            crate::widget::take_width(chips.chars(), room.saturating_sub(name.width())).collect();
         let th = &self.theme;
-        let left = [
+        let left = vec![
             Span::styled(name, th.titlebar_left()),
             Span::styled(chips, th.titlebar_mid()),
         ];
-        let right = [
+        let right = vec![
             Span::styled(column, th.titlebar_mid().add_modifier(Modifier::BOLD)),
             Span::styled(position, th.titlebar_right()),
         ];
-        let line = match self.lua_bar(Bar::Title, s, pane, (&left, &right), area.width) {
-            Some(line) => line,
-            None => Line::from_iter(left.into_iter().chain(right)),
-        };
-        f.render_widget(Paragraph::new(line).style(th.titlebar_mid()), area);
+        (left, right)
     }
 
     /// The bar a `vd.statusline` / `vd.titlebar` function draws, if any.
-    fn lua_bar(
-        &self,
-        bar: Bar,
-        s: &Sheet,
-        pane: u8,
-        builtin: (&[Span<'_>], &[Span<'_>]),
-        width: u16,
-    ) -> Option<Line<'static>> {
+    fn lua_bar(&self, bar: Bar, s: &Sheet, pane: u8, width: u16) -> Option<Line<'static>> {
         let p = self.plugins.as_ref().filter(|p| p.has_bar(bar))?;
-        let (left, right) = p.bar(bar, &self.bar_ctx(s, pane), builtin)?;
+        let mut ctx = self.bar_ctx(s, pane, width);
+        if bar == Bar::Status {
+            // The title fits the room the status line's right side leaves.
+            let right: usize = ctx.status.1.iter().map(Span::width).sum();
+            ctx.title = self.title_segments(s, width.saturating_sub(right as u16));
+        }
+        let (left, right) = p.bar(bar, &ctx)?;
         Some(crate::plugins::compose(left, right, width))
     }
 
     pub(super) fn render_statusbar(&self, f: &mut ratatui::Frame<'_>, area: Rect) {
         // Prompts and messages own the line; a `vd.statusline` draws the rest.
         let owned = self.input.is_some() || self.confirm.is_some() || self.toast.is_some();
+        let rec = self.recording.is_some() && self.input.is_none();
+        let rec =
+            rec.then(|| Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD)));
+        let width = area
+            .width
+            .saturating_sub(rec.as_ref().map_or(0, |r| r.width() as u16));
+        let lua = (!owned)
+            .then(|| self.lua_bar(Bar::Status, self.sheets.active(), 1, width))
+            .flatten();
+        let mut text = lua.unwrap_or_else(|| {
+            let (left, right) = self.status_segments();
+            crate::plugins::compose(left, right, width)
+        });
+        if let Some(rec) = rec {
+            text.spans.insert(0, rec);
+        }
+        f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
+    }
+
+    /// The built-in status line: a prompt, message or stats left, the last
+    /// command right.
+    pub(super) fn status_segments(&self) -> crate::plugins::Segments {
         let text = match (
             &self.input,
             self.confirm
@@ -636,42 +675,40 @@ impl App {
                 self.theme.statusbar().add_modifier(Modifier::DIM),
             )],
         };
-        let rec = self.recording.is_some() && self.input.is_none();
-        let rec =
-            rec.then(|| Span::styled("● rec ", self.theme.toast().add_modifier(Modifier::BOLD)));
-        let width = area
-            .width
-            .saturating_sub(rec.as_ref().map_or(0, |r| r.width() as u16));
-        let mut text = match owned {
-            true => crate::plugins::compose(text.spans, right, width),
-            false => self
-                .lua_bar(
-                    Bar::Status,
-                    self.sheets.active(),
-                    1,
-                    (&text.spans, &right),
-                    width,
-                )
-                .unwrap_or_else(|| crate::plugins::compose(text.spans, right, width)),
-        };
-        if let Some(rec) = rec {
-            text.spans.insert(0, rec);
-        }
-        f.render_widget(Paragraph::new(text).style(self.theme.statusbar()), area);
+        (text.spans, right)
     }
 }
 
 /// `sales.csv › freq(region) › region=north`: the stack up to `s`, each
-/// name without the `: parent` its command appended.
+/// name without the `: parent` its command appended. A file shows by its
+/// file name, and a part of a file the stack already names by the part
+/// alone: `book.xlsx: sheets › Sheet2`.
 fn crumbs(sheets: &crate::sheet::Sheets, s: &Sheet) -> String {
-    let mut names: Vec<&str> = Vec::new();
-    for sh in sheets.iter() {
+    let mut names: Vec<String> = Vec::new();
+    for (i, sh) in sheets.iter().enumerate() {
         let short = sh
             .origin
             .parent()
             .and_then(|id| sheets.iter().find(|p| p.id == id))
             .and_then(|p| sh.name.strip_suffix(p.name.as_str())?.strip_suffix(": "))
             .unwrap_or(&sh.name);
+        let file = sh.source.path.as_deref().and_then(|p| {
+            let rest = short.strip_prefix(p.to_string_lossy().as_ref())?;
+            Some((p.file_name()?.to_string_lossy().into_owned(), rest))
+        });
+        let named = |path| {
+            sheets
+                .iter()
+                .take(i)
+                .any(|o| o.source.path.as_deref() == Some(path))
+        };
+        let short = match (file, sh.source.path.as_deref()) {
+            (Some((_, rest)), Some(path)) if rest.starts_with(':') && named(path) => {
+                rest[1..].to_string()
+            }
+            (Some((base, rest)), _) => format!("{base}{rest}"),
+            _ => short.to_string(),
+        };
         names.push(short);
         if sh.id == s.id {
             break;

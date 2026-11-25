@@ -161,7 +161,7 @@ proptest! {
         })
     ) {
         let df = frame(w.len(), rows);
-        clamp_view(&mut v, &df, a, &w);
+        clamp_view(&mut v, &df, a, 1, &w);
         let data_rows = (a.height as usize).saturating_sub(1).max(1);
         if rows > 0 {
             prop_assert!(v.row_cursor < rows);
@@ -183,7 +183,7 @@ proptest! {
             }
         }
         let once = (v.row_cursor, v.row_offset, v.col_cursor, v.col_offset);
-        clamp_view(&mut v, &df, a, &w);
+        clamp_view(&mut v, &df, a, 1, &w);
         prop_assert_eq!(once, (v.row_cursor, v.row_offset, v.col_cursor, v.col_offset));
     }
 
@@ -221,7 +221,7 @@ proptest! {
         // A one-cell border around the area must stay blank.
         let outer = Rect { x: a.x, y: a.y, width: a.width + 2, height: a.height + 2 };
         let a = Rect { x: a.x + 1, y: a.y + 1, ..a };
-        clamp_view(&mut sheet.view, &df, a, &widths);
+        clamp_view(&mut sheet.view, &df, a, 1, &widths);
         let mut buf = Buffer::empty(outer);
         SheetWidget {
             sheet: &sheet,

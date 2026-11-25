@@ -1,4 +1,4 @@
- tests/golden/derive-bool-arithmetic/input.csv                                       c 4/5  row 1/3
+ input.csv                                                                           c 4/5  row 1/3
 f bool   a i  b f c bool   n f
 ✓          0  1.5 ✗        2.5
 ✗         -1  0.0 ✗        4.0

@@ -146,7 +146,8 @@ impl SheetWidget<'_> {
         }
 
         // Row range visible in viewport
-        let data_height = area.height.saturating_sub(1) as usize;
+        let head = header_rows(self.theme);
+        let data_height = area.height.saturating_sub(head) as usize;
         let row_start = view.row_offset;
         let row_end = (row_start + data_height).min(df.height());
 
@@ -269,7 +270,7 @@ impl SheetWidget<'_> {
         for (dy, ri) in (row_start..row_end).enumerate() {
             let err_row =
                 err_col.is_some_and(|c| !matches!(c.get(ri), Ok(AnyValue::Null) | Err(_)));
-            let y = area.y + 1 + dy as u16;
+            let y = area.y + head + dy as u16;
             if y >= area.y + area.height {
                 break;
             }
@@ -396,12 +397,28 @@ impl SheetWidget<'_> {
             }
         }
 
-        // Divider between pinned and scrolled columns.
+        // `disp_header_rule` (S-59): the rule under the header.
+        if head > 1 {
+            let rule = Rect {
+                y: area.y + 1,
+                height: 1,
+                ..area
+            };
+            buf.set_style(rule, Style::reset());
+            for x in rule.x..rule.x + rule.width {
+                buf[(x, rule.y)].set_symbol("─").set_fg(th.dtype_badge_fg);
+            }
+        }
+        // Divider between pinned and scrolled columns; `┼` where it crosses the rule.
         if frozen > 0 && frozen < visible.len() {
             let x = visible[frozen].1 - Self::CELL_PAD;
-            for y in area.y..(area.y + 1 + (row_end - row_start) as u16).min(area.y + area.height) {
+            for y in
+                area.y..(area.y + head + (row_end - row_start) as u16).min(area.y + area.height)
+            {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_symbol("│").set_fg(th.overlay_border_fg);
+                    let crossing = head > 1 && y == area.y + 1;
+                    cell.set_symbol(if crossing { "┼" } else { "│" })
+                        .set_fg(th.overlay_border_fg);
                 }
             }
         }
@@ -870,9 +887,15 @@ pub fn column_at(view: &View, widths: &[u16], x: u16) -> Option<usize> {
     })
 }
 
-pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, widths: &[u16]) {
+/// Rows the table's header takes: its names, and the `disp_header_rule` rule.
+pub fn header_rows(th: &Theme) -> u16 {
+    1 + u16::from(th.header_rule)
+}
+
+/// Cursor and offsets kept inside `area`, the table with its `head` header rows.
+pub fn clamp_view(view: &mut View, df: &DataFrame, area: Rect, head: u16, widths: &[u16]) {
     let (rows, cols) = (df.height(), df.width());
-    let data_rows = (area.height as usize).saturating_sub(1).max(1); // minus header
+    let data_rows = (area.height as usize).saturating_sub(head.into()).max(1);
     if rows == 0 {
         view.row_cursor = 0;
         view.row_offset = 0;

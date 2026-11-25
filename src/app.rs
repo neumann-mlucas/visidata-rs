@@ -1355,6 +1355,7 @@ fn keymap_and_theme(plugins: Option<&crate::plugins::Plugins>) -> (Keymap, Theme
         theme.float_digits = o.float_digits;
         (theme.numeric_binning, theme.histogram_bins) = (o.numeric_binning, o.histogram_bins);
         theme.footer = o.disp_footer;
+        theme.header_rule = o.disp_header_rule;
         theme.incr_base = o.incr_base.unwrap_or(1);
         theme.unfurl_empty = o.unfurl_empty;
         theme.header = o.header.unwrap_or(1);
@@ -1387,14 +1388,6 @@ const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '�
 const SPIN_AFTER_MS: u128 = 150;
 
 use crate::sheet::grouped;
-
-/// Exactly `width` display cells of `s`: cut at the end, or padded.
-fn fit(s: &str, width: usize) -> String {
-    let mut out: String = crate::widget::take_width(s.chars(), width).collect();
-    let pad = width.saturating_sub(out.width());
-    out.extend(std::iter::repeat_n(' ', pad));
-    out
-}
 
 /// Keep the tail of `s` within `max` display cells, marking the cut with `…`.
 fn truncate_head(s: &str, max: usize) -> String {

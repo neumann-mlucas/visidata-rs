@@ -1,4 +1,4 @@
- tests/golden/add-row/input.csv                                                  twice 5/6  row 5/5
+ input.csv                                                                       twice 5/6  row 5/5
  id i  qty i ok bool  when date   twice i note str
     1      2 ✓        2024-01-01        4 a
    10      7 ·        ·                14 ·

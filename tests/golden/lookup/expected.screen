@@ -1,4 +1,4 @@
- tests/golden/lookup/input.csv                                                    city 2/7  row 1/5
+ input.csv                                                                        city 2/7  row 1/5
  id i city str   price f name str  grp str       amt f day date
     1 oslo           1.5 ann       a               1.5 2024-01-02
     2 rome           9.0 bob       b              2.25 2024-01-03

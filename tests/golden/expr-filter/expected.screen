@@ -1,4 +1,4 @@
- tests/golden/expr-filter/input.csv  filter qty > 2 AND price < 50                  id 1/3  row 1/2
+ input.csv  filter qty > 2 AND price < 50                                           id 1/3  row 1/2
  id i  qty i  price f
     2      3     20.0
     3      5     7.25

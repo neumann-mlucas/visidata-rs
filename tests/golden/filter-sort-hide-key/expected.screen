@@ -1,4 +1,4 @@
- tests/golden/filter-sort-hide-key/input.csv  filter grp~a|b · hidden 1            amt 3/4  row 1/4
+ input.csv  filter grp~a|b · hidden 1                                              amt 3/4  row 1/4
 name str   id i      amt f day date
 bob           2       2.25 2024-01-03
 eve           5 1234567.89 2024-01-06

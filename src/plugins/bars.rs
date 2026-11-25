@@ -39,18 +39,25 @@ pub struct BarCtx<'a> {
     pub keys: String,
     /// The last bound command: its keys and name (`]  sort_desc`).
     pub last: &'a str,
+    /// The built-in title bar and status line, for `vd.bar.titlebar(ctx)`
+    /// and `vd.bar.statusline(ctx)` in any bar function (S-59).
+    pub title: Segments,
+    pub status: Segments,
 }
 
 /// One bar's function, its last result and whether it broke.
 #[derive(Default, Clone)]
 pub(super) struct BarSlot {
     f: Option<LuaFunction>,
+    /// `vd.titlebar(false)` (S-59): no title bar row.
+    hidden: bool,
     /// Debug text of the last input, and the `(left, right)` it gave.
     cache: Option<(String, Segments)>,
     broken: bool,
 }
 
-type Segments = (Vec<Span<'static>>, Vec<Span<'static>>);
+/// A bar's left and right segments.
+pub type Segments = (Vec<Span<'static>>, Vec<Span<'static>>);
 
 /// A call longer than this puts the built-in bar back.
 // ponytail: wall clock, so a loaded test machine could trip 5 ms; tests get 1 s.
@@ -64,9 +71,27 @@ pub(super) fn install(lua: &Lua, vd: &LuaTable) -> mlua::Result<()> {
     for bar in Bar::ALL {
         vd.set(
             bar.name(),
-            lua.create_function(move |lua, f: Option<LuaFunction>| {
+            lua.create_function(move |lua, v: LuaValue| {
+                let (f, hidden) = match v {
+                    LuaValue::Function(f) => (Some(f), false),
+                    LuaValue::Nil => (None, false),
+                    LuaValue::Boolean(false) if bar == Bar::Title => (None, true),
+                    LuaValue::Boolean(false) => {
+                        return Err(mlua::Error::RuntimeError(
+                            "vd.statusline(false): the status line holds prompts and messages; nil restores the built-in one".into(),
+                        ));
+                    }
+                    v => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "vd.{}: a function, nil or false, not {}",
+                            bar.name(),
+                            v.type_name()
+                        )));
+                    }
+                };
                 registry(lua)?.borrow_mut().bars[bar as usize] = BarSlot {
                     f,
+                    hidden,
                     ..Default::default()
                 };
                 Ok(())
@@ -114,6 +139,11 @@ pub(super) fn install(lua: &Lua, vd: &LuaTable) -> mlua::Result<()> {
 }
 
 impl Plugins {
+    /// `vd.titlebar(false)` was called (S-59).
+    pub fn title_hidden(&self) -> bool {
+        reg(&self.lua).is_some_and(|r| r.borrow().bars[Bar::Title as usize].hidden)
+    }
+
     pub fn has_bar(&self, bar: Bar) -> bool {
         reg(&self.lua).is_some_and(|r| {
             let slot = &r.borrow().bars[bar as usize];
@@ -125,14 +155,9 @@ impl Plugins {
     /// draws the built-in bar (`builtin`: its own left and right). Called again
     /// only when the input changed. An error or a slow call breaks the
     /// function for the session; `take_bar_error` says why, once.
-    pub fn bar(
-        &self,
-        bar: Bar,
-        ctx: &BarCtx,
-        builtin: (&[Span<'_>], &[Span<'_>]),
-    ) -> Option<Segments> {
+    pub fn bar(&self, bar: Bar, ctx: &BarCtx) -> Option<Segments> {
         let r = reg(&self.lua)?;
-        let key = format!("{ctx:?}{builtin:?}");
+        let key = format!("{ctx:?}");
         let f = {
             let reg = r.borrow();
             let slot = &reg.bars[bar as usize];
@@ -148,7 +173,7 @@ impl Plugins {
         };
         let start = std::time::Instant::now();
         let out = self
-            .bar_ctx(bar, ctx, builtin)
+            .bar_ctx(ctx)
             .and_then(|t| f.call::<LuaTable>(t))
             .and_then(|t| Ok((segments(&t.get("left")?)?, segments(&t.get("right")?)?)));
         let took = start.elapsed();
@@ -198,7 +223,7 @@ impl Plugins {
             page.ok_or(format!("no sidebar page {name}"))?.1.clone()
         };
         let lines = self
-            .bar_ctx(Bar::Status, ctx, (&[], &[]))
+            .bar_ctx(ctx)
             .and_then(|t| {
                 t.set("cell", cell)?;
                 f.call::<LuaValue>(t)
@@ -219,12 +244,7 @@ impl Plugins {
         reg(&self.lua)?.borrow_mut().bar_error.take()
     }
 
-    fn bar_ctx(
-        &self,
-        bar: Bar,
-        ctx: &BarCtx,
-        builtin: (&[Span<'_>], &[Span<'_>]),
-    ) -> mlua::Result<LuaTable> {
+    fn bar_ctx(&self, ctx: &BarCtx) -> mlua::Result<LuaTable> {
         let lua = &self.lua;
         let t = lua.create_table()?;
         t.set("sheet", self.ctx_table(&ctx.sheet)?)?;
@@ -252,10 +272,12 @@ impl Plugins {
                     .collect::<mlua::Result<Vec<_>>>()?,
             )
         };
-        let b = lua.create_table()?;
-        b.set("left", side(builtin.0)?)?;
-        b.set("right", side(builtin.1)?)?;
-        t.set(format!("_{}", bar.name()), b)?;
+        for (bar, (left, right)) in [(Bar::Title, &ctx.title), (Bar::Status, &ctx.status)] {
+            let b = lua.create_table()?;
+            b.set("left", side(left)?)?;
+            b.set("right", side(right)?)?;
+            t.set(format!("_{}", bar.name()), b)?;
+        }
         Ok(t)
     }
 }
@@ -332,9 +354,22 @@ fn page_lines(v: &LuaValue) -> mlua::Result<Vec<Line<'static>>> {
 
 /// `left`, a gap, then `right` at the far end of `width` columns.
 pub fn compose(left: Vec<Span<'static>>, right: Vec<Span<'static>>, width: u16) -> Line<'static> {
-    let used: usize = left.iter().chain(&right).map(Span::width).sum();
-    let mut spans = left;
-    spans.push(Span::raw(" ".repeat((width as usize).saturating_sub(used))));
+    // Too long: the left side gives way, so the right one (the position) shows.
+    let mut room = (width as usize).saturating_sub(right.iter().map(Span::width).sum());
+    let mut spans = Vec::with_capacity(left.len() + right.len() + 1);
+    for mut s in left {
+        if room == 0 {
+            break;
+        }
+        if s.width() > room {
+            s.content = crate::widget::take_width(s.content.chars(), room)
+                .collect::<String>()
+                .into();
+        }
+        room -= s.width();
+        spans.push(s);
+    }
+    spans.push(Span::raw(" ".repeat(room)));
     spans.extend(right);
     Line::from(spans)
 }
@@ -361,6 +396,11 @@ mod tests {
             message: None,
             keys: String::new(),
             last: "",
+            title: (vec![Span::raw("T")], vec![]),
+            status: (
+                vec![Span::styled("hi", Style::default().fg(Color::Blue))],
+                vec![],
+            ),
         }
     }
 
@@ -372,27 +412,27 @@ mod tests {
             vd.statusline(function(ctx)
               calls = calls + 1
               return { left = { { text = ctx.mode, bold = true, fg = "#ff0000" }, " ", ctx.sheet.name },
-                       right = { ctx.selected, "/", ctx.rows, vd.bar.statusline(ctx).left[1].text } }
+                       right = { ctx.selected, "/", ctx.rows, vd.bar.statusline(ctx).left[1].text,
+                                 vd.bar.titlebar(ctx).left[1].text } }
             end)
             vd.titlebar(function(ctx) error("boom") end)
             "##,
         )
         .unwrap();
-        let builtin = [Span::styled("hi", Style::default().fg(Color::Blue))];
-        let (l, r) = p.bar(Bar::Status, &ctx("s"), (&builtin, &[])).unwrap();
+        let (l, r) = p.bar(Bar::Status, &ctx("s")).unwrap();
         assert_eq!(l[0].content, "normal");
         assert_eq!(l[0].style.fg, Some(Color::Rgb(255, 0, 0)));
         assert!(l[0].style.add_modifier.contains(Modifier::BOLD));
         let text = |v: &[Span]| v.iter().map(|s| s.content.to_string()).collect::<String>();
-        assert_eq!((text(&l), text(&r)), ("normal s".into(), "3/9hi".into()));
+        assert_eq!((text(&l), text(&r)), ("normal s".into(), "3/9hiT".into()));
         // same input: cached; other input: called again
-        p.bar(Bar::Status, &ctx("s"), (&builtin, &[])).unwrap();
+        p.bar(Bar::Status, &ctx("s")).unwrap();
         assert_eq!(p.lua.globals().get::<i64>("calls").unwrap(), 1);
-        p.bar(Bar::Status, &ctx("t"), (&builtin, &[])).unwrap();
+        p.bar(Bar::Status, &ctx("t")).unwrap();
         assert_eq!(p.lua.globals().get::<i64>("calls").unwrap(), 2);
         // an error: built-in bar for the session, the reason once
         assert!(p.has_bar(Bar::Title));
-        assert!(p.bar(Bar::Title, &ctx("s"), (&[], &[])).is_none());
+        assert!(p.bar(Bar::Title, &ctx("s")).is_none());
         assert!(!p.has_bar(Bar::Title));
         let e = p.take_bar_error().unwrap();
         assert!(e.starts_with("titlebar:") && e.contains("boom"), "{e}");
@@ -401,8 +441,27 @@ mod tests {
     }
 
     #[test]
+    fn titlebar_takes_false_statusline_does_not() {
+        let p = Plugins::load_from_source("vd.titlebar(false)").unwrap();
+        assert!(p.title_hidden() && !p.has_bar(Bar::Title));
+        let p = Plugins::load_from_source("vd.titlebar(false) vd.titlebar(nil)").unwrap();
+        assert!(!p.title_hidden());
+        let e = Plugins::load_from_source("vd.statusline(false)")
+            .err()
+            .unwrap();
+        assert!(e.to_string().contains("vd.statusline(false)"), "{e}");
+        let e = Plugins::load_from_source("vd.titlebar(1)").err().unwrap();
+        assert!(e.to_string().contains("not integer"), "{e}");
+    }
+
+    #[test]
     fn compose_puts_right_at_the_end() {
         let line = compose(vec![Span::raw("ab")], vec![Span::raw("cd")], 8);
         assert_eq!(line.to_string(), "ab    cd");
+        let left = vec![Span::raw("abc"), Span::raw("def")];
+        assert_eq!(
+            compose(left, vec![Span::raw("XY")], 6).to_string(),
+            "abcdXY"
+        );
     }
 }

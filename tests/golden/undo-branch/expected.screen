@@ -1,4 +1,4 @@
- tests/golden/undo-branch/input.csv                                                qty 2/2  row 1/2
+ input.csv                                                                         qty 2/2  row 1/2
  id i  qty i
     1      9
     2      3

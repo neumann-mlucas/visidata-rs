@@ -1,4 +1,4 @@
- tests/golden/addcol-aggregate/input.csv                                     qty_count 4/6  row 1/7
+ input.csv                                                                   qty_count 4/6  row 1/7
 region str  rep str   qty i  qty_count i  qty_distinct i  qty_rank i
 East        Jones         3            3               2           1
 West        Kivell       10            1               1           2

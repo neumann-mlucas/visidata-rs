@@ -1,4 +1,4 @@
- …pend/input.csv › tests/golden/join-append/input.csv&right.csv (append)  hidden 1  id 1/6  row 1/8
+ input.csv › input.csv&right.csv (append)  hidden 1                                 id 1/6  row 1/8
  id ▲ name str  grp str       amt f day date   city str
     1 ann       a               1.5 2024-01-02 ·
     1 ·         ·               1.5 ·          oslo

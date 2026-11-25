@@ -1,4 +1,4 @@
- tests/golden/pivot-aggregators-cols/input.csv › pivot(item)          units_sum_Pencil 1/6  row 1/1
+ input.csv › pivot(item)                                              units_sum_Pencil 1/6  row 1/1
  units_sum_Pencil i  price_max_Pencil f  units_sum_Binder i  price_max_Binder f  units_sum_Pen i  pr
                 130                4.99                 110               19.99               27
 

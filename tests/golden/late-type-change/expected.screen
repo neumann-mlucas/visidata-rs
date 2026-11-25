@@ -1,4 +1,4 @@
- tests/golden/late-type-change/input.csv                                         a 1/2  row 151/151
+ input.csv                                                                       a 1/2  row 151/151
 a str  b str
 142    x
 143    x

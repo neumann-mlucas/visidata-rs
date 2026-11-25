@@ -1,4 +1,4 @@
- tests/golden/type-len-nested/input.jsonl                                          geo 3/3  row 1/4
+ input.jsonl                                                                       geo 3/3  row 1/4
  id i  tags u  geo u
     1       2      2
     2       0      ·

@@ -25,7 +25,7 @@ mod loaders;
 mod tests;
 
 use api::*;
-pub use bars::{Bar, BarCtx, compose};
+pub use bars::{Bar, BarCtx, Segments, compose};
 pub use config::*;
 pub use events::*;
 pub use loaders::*;
@@ -92,6 +92,8 @@ pub struct Options {
     pub header: Option<usize>,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
+    /// `vd.option("disp_header_rule", true)` (S-59): a rule under the header.
+    pub disp_header_rule: bool,
     /// Every value set, as checked (S-37 P0c): what `O` shows.
     pub set: std::collections::BTreeMap<String, String>,
     /// The file (or `:set`) each value in `set` came from (S-40 B4).
@@ -110,6 +112,7 @@ impl Options {
             "disp_float_fmt" => self.float_digits = float_fmt_digits(v),
             "numeric_binning" => self.numeric_binning = on,
             "disp_footer" => self.disp_footer = on,
+            "disp_header_rule" => self.disp_header_rule = on,
             "histogram_bins" => self.histogram_bins = v.parse().unwrap_or(0),
             "incr_base" => self.incr_base = v.parse().ok(),
             "unfurl_empty" => self.unfurl_empty = on,
@@ -192,7 +195,7 @@ impl Aggregator {
 
 /// Lua API version exposed as `vd.api_version`. Bump on additions; S-10
 /// deprecation windows key off it.
-pub const API_VERSION: i64 = 22; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table; 20: vd.statusline, vd.titlebar, vd.bar; 21: vd.register_page; 22: ctx.last
+pub const API_VERSION: i64 = 23; // 2: function bindings, vd.toast, vd.sheet; 3: vd.push_sheet; 4: vd.command; 5: vd.option; 6: duckdb_cmd; 7: clipboard_paste_cmd; 8: vd.bind lists (macros); 9: vd.on, vd.exec; 10: styled renderers; 11: disp_float_fmt; 12: keymap, mouse, session_autosave, numeric_binning, histogram_bins options; 13: loader open may return rows; 14: disp_footer; 15: validation; 16: vd.on opts, vd.off, vd.augroup, enter/loaded/tick/reload; 17: .vdrs.lua, vd.reset, vd.config_dirs, require paths; 18: loader parts, patterns, by name, vd.loaders; 19: vd.set_theme table; 20: vd.statusline, vd.titlebar, vd.bar; 21: vd.register_page; 22: ctx.last; 23: vd.titlebar(false), both built-in bars in every ctx, disp_header_rule
 
 #[derive(Clone, Debug)]
 struct KeymapPatch {

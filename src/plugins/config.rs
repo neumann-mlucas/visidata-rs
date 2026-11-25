@@ -136,6 +136,9 @@ pub fn default_init_lua() -> String {
          -- turns it on or off.\n\
          -- vd.option(\"disp_footer\", \"true\")\n\
          \n\
+         -- A ─ rule under the header row. Default off.\n\
+         -- vd.option(\"disp_header_rule\", \"true\")\n\
+         \n\
          -- An edit that fails a :validate rule: \"refuse\" (default) or \"warn\" (it\n\
          -- lands, with a toast; failing cells show red either way).\n\
          -- vd.option(\"validation\", \"warn\")\n\

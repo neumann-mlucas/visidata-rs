@@ -1,4 +1,4 @@
- tests/golden/join-cols/input.csv                                                   id 1/5  row 1/3
+ input.csv                                                                          id 1/5  row 1/3
  id i region str  rep str  region_rep str   amt f
     1 East        Jones    East Jones         1.5
     2 ·           Kivell    Kivell           2.25

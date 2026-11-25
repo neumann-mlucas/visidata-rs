@@ -1,4 +1,4 @@
- tests/golden/freq-binned-dive/input.csv › freq(qty) › qty in 2 bins              qty 1/2  row 1/15
+ input.csv › freq(qty) › qty in 2 bins                                            qty 1/2  row 1/15
  qty i name str
      5 n0
      3 n1

@@ -18,7 +18,7 @@ date date   id i region str   qty i  price f
         │⠠       ⠔ ⢄ ⢀ ⠐ ⡀     ⢀⠈⡀⡀⡀⢀⠉⠐⠊ ⠄  ⠰  ⡀     ⡠ ⠄ ⠠      ⢀⠈⡀       ⠑ ⠠ ⠠  ⠁ ⢀   ⠈⠁⠁⢀ ⠂ ⠈⠠ ⠠ ⠙
     7.66│  ⠂ ⠐⠠ ⠠ ⡀   ⠠     ⠈⠈ ⠈    ⠂    ⠤ ⠂⠈⠠⢀  ⢀  ⠈ ⠌⠐ ⠂            ⠄⡀ ⠠        ⠠ ⠁⠄⠐      ⢀ ⠈  ⠐
          2024-01-02                                 date                                  2024-12-31
- box x 19,883.25–19,928.75 · y 572.94–734.44 · hjkl move · HJKL size · + - zoom · _ fit · s u select
+ box x 19,883.25–19,928.75 · y 572.94–734.44 · hjkl move · HJKL size · + - zoom · _  .  plot_column
 --- frame
  sales.csv › hist(price)                                                          bin 1/4  row 1/20
                ▅▅▅▅      ▂▂▂▂                          ▂▂▂▂           ▂▂▂▂      ████           ▅▅▅▅

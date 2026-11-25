@@ -1,4 +1,4 @@
- tests/golden/capture-groups/input.csv  hidden 1                             code_re.0 3/4  row 1/4
+ input.csv  hidden 1                                                         code_re.0 3/4  row 1/4
  id i code str  code_re.0 str  code_re.num str
     1 AB-12     AB             12
     2 cd-7      cd             7

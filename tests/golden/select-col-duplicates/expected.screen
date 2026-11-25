@@ -1,4 +1,4 @@
- tests/golden/select-col-duplicates/input.csv  sel 3                               grp 1/2  row 1/6
+ input.csv  sel 3                                                                  grp 1/2  row 1/6
 grp str  name str
 a        x
 b        y

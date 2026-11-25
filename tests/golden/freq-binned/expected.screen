@@ -1,4 +1,4 @@
- tests/golden/freq-binned/input.csv › freq(qty)                                    qty 1/4  row 1/5
+ input.csv › freq(qty)                                                             qty 1/4  row 1/5
 qty str        count i  percent f histogram str
 1.00 - 25.50        13       65.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 25.50 - 50.00        2       10.0 ■■■■■

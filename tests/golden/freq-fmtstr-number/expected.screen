@@ -1,4 +1,4 @@
- tests/golden/freq-fmtstr-number/input.csv › freq(amt)                             amt 1/4  row 1/5
+ input.csv › freq(amt)                                                             amt 1/4  row 1/5
 amt str   count i  percent f histogram str
 1               4       50.0 ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
 2               1       12.5 ■■■■■■■■■

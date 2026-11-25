@@ -1,4 +1,4 @@
- tests/golden/ragged-rows/input.csv                                                  a 1/2  row 1/3
+ input.csv                                                                           a 1/2  row 1/3
  a i  b i
    1    2
    3    4

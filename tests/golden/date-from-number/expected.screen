@@ -1,4 +1,4 @@
- tests/golden/date-from-number/input.csv                                             b 3/3  row 1/5
+ input.csv                                                                           b 3/3  row 1/5
  id i f date     b date
     1 1970-01-01 1970-01-01
     2 1969-12-31 1970-01-01

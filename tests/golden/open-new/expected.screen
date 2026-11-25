@@ -1,4 +1,4 @@
- tests/golden/open-new/input.csv › unnamed                                           A 1/1  row 2/3
+ input.csv › unnamed                                                                 A 1/1  row 2/3
 A str
 hello
 mid

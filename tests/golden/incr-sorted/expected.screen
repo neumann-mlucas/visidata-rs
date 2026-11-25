@@ -1,4 +1,4 @@
- tests/golden/incr-sorted/input.csv                                                  A 4/4  row 1/4
+ input.csv                                                                           A 4/4  row 1/4
  id i name str   amt ▼  A i
     4 di            40    1
     1 ann           30    2

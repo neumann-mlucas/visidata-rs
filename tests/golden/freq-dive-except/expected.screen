@@ -1,4 +1,4 @@
- tests/golden/freq-dive-except/input.csv › freq(grp) › grp!=a                       id 1/5  row 1/4
+ input.csv › freq(grp) › grp!=a                                                     id 1/5  row 1/4
  id i name str  grp str       amt f day date
     2 bob       b              2.25 2024-01-03
     5 eve       b        1234567.89 2024-01-06

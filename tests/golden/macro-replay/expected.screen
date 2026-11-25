@@ -1,4 +1,4 @@
- tests/golden/macro-replay/input.csv                                               dbl 2/4  row 2/3
+ input.csv                                                                         dbl 2/4  row 2/3
  id i  dbl i name str   qty i
     1      4 a              2
     2      7 b              3

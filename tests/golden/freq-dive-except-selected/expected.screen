@@ -1,4 +1,4 @@
- …sts/golden/freq-dive-except-selected/input.csv › freq(grp) › grp not in 2 values  id 1/5  row 1/2
+ input.csv › freq(grp) › grp not in 2 values                                        id 1/5  row 1/2
  id i name str  grp str       amt f day date
     4 dee       ·               4.0 ·
     6 fay       c               6.5 2024-01-07

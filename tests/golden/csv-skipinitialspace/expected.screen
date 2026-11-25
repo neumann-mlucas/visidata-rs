@@ -1,4 +1,4 @@
- tests/golden/csv-skipinitialspace/input.csv                                      name 2/3  row 1/3
+ input.csv                                                                        name 2/3  row 1/3
  id i name str  city str
     1 ann       Oslo
     2 bob       Rome

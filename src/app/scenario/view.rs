@@ -94,14 +94,11 @@ async fn columns_keep_their_width_while_scrolling() {
 }
 
 #[test]
-fn grouped_and_fit() {
+fn grouped_digits() {
     assert_eq!(grouped(0), "0");
     assert_eq!(grouped(999), "999");
     assert_eq!(grouped(1000), "1,000");
     assert_eq!(grouped(1234567), "1,234,567");
-    assert_eq!(fit("abc", 5), "abc  ");
-    assert_eq!(fit("abcdef", 3), "abc");
-    assert_eq!(fit("日本", 3), "日 ");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1130,7 +1127,8 @@ async fn visidata_motion_sort_and_prompt_keys() {
 #[tokio::test(flavor = "multi_thread")]
 async fn title_crumbs_and_status_names_the_last_command() {
     let mut h = Harness::new(5).await;
-    let base = h.app.sheets.active().name.clone();
+    let base = h.app.sheets.active().source.path.clone().unwrap();
+    let base = base.file_name().unwrap().to_string_lossy();
     assert!(h.screen().lines().last().unwrap().trim().is_empty());
     h.keys("l l F").await;
     assert!(
@@ -1150,7 +1148,8 @@ async fn title_crumbs_and_status_names_the_last_command() {
 #[tokio::test(flavor = "multi_thread")]
 async fn title_crumbs_cut_only_the_parents_name() {
     let mut h = Harness::new(5).await;
-    let base = h.app.sheets.active().name.clone();
+    let base = h.app.sheets.active().source.path.clone().unwrap();
+    let base = base.file_name().unwrap().to_string_lossy();
     h.keys("l l F").await;
     h.keys("<CR>").await;
     h.keys("F").await;
@@ -1240,4 +1239,50 @@ async fn derive_that_fails_to_evaluate_is_refused() {
         status(&h)
     );
     assert_eq!(view_csv(&h), "id,A\n1,true\n2,false\n");
+}
+
+/// S-59: `disp_header_rule` draws `─` under the header and `┼` where the
+/// pinned divider crosses it. The rule counts as header: the cursor stays
+/// on screen at the end, and a click on the rule picks no row.
+#[tokio::test(flavor = "multi_thread")]
+async fn header_rule_sits_under_the_header() {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let mut h = Harness::new(30).await;
+    h.keys(":").await;
+    h.type_("set disp_header_rule true").await;
+    let screen = h.screen();
+    let lines: Vec<&str> = screen.lines().collect();
+    assert!(lines[1].trim_start().starts_with("id"), "{}", lines[1]);
+    assert!(lines[2].chars().all(|c| c == '─'), "{}", lines[2]);
+    assert!(lines[3].contains("name_1"), "{}", lines[3]);
+    assert_eq!(h.app.viewport_rows, 12 - 2 - 2);
+    let click = |row| MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 1,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    h.app.on_mouse(click(4));
+    h.pump().await;
+    assert!(title(&h).contains("row 2/30"), "{}", title(&h));
+    h.app.on_mouse(click(2));
+    h.pump().await;
+    assert!(
+        title(&h).contains("row 2/30"),
+        "a click on the rule keeps the row"
+    );
+    h.keys("G").await;
+    let screen = h.screen();
+    let lines: Vec<&str> = screen.lines().collect();
+    assert!(lines[10].contains("name_30"), "{screen}");
+    h.keys("g g l :").await;
+    h.type_("freeze").await;
+    assert!(
+        h.screen().lines().nth(2).unwrap().contains('┼'),
+        "{}",
+        h.screen()
+    );
+    h.keys(":").await;
+    h.type_("set disp_header_rule false").await;
+    assert!(h.screen().lines().nth(2).unwrap().contains("name_1"));
 }

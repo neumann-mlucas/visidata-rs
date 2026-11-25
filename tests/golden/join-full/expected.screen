@@ -1,4 +1,4 @@
- …s/golden/join-full/input.csv › tests/golden/join-full/input.csv&right.csv (full)  id 1/7  row 1/6
+ input.csv › input.csv&right.csv (full)                                             id 1/7  row 1/6
  id ▲ name str  grp str   input_amt f day date   city str   right_amt f
     1 ann       a                 1.5 2024-01-02 oslo               1.5
     2 bob       b                2.25 2024-01-03 rome               9.0

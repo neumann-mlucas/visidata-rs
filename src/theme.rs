@@ -63,6 +63,8 @@ pub struct Theme {
     pub header: usize,
     /// `disp_footer`, `:footer` (S-36 C): a totals row under the table.
     pub footer: bool,
+    /// `disp_header_rule` (S-59): a `─` rule under the header row.
+    pub header_rule: bool,
 }
 
 /// The colour fields by name, for `vd.set_theme { … }` (S-40 G).
@@ -159,6 +161,7 @@ impl Theme {
             unfurl_empty: false,
             header: 1,
             footer: false,
+            header_rule: false,
         }
     }
 
@@ -204,6 +207,7 @@ impl Theme {
             unfurl_empty: false,
             header: 1,
             footer: false,
+            header_rule: false,
         }
     }
 
