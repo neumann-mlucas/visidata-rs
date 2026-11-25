@@ -427,14 +427,12 @@ Enumerated here so no one re-asks:
 - **No options fallback chain** (direction §1): no 4-level default→global→class→instance resolution, no per-sheet options. Options are flat: `vd.option`, `:set`, the `O` sheet (S-37 P0c).
 - **No `.vd` / `.vdj` runtime** (direction §9.5): the cmdlog format exists only in the S-14 test harness, not the `vdrs` binary.
 - **No VisiData state file compat** (direction §9.5): no `~/.visidata`, no `.visidatarc` import.
-- **No save-all** (`g^S`): `^S` (S-50) puts `save ` on the ex line, one sheet at a time.
 - **No LLM-on-cells**.
 
 ### 10.1 Not yet supported (planned or open)
 
 In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
-- **More VisiData commands** (S-46 B): `dive-except`, `addcol-aggregate`, `addcol-rank-sheet`, `z#` type-len, `gS` sheets-all, `g Ctrl+S` save-all, `gP` open-syspaste, `join-cols`, `commit-sheet` for duckdb/sqlite.
 - **Macro extras**: `macro-param-*`, VisiData `.vdj` macro files (S-19 ships `m` record + `macros.lua`, S-36 E the `gm` sheet).
 - **Rest of S-10** (to be drafted as S-16): `vd.frame`, `Series` methods, `vd.pop_sheet`, `vd.sandbox`, `vd.co`; `since`/`deprecate` registry + `cargo xtask check-api-versions`. Deferred until a Lua user asks (decision 2026-11-05).
 - **Export** of `vd.push_sheet` sheets (the data lives only in Lua), schema diff and Lua-aggregator pivots.
