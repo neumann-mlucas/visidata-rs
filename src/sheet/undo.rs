@@ -120,6 +120,19 @@ impl UndoTree {
 }
 
 impl Sheet {
+    /// Run `change`: one undo state when it moved a column's format
+    /// (`fmtstrs`, `precision`), none when it failed or changed nothing.
+    /// VisiData doesn't undo `fmtstr`; vdrs does (S-36, 2026-11-27).
+    pub fn format_change<T>(&mut self, change: impl FnOnce(&mut Self) -> T) -> T {
+        let before = self.snapshot();
+        let out = change(self);
+        let v = &self.view;
+        if v.fmtstrs != before.view.fmtstrs || v.precision != before.view.precision {
+            self.push_undo(before);
+        }
+        out
+    }
+
     /// Remember the current plan/view for `U` before a change.
     pub fn checkpoint(&mut self) {
         self.push_undo(self.snapshot());

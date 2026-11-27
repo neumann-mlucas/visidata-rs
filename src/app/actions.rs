@@ -595,7 +595,8 @@ impl App {
                     return Break(());
                 };
                 let s = self.sheets.active_mut();
-                self.toast = Some(s.set_fmtstr(&column, &fmt).unwrap_or_else(|e| e));
+                let t = s.format_change(|s| s.set_fmtstr(&column, &fmt));
+                self.toast = Some(t.unwrap_or_else(|e| e));
             }
             Action::Derive { name, expr } => self.derive(name, expr),
             Action::StartEditInput => self.start_edit_input()?,

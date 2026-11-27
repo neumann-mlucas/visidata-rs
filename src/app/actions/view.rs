@@ -58,18 +58,21 @@ impl App {
             .view_dtype(&column)
             .is_some_and(|d| matches!(d, DataType::Date | DataType::Datetime(..)));
         if dated && set.is_none() && delta != 0 {
-            self.toast = Some(s.cycle_date_fmt(&column, delta).unwrap_or_else(|e| e));
+            let t = s.format_change(|s| s.cycle_date_fmt(&column, delta));
+            self.toast = Some(t.unwrap_or_else(|e| e));
             return Continue(());
         }
         // VisiData starts from its default `{:.2f}`
         let start = self.theme.float_digits.unwrap_or(2);
         let s = self.sheets.active_mut();
-        self.toast = Some(match s.set_precision(&column, set, delta, start) {
-            Ok(Some(1)) => format!("{column}: 1 decimal"),
-            Ok(Some(d)) => format!("{column}: {d} decimals"),
-            Ok(None) => format!("{column}: default precision"),
-            Err(e) => e,
-        });
+        self.toast = Some(
+            match s.format_change(|s| s.set_precision(&column, set, delta, start)) {
+                Ok(Some(1)) => format!("{column}: 1 decimal"),
+                Ok(Some(d)) => format!("{column}: {d} decimals"),
+                Ok(None) => format!("{column}: default precision"),
+                Err(e) => e,
+            },
+        );
         Continue(())
     }
 

@@ -1613,3 +1613,32 @@ async fn datetime_fmtstr_shows() {
     let row = h.screen().lines().nth(2).unwrap_or_default().to_string();
     assert!(row.ends_with("05/03 14h"), "{}", h.screen());
 }
+
+/// S-36: `U` undoes a format change (`Alt++`, `:precision`, `:fmtstr`, a
+/// date's `Alt++`) and `R` redoes it; a refused one makes no undo step.
+#[tokio::test(flavor = "multi_thread")]
+async fn format_changes_undo_and_redo() {
+    let mut h = csv(b"k,amt,d\na,3.14159,2024-03-05\n").await;
+    let fmts = |h: &Harness| {
+        let v = &h.app.sheets.active().view;
+        (v.precision.clone(), v.fmtstrs.clone())
+    };
+    let none = (vec![], vec![]);
+    h.keys("l <A-+>").await;
+    assert_eq!(fmts(&h).0, [("amt".to_string(), 3)]);
+    h.keys(":").await;
+    h.type_("fmtstr {:,.1f}").await;
+    assert_eq!(fmts(&h).1, [("amt".to_string(), "{:,.1f}".to_string())]);
+    h.keys("U").await;
+    assert_eq!(fmts(&h), (vec![("amt".to_string(), 3)], vec![]));
+    h.keys("U").await;
+    assert_eq!(fmts(&h), none);
+    h.keys("R").await;
+    assert_eq!(fmts(&h).0, [("amt".to_string(), 3)]);
+    h.keys("U l <A-+>").await;
+    assert_eq!(fmts(&h).1, [("d".to_string(), "%Y".to_string())]);
+    h.keys("h h <A-+>").await; // k is text: refused, no undo step
+    assert!(status(&h).contains("float columns only"), "{}", status(&h));
+    h.keys("U").await;
+    assert_eq!(fmts(&h), none, "U undid the date format, not the refusal");
+}

@@ -294,6 +294,8 @@ Build it only when someone asks to switch between views of one sheet.
 
 ## Decisions
 
+- **K6** Format changes (`Alt++`, `Alt+-`, `:precision`, `:fmtstr`) are one undo step each, though
+  VisiData's `fmtstr` setter adds no undo (agreed 2026-11-27). A refused one adds none.
 - **K1** Lookup: **live**, as `:link` (agreed 2026-11-14). A4.
 - **K2** `Alt++` / `Alt+-` change `.N` in a rich number format (agreed 2026-11-14). B2.
 - **K3** `F` on numbers: group by the text only when the user set a format on the column (b)
