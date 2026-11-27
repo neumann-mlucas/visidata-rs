@@ -4,6 +4,18 @@
 
 use super::*;
 
+/// VisiData's date precisions, coarse to fine (`change_precision.py`). Its
+/// `.%f` (microseconds) is chrono's `%.6f`.
+const DATE_FMTS: [&str; 7] = [
+    "%Y",
+    "%Y-%m",
+    "%Y-%m-%d",
+    "%Y-%m-%d %H",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S%.6f",
+];
+
 impl Sheet {
     /// `:addcol-aggregate` (VisiData addcol-aggregate, S-46 B4): a
     /// `<column>_<agg>` column per name in `aggs` (as `+` takes them, plus
@@ -503,6 +515,24 @@ impl Sheet {
             .fmtstrs
             .push((column.to_string(), fmt.to_string()));
         Ok(format!("{column}: {fmt}"))
+    }
+
+    /// `Alt++` / `Alt+-` on a date or datetime column (VisiData's
+    /// `setcol_precision`): the next or previous of [`DATE_FMTS`], wrapping;
+    /// from `%Y-%m-%d` when the column has none of them. A date has no time,
+    /// so it cycles the first three only. The toast.
+    pub fn cycle_date_fmt(&mut self, column: &str, delta: i8) -> Result<String, String> {
+        let fmts = match self.view_dtype(column) {
+            Some(DataType::Date) => &DATE_FMTS[..3],
+            _ => &DATE_FMTS[..],
+        };
+        let at = (self.view.fmtstrs.iter().rev())
+            .find(|(c, _)| c == column)
+            .and_then(|(_, f)| fmts.iter().position(|d| d == f))
+            .unwrap_or(2);
+        let n = fmts.len() as i64;
+        let next = fmts[(at as i64 + i64::from(delta)).rem_euclid(n) as usize];
+        self.set_fmtstr(column, next)
     }
 
     /// A number format the user set on `column` (K3): its rich `fmtstr`, else

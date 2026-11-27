@@ -53,6 +53,14 @@ impl App {
             Action::SetPrecision { digits } => (digits, 0),
             _ => return Break(()),
         };
+        let s = self.sheets.active_mut();
+        let dated = s
+            .view_dtype(&column)
+            .is_some_and(|d| matches!(d, DataType::Date | DataType::Datetime(..)));
+        if dated && set.is_none() && delta != 0 {
+            self.toast = Some(s.cycle_date_fmt(&column, delta).unwrap_or_else(|e| e));
+            return Continue(());
+        }
         // VisiData starts from its default `{:.2f}`
         let start = self.theme.float_digits.unwrap_or(2);
         let s = self.sheets.active_mut();

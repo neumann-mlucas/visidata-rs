@@ -156,7 +156,8 @@ impl NumFmt {
                 Kind::Fixed => self.grouped(format!("{v:.d$}")),
                 Kind::Percent => self.grouped(format!("{:.d$}", v * 100.0)) + "%",
                 Kind::Exp => exp_text(&format!("{v:.d$e}")),
-                Kind::Int => self.grouped(format!("{}", v.trunc() as i64)),
+                // no i64: `%d` of 1e20 writes every digit, as Python; `+ 0.0` drops -0
+                Kind::Int => self.grouped(format!("{:.0}", v.trunc() + 0.0)),
             }
         };
         format!("{}{body}{}", self.prefix, self.suffix)
@@ -276,6 +277,8 @@ mod tests {
         assert_eq!(f("{:,.0f}", 1e15), "1,000,000,000,000,000");
         assert_eq!(f("%.3f", 2.0005), "2.001");
         assert_eq!(f("%d", -1.7), "-1");
+        assert_eq!(f("%d", 1e20), "100000000000000000000");
+        assert_eq!(f("%d", -0.5), "0");
         assert_eq!(f("%e", 12345.678), "1.234568e+04");
         assert_eq!(i("{:,d}", -1000), "-1,000");
         assert_eq!(f("{:.0f}", 0.5), "0");

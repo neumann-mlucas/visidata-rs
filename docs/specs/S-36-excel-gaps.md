@@ -127,8 +127,10 @@ refused (`Sheet::set_fmtstr`, `src/sheet/builders.rs`).
     and longnames (`setcol-precision-more` / `-less`). VisiData fails there ("could not parse
     column fmtstr": `FLOAT_FORMAT_RE` must match the whole fmtstr, `change_precision.py`), so no
     replay case depends on the failure. vdrs never infers a rich format; the user sets it.
-  - Out of scope here: VisiData's `Alt++` on a date column cycles `%Y` → `%Y-%m` → … (same file).
-    vdrs doesn't do that yet; a follow-up.
+  - VisiData's `Alt++` on a date column cycles `%Y` → `%Y-%m` → … (same file). Built
+    2026-11-27 (`Sheet::cycle_date_fmt`): its `.%f` is chrono's `%.6f`, and a `Date` column
+    cycles the first three only (Polars can't write `%H` for a date). The same change fixed
+    datetime `fmtstr`s, which didn't show: a datetime cell is `AnyValue::DatetimeOwned`.
   - Ints accept `d`-type formats and `%`.
   - Set through the same paths as today: the columns sheet's `fmtstr` column, `:fmtstr`, sessions.
 - B3. **Rendering:**

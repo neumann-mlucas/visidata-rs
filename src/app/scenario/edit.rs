@@ -1576,3 +1576,40 @@ async fn addcol_aggregate_and_rank_sheet() {
     h.keys("U U").await;
     assert_eq!(view_csv(&h), "k,v\nx,3\ny,1\nx,5\n");
 }
+
+/// S-36 B: `Alt++` / `Alt+-` on a date column steps through VisiData's date
+/// formats and wraps around: a datetime from `%Y` to microseconds, a date
+/// from `%Y` to the day.
+#[tokio::test(flavor = "multi_thread")]
+async fn date_precision_cycles_formats() {
+    let mut h = csv(b"id,t,d\n1,2024-03-05 14:30:15.25,2024-03-05\n").await;
+    let row = |h: &Harness| h.screen().lines().nth(2).unwrap_or_default().to_string();
+    h.keys("l <A-+>").await;
+    assert_eq!(status(&h), "t: %Y-%m-%d %H");
+    assert!(row(&h).contains("2024-03-05 14 "), "{}", h.screen());
+    h.keys("<A--> <A-->").await;
+    assert_eq!(status(&h), "t: %Y-%m");
+    h.keys("<A--> <A-->").await; // past %Y: the finest
+    assert_eq!(status(&h), "t: %Y-%m-%d %H:%M:%S%.6f");
+    assert!(
+        row(&h).contains("2024-03-05 14:30:15.250000"),
+        "{}",
+        row(&h)
+    );
+    h.keys("l <A-+>").await; // a date: %Y-%m-%d is the finest
+    assert_eq!(status(&h), "d: %Y");
+    h.keys("<A-->").await;
+    assert_eq!(status(&h), "d: %Y-%m-%d");
+    assert!(row(&h).ends_with("2024-03-05"), "{}", row(&h));
+}
+
+/// `:fmtstr` on a datetime column shows its cells in that format (a
+/// materialized datetime cell is Polars' `DatetimeOwned`).
+#[tokio::test(flavor = "multi_thread")]
+async fn datetime_fmtstr_shows() {
+    let mut h = csv(b"id,t\n1,2024-03-05 14:30:15.25\n").await;
+    h.keys("l :").await;
+    h.type_("fmtstr %d/%m %Hh").await;
+    let row = h.screen().lines().nth(2).unwrap_or_default().to_string();
+    assert!(row.ends_with("05/03 14h"), "{}", h.screen());
+}
