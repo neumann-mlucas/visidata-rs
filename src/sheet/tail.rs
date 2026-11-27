@@ -1,9 +1,10 @@
-//! `:tail`: a growing file, re-read on refresh (new lines only for CSV/TSV/JSONL).
+//! Live sheets: `:tail` of a growing file (new lines only for CSV/TSV/JSONL;
+//! others reopen) and Lua sources (S-39 B), polled on the tail tick.
 
 use super::*;
 
 impl Sheet {
-    /// Open a tail-mode sheet; `refresh_tail` picks up what the file gains.
+    /// Open a tail-mode sheet; `poll_live` picks up what the file gains.
     pub fn tail_from(
         id: SheetId,
         loaded: LoadedSource,
@@ -30,11 +31,12 @@ impl Sheet {
             origin: Origin::Tail { path, follow },
         };
         if let Origin::Tail { path, .. } = &sheet.origin {
-            sheet.state.tail_stamp = tail_stamp(path);
-        }
-        if sheet.tails_incrementally() {
-            sheet.reload_tail_cache()?;
-            sheet.rebuild_plan()?;
+            sheet.state.tail_stamp = crate::source::file_stamp(path);
+            if sheet.tails_incrementally() {
+                let tail = crate::source::FileTail::open(path, kind)?;
+                sheet.state.tail = Some(crate::source::Live::new(tail));
+                sheet.rebuild_plan()?;
+            }
         }
         Ok(sheet)
     }
@@ -54,59 +56,10 @@ impl Sheet {
                 .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
     }
 
-    /// Bytes `[from..]` of the tail file: `(lines, text after the last newline)`.
-    pub(super) fn tail_bytes(&self, from: u64) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
-        use std::io::{Read, Seek, SeekFrom};
-        let Origin::Tail { path, .. } = &self.origin else {
-            return Ok(Default::default());
-        };
-        let mut f = std::fs::File::open(path)?;
-        f.seek(SeekFrom::Start(from))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-        let cut = buf.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
-        let rest = buf.split_off(cut);
-        Ok((buf, rest))
-    }
-
-    /// `partial` bytes as a row of `df`'s shape; None when they don't parse yet.
-    pub(super) fn parse_partial(&self, mut partial: Vec<u8>, df: &DataFrame) -> Option<DataFrame> {
-        if partial.is_empty() {
-            return None;
-        }
-        partial.push(b'\n');
-        crate::reader::parse_chunk(self.kind, partial, Some(df.schema().clone()), false).ok()
-    }
-
-    /// Read the whole tail file into the cache (first load, or after truncation).
-    pub(super) fn reload_tail_cache(&mut self) -> Result<(), crate::reader::OpenError> {
-        let (mut lines, mut rest) = self.tail_bytes(0)?;
-        // `consumed` 0 = a lone header without its newline: reread it all later.
-        let consumed = lines.len() as u64;
-        if lines.is_empty() {
-            lines = std::mem::take(&mut rest);
-            lines.push(b'\n');
-        }
-        let df = crate::reader::parse_chunk(self.kind, lines, None, true)?;
-        let partial = self.parse_partial(rest, &df);
-        self.state.tail = Some(TailCache {
-            consumed,
-            df,
-            partial,
-        });
-        Ok(())
-    }
-
     /// The table `state.steps` apply to: rows read so far, or the reopened source.
     pub(super) fn tail_base(&self) -> PolarsResult<LazyFrame> {
         match &self.state.tail {
-            Some(c) => {
-                let mut df = c.df.clone();
-                if let Some(p) = &c.partial {
-                    df.vstack_mut(p)?;
-                }
-                Ok(df.lazy())
-            }
+            Some(live) => Ok(live.lock().rows()?.lazy()),
             None => Ok(self
                 .state
                 .memory_base
@@ -173,7 +126,7 @@ impl Sheet {
             return None;
         };
         let path = path.clone();
-        let stamp = tail_stamp(&path);
+        let stamp = crate::source::file_stamp(&path);
         if self.state.tail.is_some() || stamp == self.state.tail_stamp {
             return None;
         }
@@ -190,50 +143,23 @@ impl Sheet {
         Ok(())
     }
 
-    /// Pick up rows appended to a CSV/TSV/JSONL tail. Returns whether anything
-    /// changed (an unchanged file isn't re-materialized or recounted).
-    pub fn refresh_tail(&mut self) -> Result<bool, crate::reader::OpenError> {
-        let Origin::Tail { path, .. } = &self.origin else {
+    /// Pick up a live sheet's new rows (S-39 B): a CSV/TSV/JSONL tail's
+    /// appended lines, a Lua source's `poll`. Returns whether anything changed
+    /// (unchanged rows aren't re-materialized or recounted).
+    pub fn poll_live(&mut self) -> Result<bool, String> {
+        let Some(live) = self.state.tail.clone() else {
             return Ok(false);
         };
-        let Some(cache) = &self.state.tail else {
-            return Ok(false);
-        };
-        let stamp = tail_stamp(path);
-        if stamp == self.state.tail_stamp {
+        if !live.lock().poll()? {
             return Ok(false);
         }
-        self.state.tail_stamp = stamp;
-        let header_only = cache.consumed == 0 || cache.df.height() == 0;
-        if std::fs::metadata(path)?.len() < cache.consumed || header_only {
-            self.reload_tail_cache()?; // truncated, rotated, or types still unknown
-        } else {
-            let (new, rest) = self.tail_bytes(cache.consumed)?;
-            let added = new.len() as u64;
-            let schema = cache.df.schema().clone();
-            let more = (!new.is_empty())
-                .then(|| crate::reader::parse_chunk(self.kind, new, Some(schema), false))
-                .transpose();
-            match more {
-                Ok(more) => {
-                    let Some(cache) = self.state.tail.as_mut() else {
-                        return Ok(false); // checked above
-                    };
-                    if let Some(more) = more {
-                        cache.df.vstack_mut(&more)?;
-                        cache.consumed += added;
-                    }
-                    let df = cache.df.clone();
-                    let partial = self.parse_partial(rest, &df);
-                    if let Some(cache) = self.state.tail.as_mut() {
-                        cache.partial = partial;
-                    }
-                }
-                Err(_) => self.reload_tail_cache()?, // new rows don't fit the schema
-            }
-        }
-        self.rebuild_plan()?;
+        self.rebuild_plan().map_err(|e| e.to_string())?;
         self.invalidate(Reason::Rows);
         Ok(true)
+    }
+
+    /// What the live source has to say since the last poll (rows it dropped).
+    pub fn live_note(&self) -> Option<String> {
+        self.state.tail.as_ref()?.lock().take_note()
     }
 }

@@ -133,6 +133,9 @@ pub fn default_init_lua() -> String {
          -- vd.option(\"name_joiner\", \"_\")\n\
          -- vd.option(\"value_joiner\", \" \")\n\
          \n\
+         -- A Lua loader's poll sheet keeps this many rows, the newest. 0: all.\n\
+         -- vd.option(\"source_max_rows\", \"1000000\")\n\
+         \n\
          -- A totals row under the table: each column's + aggregators. Default off; :footer\n\
          -- turns it on or off.\n\
          -- vd.option(\"disp_footer\", \"true\")\n\

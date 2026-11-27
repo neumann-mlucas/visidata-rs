@@ -340,6 +340,9 @@ pub struct LoadedSource {
     pub header: usize,
     /// What reading a CSV/TSV changed, for `:export` to repeat.
     pub csv: CsvRead,
+    /// A Lua loader's `poll` (S-39 B): rows that keep coming. `lazy` holds
+    /// the first ones; the sheet reads the rest from here.
+    pub live: Option<crate::source::Live>,
     // tempfile anchor for stdin: keeps the file alive while LazyFrame scans it
     _tempfile: Option<tempfile::NamedTempFile>,
 }
@@ -362,6 +365,7 @@ impl LoadedSource {
             header: 1,
             csv: CsvRead::default(),
             _tempfile: None,
+            live: None,
         }
     }
 
@@ -377,6 +381,7 @@ impl LoadedSource {
             header: 1,
             csv: CsvRead::default(),
             _tempfile: None,
+            live: None,
         }
     }
 }
@@ -445,6 +450,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         header: 1,
         csv: CsvRead::default(),
         _tempfile: None,
+        live: None,
     })
 }
 
@@ -510,6 +516,7 @@ pub fn open_part_with(
         header,
         csv: CsvRead::default(),
         _tempfile: tempfile,
+        live: None,
     })
 }
 
@@ -669,6 +676,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         header,
         csv,
         _tempfile: tempfile,
+        live: None,
     })
 }
 
@@ -1185,6 +1193,7 @@ pub fn open_bytes(
         header: 1,
         csv,
         _tempfile: Some(tmp),
+        live: None,
     })
 }
 

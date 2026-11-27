@@ -33,6 +33,67 @@ pub enum LoaderOutput {
     Rows(DataFrame),
     /// `{ parts = { { name, path | columns+rows }, … } }` (S-40 C1).
     Parts(Vec<(String, LoaderOutput)>),
+    /// `{ columns, rows, poll }` (S-39 B): the first rows, then `poll()`
+    /// on each tail tick for more.
+    Live {
+        columns: Vec<String>,
+        df: DataFrame,
+        poll: LuaFunction,
+    },
+}
+
+/// A loader's `poll` (S-39 B): it returns new rows (a list, as `rows`) or
+/// nil. It runs on the UI thread, which owns the Lua VM.
+pub struct LuaSource {
+    /// Keeps the VM `poll` lives in: an `init.lua` reload drops the app's.
+    _lua: Lua,
+    who: String,
+    columns: Vec<String>,
+    poll: LuaFunction,
+    df: DataFrame,
+    /// `source_max_rows`: older rows go past it; 0 keeps all.
+    max_rows: usize,
+    dropped: usize,
+}
+
+impl crate::source::Source for LuaSource {
+    fn poll(&mut self) -> Result<bool, String> {
+        let who = format!("{}: poll", self.who);
+        let rows = match self.poll.call::<LuaValue>(()) {
+            Ok(LuaValue::Nil) => return Ok(false),
+            Ok(LuaValue::Table(t)) => t,
+            Ok(other) => {
+                return Err(format!(
+                    "{who} must return a list of rows or nil, not {}",
+                    other.type_name()
+                ));
+            }
+            Err(e) => return Err(format!("{who}: {e}")),
+        };
+        let batch = frame_from_rows(&self.columns, Some(&rows), &who).map_err(|e| e.to_string())?;
+        if batch.height() == 0 {
+            return Ok(false);
+        }
+        let all = crate::source::append(&self.df, batch).map_err(|e| format!("{who}: {e}"))?;
+        let (kept, dropped) = crate::source::cap(all, self.max_rows);
+        self.df = kept;
+        self.dropped += dropped;
+        Ok(true)
+    }
+
+    fn rows(&self) -> polars::prelude::PolarsResult<DataFrame> {
+        Ok(self.df.clone())
+    }
+
+    fn take_note(&mut self) -> Option<String> {
+        let n = std::mem::take(&mut self.dropped);
+        (n > 0).then(|| {
+            format!(
+                "{}: dropped the oldest {n} rows (source_max_rows {})",
+                self.who, self.max_rows
+            )
+        })
+    }
 }
 
 impl Plugins {
@@ -98,7 +159,10 @@ impl Plugins {
                 LuaValue::String(p) => {
                     Ok(LoaderOutput::Path(PathBuf::from(p.to_str()?.to_string())))
                 }
-                LuaValue::Table(t) => Ok(LoaderOutput::Rows(sheet_from_lua(&t, "loader open")?.1)),
+                LuaValue::Table(t) => match t.get::<Option<LuaFunction>>("poll")? {
+                    Some(poll) => live_output(&t, poll),
+                    None => Ok(LoaderOutput::Rows(sheet_from_lua(&t, "loader open")?.1)),
+                },
                 other => Err(mlua::Error::RuntimeError(format!(
                     "loader open must return a path or a {{ columns, rows }} table (or {{ parts = … }}), not {}",
                     other.type_name()
@@ -196,6 +260,21 @@ pub fn open(
             LoaderOutput::Rows(df) => {
                 LoadedSource::from_df(SourceKind::Csv, shown.clone(), None, df)
             }
+            LoaderOutput::Live { columns, df, poll } => {
+                let max_rows = p.options().value("source_max_rows").parse().unwrap_or(0);
+                let source = LuaSource {
+                    _lua: p.lua.clone(),
+                    who: rule.name.clone().unwrap_or_else(|| "loader".into()),
+                    columns,
+                    poll,
+                    df: df.clone(),
+                    max_rows,
+                    dropped: 0,
+                };
+                let mut l = LoadedSource::from_df(SourceKind::Csv, shown.clone(), None, df);
+                l.live = Some(crate::source::Live::new(source));
+                l
+            }
             LoaderOutput::Parts(_) => return Err(OpenError::Plugin("parts inside parts".into())),
         };
         loaded.display_name = shown; // what the user opened
@@ -228,4 +307,23 @@ pub fn open(
     loaded.via_loader = true;
     loaded.parts = list;
     Ok(loaded)
+}
+
+/// `{ columns, rows, poll }`: `rows` is optional, the first poll may bring them.
+fn live_output(t: &LuaTable, poll: LuaFunction) -> mlua::Result<LoaderOutput> {
+    let who = "loader open";
+    let cols: LuaTable = t.get("columns").map_err(|_| {
+        mlua::Error::RuntimeError(format!("{who}: a source with poll needs columns"))
+    })?;
+    let columns: Vec<String> = cols.sequence_values().collect::<mlua::Result<_>>()?;
+    if columns.is_empty() {
+        return Err(mlua::Error::RuntimeError(format!(
+            "{who}: columns is empty"
+        )));
+    }
+    let df = match t.get::<Option<LuaTable>>("rows")? {
+        Some(_) => sheet_from_lua(t, who)?.1,
+        None => frame_from_rows(&columns, None, who)?,
+    };
+    Ok(LoaderOutput::Live { columns, df, poll })
 }

@@ -208,10 +208,10 @@ fn tail_refresh_picks_up_appended_rows() {
     writeln!(handle, r#"{{"a":4}}"#).unwrap();
     handle.flush().unwrap();
     drop(handle);
-    assert!(s.refresh_tail().unwrap());
+    assert!(s.poll_live().unwrap());
     let after = s.plan.clone().collect().unwrap();
     assert_eq!(after.height(), 4);
-    assert!(!s.refresh_tail().unwrap(), "unchanged file → no reload");
+    assert!(!s.poll_live().unwrap(), "unchanged file → no reload");
     // an unparsable partial line waits; truncation starts over
     let mut handle = std::fs::OpenOptions::new()
         .append(true)
@@ -219,10 +219,10 @@ fn tail_refresh_picks_up_appended_rows() {
         .unwrap();
     write!(handle, r#"{{"a":5"#).unwrap();
     drop(handle);
-    s.refresh_tail().unwrap();
+    s.poll_live().unwrap();
     assert_eq!(s.plan.clone().collect().unwrap().height(), 4);
     std::fs::write(tmp.path(), "{\"a\":9}\n").unwrap();
-    assert!(s.refresh_tail().unwrap());
+    assert!(s.poll_live().unwrap());
     assert_eq!(s.plan.clone().collect().unwrap().height(), 1);
 }
 
@@ -581,7 +581,7 @@ fn tail_keeps_edits_as_the_file_grows() {
     s.edit_cell("a", 0, "9").unwrap();
     writeln!(tmp, r#"{{"a":2}}"#).unwrap();
     tmp.flush().unwrap();
-    assert!(s.refresh_tail().unwrap());
+    assert!(s.poll_live().unwrap());
     let a = s.plan.clone().collect().unwrap();
     let a: Vec<_> = a.column("a").unwrap().i64().unwrap().iter().collect();
     assert_eq!(a, [Some(9), Some(2)]);

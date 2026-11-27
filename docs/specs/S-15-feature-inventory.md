@@ -245,7 +245,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Validation | `:validate <col> [pred]`, `:validations`, `validation` option (`refuse`/`warn`) | `View.validations` (one per column, undo, sessions, rename refused while a rule reads the column); `Sheet::check_edit` after `insert_edit` / `add_rows` on the written rows: `NOT pred` true (null passes) refuses the edit, warn mode keeps it with a toast; failing cells painted red+underline as an extra `:color`-style window column (S-36 D) |
 | Totals footer | `:footer`, `disp_footer` (`vd.option`, `:set`) | a row under the table: each column's `+` aggregators over the filtered view in its number format, `Σ` row count; `totals` job keyed by revision/filter/aggregators/formats (S-36 C) |
 | Macros sheet | `gm`, `:macros`; `d` `e` `Enter` `z<C-s>` | a row per macro binding (keys, steps, first, source, change); marks deferred until `z<C-s>` (`commit_sheet`) unbinds/rebinds and rewrites `macros.lua`; `init.lua` macros read-only; `q` with marks asks (S-36 E) |
-| Loaders (S-40 C) | `vd.register_loader { name, extensions, patterns, open }`, `-f`/`--format <kind\|loader>`, `:open path [format]`, `vd.loaders()` | last registered claiming the file wins (extension or glob); a name picks one by hand; `open` may return `{ parts = {…} }` → a `part` list (`Origin::Parts`, sources kept in `LoadedSource.parts`), `file:part` opens one; stdin refused for loaders |
+| Loaders (S-40 C) | `vd.register_loader { name, extensions, patterns, open }`, `-f`/`--format <kind\|loader>`, `:open path [format]`, `vd.loaders()` | last registered claiming the file wins (extension or glob); a name picks one by hand; `open` may return `{ parts = {…} }` → a `part` list (`Origin::Parts`, sources kept in `LoadedSource.parts`), `file:part` opens one; stdin refused for loaders; `open` may return `{ columns, rows?, poll }` → a live sheet, `poll` on the 2 s tail tick (S-39 B) |
 | Project config | `.vdrs.lua` (cwd up to `$HOME`), `:trust [view\|off]`, `vd.reset()`, `vd.config_dirs()` | runs after `init.lua`/`options.lua`/`macros.lua` in the same VM when its bytes equal the copy in `state_path("trust/…")`, else a toast; hot reload watches it; last loader/aggregator of a name wins; `require` from `<global>/lua` and `<project>/.vdrs/lua`; `O` shows each option's `from` (S-40 B) |
 | Options sheet | `O`, `:options`; `e`, `z<C-s>`; `:set` any option | `src/options.rs` registry (type, default, live, help) checks `vd.option` and `:set`; `z<C-s>` writes `options.lua` (loaded after `init.lua`, before `macros.lua`) (S-37 P0c) |
 | Inherited attributes | `"` `g"` `g'` dedupe, freq dive | copies keep the parent's `type_casts`, `aggregators`, `:color` / `:scale` rules for the columns they have (S-31 C) |
@@ -266,7 +266,7 @@ Modal input state (`InputBuf::Search` / `Filter` / `Exline` / `Select` / `Rename
 | Prompts | all prompts | Left/Right/Home/End, `<C-a>` `<C-e>` `<C-u>` `<C-w>`, `<Del>`; ex args accept `"…"`/`'…'`/`\` quoting |
 | Background jobs | search, `gs`, `\|`, `,`, `"`, `I`, `W`, `:pivot`, `:save`, `:uniform`, `z\|`, `z/` | run on the blocking pool; status line shows `working: …`; `<C-c>` drops them |
 | Readers | — | ISO-only CSV/TSV date inference (others stay text); integer columns with a leading-zero value (`082053`) stay text (S-24 R4); xlsx / sqlite columns typed when every value agrees (numbers, booleans, xlsx dates), else text (S-24 R3); lenient `@` (12 regex-guarded layouts, time suffix ignored); directory = `*.parquet` glob; multi-sheet xlsx / multi-table sqlite open a parts list; `file:part` opens one directly (CLI, `:join`, `:diff`) |
-| Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized |
+| Tail | `:tail` | CSV/TSV/JSONL parse only appended bytes (partial last line waits; truncation reloads); unchanged file isn't re-materialized; both this and a Lua `poll` are a `source::Source` (S-39 B) |
 
 ### 3.11 Added 2026-11-07
 
@@ -382,6 +382,8 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 
 **Rows from Lua (S-39 A)**: `open` may return a `{ columns, rows }` table (the `vd.push_sheet` shape, typed per column) instead of a path. The sheet is in memory (`LoadedSource::via_loader`, no path); sessions reopen the original file through the loader (path loaders too, not the tempfile they wrote); `:export` refuses with a reason. Big or heavy-dep formats belong in a `vdrs-ext-<fmt>` Rust crate per S-09.
 
+**Live sources (S-39 B)**: `open` may return `{ columns, rows?, poll }`. `poll` returns new rows or nil. It runs on the 2 s tail tick on the active sheet, on the UI thread. Columns are matched by name and types widen; the cursor follows the bottom; edits and `U` keep the rows that came since. `source_max_rows` (default 1,000,000; 0 keeps all) drops the oldest rows with a toast. The file `:tail` and `LuaSource` implement `source::Source`.
+
 **Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
 
 ### 7.3 Added 2026-11-05
@@ -442,6 +444,7 @@ In scope but missing from the `vdrs` binary today. Tracked in `tasks.md`.
 
 | Concern | File |
 |---|---|
+| Live sources (`trait Source`: file tail, Lua `poll`) | `src/source.rs`; `LuaSource` in `plugins/loaders.rs` |
 | Sheet / View / LazyFrame plan | `src/sheet/mod.rs`; derived sheets `derive.rs`, diff `diff.rs`, tail `tail.rs`, `PlanStep` `step.rs`, undo tree `undo.rs`, tests `tests.rs` |
 | Reader (every format in §2, stdin, gzip) | `src/reader.rs`; html, xml, zip, fixed/usv/lsv text in `src/reader/` |
 | App loop, jobs, prompts | `src/app.rs`; rendering `src/app/render.rs`; unit tests `src/app/tests.rs`; `scenario` end-to-end tests `src/app/scenario.rs` |

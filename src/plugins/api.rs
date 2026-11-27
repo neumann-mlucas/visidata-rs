@@ -578,13 +578,29 @@ pub(super) fn sheet_from_lua(spec: &LuaTable, who: &str) -> mlua::Result<(String
         return Err(bad(format!("{} is reserved", crate::sheet::ROW_ID)));
     }
     let rows = table("rows")?;
-    let height = array_len(&rows).map_err(|e| bad(format!("rows {e}")))?;
+    let df = frame_from_rows(&columns, Some(&rows), who)?;
+    Ok((name.unwrap_or_else(|| "lua".into()), df))
+}
+
+/// `rows` (a list of rows, values by position) as a frame of `columns`, a
+/// type per column as `vd.push_sheet` gives them; None: no rows.
+pub(super) fn frame_from_rows(
+    columns: &[String],
+    rows: Option<&LuaTable>,
+    who: &str,
+) -> mlua::Result<DataFrame> {
+    let bad = |m: String| mlua::Error::RuntimeError(format!("{who}: {m}"));
+    let width = columns.len();
+    let height = match rows {
+        Some(rows) => array_len(rows).map_err(|e| bad(format!("rows {e}")))?,
+        None => 0,
+    };
     let mut cells: Vec<Vec<Cell>> = (0..width)
         .map(|_| (0..height).map(|_| Cell::Null).collect())
         .collect();
     #[allow(clippy::needless_range_loop)] // `r` also addresses the Lua table
     for r in 0..height {
-        let LuaValue::Table(row) = rows.raw_get(r + 1)? else {
+        let Some(LuaValue::Table(row)) = rows.map(|t| t.raw_get(r + 1)).transpose()? else {
             return Err(bad(format!("row {} isn't a table", r + 1)));
         };
         for pair in row.pairs::<LuaValue, LuaValue>() {
@@ -646,8 +662,7 @@ pub(super) fn sheet_from_lua(spec: &LuaTable, who: &str) -> mlua::Result<(String
         };
         out.push(Column::from(series));
     }
-    let df = DataFrame::new_infer_height(out).map_err(|e| bad(e.to_string()))?;
-    Ok((name.unwrap_or_else(|| "lua".into()), df))
+    DataFrame::new_infer_height(out).map_err(|e| bad(e.to_string()))
 }
 
 pub(super) fn reg(lua: &Lua) -> Option<mlua::AppDataRef<'_, RefCell<Registry>>> {

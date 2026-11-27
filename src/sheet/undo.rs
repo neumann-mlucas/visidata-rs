@@ -254,7 +254,7 @@ impl Sheet {
         }
         t.current = id;
         self.restore(snap);
-        if matches!(self.origin, Origin::Tail { .. }) {
+        if matches!(self.origin, Origin::Tail { .. }) || self.state.tail.is_some() {
             // Snapshots predate rows that arrived since; keep the rows, undo the edit.
             if let Err(e) = self.rebuild_plan() {
                 debug_assert!(false, "steps applied before: {e}");

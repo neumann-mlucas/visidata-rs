@@ -134,6 +134,13 @@ pub const OPTIONS: &[Opt] = &[
         help: "save the session on quit",
     },
     Opt {
+        name: "source_max_rows",
+        kind: Kind::Count,
+        default: "1000000",
+        live: true,
+        help: "a Lua source with poll keeps its newest rows up to this; 0: all",
+    },
+    Opt {
         name: "unfurl_empty",
         kind: Kind::Bool,
         default: "false",

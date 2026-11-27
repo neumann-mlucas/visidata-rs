@@ -854,7 +854,7 @@ fn project_file_trust_and_merge_order() {
     let rule = p.resolve_loader(Path::new("x.foo")).unwrap();
     match p.call_loader(&rule, Path::new("x.foo")).unwrap() {
         LoaderOutput::Path(p) => assert_eq!(p, PathBuf::from("project.csv")),
-        LoaderOutput::Rows(_) | LoaderOutput::Parts(_) => panic!("not a path"),
+        _ => panic!("not a path"),
     }
     std::fs::write(
         &project,

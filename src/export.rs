@@ -1073,7 +1073,12 @@ fn src_type(s: &Sheet, c: &str) -> Option<DataType> {
 /// rows know them.
 fn csv_columns(s: &Sheet) -> Result<std::sync::Arc<polars::prelude::Schema>, String> {
     match &s.state.tail {
-        Some(cache) => Ok(cache.df.schema().clone()),
+        Some(live) => Ok(live
+            .lock()
+            .rows()
+            .map_err(|e| e.to_string())?
+            .schema()
+            .clone()),
         None => s
             .source
             .lazy

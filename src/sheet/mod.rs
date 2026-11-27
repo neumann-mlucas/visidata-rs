@@ -79,8 +79,8 @@ pub struct SheetState {
     pub steps: Vec<PlanStep>,
     /// Undo history of (plan, view, steps, lineage), a tree (S-20).
     pub undo: UndoTree,
-    /// `:tail` of a CSV/TSV/JSONL file: rows read so far + bytes consumed.
-    pub tail: Option<TailCache>,
+    /// A live sheet's source (S-39 B): a CSV/TSV/JSONL `:tail`, a Lua `poll`.
+    pub tail: Option<crate::source::Live>,
     /// `:tail`: size + mtime at the last refresh; unchanged means nothing to do.
     pub tail_stamp: Option<(u64, Option<std::time::SystemTime>)>,
     /// Derived sheets: the parent as it was + how this was made (`:export`).
@@ -276,16 +276,6 @@ impl DiveKey {
 /// row is missing on that side (null data cells can't be mistaken for it).
 pub const DIFF_LEFT: &str = "__vdrs_left";
 pub const DIFF_RIGHT: &str = "__vdrs_right";
-
-/// Incremental tail: only bytes past `consumed` are parsed on refresh.
-#[derive(Clone)]
-pub struct TailCache {
-    pub consumed: u64,
-    pub df: DataFrame,
-    /// Bytes after the last newline, parsed as one more row: the file may end
-    /// there for good. Re-read each refresh until its newline arrives.
-    pub partial: Option<DataFrame>,
-}
 
 #[derive(Debug, Clone)]
 pub enum Origin {
@@ -753,12 +743,15 @@ impl Sheet {
             id,
             name,
             kind,
+            state: SheetState {
+                tail: loaded.live.clone(),
+                ..Default::default()
+            },
             source: loaded,
             plan,
             view: View::default(),
             window: None,
             revision: 0,
-            state: Default::default(),
             origin: Origin::File,
         }
     }
@@ -1726,11 +1719,6 @@ fn lenient_date(name: &str) -> Expr {
         })
         .collect();
     coalesce(&tries).alias(name)
-}
-
-fn tail_stamp(path: &std::path::Path) -> Option<(u64, Option<std::time::SystemTime>)> {
-    let m = std::fs::metadata(path).ok()?;
-    Some((m.len(), m.modified().ok()))
 }
 
 /// `column` equals one of `values`, compared as text (how freq groups print);

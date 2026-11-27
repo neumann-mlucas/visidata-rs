@@ -27,7 +27,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 - [x] S-43 — option `header` (0 → `column_<n>`, N rows joined) for csv/tsv/xlsx/fixed/usv; `z^` `g^` `gz^` rename from rows — shipped 2026-11-16
 - [x] S-42 — replay readers + aggregators: A JSONL comment lines; B fixed/usv/lsv/jsonla; C percentile aggregators + `unfurl_empty`; D yaml/toml/html/zip — shipped 2026-11-16, replay 87 PASS
 - [x] S-41 — replay blockers: A `\` `g|` `g\` regex select; B `z}` `z{`; C `r` search-keys; D `'` freeze-col; E `addcol-incr-key` + `incr_base`; F describe `zs` select-cell — shipped 2026-11-15 except D (deferred: no per-column width, freq sheets read-only)
-- [x] S-39 A — a Lua loader may return rows (api 13, 2026-11-15); B `trait Source` when a live source needs it
+- [x] S-39 A — a Lua loader may return rows (api 13, 2026-11-15); B `trait Source`: file tail and Lua `poll` behind one trait, `source_max_rows` — shipped 2026-11-26
 - [x] S-40 — Lua config: A `vd.augroup` / `vd.off` / `pattern` / `once` + events `tick` `enter` `loaded` `reload` (1–1.5 d); B project `.vdrs.lua` with `:trust`, merge order, `vd.reset()` (1.5–2 d); C multi-sheet loaders; loader by name (`--format`/`-f`), `patterns` (2 d, after S-39 A); D `vd.statusline` / `vd.titlebar` (1.5–2 d); G `vd.set_theme(table)` (0.5 d); E Lua sidebar pages (1 d); F guide recipes with open-format fixtures: cvsv, PDB, FASTA, access log; `vd.reset()` documented — shipped 2026-11-15
 - [x] Deep plans overflowed the stack in debug builds (~30 chained `with_column`s on 2 MiB): `apply_steps` batches runs of column steps into one `with_columns` and nests same-column edits (2026-11-15); 16 MiB runtime threads and the 64 MiB replay thread dropped
 
@@ -260,7 +260,7 @@ Driver semantics for several chunks exist test-side only; production `App::dispa
 - [x] Aggregator plugin shape — `vd.register_aggregator(name, fn)`, used by `:pivot`; `:derive` takes SQL expressions (Polars `sql_expr`)
 - [x] Renderer plugin shape — `vd.register_renderer { column | dtype, render }`
 - [x] Hot-reload on save — mtime poll on the 2 s tick (no `notify` dependency)
-- [ ] Extract `trait Source` from the current enum — deferred; current enum + loader-returns-path pattern covers the user-facing extension story. Add only when a `LuaSource` wants in-memory streaming.
+- [x] ~~Extract `trait Source` from the current enum~~ — done as S-39 B (2026-11-26): `src/source.rs`; `SourceKind` stays the parser choice for files
 
 ## Phase 4 — streaming / tail-sheet
 

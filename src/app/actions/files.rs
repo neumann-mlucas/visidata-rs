@@ -326,7 +326,7 @@ impl App {
         // Only refresh the active sheet's tail if any. Dormant tail sheets are reactivated
         // via sheet-switcher; refreshing all of them per tick would be wasteful.
         let active = self.sheets.active_mut();
-        if !matches!(active.origin, Origin::Tail { .. }) {
+        if !matches!(active.origin, Origin::Tail { .. }) && active.state.tail.is_none() {
             return;
         }
         // One reopen at a time: a change meanwhile is seen on a later tick.
@@ -341,19 +341,26 @@ impl App {
             });
             return;
         }
-        // Reads only appended bytes, so the UI thread can afford it; rotation
-        // rereads the whole file.
+        // A file reads only appended bytes, so the UI thread can afford it;
+        // rotation rereads the whole file. A Lua source runs on the VM's thread.
         // ponytail: move to a job if a rotated giant log ever stalls a tick.
-        self.after_tail_change(Sheet::refresh_tail);
+        self.after_tail_change(Sheet::poll_live);
+        if let Some(note) = self.sheets.active().live_note() {
+            self.toast = Some(note);
+        }
     }
 
     /// Run `change` on the active tail; keep following the bottom if the cursor was there.
     pub(super) fn after_tail_change(
         &mut self,
-        change: impl FnOnce(&mut Sheet) -> Result<bool, crate::reader::OpenError>,
+        change: impl FnOnce(&mut Sheet) -> Result<bool, String>,
     ) {
         let active = self.sheets.active_mut();
-        let follow = matches!(active.origin, Origin::Tail { follow: true, .. });
+        // a Lua source follows, as `:tail -f` does
+        let follow = match active.origin {
+            Origin::Tail { follow, .. } => follow,
+            _ => true,
+        };
         let v = &active.view;
         let abs = v.window_offset + v.row_cursor as u64;
         let was_at_bottom = match (active.row_count(), active.window()) {
@@ -381,7 +388,7 @@ impl App {
     ) {
         if self.sheets.active().id == sheet_id {
             self.after_tail_change(|s| {
-                s.set_tail_source(loaded)?;
+                s.set_tail_source(loaded).map_err(|e| e.to_string())?;
                 Ok(true)
             });
         } else if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {

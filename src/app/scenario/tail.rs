@@ -209,3 +209,103 @@ async fn tail_learns_types_from_the_first_rows_after_a_bare_header() {
     assert_eq!(df.column("d").unwrap().dtype(), &DataType::Date);
     assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
 }
+
+/// S-39 B: a loader with `poll` is a live sheet. Each tick adds its rows,
+/// widens a column's type, follows the bottom, and keeps `source_max_rows`.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_source_polls_rows_in_and_caps_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let feed = dir.path().join("x.feed");
+    std::fs::write(&feed, "").unwrap();
+    let lua = r#"vd.option("source_max_rows", "3")
+      local batches = { { {2, "b"}, {3, "c"} }, false, { {4.5, "d"} }, "oops" }
+      local n = 0
+      vd.register_loader { name = "feed", extensions = "feed", open = function(p)
+        return { columns = {"n", "s"}, rows = { {1, "a"} }, poll = function()
+          n = n + 1
+          local b = batches[n]
+          if b == false then return nil end
+          return b
+        end }
+      end }"#;
+    let mut h = Harness::new(1).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.keys(":").await;
+    h.type_(&format!("open {}", feed.display())).await;
+    assert!(title(&h).contains("row 1/1"), "{}", title(&h));
+    h.keys("G").await;
+    h.app.on_tail_tick();
+    h.pump().await;
+    assert!(title(&h).contains("row 3/3"), "followed: {}", title(&h));
+    h.app.on_tail_tick(); // nil: nothing new
+    h.pump().await;
+    assert!(title(&h).contains("row 3/3"), "{}", title(&h));
+    h.app.on_tail_tick();
+    h.pump().await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 3, "capped at 3: {}", h.screen());
+    assert_eq!(df.column("n").unwrap().dtype(), &DataType::Float64);
+    let n = df.column("n").unwrap().f64().unwrap();
+    let n: Vec<_> = (0..n.len()).map(|i| n.get(i)).collect();
+    assert_eq!(n, [Some(2.0), Some(3.0), Some(4.5)], "the oldest row went");
+    assert!(
+        status(&h).contains("dropped the oldest 1 rows"),
+        "{}",
+        status(&h)
+    );
+    // an init.lua reload replaces the VM; the source keeps polling its own
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source("").unwrap());
+    h.app.on_tail_tick(); // a bad return keeps the rows and says why
+    h.pump().await;
+    assert!(
+        status(&h).contains("feed: poll must return a list of rows or nil, not string"),
+        "{}",
+        status(&h)
+    );
+    assert_eq!(
+        h.app
+            .sheets
+            .active()
+            .view_plan()
+            .collect()
+            .unwrap()
+            .height(),
+        3
+    );
+    h.keys("F").await;
+    let df = h.app.sheets.active().view_plan().collect().unwrap();
+    assert_eq!(df.height(), 3, "F reads the rows so far: {}", h.screen());
+}
+
+/// S-39 B: an edit on a live sheet survives new rows, and `U` undoes the
+/// edit without dropping the rows that came since.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_source_keeps_edits_and_undo_keeps_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let feed = dir.path().join("x.feed");
+    std::fs::write(&feed, "").unwrap();
+    let lua = r#"local n = 1
+      vd.register_loader { extensions = "feed", open = function(p)
+        return { columns = {"n"}, poll = function()
+          n = n + 1
+          return { {n} }
+        end }
+      end }"#;
+    let mut h = Harness::new(1).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.keys(":").await;
+    h.type_(&format!("open {}", feed.display())).await;
+    h.app.on_tail_tick();
+    h.pump().await;
+    h.keys("d").await; // deletes n = 2
+    h.app.on_tail_tick();
+    h.pump().await;
+    let ns = |h: &Harness| -> Vec<Option<i64>> {
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        let c = df.column("n").unwrap().i64().unwrap().clone();
+        (0..c.len()).map(|i| c.get(i)).collect()
+    };
+    assert_eq!(ns(&h), [Some(3)], "the delete holds as rows arrive");
+    h.keys("U").await;
+    assert_eq!(ns(&h), [Some(2), Some(3)], "U keeps the newer row");
+}

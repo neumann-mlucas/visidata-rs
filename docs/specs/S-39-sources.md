@@ -1,6 +1,6 @@
 # S-39 — Sources that aren't files: Lua tables, then `trait Source`
 
-Status: **A shipped 2026-11-15** (api 13). B waits for a plugin that needs it.
+Status: **A shipped 2026-11-15** (api 13), **B shipped 2026-11-26** (§4.1 says what was built).
 Depends on: S-10 (Lua loaders), S-18 B (`vd.push_sheet`'s `sheet_from_lua`), S-29 (sessions),
 Phase 4 (`:tail`).
 
@@ -93,6 +93,30 @@ The hard parts, whatever the shape:
   exports refuse with a reason (or snapshot, as in A).
 
 Size: about 2–3 d. Start only when a plugin wants rows that keep coming.
+
+### 4.1 As built (2026-11-26)
+
+- **The trait is smaller than B1.** `src/source.rs` defines `trait Source: Send` with
+  `poll(&mut self) -> Result<bool, String>`, `rows()` and `take_note()`. `Live` wraps it in
+  `Arc<Mutex<…>>`, so a sheet and its clones share one source. `scan`, `reopen` and `export`
+  stayed out: `LoadedSource` and `Origin` already answer them, and no source differs there yet.
+- **Two implementations.** `FileTail` holds the code that was in `sheet/tail.rs`: appended
+  bytes, the partial last line, and a reread after truncation. `LuaSource`
+  (`plugins/loaders.rs`) calls the loader's `poll`. `SheetState::tail` holds either one, and
+  `Sheet::poll_live` polls it on the tail tick. Parquet directories and gzip files still
+  reopen in a job (`tail_needs_reopen`).
+- **Lua API.** `open` returns `{ columns, rows?, poll }`. `poll` returns a list of rows or nil.
+  `frame_from_rows`, split out of `sheet_from_lua`, types each batch. `source::append`
+  matches columns by name. A column with no values yet takes the batch's type, and a type
+  clash widens to the supertype (int and float give float, else text).
+- **The sheet stays `Origin::File`** with `via_loader`, so sessions and `:export` behave as
+  in A. The tick polls a sheet that has a live source, and the cursor follows the bottom.
+  An undo keeps the rows that came since, as `:tail` does.
+- **Cap.** `vd.option("source_max_rows", N)` defaults to 1,000,000; `0` keeps all rows. The
+  cap applies to Lua sources only, because a file tail can reread its file. The status line
+  says how many rows were dropped.
+- **VM lifetime.** `LuaSource` holds a clone of its `Lua`. An `init.lua` reload drops the
+  app's VM, and mlua panics when it calls a function of a dropped VM.
 
 ## 5. Test plan
 
