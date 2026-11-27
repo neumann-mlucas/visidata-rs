@@ -190,6 +190,13 @@ fn open_xlsx(path: &Path, sheet: Option<&str>, header: usize) -> Result<DataFram
     let range = wb
         .worksheet_range(&name)
         .map_err(|e| OpenError::Xlsx(e.to_string()))?;
+    let styles = match xlsx_meta() {
+        true => Some(
+            wb.worksheet_style(&name)
+                .map_err(|e| OpenError::Xlsx(e.to_string()))?,
+        ),
+        false => None,
+    };
     let width = range.width();
     if range.height() == 0 || width == 0 {
         return Ok(DataFrame::default());
@@ -210,12 +217,41 @@ fn open_xlsx(path: &Path, sheet: Option<&str>, header: usize) -> Result<DataFram
             col.push(row.get(ci).unwrap_or(&Data::Empty)); // short rows: empty
         }
     }
-    let series: Vec<Column> = headers
-        .into_iter()
-        .zip(cols)
-        .map(|(name, cells)| xlsx_column(name.into(), &cells))
-        .collect();
+    // styles are keyed by worksheet position; the range may start past A1
+    let (row0, col0) = range.start().unwrap_or((0, 0));
+    let row0 = row0 + header as u32;
+    let mut series = Vec::with_capacity(width);
+    for (ci, (name, cells)) in headers.into_iter().zip(cols).enumerate() {
+        series.push(xlsx_column(name.as_str().into(), &cells));
+        if let Some(styles) = &styles {
+            let at = |ri: usize| styles.get((row0 + ri as u32, col0 + ci as u32));
+            let argb = |c: calamine::Color| format!("{:08X}", c.to_argb());
+            let font: Vec<Option<String>> = (0..cells.len())
+                .map(|ri| at(ri)?.font.as_ref()?.color.map(argb))
+                .collect();
+            let fill: Vec<Option<String>> = (0..cells.len())
+                .map(|ri| {
+                    let fill = at(ri)?.fill.as_ref().filter(|f| f.is_visible())?;
+                    fill.get_color().map(argb)
+                })
+                .collect();
+            series.push(Column::new(format!("{name}_fontColor").into(), font));
+            series.push(Column::new(format!("{name}_fillColor").into(), fill));
+        }
+    }
     DataFrame::new_infer_height(series).map_err(OpenError::from)
+}
+
+/// Option `xlsx_meta_columns` (S-38 D). Global as `csv_skipinitialspace`.
+static XLSX_META: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set option `xlsx_meta_columns` for later xlsx opens.
+pub fn set_xlsx_meta(on: bool) {
+    XLSX_META.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn xlsx_meta() -> bool {
+    XLSX_META.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// One worksheet column, typed when every non-empty cell agrees.
@@ -340,6 +376,8 @@ pub struct LoadedSource {
     pub header: usize,
     /// What reading a CSV/TSV changed, for `:export` to repeat.
     pub csv: CsvRead,
+    /// Read with `xlsx_meta_columns` (S-38 D): each column has its colour columns.
+    pub xlsx_meta: bool,
     /// A Lua loader's `poll` (S-39 B): rows that keep coming. `lazy` holds
     /// the first ones; the sheet reads the rest from here.
     pub live: Option<crate::source::Live>,
@@ -366,6 +404,7 @@ impl LoadedSource {
             csv: CsvRead::default(),
             _tempfile: None,
             live: None,
+            xlsx_meta: false,
         }
     }
 
@@ -382,6 +421,7 @@ impl LoadedSource {
             csv: CsvRead::default(),
             _tempfile: None,
             live: None,
+            xlsx_meta: false,
         }
     }
 }
@@ -451,6 +491,7 @@ fn open_parquet_dir(dir: &Path) -> Result<LoadedSource, OpenError> {
         csv: CsvRead::default(),
         _tempfile: None,
         live: None,
+        xlsx_meta: false,
     })
 }
 
@@ -517,6 +558,7 @@ pub fn open_part_with(
         csv: CsvRead::default(),
         _tempfile: tempfile,
         live: None,
+        xlsx_meta: kind == SourceKind::Xlsx && xlsx_meta(),
     })
 }
 
@@ -677,6 +719,7 @@ fn open_path(path: &Path, kind: SourceKind, header: usize) -> Result<LoadedSourc
         csv,
         _tempfile: tempfile,
         live: None,
+        xlsx_meta: real_kind == SourceKind::Xlsx && xlsx_meta(),
     })
 }
 
@@ -1194,6 +1237,7 @@ pub fn open_bytes(
         csv,
         _tempfile: Some(tmp),
         live: None,
+        xlsx_meta: false,
     })
 }
 
@@ -1238,7 +1282,7 @@ fn sniff_format(buf: &[u8]) -> SourceKind {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::Write;
 
@@ -1413,6 +1457,78 @@ mod tests {
             .iter()
             .collect::<Vec<_>>();
         assert_eq!(err, [None, Some(true), None]);
+    }
+
+    /// A workbook whose table starts at B2: a red font in B3, a green fill in C4.
+    pub(crate) fn styled_xlsx() -> tempfile::NamedTempFile {
+        let parts = [
+            (
+                "[Content_Types].xml",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"#,
+            ),
+            (
+                "_rels/.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+            ),
+            (
+                "xl/workbook.xml",
+                r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+            ),
+            (
+                "xl/_rels/workbook.xml.rels",
+                r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#,
+            ),
+            (
+                "xl/styles.xml",
+                r#"<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><sz val="11"/><color rgb="FFFF0000"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF00FF00"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>"#,
+            ),
+            (
+                "xl/worksheets/sheet1.xml",
+                r#"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="2"><c r="B2" t="inlineStr"><is><t>name</t></is></c><c r="C2" t="inlineStr"><is><t>n</t></is></c></row><row r="3"><c r="B3" s="1" t="inlineStr"><is><t>a</t></is></c><c r="C3"><v>1</v></c></row><row r="4"><c r="B4" t="inlineStr"><is><t>b</t></is></c><c r="C4" s="2"><v>2</v></c></row></sheetData></worksheet>"#,
+            ),
+        ];
+        let mut t = tempfile::Builder::new().suffix(".xlsx").tempfile().unwrap();
+        {
+            let mut z = ::zip::ZipWriter::new(&mut t);
+            for (name, xml) in parts {
+                z.start_file(name, ::zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                z.write_all(xml.as_bytes()).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        t
+    }
+
+    #[test]
+    fn xlsx_meta_columns_give_cell_colours_as_argb() {
+        let t = styled_xlsx();
+        let open = || open(t.path().as_os_str(), Some(SourceKind::Xlsx)).unwrap();
+        let plain = open();
+        assert!(!plain.xlsx_meta);
+        assert_eq!(names(&plain.lazy.collect().unwrap()), ["name", "n"]);
+        set_xlsx_meta(true);
+        let meta = open();
+        set_xlsx_meta(false);
+        assert!(meta.xlsx_meta);
+        let df = meta.lazy.collect().unwrap();
+        assert_eq!(
+            names(&df),
+            [
+                "name",
+                "name_fontColor",
+                "name_fillColor",
+                "n",
+                "n_fontColor",
+                "n_fillColor"
+            ]
+        );
+        let texts = |c: &str| crate::sheet::column_texts(df.column(c).unwrap()).unwrap();
+        assert_eq!(texts("name_fontColor"), [Some("FFFF0000".into()), None]);
+        assert_eq!(texts("name_fillColor"), [None, None]);
+        assert_eq!(texts("n_fontColor"), [None, None]);
+        assert_eq!(texts("n_fillColor"), [None, Some("FF00FF00".into())]);
+        assert_eq!(df.column("n").unwrap().dtype(), &DataType::Int64);
     }
 
     #[test]

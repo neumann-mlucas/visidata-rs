@@ -105,6 +105,10 @@ pub fn default_init_lua() -> String {
          -- .csv files: drop blanks at the start of each cell and name (VisiData's).\n\
          -- vd.option(\"csv_skipinitialspace\", \"true\")\n\
          \n\
+         -- .xlsx files: X_fontColor and X_fillColor (AARRGGBB) after each column X.\n\
+         -- Default off.\n\
+         -- vd.option(\"xlsx_meta_columns\", \"true\")\n\
+         \n\
          -- Keys: \"visidata\" (default) or \"vim\": rebinds the keys where vim and VisiData\n\
          -- disagree (u undo, d/y/c operators, q macros, m/' marks, w/b/e cell motions).\n\
          -- vd.option(\"keymap\", \"vim\")\n\

@@ -90,6 +90,8 @@ pub struct Options {
     pub csv_keep_space: bool,
     /// `vd.option("header", N)` (S-43 A): rows read as column names; None: 1.
     pub header: Option<usize>,
+    /// `vd.option("xlsx_meta_columns", true)` (S-38 D): xlsx colour columns.
+    pub xlsx_meta_columns: bool,
     /// `vd.option("disp_footer", true)` (S-36 C): the totals row.
     pub disp_footer: bool,
     /// `vd.option("disp_header_rule", true)` (S-59): a rule under the header.
@@ -98,6 +100,15 @@ pub struct Options {
     pub set: std::collections::BTreeMap<String, String>,
     /// The file (or `:set`) each value in `set` came from (S-40 B4).
     pub from: std::collections::BTreeMap<String, String>,
+}
+
+/// Set the reader globals from `init.lua`'s options: `csv_skipinitialspace`
+/// and `xlsx_meta_columns`. Every app start and config reload calls it, and
+/// `main` does before it opens the first file.
+pub fn set_reader_options(plugins: Option<&Plugins>) {
+    let o = plugins.map(|p| p.options());
+    crate::reader::set_skipinitialspace(!o.as_ref().is_some_and(|o| o.csv_keep_space));
+    crate::reader::set_xlsx_meta(o.as_ref().is_some_and(|o| o.xlsx_meta_columns));
 }
 
 impl Options {
@@ -118,6 +129,7 @@ impl Options {
             "unfurl_empty" => self.unfurl_empty = on,
             "csv_skipinitialspace" => self.csv_keep_space = !on,
             "header" => self.header = v.parse().ok(),
+            "xlsx_meta_columns" => self.xlsx_meta_columns = on,
             "mouse" => self.mouse = on,
             _ => {} // keymap: applied when set (the vim profile's binds)
         }

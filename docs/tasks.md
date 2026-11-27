@@ -66,7 +66,7 @@ Found 2026-11-10 (review of S-18/S-20/S-22/S-25):
 
 - [x] S-33 (was S-24 R6) — `a` `p` `gzp` `:type json` `i` `gi` `f` `:s` scan in a job (shipped 2026-11-13); `json` typed in the columns sheet still scans inline
 - [x] S-35 A — new columns after the cursor, `i` names `A` `B` … ; B `W` with `+` aggregators; C1 `numeric_binning`, C2 date `fmtstr` (2026-11-13)
-- [x] S-38 A `:set` (sessions write the `F` options), B copies keep widths, C `@` keeps the time (2026-11-14); D xlsx colour columns waiting (parity, D3)
+- [x] S-38 A `:set` (sessions write the `F` options), B copies keep widths, C `@` keeps the time (2026-11-14); D xlsx colour columns as resolved ARGB, no VisiData parity (2026-11-27)
 - [x] Key sweep vs VisiData (S-26 §0, 2026-11-14): `s` `t` `u` then cursor down; `zs` `zu` `zc` `zo` `_` `g%` `<C-v>` VisiData meanings; freeze / unfreeze / unsort / visual block on ex commands and the vim profile; `:` and `D` / `<C-d>` still differ (R-d, R-e)
 - [x] 2026-11-12: split the biggest files, moves only: `app/actions.rs` → `actions/{files,vim,edit}.rs`, `app.rs` → `app/{jobs,input,hooks}.rs`, `sheet/mod.rs` → `sheet/{edit,meta,rows,write}.rs`, `app/scenario.rs` tests → `scenario/{view,sheets,edit,lua,tail,vim}.rs`; `export.rs` stays whole
 - [x] 2026-11-20: moves only: `plugins.rs` → `plugins/{api,config,events,loaders,tests}.rs`, `export.rs` → `export/{python,sql,derived}.rs`

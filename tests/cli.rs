@@ -152,3 +152,16 @@ fn session_flag_needs_a_session_with_a_file() {
     let out = vdrs(&[], b"");
     assert!(!out.status.success(), "a path or -S is required");
 }
+
+/// Reader options in `init.lua` apply to the file named on the command line,
+/// which opens before the app starts.
+#[test]
+fn init_lua_reader_options_apply_to_the_first_file() {
+    let mut f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    f.write_all(b"a\n x\n").unwrap();
+    let p = f.path().to_str().unwrap();
+    let lua = r#"vd.option("csv_skipinitialspace", "false")"#;
+    let o = vdrs_lua(&[p, "--headless", "--head", "1"], lua);
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(text(&o.stdout).contains("│  x"), "{}", text(&o.stdout));
+}

@@ -17,8 +17,8 @@ rank-sheetrank-sorted-cols # ranks match; a sqlite `date` column loads as text, 
 issue3219-dedupe     # per-cell mixed types in one column (Polars columns are typed)
 issue3219-dedupe-int # per-cell mixed types
 issue3219-freq       # per-cell mixed types
-xlsx-color-cells     # xlsx_meta_columns option: per-cell font/fill metadata columns
-issue2988            # xlsx_meta_columns: per-cell xlsx metadata columns (same as xlsx-color-cells)
+xlsx-color-cells     # xlsx_meta_columns: vdrs gives resolved ARGB, VisiData raw openpyxl values and X_cellPyObj/X_colorizer (S-38 D3)
+issue2988            # xlsx_meta_columns: resolved ARGB, not raw openpyxl values (same as xlsx-color-cells, S-38 D3)
 issue3223            # the replay's `@` makes a date (no loaded window, so no time): mode by day, not VisiData's timestamp (S-41 F)
 describe             # VisiData shows #ERR for a date column's sum/mean/stdev; vdrs leaves them empty (S-38 C4). The driver has no loaded window, so its `@` stays a date
 issue3223-distinct   # VisiData reads n as text, vdrs infers int, so numeric stats appear (S-25 P2 typed reads)
