@@ -869,6 +869,9 @@ pub fn refresh_widths(s: &mut Sheet, render: Option<CellRenderer>, theme: &Theme
         if let Some(f) = s.state.width_floor.get(c.as_str()) {
             *w = (*w).max(*f);
         }
+        if let Some(set) = s.state.width_set.get(c.as_str()) {
+            *w = *set;
+        }
     }
     s.state.widths = widths;
     s.state.widths_key = Some(key);

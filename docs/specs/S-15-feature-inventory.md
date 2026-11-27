@@ -76,7 +76,10 @@ All vertical moves go through `App::goto_row`, which re-centres the 1024-row win
 |---|---|---|---|
 | `FreezeColumn` / `UnfreezeAll` | vim profile `zs` / `zc` | `:freeze` / `:unfreeze` | pin cols up to the cursor to the left of the viewport |
 | `FreezeCol` | `'` | `:freeze-col` | VisiData `freeze-col`: `<col>_frozen` after the column, a `Derive` copy with its type casts, aggregators, fmtstr and width (`Sheet::freeze_col`, S-46 A) |
-| `ResizeColMax` | `_` | — | toggle the column between full width (widest loaded value) and default (VisiData `resize-col-max`); on a plot `_` zooms to fit |
+| `ResizeColMax` | `_` | — | toggle the column between full width (widest loaded value, at most the screen width less 1) and default (VisiData `resize-col-max`); on a plot `_` zooms to fit |
+| `ResizeColsMax` | `g_` | — | every visible column to full width; all full: back to default (VisiData `resize-cols-max`, S-61) |
+| `SetWidth { width, all }` | `z_`, `gz_` (prompt) | `:width N`, `:widths N` | exact width of the column / every visible column, narrower than the values too (`SheetState::width_set`; VisiData `resize-col-input`, `resize-cols-input`) |
+| `ResizeColHalf` | `z-` | — | halve the column's width (VisiData `resize-col-half`) |
 | `HideCol` / `UnhideAll` | `-` / `gv` | `:hide` / `:unhide` | View.hidden set |
 | `HideUniform` | `g-` | `:uniform` | hide columns with ≤ 1 distinct value |
 | `KeyCol` (toggle) / `UnkeyAll` | `!` / `z!` | `:key` / `:unkey` | View.keys vec (preserved order) |

@@ -514,6 +514,14 @@ pub fn parse(input: &str) -> Result<Vec<Action>, ExError> {
         "order" => Ok(vec![Action::Order {
             columns: split_args(rest, ":order [column…]")?,
         }]),
+        "width" | "widths" => match rest.parse::<u16>() {
+            Ok(width) if width > 0 => Ok(vec![Action::SetWidth {
+                width,
+                all: cmd == "widths",
+            }]),
+            _ if cmd == "widths" => Err(ExError::Usage(":widths N (1 or more)")),
+            _ => Err(ExError::Usage(":width N (1 or more)")),
+        },
         "precision" => match rest {
             "" => Ok(vec![Action::SetPrecision { digits: None }]),
             n => match n.parse::<u8>() {
@@ -693,6 +701,8 @@ pub const COMMANDS: &[&str] = &[
     "addcol-rank-sheet",
     "capture",
     "precision",
+    "width",
+    "widths",
     "fmtstr",
     "set",
     "patch",

@@ -7,6 +7,7 @@ What the binary supports today: [`specs/S-15-feature-inventory.md`](specs/S-15-f
 
 ### Open
 
+- [x] S-61 — column widths: `g_`, `z_` / `gz_` (`:width`, `:widths`), `z-`; `_` stops at the screen width — shipped 2026-11-26
 - [ ] S-60 — out-of-core pivot: bump `polars`, run `pivot_df` lazy on the streaming engine, test with a parquet bigger than memory; blocked on a Rust `polars` release after `py-2.1.0`
 - [x] S-57 — first property tests: ex round trip over generated actions, layout invariants; fixed quoted first arguments, `to_ex` lines that read back changed, a render overflow after a huge frozen column — shipped 2026-11-22
 - [x] S-59 — bar layout: `vd.titlebar(false)` drops the top row, both built-in bars in every bar `ctx`, `disp_header_rule` rule under the header — shipped 2026-11-24

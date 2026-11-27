@@ -569,6 +569,7 @@ impl App {
                 self.start_add_col_input(action)
             }
             Action::StartSlideInput { left } => self.start_input(Prompt::Slide { left }),
+            Action::StartWidthInput { all } => self.start_input(Prompt::Width { all }),
             Action::SlideCol { by } => self.slide_col(by)?,
             Action::Order { columns } => self.order(columns)?,
             Action::AddCol { name } => self.add_col(name),
@@ -705,6 +706,9 @@ impl App {
             Action::StartGoColInput => self.start_input(Prompt::GoCol),
             Action::OpenCellFile => self.open_cell_file(),
             Action::ResizeColMax => self.resize_col_max()?,
+            Action::ResizeColsMax => self.resize_cols_max()?,
+            Action::ResizeColHalf => self.resize_col_half()?,
+            Action::SetWidth { width, all } => self.set_width(width, all)?,
             Action::ShowVersion => {
                 self.toast = Some(format!("vdrs {}", env!("CARGO_PKG_VERSION")));
             }

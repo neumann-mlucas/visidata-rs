@@ -397,6 +397,7 @@ impl Sheet {
             *f = (*f).max(*w);
         }
         self.state.width_floor = floor;
+        self.state.width_set = parent.state.width_set.clone();
         let have: std::collections::HashSet<String> = self
             .plan
             .collect_schema()

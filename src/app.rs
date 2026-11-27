@@ -405,6 +405,10 @@ enum Prompt {
     Slide {
         left: bool,
     },
+    /// `z_` / `gz_` (S-61): the column's width, or every visible one's.
+    Width {
+        all: bool,
+    },
     /// `;` (S-31).
     Capture,
     /// `*` `g*` `gz*` (S-28): `search/replace`.
@@ -547,6 +551,7 @@ impl Prompt {
             Prompt::GoColRegex => "move to column name matching regex: ",
             Prompt::Slide { left: true } => "slide col left n=",
             Prompt::Slide { left: false } => "slide col right n=",
+            Prompt::Width { .. } => "set width= ",
             Prompt::Capture => "capture regex: ",
         }
     }

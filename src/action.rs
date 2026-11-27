@@ -104,6 +104,21 @@ pub enum Action {
     OpenCellFile,
     /// `_` (VisiData resize-col-max): toggle the column between full and default width.
     ResizeColMax,
+    /// `g_` (VisiData resize-cols-max, S-61): every visible column to full
+    /// width; when all are full already, back to default.
+    ResizeColsMax,
+    /// `z-` (VisiData resize-col-half, S-61): halve the column's width.
+    ResizeColHalf,
+    /// `:width N` / `:widths N` (VisiData resize-col-input / resize-cols-input,
+    /// S-61): the current column's width, or (`all`) every visible column's.
+    SetWidth {
+        width: u16,
+        all: bool,
+    },
+    /// `z_` / `gz_`: prompt for the width.
+    StartWidthInput {
+        all: bool,
+    },
     /// `^V` (VisiData show-version).
     ShowVersion,
     /// `g%` (VisiData setcol-precision-input): prompt for float precision;
@@ -902,6 +917,8 @@ impl Action {
             Plot { .. } | PlotColumn | PlotNumerics | Hist { .. } | Bars => true,
             PlotResize { .. } | ZoomAll | ZoomCursor => false,
             SelectBefore | UnselectBefore | OpenCellFile | ResizeColMax => true,
+            ResizeColsMax | ResizeColHalf | SetWidth { .. } => true,
+            StartWidthInput { .. } => false,
             SelectToSelected { .. } => true,
             GotoSelected { .. } | NullChange { .. } | SortKeys { .. } | Melt => true,
             Transpose | JoinAll { .. } | FreqKeys | OpenCell | DiveExcept { .. } => true,
@@ -1229,6 +1246,10 @@ impl Action {
         ("start_go_col_input", StartGoColInput),
         ("open_cell_file", OpenCellFile),
         ("resize_col_max", ResizeColMax),
+        ("resize_cols_max", ResizeColsMax),
+        ("resize_col_half", ResizeColHalf),
+        ("start_width_input", StartWidthInput { all: false }),
+        ("start_widths_input", StartWidthInput { all: true }),
         ("show_version", ShowVersion),
         ("setcol_precision_input", SetcolPrecisionInput),
         ("plot_thinner", PlotResize { wider: -1, taller: 0 }),
@@ -1482,6 +1503,8 @@ impl Action {
             SetNote { text } if raw(text) => format!("note {text}"),
             AddCol { name } => format!("addcol {}", q(name)),
             Capture { pattern } if raw(pattern) => format!("capture {pattern}"),
+            SetWidth { width, all: false } => format!("width {width}"),
+            SetWidth { width, all: true } => format!("widths {width}"),
             SetPrecision { digits: Some(d) } => format!("precision {d}"),
             SetPrecision { digits: None } => "precision".into(),
             SetFmtstr { fmt } if fmt.is_empty() => "fmtstr".into(),
@@ -1806,6 +1829,14 @@ mod tests {
             AddCol { name: s("new col") },
             SetPrecision { digits: Some(3) },
             SetPrecision { digits: None },
+            SetWidth {
+                width: 7,
+                all: false,
+            },
+            SetWidth {
+                width: 12,
+                all: true,
+            },
             SetFmtstr { fmt: s("%Y-%m %d") },
             SetFmtstr { fmt: s("") },
             SetOption {

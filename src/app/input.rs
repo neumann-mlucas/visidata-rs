@@ -448,6 +448,12 @@ impl App {
                 }
                 _ => self.toast = Some(format!("slide: not a count: {text}")),
             },
+            Prompt::Width { all } => match text.trim().parse::<u16>() {
+                Ok(width) if width > 0 => {
+                    self.dispatch_sequence(vec![Action::SetWidth { width, all }]);
+                }
+                _ => self.toast = Some(format!("width: not a width (1 or more): {text}")),
+            },
             // VisiData's `regex_flags` default `I`, as the `*` prompt
             Prompt::Capture => self.dispatch_sequence(vec![Action::Capture {
                 pattern: format!("(?i){text}"),

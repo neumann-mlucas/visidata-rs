@@ -1596,7 +1596,9 @@ impl Replay {
             // the system clipboard never changes the sheet
             "syscopy-row" | "syscopy-selected" | "syscopy-cell" | "syscopy-cells" => Ok(()),
             // Widening a column shows a hidden (width 0) one.
-            "resize-col-max" | "resize-col-input" => {
+            // Widths don't change the data (S-61).
+            "resize-cols-max" | "resize-cols-input" => Ok(()),
+            "resize-col-max" | "resize-col-input" | "resize-col-half" => {
                 let col = r.col.clone();
                 self.current_slot_mut()?.sheet.view.hidden.remove(&col);
                 Ok(())

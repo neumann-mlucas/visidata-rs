@@ -92,6 +92,9 @@ pub struct SheetState {
     /// A copy's columns are at least as wide as its parent's were, as
     /// VisiData's copies share the column objects (S-38 B).
     pub width_floor: HashMap<String, u16>,
+    /// Widths set by `_`, `g_`, `z_`, `z-` (S-61): they win over the
+    /// measured width and the floor, so they can also narrow a column.
+    pub width_set: HashMap<String, u16>,
     /// `memory_plan` has had its one chance.
     pub load_tried: bool,
     /// The source read into memory by `memory_plan`: the base edits rebuild on.

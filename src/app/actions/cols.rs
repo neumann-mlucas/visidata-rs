@@ -370,31 +370,100 @@ impl App {
         Continue(())
     }
 
-    pub(super) fn resize_col_max(&mut self) -> ControlFlow<()> {
-        let Some(c) = self.current_column_name() else {
-            return Break(());
-        };
+    /// Full width of each of `cols` as drawn, from the loaded window, capped
+    /// at the sheet area's width less 1 (VisiData's `getMaxWidth`): `(column,
+    /// index in the window, width)`. None while the window loads.
+    fn full_widths(&mut self, key: &str, cols: &[String]) -> Option<Vec<(String, usize, u16)>> {
         let lua_render = self.plugins.as_ref().filter(|p| p.has_renderers());
         let render_cell = |c: &str, d: &polars::prelude::DataType, v: &AnyValue| {
             lua_render.and_then(|p| p.render(c, d, v))
         };
         let render = lua_render.map(|_| &render_cell as crate::widget::CellRenderer);
+        let cap = self.viewport_cols.saturating_sub(1).max(1);
         let s = self.sheets.active();
-        let Some((at, full)) = s.window().filter(|_| s.is_loaded()).and_then(|df| {
-            let at = df.get_column_index(&c)?;
-            let fmt = crate::widget::cell_fmt(&s.view, &self.theme, &df[at]);
-            let w = crate::widget::SheetWidget::full_width(df.height(), &df[at], render, fmt);
-            Some((at, w))
-        }) else {
-            self.toast = Some("_: still loading".into());
+        let out = s.window().filter(|_| s.is_loaded()).map(|df| {
+            cols.iter()
+                .filter_map(|c| {
+                    let at = df.get_column_index(c)?;
+                    let fmt = crate::widget::cell_fmt(&s.view, &self.theme, &df[at]);
+                    let w =
+                        crate::widget::SheetWidget::full_width(df.height(), &df[at], render, fmt);
+                    Some((c.clone(), at, w.min(cap)))
+                })
+                .collect()
+        });
+        if out.is_none() {
+            self.toast = Some(format!("{key}: still loading"));
+        }
+        out
+    }
+
+    /// `_`: full width, or back to the default (VisiData's toggleWidth).
+    pub(super) fn resize_col_max(&mut self) -> ControlFlow<()> {
+        let Some(c) = self.current_column_name() else {
             return Break(());
         };
-        // VisiData's toggleWidth: full width, or back to the default
+        let full = self.full_widths("_", std::slice::from_ref(&c));
+        let Some(&[(_, at, full)]) = full.as_deref() else {
+            return Break(());
+        };
         let s = self.sheets.active_mut();
         if s.state.widths.get(at) == Some(&full) {
-            s.state.width_floor.remove(&c);
+            s.state.width_set.remove(&c);
         } else {
-            s.state.width_floor.insert(c, full);
+            s.state.width_set.insert(c, full);
+        }
+        s.reset_widths();
+        Continue(())
+    }
+
+    /// `g_` (S-61): every visible column to full width; when all are full
+    /// already, back to default (VisiData's resize_cols_max).
+    pub(super) fn resize_cols_max(&mut self) -> ControlFlow<()> {
+        let cols = self.visible_cols();
+        let Some(full) = self.full_widths("g_", &cols) else {
+            return Break(());
+        };
+        let s = self.sheets.active_mut();
+        let all_full = full
+            .iter()
+            .all(|(_, at, w)| s.state.widths.get(*at) == Some(w));
+        for (c, _, w) in full {
+            match all_full {
+                true => s.state.width_set.remove(&c),
+                false => s.state.width_set.insert(c, w),
+            };
+        }
+        s.reset_widths();
+        Continue(())
+    }
+
+    /// `z-` (S-61): half the column's width as drawn, at least 1.
+    pub(super) fn resize_col_half(&mut self) -> ControlFlow<()> {
+        let Some(c) = self.current_column_name() else {
+            return Break(());
+        };
+        let s = self.sheets.active_mut();
+        let at = s.window().and_then(|df| df.get_column_index(&c));
+        let Some(&w) = at.and_then(|at| s.state.widths.get(at)) else {
+            self.toast = Some("z-: still loading".into());
+            return Break(());
+        };
+        s.state.width_set.insert(c, (w / 2).max(1));
+        s.reset_widths();
+        Continue(())
+    }
+
+    /// `:width N` / `:widths N` (S-61): the current column's width, or every
+    /// visible column's.
+    pub(super) fn set_width(&mut self, width: u16, all: bool) -> ControlFlow<()> {
+        let cols = match all {
+            true => self.visible_cols(),
+            false => self.current_column_name().into_iter().collect(),
+        };
+        let s = self.sheets.active_mut();
+        for c in cols {
+            s.state.width_set.insert(c, width);
         }
         s.reset_widths();
         Continue(())

@@ -766,14 +766,63 @@ async fn resize_col_max_on_a_copy_maxes_first() {
     assert_eq!(width(&h), default);
 }
 
-/// `_` on a cell wider than `u16::MAX` saturates; it doesn't wrap to a sliver.
+/// `_` on a cell wider than `u16::MAX` stops at the screen width less 1
+/// (S-61, VisiData's getMaxWidth); it doesn't wrap to a sliver.
 #[tokio::test(flavor = "multi_thread")]
-async fn resize_col_max_saturates_on_a_huge_cell() {
+async fn resize_col_max_stops_at_the_screen_width() {
     let long = "x".repeat(usize::from(u16::MAX) + 5);
     let mut h = csv(format!("a,b\n1,{long}\n").as_bytes()).await;
     h.keys("l _").await;
     let width = h.app.sheets.active().state.widths[1];
-    assert_eq!(width, u16::MAX);
+    assert_eq!(width, h.app.viewport_cols - 1);
+    h.keys("_").await;
+    assert!(
+        h.app.sheets.active().state.widths[1] <= 40,
+        "back to default"
+    );
+}
+
+/// `g_` (S-61) widens every visible column to full, then back to default.
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_cols_max_widens_all_then_resets() {
+    let a = "a".repeat(45);
+    let b = "b".repeat(50);
+    let mut h = csv(format!("x,y,z\n{a},{b},1\n").as_bytes()).await;
+    let widths = |h: &Harness| h.app.sheets.active().state.widths.clone();
+    let default = widths(&h);
+    assert!(default[0] < 45 && default[1] < 50, "{default:?}");
+    h.keys("g _").await;
+    let full = widths(&h);
+    assert!(full[0] >= 45 && full[1] >= 50, "{full:?}");
+    h.keys("g _").await;
+    assert_eq!(widths(&h), default);
+}
+
+/// `z_` and `gz_` (S-61) set exact widths, narrower than measured too; `z-`
+/// halves; `_` brings a set column back to full.
+#[tokio::test(flavor = "multi_thread")]
+async fn width_prompts_and_half() {
+    let mut h = csv(b"name,qty\nalpha beta gamma,1\n").await;
+    let widths = |h: &Harness| h.app.sheets.active().state.widths.clone();
+    h.keys("z _").await;
+    h.type_("5").await;
+    assert_eq!(widths(&h)[0], 5);
+    h.keys("z -").await;
+    assert_eq!(widths(&h)[0], 2);
+    h.keys("g z _").await;
+    h.type_("9").await;
+    assert_eq!(widths(&h), [9, 9]);
+    h.keys("z _").await;
+    h.type_("0").await;
+    assert!(status(&h).contains("not a width"), "{}", status(&h));
+    assert_eq!(widths(&h), [9, 9]);
+    h.keys("_").await;
+    assert!(widths(&h)[0] >= 16, "{:?}", widths(&h));
+    h.keys(":").await;
+    h.type_("width 3").await;
+    assert_eq!(widths(&h)[0], 3);
+    h.keys("g \"").await; // a copy keeps set widths
+    assert_eq!(widths(&h), [3, 9]);
 }
 
 /// A frozen column after one widened past the screen draws (S-57): its `x`
@@ -782,7 +831,9 @@ async fn resize_col_max_saturates_on_a_huge_cell() {
 async fn frozen_column_after_a_huge_one_draws() {
     let long = "x".repeat(usize::from(u16::MAX) + 5);
     let mut h = csv(format!("a,b,c\n{long},1,2\n").as_bytes()).await;
-    h.keys("_ l :").await;
+    h.keys(":").await;
+    h.type_("width 65535").await; // `_` stops at the screen (S-61); `:width` doesn't
+    h.keys("l :").await;
     h.type_("freeze").await;
     let s = h.app.sheets.active();
     assert_eq!(s.view.frozen_left, 2);
