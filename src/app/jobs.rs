@@ -306,13 +306,15 @@ impl App {
                     Err(e) => self.fail(format!("lookup: {e}")),
                 }
             }
-            Ok(JobDone::LookupRefresh(steps)) => {
-                let active = self.sheets.active().id == sheet_id;
-                if let Some(s) = self.sheets.find_by_id_mut(sheet_id) {
-                    match s.refresh_lookups(steps) {
-                        Ok(()) if active => self.spawn_materialize(),
-                        Ok(()) => {}
-                        Err(e) => self.toast = Some(format!("lookup: {e}")),
+            Ok(JobDone::LookupRefresh(fresh)) => {
+                for (id, steps) in fresh {
+                    let active = self.sheets.active().id == id;
+                    if let Some(s) = self.sheets.find_by_id_mut(id) {
+                        match s.refresh_lookups(steps) {
+                            Ok(()) if active => self.spawn_materialize(),
+                            Ok(()) => {}
+                            Err(e) => self.toast = Some(format!("lookup: {e}")),
+                        }
                     }
                 }
             }

@@ -33,10 +33,12 @@ As built (2026-11-15), where it differs from the draft below:
   so the argument splits like `:join`'s and reads as `key=theirkey` does (mine on the left).
 - One `PlanStep::Lookup { name, key, table, link }` per column, a column step, so `apply_steps`
   batches it. `table`: `__k` (their key as text, nulls dropped, first match) and `__v`. Keys
-  compare as text on both sides (`1` and `1.0` don't match; known ceiling).
+  compare as text on both sides, a whole number without its `.0` (`lookup_key`, 2026-11-27):
+  `1` finds `1.0`; `1.5` and `1.50` text still differ.
 - `link: Option<LookupLink { sheet, their_key, column, stamp }>`; stamp = their `plan_key()` plus
   their undo state, so a cell edit there counts. `follow_lookups` runs when the sheet becomes
-  active (with `follow_link`). No `⟳!` title marker and no parent-first chain refresh yet.
+  active (with `follow_link`). No `⟳!` title marker. A chain catches up sources first (2026-11-27): one job refreshes
+  each sheet of the chain in a clone, after the sheets it reads, and returns each one's tables.
 - File sheets only (`editable()`), as other edits.
 - Sessions: the table goes to a parquet sidecar and restores as `:lookup <sidecar> key=__k
   name=__v`, a snapshot; the link isn't restored. Export: always the inline table (Polars

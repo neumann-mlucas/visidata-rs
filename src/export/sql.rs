@@ -338,9 +338,11 @@ pub(super) fn sql_step(q: String, step: &PlanStep, schema: &polars::prelude::Sch
                 // a join doesn't keep row order: number the rows, sort back
                 "SELECT * EXCLUDE (__k, __v, __ord), TRY_CAST(__v AS {t}) AS {n} \
                  FROM (SELECT *, row_number() OVER () AS __ord FROM ({q})) \
-                 LEFT JOIN (VALUES {}) AS __l(__k, __v) ON CAST({} AS VARCHAR) = __l.__k ORDER BY __ord",
+                 LEFT JOIN (VALUES {}) AS __l(__k, __v) \
+                 ON regexp_replace(CAST({} AS VARCHAR), {}, '\\1') = __l.__k ORDER BY __ord",
                 rows.join(", "),
-                q_ident(key)
+                q_ident(key),
+                q_str(crate::sheet::LOOKUP_KEY_RE)
             )
         }
         PlanStep::SetCells { column, patch } => {

@@ -3,6 +3,18 @@
 
 use super::*;
 
+/// A lookup key as both sides compare it: text, a whole number without its
+/// `.0`, so an int `1` and a float `1.0` match (Excel compares numbers by
+/// value). The exports repeat [`LOOKUP_KEY_RE`].
+pub(crate) fn lookup_key(key: Expr) -> Expr {
+    key.cast(DataType::String)
+        .str()
+        .replace(lit(LOOKUP_KEY_RE), lit("${1}"), false)
+}
+
+/// A whole number written as a float: `1.0`, `-3.00`.
+pub(crate) const LOOKUP_KEY_RE: &str = r"^(-?\d+)\.0+$";
+
 impl Sheet {
     /// `column` of this sheet's view by `key`, as a lookup table: `__k` (the
     /// key as text, nulls dropped, first match kept) and `__v`. Also the
@@ -10,10 +22,7 @@ impl Sheet {
     pub fn lookup_table(&self, key: &str, column: &str) -> Result<(DataFrame, usize), String> {
         let rows = self
             .view_plan()
-            .select([
-                col(key).cast(DataType::String).alias("__k"),
-                col(column).alias("__v"),
-            ])
+            .select([lookup_key(col(key)).alias("__k"), col(column).alias("__v")])
             .filter(col("__k").is_not_null())
             .collect()
             .map_err(|e| e.to_string())?;

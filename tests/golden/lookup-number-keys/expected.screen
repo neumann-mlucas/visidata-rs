@@ -1,0 +1,12 @@
+ input.csv                                                                       price 2/3  row 1/4
+ id i  price i name str
+    1       10 ann
+    2        · bob
+   -3       30 cid
+    4        · dee
+
+
+
+
+
+                                                                                             lookup
