@@ -76,7 +76,7 @@ Reads CSV, TSV, Parquet (file or directory), Arrow IPC, JSON Lines, JSON,
 Excel/ODS, SQLite and DuckDB (through the `duckdb` program), plus fixed width,
 USV/LSV, YAML, TOML, HTML tables, XML, MessagePack and zip members, and any of
 these gzipped. A file with several sheets or tables opens on a list
-(`book.xlsx:Sheet2` opens one); Lua loaders add more. Files are scanned lazily: only a 1024-row window is
+(`book.xlsx:Sheet2` opens one); Lua loaders add more, and a loader with `poll` feeds rows that keep coming. Files are scanned lazily: only a 1024-row window is
 materialized, and row counts, searches and pivots run in the background. Edits
 never touch the file you opened until `:save`.
 

@@ -132,7 +132,7 @@ Lazy on purpose. Phase N ships before Phase N+1 is scoped.
 - **Phase 1 — Columns, types, sort, freq-table, ex-line.** Introduce the ex-line parser (bet #4) now so later phases live on top of it.
 - **Phase 2 — Pivot/melt with live preview panel.** Bet #1 + bet #2 together. The differentiating release.
 - **Phase 3 — mlua plugin system.** Loaders first (easiest surface, biggest user leverage), then keymaps, then aggregators.
-- **Phase 4 — Tail-sheet / streaming source.** Bet #5.
+- **Phase 4 — Tail-sheet / streaming source.** Bet #5. Shipped: `:tail`, then `trait Source` with Lua `poll` (S-39 B, 2026-11-26).
 - **Phase 5 — Modal frame diff.** Bet #6.
 
 Stop at the end of any phase if adoption signal is weak; each phase stands alone.

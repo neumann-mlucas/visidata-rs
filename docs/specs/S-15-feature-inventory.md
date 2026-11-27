@@ -384,7 +384,7 @@ Resolution order: `plugins::open()` consults `Plugins::resolve_loader(path)` BEF
 
 **Live sources (S-39 B)**: `open` may return `{ columns, rows?, poll }`. `poll` returns new rows or nil. It runs on the 2 s tail tick on the active sheet, on the UI thread. Columns are matched by name and types widen; the cursor follows the bottom; edits and `U` keep the rows that came since. `source_max_rows` (default 1,000,000; 0 keeps all) drops the oldest rows with a toast. The file `:tail` and `LuaSource` implement `source::Source`.
 
-**Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows.
+**Scope**: CLI file open (`vdrs mylog.foo`) and `:diff` targets. `:tail` refuses loader formats: a refresh would re-scan the one-time converted file and never see new rows. A loader that has new rows returns `poll` instead (S-39 B).
 
 ### 7.3 Added 2026-11-05
 
