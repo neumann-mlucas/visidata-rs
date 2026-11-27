@@ -619,8 +619,30 @@ impl App {
         false
     }
 
+    /// Clones of sheet `id` and the open sheets its live lookups read,
+    /// directly or through others, each after the sheets it reads.
+    fn lookup_chain(&self, id: SheetId) -> Vec<Sheet> {
+        fn visit(app: &App, id: SheetId, seen: &mut Vec<SheetId>, out: &mut Vec<Sheet>) {
+            if seen.contains(&id) {
+                return;
+            }
+            seen.push(id);
+            let Some(s) = app.sheets.iter().find(|s| s.id == id) else {
+                return;
+            };
+            for src in s.lookup_sources() {
+                visit(app, src, seen, out);
+            }
+            out.push(s.clone());
+        }
+        let mut out = Vec::new();
+        visit(self, id, &mut Vec::new(), &mut out);
+        out
+    }
+
     /// The active sheet's live lookups catch up with their sheets (A4): a
-    /// changed one is collected again in a job, a closed one keeps its values.
+    /// changed one is collected again in a job, after the sheets it reads catch
+    /// up in turn; a closed one keeps its values.
     pub(in crate::app) fn follow_lookups(&mut self) {
         let s = self.sheets.active();
         let ids: Vec<SheetId> = s.lookup_sources().collect();
@@ -639,43 +661,58 @@ impl App {
                 names.join(", ")
             ));
         }
-        let mut stale = Vec::new();
-        for step in &self.sheets.active().state.steps {
-            let PlanStep::Lookup { link: Some(l), .. } = step else {
-                continue;
-            };
-            let Some(src) = self.sheets.iter().find(|o| o.id == l.sheet) else {
-                continue;
-            };
-            if src.lookup_stamp() != l.stamp {
-                stale.push((step.clone(), src.clone()));
-            }
-        }
-        if stale.is_empty() {
+        // A reads B, B reads C: B catches up with C before A reads B
+        let chain = self.lookup_chain(self.sheets.active().id);
+        let stamps: Vec<(SheetId, String)> =
+            chain.iter().map(|s| (s.id, s.lookup_stamp())).collect();
+        let stale = chain.iter().flat_map(|s| &s.state.steps).any(|step| {
+            matches!(step, PlanStep::Lookup { link: Some(l), .. }
+                if stamps.iter().any(|(id, st)| *id == l.sheet && *st != l.stamp))
+        });
+        if !stale {
             return;
         }
         self.spawn_job("lookup", move || {
-            let mut fresh = Vec::new();
-            for (step, src) in stale {
-                let PlanStep::Lookup {
-                    name,
-                    key,
-                    link: Some(mut l),
-                    ..
-                } = step
-                else {
-                    continue;
-                };
-                let (table, _) = src.lookup_table(&l.their_key, &l.column)?;
-                l.stamp = src.lookup_stamp();
-                fresh.push(PlanStep::Lookup {
-                    name,
-                    key,
-                    table: Arc::new(table),
-                    link: Some(l),
-                });
+            let mut chain = chain;
+            let mut out = Vec::new();
+            for i in 0..chain.len() {
+                let (done, rest) = chain.split_at_mut(i);
+                let me = &mut rest[0];
+                let mut fresh = Vec::new();
+                for step in &me.state.steps {
+                    let PlanStep::Lookup {
+                        name,
+                        key,
+                        link: Some(l),
+                        ..
+                    } = step
+                    else {
+                        continue;
+                    };
+                    let Some(src) = done.iter().find(|o| o.id == l.sheet) else {
+                        continue;
+                    };
+                    let stamp = src.lookup_stamp();
+                    if stamp == l.stamp {
+                        continue;
+                    }
+                    let (table, _) = src.lookup_table(&l.their_key, &l.column)?;
+                    let mut l = l.clone();
+                    l.stamp = stamp;
+                    fresh.push(PlanStep::Lookup {
+                        name: name.clone(),
+                        key: key.clone(),
+                        table: Arc::new(table),
+                        link: Some(l),
+                    });
+                }
+                if !fresh.is_empty() {
+                    me.refresh_lookups(fresh.clone())
+                        .map_err(|e| e.to_string())?;
+                    out.push((me.id, fresh));
+                }
             }
-            Ok(JobDone::LookupRefresh(fresh))
+            Ok(JobDone::LookupRefresh(out))
         });
     }
 

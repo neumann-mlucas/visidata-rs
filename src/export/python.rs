@@ -329,8 +329,9 @@ pub(super) fn py_step(t: &str, step: &PlanStep) -> String {
                 .map(|v| v.as_deref().map_or("None".into(), py_str))
                 .collect();
             let v = format!(
-                "pl.col({}).cast(pl.Utf8).replace_strict([{}], [{}], default=None, return_dtype=pl.Utf8)",
+                "pl.col({}).cast(pl.Utf8).str.replace({}, \"${{1}}\").replace_strict([{}], [{}], default=None, return_dtype=pl.Utf8)",
                 py_str(key),
+                py_str(crate::sheet::LOOKUP_KEY_RE),
                 keys.join(", "),
                 vals.join(", ")
             );

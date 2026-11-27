@@ -732,12 +732,14 @@ impl<'a> ColText<'a> {
                 Some(i) => (n.int(i), DtypeHint::Numeric),
                 None => display_av_with_hint(av),
             },
-            (AnyValue::Date(_) | AnyValue::Datetime(..), CellFmt::Strftime(_)) => {
-                match self.dated.as_ref().and_then(|t| t.get(i)) {
-                    Some(t) => (printable(t), DtypeHint::Date),
-                    None => display_av_with_hint(av),
-                }
-            }
+            // a materialized datetime cell is `DatetimeOwned` (Polars 0.55)
+            (
+                AnyValue::Date(_) | AnyValue::Datetime(..) | AnyValue::DatetimeOwned(..),
+                CellFmt::Strftime(_),
+            ) => match self.dated.as_ref().and_then(|t| t.get(i)) {
+                Some(t) => (printable(t), DtypeHint::Date),
+                None => display_av_with_hint(av),
+            },
             _ => display_av_with_hint(av),
         }
     }
@@ -760,9 +762,10 @@ fn display_av_with_hint(av: &AnyValue) -> (String, DtypeHint) {
         // `Display` rounds to a few digits (1.2346e8); show the value itself.
         AnyValue::Float32(f) => (format!("{f:?}"), DtypeHint::Numeric),
         AnyValue::Float64(f) => (float_text(*f), DtypeHint::Numeric),
-        AnyValue::Date(_) | AnyValue::Datetime(_, _, _) | AnyValue::Duration(_, _) => {
-            (av.to_string(), DtypeHint::Date)
-        }
+        AnyValue::Date(_)
+        | AnyValue::Datetime(..)
+        | AnyValue::DatetimeOwned(..)
+        | AnyValue::Duration(_, _) => (av.to_string(), DtypeHint::Date),
         AnyValue::List(s) => {
             let items: Vec<String> = s.iter().take(LIST_SHOWN).map(|v| nested_text(&v)).collect();
             let more = if s.len() > LIST_SHOWN { ", …" } else { "" };

@@ -311,7 +311,7 @@ impl PlanStep {
                 let keys = table.column("__k")?.as_materialized_series().clone();
                 let vals = table.column("__v")?.as_materialized_series().clone();
                 let dtype = vals.dtype().clone();
-                col(key.as_str()).cast(DataType::String).replace_strict(
+                super::lookup::lookup_key(col(key.as_str())).replace_strict(
                     lit(keys),
                     lit(vals),
                     Some(lit(NULL).cast(dtype.clone())),

@@ -302,8 +302,8 @@ enum JobDone {
         at: Option<String>,
         note: Option<String>,
     },
-    /// Live lookups' fresh tables for the job's sheet (S-36 A4).
-    LookupRefresh(Vec<crate::sheet::PlanStep>),
+    /// Live lookups' fresh tables, per sheet of the chain (S-36 A4).
+    LookupRefresh(Vec<(SheetId, Vec<crate::sheet::PlanStep>)>),
     /// `:footer` totals (S-36 C).
     Footer {
         key: String,

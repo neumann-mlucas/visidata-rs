@@ -1640,3 +1640,61 @@ async fn xlsx_meta_columns_show_cell_colours() {
     r.pump().await;
     assert_eq!(view_csv(&r), want, "{}", r.screen());
 }
+
+/// Open `body` as `name` in `dir`; its sheet id.
+async fn open_csv(h: &mut Harness, dir: &std::path::Path, name: &str, body: &str) -> SheetId {
+    let path = dir.join(name);
+    std::fs::write(&path, body).unwrap();
+    h.keys(":").await;
+    h.type_(&format!("open {}", path.display())).await;
+    h.app.sheets.active().id
+}
+
+/// S-36 A: number keys match by value, as Excel's XLOOKUP: an int `1` finds
+/// a float `1.0`.
+#[tokio::test(flavor = "multi_thread")]
+async fn lookup_matches_int_and_float_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = Harness::new(1).await;
+    let theirs = open_csv(
+        &mut h,
+        dir.path(),
+        "p.csv",
+        "id,price\n1.0,10\n2.5,20\n-3.0,30\n",
+    )
+    .await;
+    open_csv(&mut h, dir.path(), "m.csv", "id\n1\n2\n-3\n").await;
+    h.keys(":").await;
+    h.type_(&format!("lookup #{theirs} id price")).await;
+    assert_eq!(
+        view_csv(&h),
+        "id,price\n1,10\n2,\n-3,30\n",
+        "{}",
+        status(&h)
+    );
+}
+
+/// S-36 A: A looks up B, B looks up C. An edit of C reaches A without a
+/// visit to B, as a chain of Excel lookups recalculates.
+#[tokio::test(flavor = "multi_thread")]
+async fn lookup_chain_follows_the_far_sheet() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = Harness::new(1).await;
+    let c = open_csv(&mut h, dir.path(), "c.csv", "id,v\n1,a\n").await;
+    let b = open_csv(&mut h, dir.path(), "b.csv", "id\n1\n").await;
+    h.keys(":").await;
+    h.type_(&format!("lookup #{c} id v")).await;
+    let a = open_csv(&mut h, dir.path(), "a.csv", "id\n1\n").await;
+    h.keys(":").await;
+    h.type_(&format!("lookup #{b} id v")).await;
+    assert_eq!(view_csv(&h), "id,v\n1,a\n");
+    h.app.sheets.switch_to(c);
+    h.pump().await;
+    h.keys("g g l e <C-u>").await;
+    h.type_("z").await;
+    h.app.sheets.switch_to(a);
+    h.app.follow_lookups();
+    h.pump().await;
+    h.pump().await;
+    assert_eq!(view_csv(&h), "id,v\n1,z\n", "{}", status(&h));
+}
