@@ -53,7 +53,10 @@ pub struct LuaSource {
     df: DataFrame,
     /// `source_max_rows`: older rows go past it; 0 keeps all.
     max_rows: usize,
+    /// Rows dropped since the last note.
     dropped: usize,
+    /// Rows dropped in all: the id of the first row kept.
+    first_rid: u64,
 }
 
 impl crate::source::Source for LuaSource {
@@ -78,11 +81,16 @@ impl crate::source::Source for LuaSource {
         let (kept, dropped) = crate::source::cap(all, self.max_rows);
         self.df = kept;
         self.dropped += dropped;
+        self.first_rid += dropped as u64;
         Ok(true)
     }
 
     fn rows(&self) -> polars::prelude::PolarsResult<DataFrame> {
         Ok(self.df.clone())
+    }
+
+    fn first_rid(&self) -> u64 {
+        self.first_rid
     }
 
     fn take_note(&mut self) -> Option<String> {
@@ -270,6 +278,7 @@ pub fn open(
                     df: df.clone(),
                     max_rows,
                     dropped: 0,
+                    first_rid: 0,
                 };
                 let mut l = LoadedSource::from_df(SourceKind::Csv, shown.clone(), None, df);
                 l.live = Some(crate::source::Live::new(source));

@@ -309,3 +309,35 @@ async fn lua_source_keeps_edits_and_undo_keeps_rows() {
     h.keys("U").await;
     assert_eq!(ns(&h), [Some(2), Some(3)], "U keeps the newer row");
 }
+
+/// S-39 B: rows the cap drops take their row ids with them, so an earlier
+/// delete still names the row it deleted.
+#[tokio::test(flavor = "multi_thread")]
+async fn lua_source_cap_keeps_row_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let feed = dir.path().join("x.feed");
+    std::fs::write(&feed, "").unwrap();
+    let lua = r#"vd.option("source_max_rows", "3")
+      local n = 3
+      vd.register_loader { extensions = "feed", open = function(p)
+        return { columns = {"n"}, rows = { {1}, {2}, {3} }, poll = function()
+          n = n + 1
+          return { {n} }
+        end }
+      end }"#;
+    let mut h = Harness::new(1).await;
+    h.app.plugins = Some(crate::plugins::Plugins::load_from_source(lua).unwrap());
+    h.keys(":").await;
+    h.type_(&format!("open {}", feed.display())).await;
+    h.keys("j").await;
+    h.keys("d").await; // deletes n = 2
+    let ns = |h: &Harness| -> Vec<Option<i64>> {
+        let df = h.app.sheets.active().view_plan().collect().unwrap();
+        let c = df.column("n").unwrap().i64().unwrap().clone();
+        (0..c.len()).map(|i| c.get(i)).collect()
+    };
+    assert_eq!(ns(&h), [Some(1), Some(3)]);
+    h.app.on_tail_tick(); // 4 arrives, the cap drops 1
+    h.pump().await;
+    assert_eq!(ns(&h), [Some(3), Some(4)], "the delete still names n = 2");
+}

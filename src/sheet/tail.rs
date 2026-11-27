@@ -91,7 +91,8 @@ impl Sheet {
 
     /// The plan the steps apply to: the base plus its added rows.
     fn steps_base(&self) -> PolarsResult<LazyFrame> {
-        let mut plan = with_rids(self.tail_base()?);
+        let first = self.state.tail.as_ref().map_or(0, |l| l.lock().first_rid());
+        let mut plan = with_rids_from(self.tail_base()?, first);
         let added: Vec<LazyFrame> = self
             .state
             .steps

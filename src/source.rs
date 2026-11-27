@@ -16,6 +16,11 @@ pub trait Source: Send {
     fn poll(&mut self) -> Result<bool, String>;
     /// Every row so far, in arrival order (cheap: columns are shared).
     fn rows(&self) -> PolarsResult<DataFrame>;
+    /// Row id of the first row of `rows`. A source that drops its oldest rows
+    /// raises it by as many, so the rows it keeps keep their ids.
+    fn first_rid(&self) -> u64 {
+        0
+    }
     /// What the status line says once after a poll (rows dropped by a cap).
     fn take_note(&mut self) -> Option<String> {
         None

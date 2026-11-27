@@ -1880,8 +1880,14 @@ pub fn any_text(v: &AnyValue) -> String {
 /// position in the source (S-18 §2.3). Every step carries the column; the
 /// view drops it.
 pub(super) fn with_rids(lf: LazyFrame) -> LazyFrame {
-    lf.with_row_index(ROW_ID, None)
-        .with_column(col(ROW_ID).cast(DataType::UInt64))
+    with_rids_from(lf, 0)
+}
+
+/// [`with_rids`] counting from `first`: a live source's first kept row.
+pub(super) fn with_rids_from(lf: LazyFrame, first: u64) -> LazyFrame {
+    let rid = col(ROW_ID).cast(DataType::UInt64);
+    let rid = if first == 0 { rid } else { rid + lit(first) };
+    lf.with_row_index(ROW_ID, None).with_column(rid)
 }
 
 /// `c`'s values as text, null as `None`.
