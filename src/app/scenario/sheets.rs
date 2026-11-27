@@ -1605,3 +1605,38 @@ async fn commit_sheet_writes_a_sqlite_table() {
     h.keys("z <C-s>").await;
     assert_eq!(status(&h), "commit-sheet: nothing to commit on this sheet");
 }
+
+/// S-38 D: `:set xlsx_meta_columns true`, then an xlsx open adds each
+/// column's font and fill colour as ARGB. `:export` refuses the sheet; a
+/// session sets the option around its open.
+#[tokio::test(flavor = "multi_thread")]
+async fn xlsx_meta_columns_show_cell_colours() {
+    let book = crate::reader::tests::styled_xlsx();
+    let mut h = Harness::new(1).await;
+    h.keys(":").await;
+    h.type_("set xlsx_meta_columns true").await;
+    h.keys(":").await;
+    h.type_(&format!("open {}", book.path().display())).await;
+    let want = "name,name_fontColor,name_fillColor,n,n_fontColor,n_fillColor\n\
+                a,FFFF0000,,1,,\n\
+                b,,,2,,FF00FF00\n";
+    assert_eq!(view_csv(&h), want, "{}", h.screen());
+    let dir = tempfile::tempdir().unwrap();
+    h.keys(":").await;
+    h.type_(&format!("export {}", dir.path().join("x.py").display()))
+        .await;
+    assert!(status(&h).contains("xlsx_meta_columns"), "{}", status(&h));
+    let path = dir.path().join("s.vdrs");
+    crate::session::save(h.app.sheets.iter(), &path).unwrap();
+    let script = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        script.contains("set xlsx_meta_columns true\nopen "),
+        "{script}"
+    );
+    h.keys(":").await;
+    h.type_("set xlsx_meta_columns false").await;
+    let mut r = Harness::new(1).await;
+    r.app.source(&path.display().to_string(), false);
+    r.pump().await;
+    assert_eq!(view_csv(&r), want, "{}", r.screen());
+}

@@ -1,6 +1,6 @@
 # S-38 — `:set`, copies keep widths, `@` keeps the time, xlsx colour columns
 
-Status: **A, B, C shipped 2026-11-14**; D agreed, waiting on the parity finding in D3.
+Status: **A, B, C shipped 2026-11-14**; **D shipped 2026-11-27** (resolved ARGB, no VisiData parity; D5).
 Depends on: S-35 C1 (`numeric_binning`), S-35 C2 (date `fmtstr`), S-31 (derived sheets inherit
 attributes), S-24 R3 (typed xlsx), S-29 (sessions).
 
@@ -74,6 +74,14 @@ VisiData's `xlsx_meta_columns` adds `X_cellPyObj`, `X_fontColor`, `X_fillColor` 
   (`FFFF0000` matches; `1` doesn't). The two replay cases stay quarantined with that reason.
   What vdrs shows is the colour itself, which is easier to filter on.
 - D4. Size about 1 d. Build after A–C if still wanted with D3.
+- D5. As built (2026-11-27): resolved ARGB is the decision; VisiData parity is not a goal here.
+  - The columns are text, null when the cell sets no colour. A fill counts only with a pattern.
+  - Styles are keyed by worksheet position, so a table that starts past A1 still lines up.
+  - Only `.xlsx` has styles in calamine 0.38; xls, xlsb and ods get null colour columns.
+  - `LoadedSource.xlsx_meta` records the read. Sessions set the option around `:open`, as
+    `header`; `:export` refuses the sheet, because Polars and DuckDB can't read colours.
+  - `main` now sets the reader options from `init.lua` before it opens the first file. Before,
+    `csv_skipinitialspace` in `init.lua` didn't apply to the file named on the command line.
 
 ## Test plan
 

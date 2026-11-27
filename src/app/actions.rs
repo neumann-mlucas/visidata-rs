@@ -1519,6 +1519,7 @@ impl App {
             }
             "duckdb_cmd" => crate::duckdb::set_cmd(Some(v.clone())),
             "csv_skipinitialspace" => crate::reader::set_skipinitialspace(v == "true"),
+            "xlsx_meta_columns" => crate::reader::set_xlsx_meta(v == "true"),
             "validation" => {
                 let ids: Vec<_> = self.sheets.iter().map(|s| s.id).collect();
                 for id in ids {

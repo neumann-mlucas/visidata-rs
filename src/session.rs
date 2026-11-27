@@ -243,9 +243,20 @@ impl Block {
                 if h != 1 {
                     self.ex(header(h));
                 }
+                // and its colour columns (S-38 D)
+                let meta = |on: bool| Action::SetOption {
+                    name: "xlsx_meta_columns".into(),
+                    value: Some(on.to_string()),
+                };
+                if s.source.xlsx_meta {
+                    self.ex(meta(true));
+                }
                 self.ex(Action::Open { path, format: None });
                 if h != 1 {
                     self.ex(header(1));
+                }
+                if s.source.xlsx_meta {
+                    self.ex(meta(false));
                 }
                 true
             }

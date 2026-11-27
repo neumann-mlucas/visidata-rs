@@ -59,6 +59,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     }
     let (plugins, plugin_warning) = plugins::Plugins::load();
     visidata_rs::duckdb::set_cmd(plugins.options().duckdb_cmd);
+    plugins::set_reader_options(Some(&plugins));
     let plugins = Some(plugins);
 
     let path = match (&cli.session, cli.path) {

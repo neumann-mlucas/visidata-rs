@@ -161,6 +161,13 @@ pub const OPTIONS: &[Opt] = &[
         live: true,
         help: "text between the values that :join-cols joins",
     },
+    Opt {
+        name: "xlsx_meta_columns",
+        kind: Kind::Bool,
+        default: "false",
+        live: true,
+        help: "later xlsx opens add X_fontColor and X_fillColor (ARGB) after each column X",
+    },
 ];
 
 pub fn find(name: &str) -> Option<&'static Opt> {
